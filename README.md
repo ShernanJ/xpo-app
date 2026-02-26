@@ -1,4 +1,4 @@
-# Stanley for X by shernan javier ✦
+# X Growth Engine by shernan javier ✦
 
 > A growth operating system for X.
 >
@@ -8,7 +8,7 @@
 
 ## 🧠 What This Is
 
-Stanley for X is a native intelligence engine designed to:
+X Growth Engine is a native intelligence engine designed to:
 
 * Systematically solve **0 → 1,000 followers**
 * Reduce posting variance
@@ -16,6 +16,21 @@ Stanley for X is a native intelligence engine designed to:
 * Scale strategy as accounts grow
 
 Phase 1 builds the **brain**.
+
+No automation hacks.
+No extensions.
+Just structured intelligence.
+
+---
+
+## 🧱 Stack (Phase 1)
+
+* **Web:** Next.js (TypeScript) + Tailwind
+* **DB:** Postgres (**Neon**)
+* **ORM:** Prisma
+* **Workers / Queue:** Upstash Redis
+
+This keeps Phase 1 affordable, fast to iterate, and strong on structured modeling.
 
 No automation hacks.
 No extensions.
@@ -349,9 +364,15 @@ Core tables:
 
 Important:
 
-We store predictions **before posting**.
-We store outcomes **after posting**.
-The delta becomes the learning signal.
+* We store predictions **before posting**.
+* We store outcomes **after posting**.
+* The delta becomes the learning signal.
+
+Implementation notes (Phase 1):
+
+* Postgres lives on **Neon**
+* Prisma owns schema + migrations
+* Workers consume jobs from **Upstash Redis** and write intelligence snapshots back to Postgres
 
 ---
 
