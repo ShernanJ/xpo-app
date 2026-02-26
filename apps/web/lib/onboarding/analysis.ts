@@ -13,6 +13,10 @@ function getPostEngagement(post: XPublicPost): number {
   return likeCount + replyCount + repostCount + quoteCount;
 }
 
+export function computePostEngagement(post: XPublicPost): number {
+  return getPostEngagement(post);
+}
+
 function median(values: number[]): number {
   if (values.length === 0) {
     return 0;

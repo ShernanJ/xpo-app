@@ -51,6 +51,7 @@ prisma/migrations/*
 
 # Local DB dumps
 dump.rdb
+db/*.jsonl
 
 # ==============================
 # Redis

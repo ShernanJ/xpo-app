@@ -98,6 +98,7 @@ export interface OnboardingResult {
   source: "mock" | "x_api";
   generatedAt: string;
   profile: XPublicProfile;
+  recentPosts: XPublicPost[];
   recentPostSampleCount: number;
   baseline: EngagementBaseline;
   growthStage: GrowthStage;
@@ -107,4 +108,35 @@ export interface OnboardingResult {
   underperformingFormats: ContentDistributionItem[];
   strategyState: StrategyState;
   warnings: string[];
+}
+
+export type LengthBand = "short" | "medium" | "long";
+
+export interface PerformanceBandInsight {
+  key: string;
+  averageEngagement: number;
+  count: number;
+  deltaVsBaselinePercent: number;
+}
+
+export interface LengthOptimizationInsight {
+  recommendedBand: LengthBand | null;
+  averageLength: number;
+  bands: PerformanceBandInsight[];
+}
+
+export interface PerformanceModel {
+  generatedAt: string;
+  sourceRunId: string;
+  baselineAverageEngagement: number;
+  bestContentType: ContentType | null;
+  weakestContentType: ContentType | null;
+  bestHookPattern: HookPattern | null;
+  conversationTriggerRate: number;
+  formatInsights: PerformanceBandInsight[];
+  hookInsights: PerformanceBandInsight[];
+  lengthOptimization: LengthOptimizationInsight;
+  strengths: string[];
+  weaknesses: string[];
+  nextActions: string[];
 }

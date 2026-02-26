@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runMockOnboarding } from "@/lib/onboarding/service";
+import { persistOnboardingRun } from "@/lib/onboarding/store";
 import { parseOnboardingInput } from "@/lib/onboarding/validation";
 
 export async function POST(request: Request) {
@@ -24,10 +25,17 @@ export async function POST(request: Request) {
   }
 
   const result = runMockOnboarding(parsed.data);
+  const persisted = await persistOnboardingRun({
+    input: parsed.data,
+    result,
+    userAgent: request.headers.get("user-agent"),
+  });
 
   return NextResponse.json(
     {
       ok: true,
+      runId: persisted.runId,
+      persistedAt: persisted.persistedAt,
       data: result,
     },
     { status: 200 },

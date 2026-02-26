@@ -94,6 +94,7 @@ export function runMockOnboarding(input: OnboardingInput): OnboardingResult {
     source: "mock",
     generatedAt: new Date().toISOString(),
     profile,
+    recentPosts: posts,
     recentPostSampleCount: posts.length,
     baseline,
     growthStage,
