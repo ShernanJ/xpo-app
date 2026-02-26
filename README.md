@@ -1,36 +1,383 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Stanley for X by shernan javier ✦
 
-## Getting Started
+> A growth operating system for X.
+>
+> Write → Predict → Publish → Measure → Explain → Prescribe → Repeat.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 🧠 What This Is
+
+Stanley for X is a native intelligence engine designed to:
+
+* Systematically solve **0 → 1,000 followers**
+* Reduce posting variance
+* Enforce measurable learning loops
+* Scale strategy as accounts grow
+
+Phase 1 builds the **brain**.
+
+No automation hacks.
+No extensions.
+Just structured intelligence.
+
+---
+
+## 🎯 Objective (Phase 1)
+
+Validate that the engine can:
+
+* Onboard a 200-follower account
+* Provide structured daily guidance
+* Improve engagement quality within 2–3 weeks
+* Demonstrate measurable variance reduction
+
+If Phase 1 works alone, the engine is validated.
+
+---
+
+# 🏗 Core Architecture
+
+## 1️⃣ X API–Driven Onboarding
+
+User provides:
+
+* `@username` or `x.com/username`
+
+We fetch:
+
+* Profile info
+* Follower count
+* Posting cadence
+* Recent tweets (20–50)
+* Public engagement metrics
+
+We automatically compute:
+
+* Engagement baseline
+* Content type distribution
+* Hook patterns
+* Length patterns
+* Posting frequency
+* Growth stage (0–1k focus)
+
+We only ask the user:
+
+* Primary goal (followers / leads / authority)
+* Time budget per day
+* Tone preference (lowercase / normal, safe / bold)
+
+Everything else is inferred.
+
+---
+
+# 🧠 Core Intelligence Components
+
+## A) User Performance Model
+
+Analyzes last 20–50 posts:
+
+* Engagement per format
+* Engagement vs baseline
+* Hook performance
+* Length optimization
+* Conversation triggers
+
+Produces:
+
+* Best-performing format
+* Underperforming patterns
+* Format-specific guidance
+* Baseline engagement profile
+
+---
+
+## B) Niche Benchmark Model (Async)
+
+Continuously pulls from curated anchor accounts.
+
+Extracts:
+
+* Hook structures
+* Character ranges
+* CTA types
+* Format ratios
+* Engagement velocity patterns
+
+Stores:
+
+* Niche benchmark stats
+* "Winner structures"
+* Ideal structural ranges
+
+Prevents blind LLM guessing.
+
+---
+
+## C) Growth Stage Detector
+
+Determines strategy phase using:
+
+* Follower count
+* Engagement rate
+* Growth velocity
+
+Stages:
+
+* **0–1k** → Distribution heavy
+* **1k–10k** → Authority heavy
+* **10k+** → Leverage heavy
+
+Phase 1 optimizes heavily for 0–1k.
+
+---
+
+# ✍️ Composer (Variance Reduction Engine)
+
+While writing, the user sees:
+
+* Hook strength score
+* Length optimization guidance
+* Niche alignment score
+* Predicted engagement vs baseline
+
+Two rewrites available:
+
+* Safe (benchmark aligned)
+* Bold (higher variance)
+
+Goal:
+
+Reduce randomness before posting.
+
+---
+
+# 📊 Postmortem Engine (Learning Enforcement)
+
+After publishing, the system:
+
+Compares:
+
+* Post vs user baseline
+* Post vs niche benchmarks
+* Prediction vs outcome
+
+Explains:
+
+* Why it worked
+* Why it didn’t
+* Structural gaps
+
+Prescribes:
+
+* What to post next
+* Whether to build a series
+* Whether to pivot format
+* Which loop to double down on
+
+This enforces compounding growth.
+
+---
+
+# 🔄 Async Workers
+
+## 1️⃣ Niche Intelligence Worker
+
+* Pulls top posts
+* Extracts structures
+* Updates benchmark store
+
+## 2️⃣ User Analyzer Worker
+
+* Classifies new posts
+* Computes deltas vs baseline
+* Updates user model snapshot
+
+## 3️⃣ Strategy Adjuster
+
+* Detects stagnation
+* Rebalances recommendation weights
+
+---
+
+# 🔁 Closed Loop (Phase 1)
+
+```
+Write
+  ↓
+Predict
+  ↓
+Publish
+  ↓
+Measure
+  ↓
+Explain
+  ↓
+Prescribe
+  ↓
+Repeat
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This loop is the product.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# 📦 Proposed Project Structure
 
-## Learn More
+```
+stanley-x/
+│
+├── apps/
+│   ├── web/                         # Next.js frontend (App Router)
+│   │   ├── app/
+│   │   │   ├── page.tsx              # Landing
+│   │   │   ├── onboarding/
+│   │   │   ├── dashboard/
+│   │   │   ├── composer/
+│   │   │   ├── postmortem/
+│   │   │   └── settings/
+│   │   ├── components/
+│   │   │   ├── composer/
+│   │   │   ├── analytics/
+│   │   │   └── growth/
+│   │   ├── lib/
+│   │   │   ├── api-client.ts
+│   │   │   └── hooks/
+│   │   └── styles/
+│   │
+│   └── api/                         # Thin API layer (can be Next.js routes or standalone)
+│       ├── src/
+│       │   ├── routes/
+│       │   │   ├── onboard.ts
+│       │   │   ├── compose.ts
+│       │   │   ├── predict.ts
+│       │   │   ├── postmortem.ts
+│       │   │   └── strategy.ts
+│       │   ├── services/
+│       │   │   ├── onboarding.service.ts
+│       │   │   ├── composer.service.ts
+│       │   │   └── postmortem.service.ts
+│       │   ├── middleware/
+│       │   └── server.ts
+│       └── package.json
+│
+├── packages/
+│   ├── core/                        # Deterministic intelligence engine (pure logic)
+│   │   ├── onboarding/
+│   │   ├── performance/
+│   │   ├── niche/
+│   │   ├── composer/
+│   │   ├── postmortem/
+│   │   └── strategy/
+│   │
+│   ├── scoring/                     # Modular scoring system
+│   │   ├── modules/
+│   │   │   ├── hookStrength.ts
+│   │   │   ├── nicheAlignment.ts
+│   │   │   ├── lengthOptimization.ts
+│   │   │   └── conversationTrigger.ts
+│   │   ├── blendWeights.ts
+│   │   └── types.ts
+│   │
+│   ├── models/                      # Structured intelligence snapshots
+│   │   ├── userModel.ts
+│   │   ├── nicheModel.ts
+│   │   ├── growthStage.ts
+│   │   └── strategyState.ts
+│   │
+│   ├── prompts/                     # LLM prompt templates (versioned)
+│   │   ├── composer.prompts.ts
+│   │   └── postmortem.prompts.ts
+│   │
+│   ├── types/                       # Shared TypeScript contracts
+│   └── utils/
+│
+├── workers/                         # Async intelligence layer
+│   ├── niche-intel/
+│   │   ├── pullTopPosts.ts
+│   │   ├── extractStructures.ts
+│   │   └── index.ts
+│   │
+│   ├── user-analyzer/
+│   │   ├── classifyPosts.ts
+│   │   ├── computeDeltas.ts
+│   │   └── index.ts
+│   │
+│   └── strategy-adjuster/
+│       ├── detectStagnation.ts
+│       └── index.ts
+│
+├── db/
+│   ├── schema.prisma (or migrations/)
+│   └── seed/
+│
+├── scripts/
+│   ├── seed-niches.ts
+│   └── reanalyze-user.ts
+│
+├── infra/
+│   ├── redis/
+│   ├── docker/
+│   └── env/
+│
+└── README.md
+```
 
-To learn more about Next.js, take a look at the following resources:
+Key principles:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+* `apps/web` owns UI only.
+* `apps/api` is a thin orchestration layer.
+* `packages/core` contains deterministic intelligence.
+* `workers/` enforce async learning loops.
+* Intelligence snapshots live in structured models, not raw tweet blobs.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+UI never owns logic.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 🗄 Data Model (High-Level)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Core tables:
+
+* `users`
+* `user_models`
+* `user_posts`
+* `niche_benchmarks`
+* `post_predictions`
+* `post_outcomes`
+* `strategy_states`
+
+Important:
+
+We store predictions **before posting**.
+We store outcomes **after posting**.
+The delta becomes the learning signal.
+
+---
+
+# 🧩 Design Philosophy
+
+Stanley for X is not a tweet generator.
+
+It is:
+
+* A structured growth reasoning engine
+* A variance reduction system
+* A compounding intelligence loop
+
+---
+
+# ✅ Phase 1 Definition of Done
+
+You can:
+
+* Onboard a small account
+* Provide daily structured guidance
+* Improve engagement quality in 2–3 weeks
+* Show measurable variance reduction
+
+If this works, the engine is validated.
+
+---
+
+Built for creators who want systematic growth, not random virality.
