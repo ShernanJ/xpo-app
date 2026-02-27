@@ -17,9 +17,9 @@ X Growth Engine is a native intelligence engine designed to:
 
 Phase 1 builds the **brain**.
 
-No automation hacks.
-No extensions.
-Just structured intelligence.
+No extension dependency.
+Deterministic modeling first.
+Structured ingestion second.
 
 ---
 
@@ -32,9 +32,9 @@ Just structured intelligence.
 
 This keeps Phase 1 affordable, fast to iterate, and strong on structured modeling.
 
-No automation hacks.
-No extensions.
-Just structured intelligence.
+One ingestion platform.
+Two job types.
+Shared controls and learning loops.
 
 ---
 
@@ -53,13 +53,13 @@ If Phase 1 works alone, the engine is validated.
 
 # 🏗 Core Architecture
 
-## 1️⃣ X API–Driven Onboarding
+## 1️⃣ Source-Agnostic Onboarding Ingestion (Scrape-First)
 
 User provides:
 
 * `@username` or `x.com/username`
 
-We fetch:
+We enqueue an **onboarding bootstrap job** that fetches:
 
 * Profile info
 * Follower count
@@ -67,7 +67,7 @@ We fetch:
 * Recent tweets (20–50)
 * Public engagement metrics
 
-We automatically compute:
+From that capture we compute:
 
 * Engagement baseline
 * Content type distribution
@@ -82,7 +82,9 @@ We only ask the user:
 * Time budget per day
 * Tone preference (lowercase / normal, safe / bold)
 
-Everything else is inferred.
+Everything else is inferred from ingestion + models.
+
+Scrape is primary for Phase 1. API fallback remains optional and explicitly gated.
 
 ---
 
@@ -194,21 +196,39 @@ This enforces compounding growth.
 
 ---
 
-# 🔄 Async Workers
+# 🔄 Async Intelligence + Ingestion
 
-## 1️⃣ Niche Intelligence Worker
+## 1️⃣ Onboarding Bootstrap Lane (High Priority)
 
-* Pulls top posts
-* Extracts structures
-* Updates benchmark store
+* Low-volume, latency-sensitive jobs
+* Pulls a target account for onboarding
+* Produces canonical profile + post capture
 
-## 2️⃣ User Analyzer Worker
+## 2️⃣ Niche Enrichment Lane (Low Priority)
+
+* High-volume background crawling of anchor accounts
+* Extracts proven structures and benchmark ranges
+* Refreshes benchmark store continuously
+
+## 3️⃣ Account/Session Broker
+
+* Shared rate limits and cooldown policy
+* Health scoring per session/account
+* Lease-based routing so workers do not collide
+
+## 4️⃣ Shared Scraper Executor
+
+* One HTTP fetcher reused by both lanes
+* One parser/normalizer path to canonical records
+* Common retry/backoff semantics
+
+## 5️⃣ User Analyzer Worker
 
 * Classifies new posts
 * Computes deltas vs baseline
 * Updates user model snapshot
 
-## 3️⃣ Strategy Adjuster
+## 6️⃣ Strategy Adjuster
 
 * Detects stagnation
 * Rebalances recommendation weights
@@ -308,6 +328,12 @@ stanley-x/
 │   └── utils/
 │
 ├── workers/                         # Async intelligence layer
+│   ├── scrape-ingestion/
+│   │   ├── onboarding-bootstrap.ts
+│   │   ├── niche-enrichment.ts
+│   │   ├── account-broker.ts
+│   │   └── normalize-capture.ts
+│   │
 │   ├── niche-intel/
 │   │   ├── pullTopPosts.ts
 │   │   ├── extractStructures.ts

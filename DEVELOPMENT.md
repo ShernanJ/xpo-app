@@ -16,8 +16,8 @@ Phase 1 is built in deliberate stages. Each stage validates a core assumption be
 
 Deliverables:
 
-* Fetch user via X API
-* Store recent 20–50 posts
+* Ingest user via scrape-first onboarding bootstrap job
+* Normalize and store recent 20–50 posts
 * Compute engagement baseline
 * Detect growth stage (0–1k focus)
 * Initialize strategy state
@@ -26,6 +26,7 @@ Validation:
 
 * Baseline metrics are stable
 * Growth stage classification makes sense
+* Onboarding is resilient when individual fetch paths fail
 
 ---
 
@@ -94,15 +95,30 @@ Validation:
 
 Deliverables:
 
-* Niche benchmark worker
+* One queue with two lanes:
+  * `onboarding_bootstrap` (high priority, low volume)
+  * `niche_enrichment` (low priority, high volume)
+* Shared account/session broker with lease-based routing
+* Shared scraper executor + parser/normalizer
 * User analyzer worker
-* Strategy adjuster logic
-* Weight rebalancing when stagnation detected
+* Strategy adjuster logic + weight rebalancing
 
 Validation:
 
+* Onboarding jobs are not starved by enrichment traffic
+* Rate limits/cooldowns are enforced globally
 * System adapts without manual tuning
 * Guidance evolves as account grows
+
+---
+
+## Cross-Cutting Scale Constraints (Phase 1)
+
+* Scrape is primary ingestion path.
+* API integration is optional fallback only when explicitly enabled.
+* No per-request live scraping in user-facing paths; user paths read cached captures.
+* Global and per-session budgets are mandatory (min interval, hourly cap, cooldown on `429/403`).
+* Account/session credentials must be encrypted and auditable.
 
 ---
 
