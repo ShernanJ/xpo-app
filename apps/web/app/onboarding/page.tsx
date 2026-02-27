@@ -45,6 +45,7 @@ export default function OnboardingPage() {
   const [timeBudgetMinutes, setTimeBudgetMinutes] = useState("30");
   const [casing, setCasing] = useState<OnboardingInput["tone"]["casing"]>("normal");
   const [risk, setRisk] = useState<OnboardingInput["tone"]["risk"]>("safe");
+  const [forceMock, setForceMock] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [result, setResult] = useState<OnboardingRunResponse | null>(null);
@@ -63,8 +64,9 @@ export default function OnboardingPage() {
         casing,
         risk,
       },
+      forceMock,
     }),
-    [account, goal, timeBudgetMinutes, casing, risk],
+    [account, goal, timeBudgetMinutes, casing, risk, forceMock],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -130,7 +132,7 @@ export default function OnboardingPage() {
       <section className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Onboarding</h1>
         <p className="text-sm text-zinc-600">
-          Stage 1 run using mock X data. This validates input and returns baseline intelligence.
+          Stage 1 run with selectable source modes: x_api, scrape, or mock fallback.
         </p>
       </section>
 
@@ -222,6 +224,14 @@ export default function OnboardingPage() {
         >
           {isLoading ? "Running..." : "Run Onboarding"}
         </button>
+        <label className="ml-3 inline-flex items-center gap-2 text-sm text-zinc-700">
+          <input
+            type="checkbox"
+            checked={forceMock}
+            onChange={(event) => setForceMock(event.target.checked)}
+          />
+          Use mock data
+        </label>
       </form>
 
       {networkError ? <p className="text-sm text-red-700">{networkError}</p> : null}
@@ -253,7 +263,11 @@ export default function OnboardingPage() {
                 </div>
               ) : null}
 
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-5">
+                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
+                  <p className="mt-1 text-sm font-semibold">{result.data.source}</p>
+                </article>
                 <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Account</p>
                   <p className="mt-1 text-sm font-semibold">@{result.data.profile.username}</p>

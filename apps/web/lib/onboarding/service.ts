@@ -4,7 +4,7 @@ import {
   computeGrowthStage,
   computeHookPatterns,
 } from "./analysis";
-import { buildMockAccountData } from "./mockData";
+import { resolveOnboardingDataSource } from "./sources/resolveOnboardingSource";
 import type { OnboardingInput, OnboardingResult, StrategyState } from "./types";
 
 function inferRecommendedPostsPerWeek(timeBudgetMinutes: number): number {
@@ -69,8 +69,9 @@ function buildStrategyState(
   };
 }
 
-export function runMockOnboarding(input: OnboardingInput): OnboardingResult {
-  const { profile, posts } = buildMockAccountData(input.account);
+export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
+  const dataSource = await resolveOnboardingDataSource(input);
+  const { source, profile, posts, warnings } = dataSource;
 
   const baseline = computeEngagementBaseline(posts, profile.followersCount);
   const growthStage = computeGrowthStage(
@@ -91,7 +92,7 @@ export function runMockOnboarding(input: OnboardingInput): OnboardingResult {
 
   return {
     account: input.account,
-    source: "mock",
+    source,
     generatedAt: new Date().toISOString(),
     profile,
     recentPosts: posts,
@@ -107,8 +108,6 @@ export function runMockOnboarding(input: OnboardingInput): OnboardingResult {
       input.goal,
       input.timeBudgetMinutes,
     ),
-    warnings: [
-      "Using mock data. Replace with X API integration for live onboarding.",
-    ],
+    warnings,
   };
 }

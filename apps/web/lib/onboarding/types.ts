@@ -95,7 +95,7 @@ export interface StrategyState {
 
 export interface OnboardingResult {
   account: string;
-  source: "mock" | "x_api";
+  source: "mock" | "x_api" | "scrape";
   generatedAt: string;
   profile: XPublicProfile;
   recentPosts: XPublicPost[];

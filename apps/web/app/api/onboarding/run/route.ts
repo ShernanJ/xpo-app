@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { runMockOnboarding } from "@/lib/onboarding/service";
+import { runOnboarding } from "@/lib/onboarding/service";
 import { persistOnboardingRun } from "@/lib/onboarding/store";
 import { parseOnboardingInput } from "@/lib/onboarding/validation";
 
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json(parsed, { status: 400 });
   }
 
-  const result = runMockOnboarding(parsed.data);
+  const result = await runOnboarding(parsed.data);
   const persisted = await persistOnboardingRun({
     input: parsed.data,
     result,
