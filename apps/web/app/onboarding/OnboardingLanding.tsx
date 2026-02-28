@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -370,9 +371,13 @@ export default function OnboardingLanding() {
                   <div className="flex items-center gap-2">
                     <p className="truncate text-base font-semibold text-white">{preview.name}</p>
                     {preview.isVerified ? (
-                      <span className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-white">
-                        Verified
-                      </span>
+                      <Image
+                        src="/x-verified.svg"
+                        alt="Verified account"
+                        width={16}
+                        height={16}
+                        className="h-4 w-4 shrink-0"
+                      />
                     ) : null}
                   </div>
                   <p className="truncate text-sm text-zinc-500">@{preview.username}</p>
