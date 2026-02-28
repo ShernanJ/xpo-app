@@ -6,6 +6,7 @@ import {
 } from "./analysis";
 import { resolveOnboardingDataSource } from "./sources/resolveOnboardingSource";
 import type {
+  AnalysisConfidence,
   OnboardingInput,
   OnboardingResult,
   StrategyState,
@@ -23,6 +24,78 @@ function inferRecommendedPostsPerWeek(timeBudgetMinutes: number): number {
   }
 
   return 7;
+}
+
+function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
+  const targetPostCount = 80;
+
+  if (sampleSize < 10) {
+    return {
+      sampleSize,
+      score: 20,
+      band: "very_low",
+      minimumViableReached: false,
+      recommendedDepthReached: false,
+      backgroundBackfillRecommended: true,
+      targetPostCount,
+      message:
+        "Very little post history was captured. The current read is mostly directional and should not drive strong strategy bets yet.",
+    };
+  }
+
+  if (sampleSize < 20) {
+    return {
+      sampleSize,
+      score: 40,
+      band: "low",
+      minimumViableReached: false,
+      recommendedDepthReached: false,
+      backgroundBackfillRecommended: true,
+      targetPostCount,
+      message:
+        "The sample is still thin. You can infer basic voice and topic signals, but performance recommendations should stay cautious.",
+    };
+  }
+
+  if (sampleSize < 40) {
+    return {
+      sampleSize,
+      score: 58,
+      band: "low",
+      minimumViableReached: true,
+      recommendedDepthReached: false,
+      backgroundBackfillRecommended: true,
+      targetPostCount,
+      message:
+        "This is enough for a minimum viable onboarding read, but deeper history would improve reliability.",
+    };
+  }
+
+  if (sampleSize < targetPostCount) {
+    return {
+      sampleSize,
+      score: 74,
+      band: "usable",
+      minimumViableReached: true,
+      recommendedDepthReached: false,
+      backgroundBackfillRecommended: true,
+      targetPostCount,
+      message:
+        "The current sample is strong enough for useful recommendations, but deeper pagination could still surface hidden winners.",
+    };
+  }
+
+  return {
+    sampleSize,
+    score: 90,
+    band: "strong",
+    minimumViableReached: true,
+    recommendedDepthReached: true,
+    backgroundBackfillRecommended: false,
+    targetPostCount,
+    message:
+      "The current sample depth is strong enough for a reliable first-pass model.",
+  };
 }
 
 function buildStrategyState(
@@ -98,6 +171,7 @@ function buildStrategyState(
 export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
   const dataSource = await resolveOnboardingDataSource(input);
   const { source, profile, posts, warnings } = dataSource;
+  const analysisConfidence = buildAnalysisConfidence(posts.length);
 
   const baseline = computeEngagementBaseline(posts, profile.followersCount);
   const growthStage = computeGrowthStage(
@@ -115,6 +189,17 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
   const underperformingFormats = [...rankedByEngagement]
     .reverse()
     .slice(0, 2);
+  const nextWarnings = [...warnings];
+
+  if (!analysisConfidence.minimumViableReached) {
+    nextWarnings.push(
+      `Low-confidence analysis: only ${posts.length} usable posts were captured.`,
+    );
+  } else if (analysisConfidence.backgroundBackfillRecommended) {
+    nextWarnings.push(
+      `The current read is usable, but a deeper backfill toward ~${analysisConfidence.targetPostCount} posts would improve reliability.`,
+    );
+  }
 
   return {
     account: input.account,
@@ -123,6 +208,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     profile,
     recentPosts: posts,
     recentPostSampleCount: posts.length,
+    analysisConfidence,
     baseline,
     growthStage,
     contentDistribution,
@@ -136,6 +222,6 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
       input.transformationMode ?? "optimize",
       input.transformationModeSource ?? "default",
     ),
-    warnings,
+    warnings: nextWarnings,
   };
 }

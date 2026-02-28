@@ -99,6 +99,23 @@ export interface StrategyState {
   rationale: string;
 }
 
+export type AnalysisConfidenceBand =
+  | "very_low"
+  | "low"
+  | "usable"
+  | "strong";
+
+export interface AnalysisConfidence {
+  sampleSize: number;
+  score: number;
+  band: AnalysisConfidenceBand;
+  minimumViableReached: boolean;
+  recommendedDepthReached: boolean;
+  backgroundBackfillRecommended: boolean;
+  targetPostCount: number;
+  message: string;
+}
+
 export interface OnboardingResult {
   account: string;
   source: "mock" | "x_api" | "scrape";
@@ -106,6 +123,7 @@ export interface OnboardingResult {
   profile: XPublicProfile;
   recentPosts: XPublicPost[];
   recentPostSampleCount: number;
+  analysisConfidence: AnalysisConfidence;
   baseline: EngagementBaseline;
   growthStage: GrowthStage;
   contentDistribution: ContentDistributionItem[];
