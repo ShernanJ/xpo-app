@@ -7,8 +7,9 @@ import type {
   CreatorProfile,
   OnboardingInput,
   OnboardingResult,
-  XPublicProfile,
   PerformanceModel,
+  XPublicPost,
+  XPublicProfile,
 } from "@/lib/onboarding/types";
 
 interface ValidationError {
@@ -103,6 +104,17 @@ function formatEnumLabel(value: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatPostDate(value: string): string {
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function getPostEngagementTotal(metrics: XPublicPost["metrics"]): number {
+  return metrics.likeCount + metrics.replyCount + metrics.repostCount + metrics.quoteCount;
 }
 
 function getProfileInitials(name: string, username: string): string {
@@ -646,12 +658,12 @@ export default function OnboardingPage() {
         ) : null}
 
         {result ? (
-          <section className="space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_18px_60px_rgba(24,24,27,0.06)]">
+          <section className="space-y-5 rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] sm:p-6">
           {result.ok ? (
             <div className="space-y-5 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-400">
                     Snapshot Ready
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
@@ -663,33 +675,33 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={handleBuildPerformanceModel}
                   disabled={isModelLoading}
-                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-full border border-white/10 bg-black/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isModelLoading ? "Building..." : "Load Deeper Breakdown"}
                 </button>
               </div>
 
               {successResult?.data.warnings.length ? (
-                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-100">
                   {successResult.data.warnings[0]}
                 </div>
               ) : null}
 
-              <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                <div className="h-24 bg-gradient-to-r from-zinc-950 via-zinc-800 to-zinc-600" />
+              <section className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-black/35">
+                <div className="h-24 bg-gradient-to-r from-[#0a0f14] via-[#111922] to-[#1d2730]" />
                 <div className="px-5 pb-5">
                   <div className="-mt-10 flex items-end justify-between gap-4">
                     <div className="flex min-w-0 items-end gap-4">
                       <ProfileAvatar
                         profile={result.data.profile}
                         sizeClassName="h-20 w-20"
-                        textClassName="text-lg font-semibold text-zinc-700"
-                        borderClassName="border-4 border-white"
-                        fallbackClassName="bg-zinc-200 shadow-sm"
+                        textClassName="text-lg font-semibold text-zinc-100"
+                        borderClassName="border-4 border-[#050505]"
+                        fallbackClassName="bg-white/10 shadow-sm"
                       />
 
                       <div className="min-w-0 pb-1">
-                        <p className="flex items-center gap-1.5 truncate text-xl font-semibold text-zinc-950">
+                        <p className="flex items-center gap-1.5 truncate text-xl font-semibold text-white">
                           <span className="truncate">{result.data.profile.name}</span>
                           <VerifiedBadge visible={result.data.profile.isVerified} />
                         </p>
@@ -699,26 +711,26 @@ export default function OnboardingPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                      {result.data.source}
+                    <div className="rounded-full border border-white/10 bg-black/30 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                      {formatEnumLabel(result.data.source)}
                     </div>
                   </div>
 
                   {result.data.profile.bio ? (
-                    <p className="mt-4 text-sm leading-6 text-zinc-700">
+                    <p className="mt-4 text-sm leading-6 text-zinc-300">
                       {result.data.profile.bio}
                     </p>
                   ) : null}
 
                   <div className="mt-4 flex flex-wrap gap-5 text-sm">
                     <p className="text-zinc-500">
-                      <span className="font-semibold text-zinc-950">
+                      <span className="font-semibold text-white">
                         {formatCompactNumber(result.data.profile.followingCount)}
                       </span>{" "}
                       Following
                     </p>
                     <p className="text-zinc-500">
-                      <span className="font-semibold text-zinc-950">
+                      <span className="font-semibold text-white">
                         {formatCompactNumber(result.data.profile.followersCount)}
                       </span>{" "}
                       Followers
@@ -732,60 +744,60 @@ export default function OnboardingPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">
                     Quick Overview
                   </p>
-                  <h2 className="text-2xl font-semibold tracking-tight text-zinc-950">
+                  <h2 className="text-2xl font-semibold tracking-tight text-white">
                     High-ROI signals from your recent posts.
                   </h2>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Growth Stage</p>
-                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                    <p className="mt-2 text-xl font-semibold text-white">
                       {result.data.growthStage}
                     </p>
                   </article>
-                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Best Format</p>
-                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                    <p className="mt-2 text-xl font-semibold text-white">
                       {bestFormat ? formatEnumLabel(bestFormat.type) : "Not enough data"}
                     </p>
                   </article>
-                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Weak Spot</p>
-                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                    <p className="mt-2 text-xl font-semibold text-white">
                       {weakestFormat ? formatEnumLabel(weakestFormat.type) : "Not enough data"}
                     </p>
                   </article>
-                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">
                       Posts / Week
                     </p>
-                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                    <p className="mt-2 text-xl font-semibold text-white">
                       {result.data.strategyState.recommendedPostsPerWeek}
                     </p>
                   </article>
                 </div>
 
                 <div className="grid gap-3 lg:grid-cols-3">
-                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Do More Of</p>
-                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                    <p className="mt-2 text-sm font-medium text-zinc-100">
                       {bestFormat
                         ? `${formatEnumLabel(bestFormat.type)} posts average ${bestFormat.averageEngagement} engagement.`
                         : "We need a bit more data before calling a winner."}
                     </p>
                   </article>
-                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Watch For</p>
-                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                    <p className="mt-2 text-sm font-medium text-zinc-100">
                       {strongestHook
                         ? `${formatEnumLabel(strongestHook.pattern)} appears most often in your strongest openers.`
                         : "Your top hook pattern will appear here after more posts are parsed."}
                     </p>
                   </article>
-                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-xs uppercase tracking-wide text-zinc-500">Next Move</p>
-                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                    <p className="mt-2 text-sm font-medium text-zinc-100">
                       {result.data.strategyState.rationale}
                     </p>
                   </article>
@@ -795,36 +807,119 @@ export default function OnboardingPage() {
               <section className="space-y-3">
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">
+                    Recent Posts
+                  </p>
+                  <h2 className="text-2xl font-semibold tracking-tight text-white">
+                    The actual posts driving this snapshot.
+                  </h2>
+                </div>
+
+                <div className="space-y-3">
+                  {result.data.recentPosts.length ? (
+                    result.data.recentPosts.slice(0, 3).map((post) => (
+                      <article
+                        key={post.id}
+                        className="rounded-[1.4rem] border border-white/10 bg-black/30 p-4"
+                      >
+                        <div className="flex gap-3">
+                          <ProfileAvatar
+                            profile={result.data.profile}
+                            sizeClassName="h-11 w-11"
+                            textClassName="text-sm font-semibold text-zinc-100"
+                            borderClassName="border border-white/10"
+                            fallbackClassName="bg-white/[0.04]"
+                          />
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-white">
+                                <span className="truncate">{result.data.profile.name}</span>
+                                <VerifiedBadge visible={result.data.profile.isVerified} />
+                              </p>
+                              <p className="truncate text-sm text-zinc-500">
+                                @{result.data.profile.username}
+                              </p>
+                              <span className="text-zinc-700">·</span>
+                              <p className="text-sm text-zinc-500">
+                                {formatPostDate(post.createdAt)}
+                              </p>
+                            </div>
+
+                            <p className="mt-2 whitespace-pre-wrap break-words text-[15px] leading-6 text-zinc-100">
+                              {post.text}
+                            </p>
+
+                            <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500 sm:grid-cols-4">
+                              <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5">
+                                <span className="text-zinc-600">Replies </span>
+                                <span className="text-zinc-300">
+                                  {formatCompactNumber(post.metrics.replyCount)}
+                                </span>
+                              </div>
+                              <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5">
+                                <span className="text-zinc-600">Reposts </span>
+                                <span className="text-zinc-300">
+                                  {formatCompactNumber(post.metrics.repostCount)}
+                                </span>
+                              </div>
+                              <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5">
+                                <span className="text-zinc-600">Likes </span>
+                                <span className="text-zinc-300">
+                                  {formatCompactNumber(post.metrics.likeCount)}
+                                </span>
+                              </div>
+                              <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5">
+                                <span className="text-zinc-600">Total </span>
+                                <span className="text-zinc-300">
+                                  {formatCompactNumber(getPostEngagementTotal(post.metrics))}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
+                      No recent posts were returned for this snapshot.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">
                     Creator Profile
                   </p>
-                  <h2 className="text-2xl font-semibold tracking-tight text-zinc-950">
+                  <h2 className="text-2xl font-semibold tracking-tight text-white">
                     How the engine currently understands this account.
                   </h2>
                 </div>
 
                 {isCreatorProfileLoading ? (
                   <div className="grid gap-3 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="h-4 w-32 rounded bg-zinc-200" />
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="h-4 w-32 rounded bg-white/10" />
                       <div className="mt-3 space-y-2">
-                        <div className="h-3 w-48 rounded bg-zinc-200" />
-                        <div className="h-3 w-40 rounded bg-zinc-200" />
-                        <div className="h-3 w-44 rounded bg-zinc-200" />
+                        <div className="h-3 w-48 rounded bg-white/10" />
+                        <div className="h-3 w-40 rounded bg-white/10" />
+                        <div className="h-3 w-44 rounded bg-white/10" />
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="h-4 w-40 rounded bg-zinc-200" />
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="h-4 w-40 rounded bg-white/10" />
                       <div className="mt-3 space-y-2">
-                        <div className="h-3 w-full rounded bg-zinc-200" />
-                        <div className="h-3 w-5/6 rounded bg-zinc-200" />
-                        <div className="h-3 w-4/6 rounded bg-zinc-200" />
+                        <div className="h-3 w-full rounded bg-white/10" />
+                        <div className="h-3 w-5/6 rounded bg-white/10" />
+                        <div className="h-3 w-4/6 rounded bg-white/10" />
                       </div>
                     </div>
                   </div>
                 ) : null}
 
                 {creatorProfileError ? (
-                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-100">
                     {creatorProfileError}
                   </div>
                 ) : null}
@@ -832,9 +927,9 @@ export default function OnboardingPage() {
                 {creatorProfile ? (
                   <div className="space-y-3">
                     <div className="grid gap-3 lg:grid-cols-2">
-                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">Archetype</p>
-                        <p className="mt-2 text-xl font-semibold text-zinc-950">
+                        <p className="mt-2 text-xl font-semibold text-white">
                           {formatEnumLabel(creatorProfile.archetype)}
                         </p>
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -842,7 +937,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Primary
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {formatEnumLabel(creatorProfile.archetype)}
                             </p>
                           </div>
@@ -850,7 +945,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Secondary
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {creatorProfile.secondaryArchetype
                                 ? formatEnumLabel(creatorProfile.secondaryArchetype)
                                 : "None"}
@@ -862,7 +957,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Confidence
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {creatorProfile.archetypeConfidence}%
                             </p>
                           </div>
@@ -870,7 +965,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Voice
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {formatEnumLabel(creatorProfile.voice.primaryCasing)} /{" "}
                               {creatorProfile.voice.averageLengthBand
                                 ? formatEnumLabel(creatorProfile.voice.averageLengthBand)
@@ -883,7 +978,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Strategy Path
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {formatEnumLabel(creatorProfile.strategy.transformationMode)}
                             </p>
                           </div>
@@ -891,19 +986,19 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Mode Source
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {formatEnumLabel(creatorProfile.strategy.transformationModeSource)}
                             </p>
                           </div>
                         </div>
-                        <ul className="mt-4 space-y-1.5 text-sm text-zinc-700">
+                        <ul className="mt-4 space-y-1.5 text-sm text-zinc-300">
                           {creatorProfile.voice.styleNotes.map((note) => (
                             <li key={note}>- {note}</li>
                           ))}
                         </ul>
                       </article>
 
-                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Content Pillars
                         </p>
@@ -912,7 +1007,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Audience Breadth
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {formatEnumLabel(creatorProfile.topics.audienceBreadth)}
                             </p>
                           </div>
@@ -920,7 +1015,7 @@ export default function OnboardingPage() {
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Top Signal
                             </p>
-                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
                               {creatorProfile.topics.dominantTopics[0]
                                 ? `${creatorProfile.topics.dominantTopics[0].label} (${creatorProfile.topics.dominantTopics[0].percentage}%)`
                                 : "n/a"}
@@ -932,7 +1027,7 @@ export default function OnboardingPage() {
                             creatorProfile.topics.contentPillars.map((pillar) => (
                               <span
                                 key={pillar}
-                                className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700"
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-zinc-300"
                               >
                                 {pillar}
                               </span>
@@ -943,7 +1038,7 @@ export default function OnboardingPage() {
                             </span>
                           )}
                         </div>
-                        <div className="mt-4 space-y-1.5 text-sm text-zinc-700">
+                        <div className="mt-4 space-y-1.5 text-sm text-zinc-300">
                           <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                             Audience Signals
                           </p>
@@ -959,28 +1054,28 @@ export default function OnboardingPage() {
                             </p>
                           )}
                         </div>
-                        <p className="mt-4 text-sm leading-6 text-zinc-700">
+                        <p className="mt-4 text-sm leading-6 text-zinc-300">
                           {creatorProfile.topics.specificityTradeoff}
                         </p>
                       </article>
 
-                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Recommended Angles
                         </p>
-                        <p className="mt-2 text-sm leading-6 text-zinc-700">
+                        <p className="mt-2 text-sm leading-6 text-zinc-300">
                           {creatorProfile.strategy.targetState.planningNote}
                         </p>
-                        <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
                           {creatorProfile.strategy.recommendedAngles.map((angle) => (
                             <li key={angle}>- {angle}</li>
                           ))}
                         </ul>
                       </article>
 
-                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">Next Moves</p>
-                        <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
                           {creatorProfile.strategy.nextMoves.map((move) => (
                             <li key={move}>- {move}</li>
                           ))}
@@ -989,20 +1084,20 @@ export default function OnboardingPage() {
                     </div>
 
                     {showOnboardingDevTools ? (
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <p className="text-xs uppercase tracking-wide text-zinc-500">
                               Developer Inspector
                             </p>
-                            <p className="mt-1 text-sm text-zinc-600">
+                            <p className="mt-1 text-sm text-zinc-400">
                               Review the exact creator profile object used for downstream agent context.
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={() => setShowCreatorProfileJson((current) => !current)}
-                            className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950"
+                            className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-300 transition hover:border-white/20 hover:text-white"
                           >
                             {showCreatorProfileJson ? "Hide Raw JSON" : "Show Raw JSON"}
                           </button>
@@ -1020,30 +1115,34 @@ export default function OnboardingPage() {
               </section>
 
               <div className="grid gap-3 sm:grid-cols-3">
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
-                  <p className="mt-1 text-sm font-semibold">{result.data.source}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatEnumLabel(result.data.source)}
+                  </p>
                 </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Posts Analyzed</p>
-                  <p className="mt-1 text-lg font-semibold">{result.data.recentPostSampleCount}</p>
+                  <p className="mt-1 text-lg font-semibold text-white">
+                    {result.data.recentPostSampleCount}
+                  </p>
                 </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Cadence / Week</p>
-                  <p className="mt-1 text-lg font-semibold">
+                  <p className="mt-1 text-lg font-semibold text-white">
                     {result.data.baseline.postingCadencePerWeek}
                   </p>
                 </article>
               </div>
 
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-wide text-zinc-500">
                   Strategy State
                 </p>
-                <p className="mt-2 font-medium">
+                <p className="mt-2 font-medium text-white">
                   Recommended posts/week: {result.data.strategyState.recommendedPostsPerWeek}
                 </p>
-                <p className="mt-1 text-zinc-700">{result.data.strategyState.rationale}</p>
+                <p className="mt-1 text-zinc-300">{result.data.strategyState.rationale}</p>
                 <p className="mt-2 text-xs text-zinc-600">
                   Weights: D {result.data.strategyState.weights.distribution} / A{" "}
                   {result.data.strategyState.weights.authority} / L{" "}
@@ -1051,7 +1150,7 @@ export default function OnboardingPage() {
                 </p>
               </div>
 
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-wide text-zinc-500">
                   Format Performance
                 </p>
@@ -1065,7 +1164,7 @@ export default function OnboardingPage() {
                         <th className="py-1">Signal</th>
                       </tr>
                     </thead>
-                    <tbody className="text-zinc-800">
+                    <tbody className="text-zinc-300">
                       {result.data.contentDistribution.map((row) => {
                         const isBest = result.data.bestFormats.some(
                           (item) => item.type === row.type,
@@ -1075,18 +1174,18 @@ export default function OnboardingPage() {
                         );
 
                         return (
-                          <tr key={row.type} className="border-t border-zinc-200">
+                          <tr key={row.type} className="border-t border-white/10">
                             <td className="py-2 pr-4">{row.type}</td>
                             <td className="py-2 pr-4">{row.percentage}%</td>
                             <td className="py-2 pr-4">{row.averageEngagement}</td>
                             <td className="py-2">
                               {isBest ? (
-                                <span className="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800">
+                                <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-emerald-300">
                                   best
                                 </span>
                               ) : null}
                               {isWeak ? (
-                                <span className="ml-2 rounded bg-rose-100 px-2 py-0.5 text-rose-800">
+                                <span className="ml-2 rounded-full border border-rose-400/20 bg-rose-400/10 px-2 py-0.5 text-rose-300">
                                   weak
                                 </span>
                               ) : null}
@@ -1099,9 +1198,9 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-wide text-zinc-500">Top Hook Patterns</p>
-                <ul className="mt-2 space-y-1 text-zinc-700">
+                <ul className="mt-2 space-y-1 text-zinc-300">
                   {result.data.hookPatterns.slice(0, 3).map((item) => (
                     <li key={item.pattern}>
                       {item.pattern}: {item.percentage}% share, {item.averageEngagement} avg
@@ -1113,8 +1212,8 @@ export default function OnboardingPage() {
             </div>
           ) : (
             <div className="space-y-2 text-sm">
-              <p className="text-red-700">We couldn&apos;t start the analysis.</p>
-              <ul className="list-disc pl-5">
+              <p className="text-red-300">We couldn&apos;t start the analysis.</p>
+              <ul className="list-disc pl-5 text-zinc-300">
                 {result.errors.map((error) => (
                   <li key={`${error.field}-${error.message}`}>
                     <span className="font-medium">{error.field}:</span> {error.message}
@@ -1127,59 +1226,78 @@ export default function OnboardingPage() {
         ) : null}
 
         {performanceModel ? (
-          <section className="space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_18px_60px_rgba(24,24,27,0.04)]">
-          <h2 className="text-lg font-semibold">Deeper Breakdown</h2>
+          <section className="space-y-4 rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.38)] sm:p-6">
+          <h2 className="text-lg font-semibold text-white">Deeper Breakdown</h2>
           <div className="grid gap-3 sm:grid-cols-4">
-            <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
                 Best Content Type
               </p>
-              <p className="mt-1 font-semibold">{performanceModel.bestContentType ?? "n/a"}</p>
+              <p className="mt-1 font-semibold text-white">
+                {performanceModel.bestContentType ?? "n/a"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {performanceModel.bestContentTypeConfidence
+                  ? `${performanceModel.bestContentTypeConfidence}% confidence`
+                  : "Not enough reliable sample yet"}
+              </p>
             </article>
-            <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
                 Best Hook Pattern
               </p>
-              <p className="mt-1 font-semibold">{performanceModel.bestHookPattern ?? "n/a"}</p>
+              <p className="mt-1 font-semibold text-white">
+                {performanceModel.bestHookPattern ?? "n/a"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {performanceModel.bestHookPatternConfidence
+                  ? `${performanceModel.bestHookPatternConfidence}% confidence`
+                  : "Not enough reliable sample yet"}
+              </p>
             </article>
-            <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
                 Recommended Length
               </p>
-              <p className="mt-1 font-semibold">
+              <p className="mt-1 font-semibold text-white">
                 {performanceModel.lengthOptimization.recommendedBand ?? "n/a"}
               </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {performanceModel.lengthOptimization.recommendedBandConfidence
+                  ? `${performanceModel.lengthOptimization.recommendedBandConfidence}% confidence`
+                  : "Not enough reliable sample yet"}
+              </p>
             </article>
-            <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
                 Conversation Trigger
               </p>
-              <p className="mt-1 font-semibold">
+              <p className="mt-1 font-semibold text-white">
                 {performanceModel.conversationTriggerRate}%
               </p>
             </article>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-wide text-zinc-500">Strengths</p>
-              <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+              <ul className="mt-2 space-y-1 text-sm text-zinc-300">
                 {performanceModel.strengths.map((item) => (
                   <li key={item}>- {item}</li>
                 ))}
               </ul>
             </div>
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-wide text-zinc-500">Weaknesses</p>
-              <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+              <ul className="mt-2 space-y-1 text-sm text-zinc-300">
                 {performanceModel.weaknesses.map((item) => (
                   <li key={item}>- {item}</li>
                 ))}
               </ul>
             </div>
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-wide text-zinc-500">Next Actions</p>
-              <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+              <ul className="mt-2 space-y-1 text-sm text-zinc-300">
                 {performanceModel.nextActions.map((item) => (
                   <li key={item}>- {item}</li>
                 ))}
@@ -1187,14 +1305,16 @@ export default function OnboardingPage() {
             </div>
           </div>
 
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <p className="text-xs uppercase tracking-wide text-zinc-500">
               Format Insights (delta vs baseline)
             </p>
-            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+            <ul className="mt-2 space-y-1 text-sm text-zinc-300">
               {performanceModel.formatInsights.slice(0, 4).map((item) => (
                 <li key={item.key}>
-                  {item.key}: {item.averageEngagement} avg ({item.deltaVsBaselinePercent}%)
+                  {item.key}: {item.averageEngagement} avg ({item.deltaVsBaselinePercent}%) •{" "}
+                  {item.count} posts • {item.confidence}% confidence
+                  {!item.isReliable ? " • low sample" : ""}
                 </li>
               ))}
             </ul>

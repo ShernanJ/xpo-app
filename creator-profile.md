@@ -96,8 +96,13 @@ This is what has historically worked:
 - best hook pattern
 - recommended length band
 - recommended posts per week
+- confidence and sample reliability per insight
 
 This is the deterministic part of the model and should stay as structured as possible.
+
+The system should not declare a clear "best" or "worst" pattern when the sample is too small.
+
+Small-sample insights should remain visible, but they should be marked as low-confidence and should not drive aggressive strategy recommendations.
 
 ### 5. Archetype Layer
 

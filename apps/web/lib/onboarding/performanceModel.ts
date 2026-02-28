@@ -21,6 +21,28 @@ function toDeltaPercent(average: number, baseline: number): number {
   return Number((((average - baseline) / baseline) * 100).toFixed(2));
 }
 
+function computeInsightConfidence(count: number, totalPosts: number): number {
+  if (totalPosts <= 0) {
+    return 0;
+  }
+
+  const sampleShare = count / totalPosts;
+  const coverageWeight = Math.min(1, count / Math.min(4, totalPosts));
+
+  return Number(
+    Math.max(10, Math.min(100, 20 + coverageWeight * 50 + sampleShare * 30)).toFixed(2),
+  );
+}
+
+function isInsightReliable(count: number, totalPosts: number): boolean {
+  if (totalPosts < 2) {
+    return false;
+  }
+
+  const sampleShare = count / totalPosts;
+  return count >= 2 && sampleShare >= 0.15;
+}
+
 function summarizeGroups(
   posts: XPublicPost[],
   baselineAverageEngagement: number,
@@ -37,14 +59,23 @@ function summarizeGroups(
     });
   }
 
+  const totalPosts = posts.length;
+
   return Array.from(counters.entries())
     .map(([key, value]) => {
       const averageEngagement = Number(
         (value.totalEngagement / Math.max(1, value.count)).toFixed(2),
       );
+      const sampleSharePercent = Number(((value.count / Math.max(1, totalPosts)) * 100).toFixed(2));
+      const confidence = computeInsightConfidence(value.count, totalPosts);
+      const reliable = isInsightReliable(value.count, totalPosts);
+
       return {
         key,
         count: value.count,
+        sampleSharePercent,
+        confidence,
+        isReliable: reliable,
         averageEngagement,
         deltaVsBaselinePercent: toDeltaPercent(
           averageEngagement,
@@ -53,6 +84,23 @@ function summarizeGroups(
       };
     })
     .sort((a, b) => b.averageEngagement - a.averageEngagement);
+}
+
+function getBestReliableInsight(
+  insights: PerformanceBandInsight[],
+): PerformanceBandInsight | null {
+  return insights.find((insight) => insight.isReliable) ?? null;
+}
+
+function getWeakestReliableInsight(
+  insights: PerformanceBandInsight[],
+): PerformanceBandInsight | null {
+  const reliable = insights.filter((insight) => insight.isReliable);
+  if (reliable.length < 2) {
+    return null;
+  }
+
+  return reliable.at(-1) ?? null;
 }
 
 function getLengthBand(text: string): LengthBand {
@@ -69,19 +117,17 @@ function getLengthBand(text: string): LengthBand {
 }
 
 function buildStrengths(
-  formatInsights: PerformanceBandInsight[],
-  hookInsights: PerformanceBandInsight[],
+  topFormat: PerformanceBandInsight | null,
+  topHook: PerformanceBandInsight | null,
 ): string[] {
   const strengths: string[] = [];
 
-  const topFormat = formatInsights[0];
   if (topFormat && topFormat.deltaVsBaselinePercent > 0) {
     strengths.push(
       `${topFormat.key} posts are ${topFormat.deltaVsBaselinePercent}% above your baseline engagement.`,
     );
   }
 
-  const topHook = hookInsights[0];
   if (topHook && topHook.deltaVsBaselinePercent > 0) {
     strengths.push(
       `${topHook.key} hooks are currently your strongest opener pattern.`,
@@ -96,12 +142,11 @@ function buildStrengths(
 }
 
 function buildWeaknesses(
-  formatInsights: PerformanceBandInsight[],
-  hookInsights: PerformanceBandInsight[],
+  weakestFormat: PerformanceBandInsight | null,
+  weakestHook: PerformanceBandInsight | null,
 ): string[] {
   const weaknesses: string[] = [];
 
-  const weakestFormat = formatInsights.at(-1);
   if (weakestFormat && weakestFormat.deltaVsBaselinePercent < 0) {
     weaknesses.push(
       `${weakestFormat.key} format is under baseline by ${Math.abs(
@@ -110,7 +155,6 @@ function buildWeaknesses(
     );
   }
 
-  const weakestHook = hookInsights.at(-1);
   if (weakestHook && weakestHook.deltaVsBaselinePercent < 0) {
     weaknesses.push(
       `${weakestHook.key} hooks are underperforming against your average post.`,
@@ -173,13 +217,16 @@ export function buildPerformanceModel(params: {
   const lengthInsights = summarizeGroups(posts, baselineAverageEngagement, (post) =>
     getLengthBand(post.text),
   );
+  const bestFormatInsight = getBestReliableInsight(formatInsights);
+  const weakestFormatInsight = getWeakestReliableInsight(formatInsights);
+  const bestHookInsight = getBestReliableInsight(hookInsights);
+  const weakestHookInsight = getWeakestReliableInsight(hookInsights);
+  const bestLengthInsight = getBestReliableInsight(lengthInsights);
 
-  const bestContentType = (formatInsights[0]?.key ?? null) as ContentType | null;
-  const weakestContentType = (formatInsights.at(-1)?.key ?? null) as
-    | ContentType
-    | null;
-  const bestHookPattern = (hookInsights[0]?.key ?? null) as HookPattern | null;
-  const recommendedLengthBand = (lengthInsights[0]?.key ?? null) as LengthBand | null;
+  const bestContentType = (bestFormatInsight?.key ?? null) as ContentType | null;
+  const weakestContentType = (weakestFormatInsight?.key ?? null) as ContentType | null;
+  const bestHookPattern = (bestHookInsight?.key ?? null) as HookPattern | null;
+  const recommendedLengthBand = (bestLengthInsight?.key ?? null) as LengthBand | null;
 
   const averageLength = posts.length
     ? Number(
@@ -206,18 +253,22 @@ export function buildPerformanceModel(params: {
     sourceRunId: params.sourceRunId,
     baselineAverageEngagement,
     bestContentType,
+    bestContentTypeConfidence: bestFormatInsight?.confidence ?? null,
     weakestContentType,
+    weakestContentTypeConfidence: weakestFormatInsight?.confidence ?? null,
     bestHookPattern,
+    bestHookPatternConfidence: bestHookInsight?.confidence ?? null,
     conversationTriggerRate,
     formatInsights,
     hookInsights,
     lengthOptimization: {
       recommendedBand: recommendedLengthBand,
+      recommendedBandConfidence: bestLengthInsight?.confidence ?? null,
       averageLength,
       bands: lengthInsights,
     },
-    strengths: buildStrengths(formatInsights, hookInsights),
-    weaknesses: buildWeaknesses(formatInsights, hookInsights),
+    strengths: buildStrengths(bestFormatInsight, bestHookInsight),
+    weaknesses: buildWeaknesses(weakestFormatInsight, weakestHookInsight),
     nextActions: buildNextActions({
       bestContentType,
       weakestContentType,

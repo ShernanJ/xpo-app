@@ -118,11 +118,15 @@ export interface PerformanceBandInsight {
   key: string;
   averageEngagement: number;
   count: number;
+  sampleSharePercent: number;
+  confidence: number;
+  isReliable: boolean;
   deltaVsBaselinePercent: number;
 }
 
 export interface LengthOptimizationInsight {
   recommendedBand: LengthBand | null;
+  recommendedBandConfidence: number | null;
   averageLength: number;
   bands: PerformanceBandInsight[];
 }
@@ -132,8 +136,11 @@ export interface PerformanceModel {
   sourceRunId: string;
   baselineAverageEngagement: number;
   bestContentType: ContentType | null;
+  bestContentTypeConfidence: number | null;
   weakestContentType: ContentType | null;
+  weakestContentTypeConfidence: number | null;
   bestHookPattern: HookPattern | null;
+  bestHookPatternConfidence: number | null;
   conversationTriggerRate: number;
   formatInsights: PerformanceBandInsight[];
   hookInsights: PerformanceBandInsight[];
