@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { XShell } from "@/components/x-shell";
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 
@@ -72,6 +71,12 @@ function formatEnumLabel(value: string): string {
 function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
+
+const chatScanlineStyle = {
+  backgroundImage:
+    "linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
+  backgroundSize: "100% 6px",
+};
 
 function buildInitialAssistantMessage(
   context: CreatorAgentContext,
@@ -348,18 +353,22 @@ export default function ChatPage() {
   }
 
   return (
-    <XShell>
-      <div className="mx-auto flex min-h-full w-full max-w-[96rem] gap-4 px-2 py-2 sm:px-4 sm:py-4">
+    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+      <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
+
+      <div className="relative flex min-h-screen">
         <aside
-          className={`sticky top-4 hidden h-[calc(100vh-7rem)] shrink-0 overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.03] shadow-[0_20px_80px_rgba(0,0,0,0.45)] transition-all duration-300 lg:flex lg:flex-col ${
-            sidebarOpen ? "w-[20rem]" : "w-[5.5rem]"
+          className={`sticky top-0 hidden h-screen shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${
+            sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
           }`}
         >
-          <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
+          <div className="flex items-center justify-between px-4 py-4">
             <button
               type="button"
               onClick={() => setSidebarOpen((current) => !current)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+              className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
               aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
               {sidebarOpen ? "×" : "≡"}
@@ -368,20 +377,20 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={loadWorkspace}
-                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.08]"
+                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.04]"
               >
                 Refresh
               </button>
             ) : null}
           </div>
 
-          <div className="px-3 pt-3">
-            <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-3 py-2.5">
+          <div className="px-3">
+            <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
               <span className="text-sm text-zinc-500">⌕</span>
               {sidebarOpen ? (
                 <>
                   <span className="text-sm text-zinc-400">Search</span>
-                  <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                  <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-zinc-600">
                     ⌘K
                   </span>
                 </>
@@ -392,7 +401,7 @@ export default function ChatPage() {
           <div className="px-3 pt-3">
             <button
               type="button"
-              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.08] ${
+              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${
                 sidebarOpen ? "justify-start" : "justify-center"
               }`}
             >
@@ -405,22 +414,22 @@ export default function ChatPage() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4">
             {sidebarOpen ? (
-              <div className="space-y-5">
+              <div className="space-y-6">
                 {sidebarThreads.map((section) => (
                   <div key={section.section} className="space-y-2">
-                    <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                    <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
                       {section.section}
                     </p>
                     {section.items.map((item) => (
                       <button
                         key={item.id}
                         type="button"
-                        className="flex w-full flex-col items-start gap-1 rounded-2xl border border-transparent px-3 py-2.5 text-left transition hover:border-white/10 hover:bg-white/[0.04]"
+                        className="block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03]"
                       >
-                        <span className="line-clamp-2 text-sm font-medium leading-5 text-zinc-200">
+                        <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
                           {item.label}
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                        <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
                           {item.meta}
                         </span>
                       </button>
@@ -429,12 +438,12 @@ export default function ChatPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex h-full flex-col items-center gap-3 pt-2">
+              <div className="flex flex-col items-center gap-3 pt-2">
                 {sidebarThreads.flatMap((section) => section.items).slice(0, 6).map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
                     title={item.label}
                   >
                     {item.label.slice(0, 2)}
@@ -444,17 +453,17 @@ export default function ChatPage() {
             )}
           </div>
 
-          <div className="border-t border-white/10 px-3 py-3">
+          <div className="border-t border-white/10 px-3 py-4">
             {sidebarOpen && context ? (
-              <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+              <div className="rounded-2xl border border-white/10 px-3 py-3">
                 <p className="text-sm font-semibold text-white">@{context.account}</p>
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
                   {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
                 </p>
               </div>
             ) : (
-              <div className="flex items-center justify-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/30 text-sm font-semibold text-white">
+              <div className="flex justify-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-sm font-semibold text-white">
                   {context?.account.slice(0, 2).toUpperCase() ?? "X"}
                 </div>
               </div>
@@ -462,65 +471,59 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        <div className="relative flex min-h-[calc(100vh-7rem)] flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.02] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-          <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-3">
+        <div className="flex min-h-screen flex-1 flex-col">
+          <header className="border-b border-white/10 px-4 py-3 sm:px-6">
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
               <button
                 type="button"
                 onClick={() => setSidebarOpen((current) => !current)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white lg:hidden"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white md:hidden"
                 aria-label="Toggle sidebar"
               >
                 ≡
               </button>
-              <div className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2">
-                <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
-                  X Strategy Chat
-                </p>
+              <div className="flex justify-center md:justify-start">
+                <div className="rounded-full border border-white/10 px-5 py-2">
+                  <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
+                    X Strategy Chat
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAnalysisOpen(true)}
+                  className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.04]"
+                >
+                  View Analysis
+                </button>
               </div>
             </div>
+          </header>
 
-            <div className="hidden flex-wrap items-center gap-2 md:flex">
-              {summaryChips.map((chip) => (
-                <span
-                  key={chip}
-                  className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400"
-                >
-                  {chip}
-                </span>
-              ))}
-              <button
-                type="button"
-                onClick={() => setAnalysisOpen(true)}
-                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.08]"
-              >
-                View Analysis
-              </button>
-            </div>
+          <section className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 pb-40 pt-8 sm:px-6">
+              <div className="flex flex-wrap items-center gap-2">
+                {summaryChips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
 
-            <button
-              type="button"
-              onClick={() => setAnalysisOpen(true)}
-              className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.08] md:hidden"
-            >
-              Model
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 pb-36 pt-6 sm:px-6">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
               {backfillNotice ? (
-                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
+                <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
                   {backfillNotice}
                 </div>
               ) : null}
 
               {isLoading ? (
-                <div className="rounded-3xl border border-white/10 bg-black/30 p-5 text-sm text-zinc-400">
-                  Loading the agent context...
-                </div>
+                <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : errorMessage ? (
-                <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 p-5 text-sm text-rose-100">
+                <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                   {errorMessage}
                 </div>
               ) : (
@@ -528,10 +531,10 @@ export default function ChatPage() {
                   {messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`max-w-[88%] rounded-[1.75rem] px-4 py-3 text-sm leading-7 ${
+                      className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${
                         message.role === "assistant"
-                          ? "border border-white/10 bg-white/[0.04] text-zinc-100"
-                          : "ml-auto border border-white/10 bg-white text-black"
+                          ? "rounded-[1.75rem] border border-white/10 bg-white/[0.03] text-zinc-100"
+                          : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
                       }`}
                     >
                       {message.content}
@@ -539,38 +542,38 @@ export default function ChatPage() {
                   ))}
 
                   {context ? (
-                    <div className="rounded-3xl border border-white/10 bg-black/30 p-5">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    <div className="border-t border-white/10 pt-6">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
                         Current Working Model
                       </p>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                        <div className="border border-white/10 p-4">
                           <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             Context Readiness
                           </p>
-                          <p className="mt-2 text-2xl font-semibold text-white">
+                          <p className="mt-2 text-3xl font-semibold text-white">
                             {context.readiness.score}
                           </p>
-                          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                          <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             {formatEnumLabel(context.readiness.recommendedMode)}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="border border-white/10 p-4">
                           <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             Total Captured
                           </p>
-                          <p className="mt-2 text-2xl font-semibold text-white">
+                          <p className="mt-2 text-3xl font-semibold text-white">
                             {formatCompactNumber(context.confidence.sampleSize)}
                           </p>
-                          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                          <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             {formatEnumLabel(context.confidence.sampleBand)}
                           </p>
                         </div>
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="border border-white/10 p-4">
                           <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             Primary Angle
                           </p>
-                          <p className="mt-2 text-sm leading-6 text-zinc-200">
+                          <p className="mt-2 text-sm leading-7 text-zinc-200">
                             {contract?.planner.primaryAngle ?? "Waiting for the generation contract."}
                           </p>
                         </div>
@@ -580,39 +583,39 @@ export default function ChatPage() {
                 </>
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4 sm:px-6 sm:pb-6">
-            <div className="pointer-events-auto w-full max-w-3xl rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-md">
+          <div className="sticky bottom-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
+            <div className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
               <form onSubmit={handleComposerSubmit}>
-                <div className="flex items-end gap-3">
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                  >
-                    +
-                  </button>
-                  <textarea
-                    value={draftInput}
-                    onChange={(event) => setDraftInput(event.target.value)}
-                    placeholder="What are we creating today?"
-                    className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!context || !contract || !draftInput.trim()}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
-                    aria-label="Send message"
-                  >
-                    ↑
-                  </button>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
-                    LLM wiring is next. This route already uses the deterministic contract.
-                  </p>
-                  <div className="hidden items-center gap-2 md:flex">
-                    <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex items-end gap-3">
+                    <button
+                      type="button"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      +
+                    </button>
+                    <textarea
+                      value={draftInput}
+                      onChange={(event) => setDraftInput(event.target.value)}
+                      placeholder="What are we creating today?"
+                      className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!context || !contract || !draftInput.trim()}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
+                      aria-label="Send message"
+                    >
+                      ↑
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+                      LLM wiring is next. This route already uses the deterministic contract.
+                    </p>
+                    <span className="hidden rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 md:inline-flex">
                       {contract ? formatEnumLabel(contract.mode) : "Loading"}
                     </span>
                   </div>
@@ -624,12 +627,12 @@ export default function ChatPage() {
       </div>
 
       {analysisOpen && context ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 px-4 py-8">
-          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#070707] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.6)]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-4 py-8">
+          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
             <button
               type="button"
               onClick={() => setAnalysisOpen(false)}
-              className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white"
+              className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
             >
               Close
             </button>
@@ -645,25 +648,25 @@ export default function ChatPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-4">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="border border-white/10 p-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
                   <p className="mt-2 text-lg font-semibold text-white">
                     {formatEnumLabel(context.creatorProfile.archetype)}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="border border-white/10 p-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
                   <p className="mt-2 text-lg font-semibold text-white">
                     {formatEnumLabel(context.creatorProfile.niche.primaryNiche)}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="border border-white/10 p-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
                   <p className="mt-2 text-lg font-semibold text-white">
                     {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="border border-white/10 p-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
                   <p className="mt-2 text-lg font-semibold text-white">
                     {context.readiness.score}
@@ -672,7 +675,7 @@ export default function ChatPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="border border-white/10 p-5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                     Strategy Delta
                   </p>
@@ -682,13 +685,13 @@ export default function ChatPage() {
                   <ul className="mt-3 space-y-2 text-sm text-zinc-300">
                     {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
                       <li key={`${item.area}-${item.direction}`}>
-                        {formatEnumLabel(item.direction)} {formatEnumLabel(item.area)} ({formatEnumLabel(item.priority)})
+                        {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="border border-white/10 p-5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                     Confidence
                   </p>
@@ -702,13 +705,13 @@ export default function ChatPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="border border-white/10 p-5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                     Positive Anchors
                   </p>
                   <ul className="mt-3 space-y-3 text-sm text-zinc-300">
                     {context.positiveAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                      <li key={post.id} className="border border-white/10 p-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                           {formatEnumLabel(post.lane)} | {post.goalFitScore}
                         </p>
@@ -718,13 +721,13 @@ export default function ChatPage() {
                   </ul>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="border border-white/10 p-5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                     Negative Anchors
                   </p>
                   <ul className="mt-3 space-y-3 text-sm text-zinc-300">
                     {context.negativeAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                      <li key={post.id} className="border border-white/10 p-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                           {formatEnumLabel(post.lane)} | {post.goalFitScore}
                         </p>
@@ -738,6 +741,6 @@ export default function ChatPage() {
           </div>
         </div>
       ) : null}
-    </XShell>
+    </main>
   );
 }
