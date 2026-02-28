@@ -334,6 +334,13 @@ It should answer:
 - how should they create conversations
 - what should they experiment with next
 
+The playbook should also respect explicit user capacity inputs captured during onboarding:
+
+- posting capacity
+- reply budget per day
+
+This prevents the system from recommending a reply-led growth loop to a user who cannot realistically sustain it.
+
 This is the layer the future planner/writer model should follow most directly.
 
 ### 7. Strategy Layer
