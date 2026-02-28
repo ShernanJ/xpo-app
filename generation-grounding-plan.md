@@ -204,10 +204,10 @@ Likely files:
 
 ### 9. Prompt Compaction / Salience Ordering
 
-- [ ] Reduce prompt entropy
-- [ ] Put evidence pack near the top of prompts
-- [ ] Keep strategy compressed and secondary
-- [ ] Keep structure blueprint present without burying concrete facts
+- [x] Reduce prompt entropy
+- [x] Put evidence pack near the top of prompts
+- [x] Keep strategy compressed and secondary
+- [x] Keep structure blueprint present without burying concrete facts
 
 Definition of done:
 - prompts are shorter, clearer, and evidence is more salient
@@ -252,9 +252,8 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Prompt Compaction / Salience Ordering
-2. Better Debugging For Grounding
-3. Offline Grounding Regression Checks
+1. Better Debugging For Grounding
+2. Offline Grounding Regression Checks
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
