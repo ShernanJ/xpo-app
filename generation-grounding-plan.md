@@ -218,8 +218,8 @@ Likely files:
 
 ### 10. Better Debugging For Grounding
 
-- [ ] Expose more grounding debug data in dev mode
-- [ ] Show:
+- [x] Expose more grounding debug data in dev mode
+- [x] Show:
   - selected topic anchors
   - evidence pack
   - per-draft evidence usage
@@ -229,8 +229,8 @@ Definition of done:
 - a bad output can be traced to a specific grounding failure instead of guessed at
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
-- `apps/web/app/chat/page.tsx`
+ - `apps/web/lib/onboarding/chatAgent.ts`
+ - `apps/web/app/chat/page.tsx`
 
 ### 11. Offline Grounding Regression Checks
 
@@ -252,8 +252,7 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Better Debugging For Grounding
-2. Offline Grounding Regression Checks
+1. Offline Grounding Regression Checks
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
