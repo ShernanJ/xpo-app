@@ -20,7 +20,9 @@ interface PlannerOutput {
 
 interface WriterOutput {
   response: string;
+  angles: string[];
   drafts: string[];
+  supportAsset: string;
   whyThisWorks: string[];
   watchOutFor: string[];
 }
@@ -28,7 +30,9 @@ interface WriterOutput {
 interface CriticOutput {
   approved: boolean;
   finalResponse: string;
+  finalAngles: string[];
   finalDrafts: string[];
+  finalSupportAsset: string;
   finalWhyThisWorks: string[];
   finalWatchOutFor: string[];
   issues: string[];
@@ -44,7 +48,9 @@ export type CreatorChatProgressPhase =
 
 export interface CreatorChatReplyResult {
   reply: string;
+  angles: string[];
   drafts: string[];
+  supportAsset: string | null;
   whyThisWorks: string[];
   watchOutFor: string[];
   source: ChatModelProvider | "deterministic";
@@ -78,7 +84,9 @@ function buildDeterministicFallback(params: {
   if (contract.mode === "analysis_only") {
     return {
       reply: `The model is still in analysis mode. ${context.readiness.reasons[0] ?? "The current sample is not strong enough for reliable drafting yet."}`,
+      angles: [],
       drafts: [],
+      supportAsset: null,
       whyThisWorks: [],
       watchOutFor: [
         "Wait for the sample to deepen before relying on generated drafts.",
@@ -91,7 +99,14 @@ function buildDeterministicFallback(params: {
 
     return {
       reply: `Focus on ${focus} first. Do not force a polished post yet. Pick 2-3 specific angles you could talk about naturally, then choose the one that best proves something real about you.`,
+      angles: [
+        `the real build problem or insight behind ${focus}`,
+        `what you're seeing while building ${focus} that other people miss`,
+        `one concrete lesson from ${focus} + "thoughts?"`,
+      ],
       drafts: [],
+      supportAsset:
+        "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
       whyThisWorks: [
         "It separates planning from final post writing.",
         "It keeps the next move anchored to a specific content focus instead of generic posting advice.",
@@ -114,10 +129,13 @@ function buildDeterministicFallback(params: {
     reply: `Use the ${formatEnumLabel(
       contract.planner.targetLane,
     )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
+    angles: [],
     drafts: [
       `${topHook}: ${contract.planner.primaryAngle}`,
       `${topType} version: ${params.userMessage}. ${contract.planner.primaryAngle}`,
     ],
+    supportAsset:
+      "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
     whyThisWorks: [
       "It stays inside the deterministic lane, hook, and angle constraints.",
       "It keeps the draft aligned to the strongest current strategy signal.",
@@ -425,6 +443,51 @@ function formatAnchorExamples(
   ].join("\n");
 }
 
+function extractConcreteSubject(userMessage: string): string | null {
+  const trimmed = userMessage.trim();
+  const patterns = [
+    /(?:^|\b)i want to write a post about\s+(.+)$/i,
+    /(?:^|\b)write a post about\s+(.+)$/i,
+    /(?:^|\b)post about\s+(.+)$/i,
+    /(?:^|\b)i'm posting about\s+(.+)$/i,
+    /(?:^|\b)im posting about\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim().replace(/[.?!]+$/, "");
+    }
+  }
+
+  return null;
+}
+
+function inferUserMessageVoiceHints(userMessage: string): string {
+  const trimmed = userMessage.trim();
+  if (!trimmed) {
+    return "No additional live voice hints.";
+  }
+
+  const letters = trimmed.match(/[A-Za-z]/g) ?? [];
+  const lowercaseLetters = trimmed.match(/[a-z]/g) ?? [];
+  const lowercaseShare =
+    letters.length > 0 ? Math.round((lowercaseLetters.length / letters.length) * 100) : 0;
+  const slangMatches = trimmed.match(/\b(bruh|lol|lmao|ngl|idk|rn|tl)\b/gi) ?? [];
+  const sentenceCount = trimmed.split(/[.!?]+/).filter(Boolean).length;
+
+  return [
+    `Lowercase share in current request: ${lowercaseShare}%`,
+    slangMatches.length > 0
+      ? `Live slang present: ${slangMatches.join(", ").toLowerCase()}`
+      : "Live slang present: none",
+    sentenceCount <= 1
+      ? "Live request style: clipped and direct"
+      : "Live request style: multi-sentence",
+    "Weight the current user message style more heavily than weak historical signals if they conflict.",
+  ].join("\n");
+}
+
 function buildWriterSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -442,14 +505,19 @@ function buildWriterSystemPrompt(params: {
       : "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
     "The user's native voice matters more than generic social-media best practices.",
+    "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
     "If the anchors are casual, lowercase, clipped, or slangy, keep that character in the drafts.",
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
+    "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
     "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
     intent === "ideate"
-      ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize authentic angles, themes, and what each idea should prove."
+      ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize 2-4 concrete, X-native angles written in the user's voice, and leave drafts empty."
       : "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
+    intent === "ideate"
+      ? "Each angle should feel like a believable post direction the user could actually say, not a generic instruction like 'share a recent win'."
+      : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Objective: ${planner.objective}.`,
@@ -475,10 +543,11 @@ function buildCriticSystemPrompt(params: {
     "Review the candidate response package and either approve it or tighten it.",
     "Keep the final response concise, useful, and aligned to the deterministic checklist.",
     intent === "ideate"
-      ? "If the user is still planning, keep the response focused on authentic angles and do not force finished post drafts."
+      ? "If the user is still planning, keep the response focused on authentic angles, keep final drafts empty, and make the angles feel like something the user would naturally say."
       : "Keep the draft candidates sharp and usable as actual X posts.",
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
     "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
+    "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
     "The final drafts should feel like the user's own tone with stronger strategy, not a different person.",
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
@@ -551,6 +620,9 @@ export async function generateCreatorChatReply(params: {
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Concrete subject from user request: ${
+        extractConcreteSubject(params.userMessage) ?? "none"
+      }`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
       `Blocked reasons: ${contract.planner.blockedReasons.join(" | ") || "none"}`,
@@ -597,8 +669,12 @@ export async function generateCreatorChatReply(params: {
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Concrete subject from user request: ${
+        extractConcreteSubject(params.userMessage) ?? "none"
+      }`,
       `Recent chat history:\n${historyText}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
+      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
         "Voice anchors to imitate for tone and casing",
         context.creatorProfile.examples.voiceAnchors,
@@ -634,12 +710,19 @@ export async function generateCreatorChatReply(params: {
       additionalProperties: false,
       properties: {
         response: { type: "string" },
+        angles: {
+          type: "array",
+          items: { type: "string" },
+          minItems: params.intent === "ideate" ? 2 : 0,
+          maxItems: 4,
+        },
         drafts: {
           type: "array",
           items: { type: "string" },
           minItems: 0,
           maxItems: 3,
         },
+        supportAsset: { type: "string" },
         whyThisWorks: {
           type: "array",
           items: { type: "string" },
@@ -651,7 +734,14 @@ export async function generateCreatorChatReply(params: {
           maxItems: 3,
         },
       },
-      required: ["response", "drafts", "whyThisWorks", "watchOutFor"],
+      required: [
+        "response",
+        "angles",
+        "drafts",
+        "supportAsset",
+        "whyThisWorks",
+        "watchOutFor",
+      ],
     },
   });
 
@@ -668,7 +758,11 @@ export async function generateCreatorChatReply(params: {
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Concrete subject from user request: ${
+        extractConcreteSubject(params.userMessage) ?? "none"
+      }`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
+      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
         "Voice anchors to compare against",
         context.creatorProfile.examples.voiceAnchors,
@@ -685,12 +779,19 @@ export async function generateCreatorChatReply(params: {
       properties: {
         approved: { type: "boolean" },
         finalResponse: { type: "string" },
+        finalAngles: {
+          type: "array",
+          items: { type: "string" },
+          minItems: params.intent === "ideate" ? 2 : 0,
+          maxItems: 4,
+        },
         finalDrafts: {
           type: "array",
           items: { type: "string" },
           minItems: 0,
           maxItems: 3,
         },
+        finalSupportAsset: { type: "string" },
         finalWhyThisWorks: {
           type: "array",
           items: { type: "string" },
@@ -710,7 +811,9 @@ export async function generateCreatorChatReply(params: {
       required: [
         "approved",
         "finalResponse",
+        "finalAngles",
         "finalDrafts",
+        "finalSupportAsset",
         "finalWhyThisWorks",
         "finalWatchOutFor",
         "issues",
@@ -719,9 +822,20 @@ export async function generateCreatorChatReply(params: {
   });
 
   params.onProgress?.("finalizing");
+  const intent = params.intent ?? "draft";
+
   return {
     reply: critic.finalResponse.trim() || writer.response.trim(),
-    drafts: sanitizeStringList(critic.finalDrafts, 3, writer.drafts),
+    angles:
+      intent === "ideate"
+        ? sanitizeStringList(critic.finalAngles, 4, writer.angles)
+        : [],
+    drafts:
+      intent === "ideate"
+        ? []
+        : sanitizeStringList(critic.finalDrafts, 3, writer.drafts),
+    supportAsset:
+      (critic.finalSupportAsset || writer.supportAsset).trim() || null,
     whyThisWorks: sanitizeStringList(
       critic.finalWhyThisWorks,
       3,

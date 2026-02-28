@@ -56,7 +56,9 @@ interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
+    angles: string[];
     drafts: string[];
+    supportAsset: string | null;
     whyThisWorks: string[];
     watchOutFor: string[];
     source: "openai" | "groq" | "deterministic";
@@ -97,7 +99,9 @@ interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  angles?: string[];
   drafts?: string[];
+  supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
   source?: "openai" | "groq" | "deterministic";
@@ -382,7 +386,9 @@ function buildDeterministicReply(
     return {
       content:
         "Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.",
+      angles: [],
       drafts: [],
+      supportAsset: null,
       whyThisWorks: [],
       watchOutFor: [
         "Wait for a deeper sample before treating drafts as reliable.",
@@ -399,7 +405,14 @@ function buildDeterministicReply(
 
     return {
       content: `Start with ${focusLabel.toLowerCase()}. Keep the tone natural, lowercase, and specific to what you actually did or noticed. The first move is to pick 2-3 honest angles in that lane before writing final post copy.`,
+      angles: [
+        `the real thing you're learning while building it`,
+        `one concrete pain point the product fixes + "thoughts?"`,
+        `what building it changed about how you think about x growth`,
+      ],
       drafts: [],
+      supportAsset:
+        "Use a screenshot, quick demo clip, or a link only if it helps prove the point.",
       whyThisWorks: [
         "It separates subject-matter planning from final copywriting.",
         "It keeps the next move anchored to a specific content lane instead of broad generic posting.",
@@ -415,10 +428,13 @@ function buildDeterministicReply(
 
   return {
     content: `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`,
+    angles: [],
     drafts: [
       `${topHook}: ${contract.planner.primaryAngle}`,
       `${topType} angle: ${contract.planner.primaryAngle}`,
     ],
+    supportAsset:
+      "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
     whyThisWorks: [
       "It stays aligned to the current lane and angle.",
       "It keeps the draft inside the strongest deterministic constraints.",
@@ -727,6 +743,7 @@ export default function ChatPage() {
     async (options: {
       prompt: string;
       appendUserMessage: boolean;
+      displayUserMessage?: string;
       intent?: ChatIntent;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
@@ -762,7 +779,7 @@ export default function ChatPage() {
         const userMessage: ChatMessage = {
           id: `user-${Date.now()}`,
           role: "user",
-          content: trimmedPrompt,
+          content: options.displayUserMessage?.trim() || trimmedPrompt,
         };
 
         setMessages((current) => [...current, userMessage]);
@@ -802,7 +819,9 @@ export default function ChatPage() {
               : data.ok
                 ? {
                     reply: "The chat route failed to return a reply.",
+                    angles: [],
                     drafts: [],
+                    supportAsset: null,
                     whyThisWorks: [],
                     watchOutFor: [],
                     source: "deterministic" as const,
@@ -821,7 +840,9 @@ export default function ChatPage() {
                 (data.ok
                   ? "The chat route failed to return a reply."
                   : (data.errors[0]?.message ?? "Failed to generate a reply.")),
+              angles: reply?.angles ?? [],
               drafts: reply?.drafts ?? [],
+              supportAsset: reply?.supportAsset ?? null,
               whyThisWorks: reply?.whyThisWorks ?? [],
               watchOutFor: reply?.watchOutFor ?? [],
               source: reply?.source,
@@ -895,7 +916,9 @@ export default function ChatPage() {
             id: `assistant-${Date.now() + 1}`,
             role: "assistant",
             content: streamedResult.reply,
+            angles: streamedResult.angles,
             drafts: streamedResult.drafts,
+            supportAsset: streamedResult.supportAsset,
             whyThisWorks: streamedResult.whyThisWorks,
             watchOutFor: streamedResult.watchOutFor,
             source: streamedResult.source,
@@ -934,6 +957,37 @@ export default function ChatPage() {
       messages,
       providerPreference,
       runId,
+    ],
+  );
+
+  const handleAngleSelect = useCallback(
+    async (angle: string) => {
+      if (!activeStrategyInputs || strategyPromptStep || isSending) {
+        return;
+      }
+
+      await requestAssistantReply({
+        prompt: [
+          `Use this exact angle as the basis for 2-3 real X post drafts: "${angle}"`,
+          "Keep the subject concrete and preserve my real voice.",
+          "Write in a casual, lowercase, natural way unless the angle clearly needs otherwise.",
+          "Do not turn this into corporate advice, generic startup bait, or fake engagement farming.",
+          'If a simple ending like "thoughts?" fits naturally, prefer that over a formal CTA.',
+          "Recommend the best asset to pair with the post.",
+        ].join(" "),
+        displayUserMessage: `use this angle: ${angle}`,
+        appendUserMessage: true,
+        intent: "draft",
+        strategyInputOverride: activeStrategyInputs,
+        contentFocusOverride: activeContentFocus,
+      });
+    },
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      isSending,
+      requestAssistantReply,
+      strategyPromptStep,
     ],
   );
 
@@ -1306,6 +1360,36 @@ export default function ChatPage() {
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
 
+                      {message.role === "assistant" && message.angles?.length ? (
+                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                          {message.angles.map((angle, index) => (
+                            <div
+                              key={`${message.id}-angle-${index}`}
+                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                            >
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                Angle {index + 1}
+                              </p>
+                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
+                                {angle}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleAngleSelect(angle);
+                                }}
+                                disabled={
+                                  isSending || !!strategyPromptStep || !activeStrategyInputs
+                                }
+                                className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                              >
+                                Turn Into Drafts
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
                       {message.role === "assistant" && message.drafts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.drafts.map((draft, index) => (
@@ -1321,6 +1405,17 @@ export default function ChatPage() {
                               </p>
                             </div>
                           ))}
+                        </div>
+                      ) : null}
+
+                      {message.role === "assistant" && message.supportAsset ? (
+                        <div className="mt-4 border-t border-white/10 pt-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Best Asset
+                          </p>
+                          <p className="mt-2 text-xs leading-6 text-zinc-300">
+                            {message.supportAsset}
+                          </p>
                         </div>
                       ) : null}
 
