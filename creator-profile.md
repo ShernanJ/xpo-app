@@ -321,6 +321,7 @@ It should include:
 
 - best-performing examples
 - voice-anchor examples
+- strategy-anchor examples
 - caution examples to avoid repeating weak patterns
 
 This layer exists so the agent does not draft from abstract summaries alone.
@@ -329,9 +330,20 @@ The product should be able to hand the writer real post references that show:
 
 - what the user's audience already responds to
 - what most closely matches the user's natural voice
+- what best matches the current strategy gap and target direction
 - what kinds of structures currently underperform
 
 These examples should be selected deterministically first, not manually curated.
+
+Strategy-anchor examples should be lane-aware when necessary.
+
+That means the retrieval layer should be able to pull from:
+
+- original posts
+- replies
+- quote posts
+
+depending on which lane best matches the current strategy delta.
 
 ### 9. Reply Layer
 
