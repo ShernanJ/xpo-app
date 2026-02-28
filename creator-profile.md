@@ -388,6 +388,7 @@ It should bundle:
 - the `PerformanceModel`
 - the current strategy delta
 - a compact confidence summary
+- a context-readiness summary
 - a compact anchor summary
 - positive anchors
 - negative anchors
@@ -412,6 +413,22 @@ The compact anchor summary should expose:
 - how many positive retrieval sets are populated
 - whether goal-conflict retrieval is meaningfully distinct from generic caution retrieval
 - the current anchor-quality score/status from the evaluation harness
+
+The context-readiness summary should expose:
+
+- a deterministic readiness score
+- whether the context is `ready`, `caution`, or `not_ready`
+- the recommended generation mode:
+  - `full_generation`
+  - `conservative_generation`
+  - `analysis_only`
+- concise reasons for that recommendation
+
+This exists so the future LLM can immediately decide whether to:
+
+- generate normally
+- stay conservative
+- avoid generation and stick to analysis
 
 This object should be stable and versioned.
 
