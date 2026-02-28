@@ -51,6 +51,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - conversation conversion quality
 - distribution loop quality
 - anchor quality
+- voice match quality
 
 It should output:
 
