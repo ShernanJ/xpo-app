@@ -12,7 +12,19 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_AGENT_CONTEXT_VERSION = "agent_context_v1";
+export const CREATOR_AGENT_CONTEXT_VERSION = "agent_context_v2";
+
+export interface CreatorAgentContextAnchorSummary {
+  positiveAnchorCount: number;
+  positiveLaneCount: number;
+  populatedPositiveRetrievalSets: number;
+  negativeAnchorCount: number;
+  negativeLaneCount: number;
+  goalConflictCount: number;
+  distinctGoalConflictCount: number;
+  anchorQualityScore: number | null;
+  anchorQualityStatus: CreatorEvaluationCheck["status"] | null;
+}
 
 export interface CreatorAgentContextConfidenceSummary {
   sampleBand: OnboardingResult["analysisConfidence"]["band"];
@@ -41,6 +53,7 @@ export interface CreatorAgentContext {
   performanceModel: ReturnType<typeof buildPerformanceModel>;
   strategyDelta: CreatorProfile["strategy"]["delta"];
   confidence: CreatorAgentContextConfidenceSummary;
+  anchorSummary: CreatorAgentContextAnchorSummary;
   positiveAnchors: CreatorRepresentativePost[];
   negativeAnchors: CreatorRepresentativePost[];
   retrieval: CreatorProfile["examples"];
@@ -65,6 +78,43 @@ function dedupeRepresentativePosts(
   }
 
   return Array.from(byId.values());
+}
+
+function buildAnchorSummary(
+  profile: CreatorProfile,
+  evaluationChecks: CreatorEvaluationCheck[],
+  positiveAnchors: CreatorRepresentativePost[],
+  negativeAnchors: CreatorRepresentativePost[],
+): CreatorAgentContextAnchorSummary {
+  const positiveGroups = [
+    profile.examples.bestPerforming,
+    profile.examples.voiceAnchors,
+    profile.examples.strategyAnchors,
+    profile.examples.goalAnchors,
+  ];
+  const populatedPositiveRetrievalSets = positiveGroups.filter(
+    (group) => group.length > 0,
+  ).length;
+  const positiveLaneCount = new Set(positiveAnchors.map((post) => post.lane)).size;
+  const negativeLaneCount = new Set(negativeAnchors.map((post) => post.lane)).size;
+  const cautionIds = new Set(profile.examples.cautionExamples.map((post) => post.id));
+  const distinctGoalConflictCount = profile.examples.goalConflictExamples.filter(
+    (post) => !cautionIds.has(post.id),
+  ).length;
+  const anchorQualityCheck =
+    evaluationChecks.find((check) => check.key === "anchor_quality") ?? null;
+
+  return {
+    positiveAnchorCount: positiveAnchors.length,
+    positiveLaneCount,
+    populatedPositiveRetrievalSets,
+    negativeAnchorCount: negativeAnchors.length,
+    negativeLaneCount,
+    goalConflictCount: profile.examples.goalConflictExamples.length,
+    distinctGoalConflictCount,
+    anchorQualityScore: anchorQualityCheck?.score ?? null,
+    anchorQualityStatus: anchorQualityCheck?.status ?? null,
+  };
 }
 
 export function buildCreatorAgentContext(params: {
@@ -94,6 +144,22 @@ export function buildCreatorAgentContext(params: {
   const weakestChecks = [...evaluation.checks]
     .sort((left, right) => left.score - right.score)
     .slice(0, 2);
+  const positiveAnchors = dedupeRepresentativePosts(
+    [
+      creatorProfile.examples.bestPerforming,
+      creatorProfile.examples.voiceAnchors,
+      creatorProfile.examples.strategyAnchors,
+      creatorProfile.examples.goalAnchors,
+    ],
+    8,
+  );
+  const negativeAnchors = dedupeRepresentativePosts(
+    [
+      creatorProfile.examples.goalConflictExamples,
+      creatorProfile.examples.cautionExamples,
+    ],
+    6,
+  );
 
   return {
     generatedAt: new Date().toISOString(),
@@ -121,22 +187,14 @@ export function buildCreatorAgentContext(params: {
       replySignalConfidence: creatorProfile.reply.signalConfidence,
       quoteSignalConfidence: creatorProfile.quote.signalConfidence,
     },
-    positiveAnchors: dedupeRepresentativePosts(
-      [
-        creatorProfile.examples.bestPerforming,
-        creatorProfile.examples.voiceAnchors,
-        creatorProfile.examples.strategyAnchors,
-        creatorProfile.examples.goalAnchors,
-      ],
-      8,
+    anchorSummary: buildAnchorSummary(
+      creatorProfile,
+      evaluation.checks,
+      positiveAnchors,
+      negativeAnchors,
     ),
-    negativeAnchors: dedupeRepresentativePosts(
-      [
-        creatorProfile.examples.goalConflictExamples,
-        creatorProfile.examples.cautionExamples,
-      ],
-      6,
-    ),
+    positiveAnchors,
+    negativeAnchors,
     retrieval: creatorProfile.examples,
   };
 }
