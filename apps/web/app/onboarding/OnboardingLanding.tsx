@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { XShell } from "@/components/x-shell";
-import type { OnboardingInput } from "@/lib/onboarding/types";
+import type { OnboardingInput, XPublicProfile } from "@/lib/onboarding/types";
 
 interface ValidationError {
   field: string;
@@ -29,6 +29,19 @@ interface OnboardingRunFailure {
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
 
+interface OnboardingPreviewSuccess {
+  ok: true;
+  account: string;
+  preview: XPublicProfile | null;
+}
+
+interface OnboardingPreviewFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+
 const LOADING_STEPS = [
   "Finding profile",
   "Reading recent posts",
@@ -40,6 +53,8 @@ export default function OnboardingLanding() {
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<XPublicProfile | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,6 +72,61 @@ export default function OnboardingLanding() {
       window.clearInterval(interval);
     };
   }, [isLoading]);
+
+  useEffect(() => {
+    const trimmed = account.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setPreview(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsPreviewLoading(true);
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
+          {
+            method: "GET",
+            signal: controller.signal,
+          },
+        );
+
+        const text = await response.text();
+        let data: OnboardingPreviewResponse | null = null;
+
+        try {
+          data = JSON.parse(text) as OnboardingPreviewResponse;
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok || !data || !data.ok) {
+          setPreview(null);
+          return;
+        }
+
+        setPreview(data.preview);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        setPreview(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsPreviewLoading(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [account]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -252,6 +322,55 @@ export default function OnboardingLanding() {
               </p>
             ) : null}
           </form>
+
+          {isPreviewLoading ? (
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                Loading Preview
+              </p>
+            </div>
+          ) : preview ? (
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4 text-left">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
+                  {preview.avatarUrl ? (
+                    <div
+                      className="h-full w-full bg-cover bg-center"
+                      style={{ backgroundImage: `url(${preview.avatarUrl})` }}
+                      role="img"
+                      aria-label={`${preview.name} profile photo`}
+                    />
+                  ) : (
+                    preview.name.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-base font-semibold text-white">{preview.name}</p>
+                    {preview.isVerified ? (
+                      <span className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-white">
+                        Verified
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="truncate text-sm text-zinc-500">@{preview.username}</p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-lg font-semibold text-white">
+                    {new Intl.NumberFormat("en-US", {
+                      notation: "compact",
+                      maximumFractionDigits: 1,
+                    }).format(preview.followersCount)}
+                  </p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Followers
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
       </div>
     </XShell>
