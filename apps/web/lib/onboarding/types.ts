@@ -142,3 +142,79 @@ export interface PerformanceModel {
   weaknesses: string[];
   nextActions: string[];
 }
+
+export type CreatorArchetype =
+  | "builder"
+  | "founder_operator"
+  | "job_seeker"
+  | "educator"
+  | "curator"
+  | "social_operator"
+  | "hybrid";
+
+export interface TopicSignal {
+  label: string;
+  count: number;
+  percentage: number;
+}
+
+export interface CreatorIdentityProfile {
+  username: string;
+  displayName: string;
+  followersCount: number;
+  followingCount: number;
+  followerBand: GrowthStage;
+  isVerified: boolean;
+  accountAgeDays: number;
+}
+
+export interface CreatorVoiceProfile {
+  primaryCasing: ToneCasing;
+  averageLengthBand: LengthBand | null;
+  lowercaseSharePercent: number;
+  questionPostRate: number;
+  multiLinePostRate: number;
+  emojiPostRate: number;
+  dominantContentType: ContentType | null;
+  dominantHookPattern: HookPattern | null;
+  styleNotes: string[];
+}
+
+export interface CreatorTopicProfile {
+  dominantTopics: TopicSignal[];
+  contentPillars: string[];
+  audienceSignals: string[];
+}
+
+export interface CreatorPerformanceProfile {
+  baselineAverageEngagement: number;
+  medianEngagement: number;
+  engagementRate: number;
+  postingCadencePerWeek: number;
+  bestContentType: ContentType | null;
+  weakestContentType: ContentType | null;
+  bestHookPattern: HookPattern | null;
+  recommendedLengthBand: LengthBand | null;
+  recommendedPostsPerWeek: number;
+}
+
+export interface CreatorStrategyProfile {
+  primaryGoal: UserGoal;
+  archetype: CreatorArchetype;
+  currentStrengths: string[];
+  currentWeaknesses: string[];
+  recommendedAngles: string[];
+  nextMoves: string[];
+  rationale: string;
+}
+
+export interface CreatorProfile {
+  generatedAt: string;
+  sourceRunId: string;
+  identity: CreatorIdentityProfile;
+  voice: CreatorVoiceProfile;
+  topics: CreatorTopicProfile;
+  performance: CreatorPerformanceProfile;
+  archetype: CreatorArchetype;
+  strategy: CreatorStrategyProfile;
+}

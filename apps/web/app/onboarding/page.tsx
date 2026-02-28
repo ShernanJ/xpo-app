@@ -4,6 +4,7 @@ import Image from "next/image";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
+  CreatorProfile,
   OnboardingInput,
   OnboardingResult,
   XPublicProfile,
@@ -40,6 +41,18 @@ interface PerformanceModelFailure {
 }
 
 type PerformanceModelResponse = PerformanceModelSuccess | PerformanceModelFailure;
+
+interface CreatorProfileSuccess {
+  ok: true;
+  data: CreatorProfile;
+}
+
+interface CreatorProfileFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type CreatorProfileResponse = CreatorProfileSuccess | CreatorProfileFailure;
 
 interface OnboardingPreviewSuccess {
   ok: true;
@@ -186,11 +199,15 @@ export default function OnboardingPage() {
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
+  const [isCreatorProfileLoading, setIsCreatorProfileLoading] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [result, setResult] = useState<OnboardingRunResponse | null>(null);
+  const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
+  const [showCreatorProfileJson, setShowCreatorProfileJson] = useState(false);
   const [performanceModel, setPerformanceModel] = useState<PerformanceModel | null>(
     null,
   );
+  const [creatorProfileError, setCreatorProfileError] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
 
@@ -284,9 +301,69 @@ export default function OnboardingPage() {
     };
   }, [account]);
 
+  useEffect(() => {
+    if (!result || !result.ok) {
+      setCreatorProfile(null);
+      setCreatorProfileError(null);
+      setIsCreatorProfileLoading(false);
+      setShowCreatorProfileJson(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setCreatorProfile(null);
+    setCreatorProfileError(null);
+    setIsCreatorProfileLoading(true);
+    setShowCreatorProfileJson(false);
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/creator/profile", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId: result.runId }),
+          signal: controller.signal,
+        });
+
+        const data: CreatorProfileResponse = await response.json();
+        if (!response.ok || !data.ok) {
+          setCreatorProfileError(
+            data.ok
+              ? "Failed to build creator profile."
+              : (data.errors[0]?.message ?? "Failed to build creator profile."),
+          );
+          return;
+        }
+
+        setCreatorProfile(data.data);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        setCreatorProfileError("Network error while building creator profile.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsCreatorProfileLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [result]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
+    setIsCreatorProfileLoading(false);
+    setCreatorProfile(null);
+    setCreatorProfileError(null);
+    setShowCreatorProfileJson(false);
     setNetworkError(null);
     setModelError(null);
     setResult(null);
@@ -713,6 +790,169 @@ export default function OnboardingPage() {
                     </p>
                   </article>
                 </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">
+                    Creator Profile
+                  </p>
+                  <h2 className="text-2xl font-semibold tracking-tight text-zinc-950">
+                    How the engine currently understands this account.
+                  </h2>
+                </div>
+
+                {isCreatorProfileLoading ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="h-4 w-32 rounded bg-zinc-200" />
+                      <div className="mt-3 space-y-2">
+                        <div className="h-3 w-48 rounded bg-zinc-200" />
+                        <div className="h-3 w-40 rounded bg-zinc-200" />
+                        <div className="h-3 w-44 rounded bg-zinc-200" />
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="h-4 w-40 rounded bg-zinc-200" />
+                      <div className="mt-3 space-y-2">
+                        <div className="h-3 w-full rounded bg-zinc-200" />
+                        <div className="h-3 w-5/6 rounded bg-zinc-200" />
+                        <div className="h-3 w-4/6 rounded bg-zinc-200" />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {creatorProfileError ? (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                    {creatorProfileError}
+                  </div>
+                ) : null}
+
+                {creatorProfile ? (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Archetype</p>
+                        <p className="mt-2 text-xl font-semibold text-zinc-950">
+                          {formatEnumLabel(creatorProfile.archetype)}
+                        </p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Follower Band
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {creatorProfile.identity.followerBand}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Voice
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {formatEnumLabel(creatorProfile.voice.primaryCasing)} /{" "}
+                              {creatorProfile.voice.averageLengthBand
+                                ? formatEnumLabel(creatorProfile.voice.averageLengthBand)
+                                : "Mixed"}
+                            </p>
+                          </div>
+                        </div>
+                        <ul className="mt-4 space-y-1.5 text-sm text-zinc-700">
+                          {creatorProfile.voice.styleNotes.map((note) => (
+                            <li key={note}>- {note}</li>
+                          ))}
+                        </ul>
+                      </article>
+
+                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">
+                          Content Pillars
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {creatorProfile.topics.contentPillars.length ? (
+                            creatorProfile.topics.contentPillars.map((pillar) => (
+                              <span
+                                key={pillar}
+                                className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700"
+                              >
+                                {pillar}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-sm text-zinc-500">
+                              Not enough repeated topics yet.
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-4 space-y-1.5 text-sm text-zinc-700">
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                            Audience Signals
+                          </p>
+                          {creatorProfile.topics.audienceSignals.length ? (
+                            <ul className="space-y-1.5">
+                              {creatorProfile.topics.audienceSignals.map((signal) => (
+                                <li key={signal}>- {signal}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-zinc-500">
+                              Audience intent is still weakly defined.
+                            </p>
+                          )}
+                        </div>
+                      </article>
+
+                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">
+                          Recommended Angles
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                          {creatorProfile.strategy.recommendedAngles.map((angle) => (
+                            <li key={angle}>- {angle}</li>
+                          ))}
+                        </ul>
+                      </article>
+
+                      <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Next Moves</p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                          {creatorProfile.strategy.nextMoves.map((move) => (
+                            <li key={move}>- {move}</li>
+                          ))}
+                        </ul>
+                      </article>
+                    </div>
+
+                    {showOnboardingDevTools ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-zinc-500">
+                              Developer Inspector
+                            </p>
+                            <p className="mt-1 text-sm text-zinc-600">
+                              Review the exact creator profile object used for downstream agent context.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreatorProfileJson((current) => !current)}
+                            className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950"
+                          >
+                            {showCreatorProfileJson ? "Hide Raw JSON" : "Show Raw JSON"}
+                          </button>
+                        </div>
+
+                        {showCreatorProfileJson ? (
+                          <pre className="mt-4 overflow-x-auto rounded-2xl bg-zinc-950 p-4 text-xs leading-6 text-zinc-100">
+                            {JSON.stringify(creatorProfile, null, 2)}
+                          </pre>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
 
               <div className="grid gap-3 sm:grid-cols-3">
