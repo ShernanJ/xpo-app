@@ -5,6 +5,7 @@ import type {
   GrowthStage,
   HookPattern,
   HookPatternItem,
+  PostFeatureSnapshot,
   XPublicPost,
 } from "./types";
 
@@ -98,6 +99,38 @@ export function detectHookPattern(text: string): HookPattern {
   }
 
   return "statement_open";
+}
+
+export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
+  const trimmed = post.text.trim();
+  const lines = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const wordCount = trimmed.length > 0 ? trimmed.split(/\s+/).filter(Boolean).length : 0;
+  const mentionMatches = post.text.match(/@\w+/g) ?? [];
+  const linkMatches = post.text.match(/https?:\/\/\S+/gi) ?? [];
+  const emojiMatches = post.text.match(/\p{Extended_Pictographic}/gu) ?? [];
+
+  return {
+    contentType: classifyContentType(post.text),
+    hookPattern: detectHookPattern(post.text),
+    engagementTotal: getPostEngagement(post),
+    hasLinks: linkMatches.length > 0,
+    linkCount: linkMatches.length,
+    hasMentions: mentionMatches.length > 0,
+    mentionCount: mentionMatches.length,
+    hasQuestion: trimmed.includes("?"),
+    hasNumbers: /\d/.test(post.text),
+    hasCta:
+      /\b(reply|retweet|repost|dm|follow|comment|share|bookmark|read|watch|join|apply|check out|sign up|subscribe|let'?s chat)\b/i.test(
+        post.text,
+      ),
+    lineCount: lines.length,
+    wordCount,
+    emojiCount: emojiMatches.length,
+    isReply: trimmed.startsWith("@"),
+  };
 }
 
 export function computeEngagementBaseline(

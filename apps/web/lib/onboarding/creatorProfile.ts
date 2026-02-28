@@ -1,4 +1,5 @@
 import {
+  analyzePostFeatures,
   classifyContentType,
   computePostEngagement,
   detectHookPattern,
@@ -497,7 +498,8 @@ function buildRepresentativePost(
   baselineEngagement: number,
   selectionReason: string,
 ): CreatorRepresentativePost {
-  const engagementTotal = computePostEngagement(post);
+  const features = analyzePostFeatures(post);
+  const engagementTotal = features.engagementTotal;
 
   return {
     id: post.id,
@@ -505,8 +507,9 @@ function buildRepresentativePost(
     createdAt: post.createdAt,
     engagementTotal,
     deltaVsBaselinePercent: toDeltaVsBaselinePercent(engagementTotal, baselineEngagement),
-    contentType: classifyContentType(post.text),
-    hookPattern: detectHookPattern(post.text),
+    contentType: features.contentType,
+    hookPattern: features.hookPattern,
+    features,
     selectionReason,
   };
 }
@@ -550,17 +553,16 @@ function buildRepresentativeExamples(params: {
 
   const voiceScoredPosts = posts
     .map((post) => {
+      const features = analyzePostFeatures(post);
       let score = 0;
-      const contentType = classifyContentType(post.text);
-      const hookPattern = detectHookPattern(post.text);
       const postLengthBand = inferLengthBandForPost(post.text);
       const postIsLowercase = isLowercaseOnlyPost(post.text);
-      const engagementLift = Math.max(0, computePostEngagement(post) - baselineEngagement);
+      const engagementLift = Math.max(0, features.engagementTotal - baselineEngagement);
 
-      if (params.dominantContentType && contentType === params.dominantContentType) {
+      if (params.dominantContentType && features.contentType === params.dominantContentType) {
         score += 2;
       }
-      if (params.dominantHookPattern && hookPattern === params.dominantHookPattern) {
+      if (params.dominantHookPattern && features.hookPattern === params.dominantHookPattern) {
         score += 2;
       }
       if (params.averageLengthBand && postLengthBand === params.averageLengthBand) {
@@ -572,10 +574,19 @@ function buildRepresentativeExamples(params: {
       ) {
         score += 1;
       }
+      if (features.hasQuestion) {
+        score += 0.35;
+      }
+      if (features.hasCta) {
+        score += 0.35;
+      }
+      if (features.lineCount > 1) {
+        score += 0.2;
+      }
 
       score += Math.min(1.5, engagementLift / Math.max(1, baselineEngagement));
 
-      return { post, score };
+      return { post, score, engagementTotal: features.engagementTotal };
     })
     .sort((a, b) => {
       const scoreDelta = b.score - a.score;
@@ -583,7 +594,7 @@ function buildRepresentativeExamples(params: {
         return scoreDelta;
       }
 
-      return computePostEngagement(b.post) - computePostEngagement(a.post);
+      return b.engagementTotal - a.engagementTotal;
     });
 
   const voiceAnchors = voiceScoredPosts

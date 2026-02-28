@@ -249,6 +249,23 @@ export interface CreatorStrategyProfile {
   rationale: string;
 }
 
+export interface PostFeatureSnapshot {
+  contentType: ContentType;
+  hookPattern: HookPattern;
+  engagementTotal: number;
+  hasLinks: boolean;
+  linkCount: number;
+  hasMentions: boolean;
+  mentionCount: number;
+  hasQuestion: boolean;
+  hasNumbers: boolean;
+  hasCta: boolean;
+  lineCount: number;
+  wordCount: number;
+  emojiCount: number;
+  isReply: boolean;
+}
+
 export interface CreatorRepresentativePost {
   id: string;
   text: string;
@@ -257,6 +274,7 @@ export interface CreatorRepresentativePost {
   deltaVsBaselinePercent: number;
   contentType: ContentType;
   hookPattern: HookPattern;
+  features: PostFeatureSnapshot;
   selectionReason: string;
 }
 

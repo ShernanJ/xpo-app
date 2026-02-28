@@ -1,7 +1,5 @@
 import {
-  classifyContentType,
-  computePostEngagement,
-  detectHookPattern,
+  analyzePostFeatures,
 } from "./analysis";
 import type {
   ContentType,
@@ -10,8 +8,14 @@ import type {
   OnboardingResult,
   PerformanceBandInsight,
   PerformanceModel,
+  PostFeatureSnapshot,
   XPublicPost,
 } from "./types";
+
+interface FeaturedPost {
+  post: XPublicPost;
+  features: PostFeatureSnapshot;
+}
 
 function toDeltaPercent(average: number, baseline: number): number {
   if (baseline <= 0) {
@@ -44,9 +48,9 @@ function isInsightReliable(count: number, totalPosts: number): boolean {
 }
 
 function summarizeGroups(
-  posts: XPublicPost[],
+  posts: FeaturedPost[],
   baselineAverageEngagement: number,
-  keySelector: (post: XPublicPost) => string,
+  keySelector: (post: FeaturedPost) => string,
 ): PerformanceBandInsight[] {
   const counters = new Map<string, { count: number; totalEngagement: number }>();
 
@@ -55,7 +59,7 @@ function summarizeGroups(
     const current = counters.get(key) ?? { count: 0, totalEngagement: 0 };
     counters.set(key, {
       count: current.count + 1,
-      totalEngagement: current.totalEngagement + computePostEngagement(post),
+      totalEngagement: current.totalEngagement + post.features.engagementTotal,
     });
   }
 
@@ -206,16 +210,20 @@ export function buildPerformanceModel(params: {
   onboarding: OnboardingResult;
 }): PerformanceModel {
   const posts = params.onboarding.recentPosts ?? [];
+  const featuredPosts = posts.map((post) => ({
+    post,
+    features: analyzePostFeatures(post),
+  }));
   const baselineAverageEngagement = params.onboarding.baseline.averageEngagement;
 
-  const formatInsights = summarizeGroups(posts, baselineAverageEngagement, (post) =>
-    classifyContentType(post.text),
+  const formatInsights = summarizeGroups(featuredPosts, baselineAverageEngagement, (post) =>
+    post.features.contentType,
   );
-  const hookInsights = summarizeGroups(posts, baselineAverageEngagement, (post) =>
-    detectHookPattern(post.text),
+  const hookInsights = summarizeGroups(featuredPosts, baselineAverageEngagement, (post) =>
+    post.features.hookPattern,
   );
-  const lengthInsights = summarizeGroups(posts, baselineAverageEngagement, (post) =>
-    getLengthBand(post.text),
+  const lengthInsights = summarizeGroups(featuredPosts, baselineAverageEngagement, (post) =>
+    getLengthBand(post.post.text),
   );
   const bestFormatInsight = getBestReliableInsight(formatInsights);
   const weakestFormatInsight = getWeakestReliableInsight(formatInsights);
@@ -239,10 +247,10 @@ export function buildPerformanceModel(params: {
   const conversationTriggerRate = posts.length
     ? Number(
         (
-          (posts.filter(
-            (post) => post.text.includes("?") && post.metrics.replyCount > 0,
+          (featuredPosts.filter(
+            (post) => post.features.hasQuestion && post.post.metrics.replyCount > 0,
           ).length /
-            posts.length) *
+            featuredPosts.length) *
           100
         ).toFixed(2),
       )

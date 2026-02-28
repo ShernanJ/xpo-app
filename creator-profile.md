@@ -200,6 +200,16 @@ These come from the scrape and structured analysis:
 - normalized profile
 - recent posts
 - engagement metrics
+- per-post feature extraction
+  - links
+  - mentions
+  - question usage
+  - number usage
+  - CTA presence
+  - line count
+  - word count
+  - emoji count
+  - reply-like structure
 - content distribution
 - hook patterns
 - performance model
