@@ -77,6 +77,17 @@ interface CreatorChatSuccess {
       | "quote_candidate";
     whyThisWorks: string[];
     watchOutFor: string[];
+    debug: {
+      formatExemplar: {
+        id: string;
+        lane: "original" | "reply" | "quote";
+        text: string;
+        selectionReason: string;
+        goalFitScore: number;
+      } | null;
+      formatBlueprint: string;
+      outputShapeRationale: string;
+    };
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
@@ -125,6 +136,7 @@ interface ChatMessage {
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
+  debug?: CreatorChatSuccess["data"]["debug"];
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
@@ -883,6 +895,7 @@ export default function ChatPage() {
               outputShape: data.data.outputShape,
               whyThisWorks: data.data.whyThisWorks,
               watchOutFor: data.data.watchOutFor,
+              debug: data.data.debug,
               source: data.data.source,
               model: data.data.model ?? null,
             },
@@ -961,6 +974,7 @@ export default function ChatPage() {
             outputShape: streamedResult.outputShape,
             whyThisWorks: streamedResult.whyThisWorks,
             watchOutFor: streamedResult.watchOutFor,
+            debug: streamedResult.debug,
             source: streamedResult.source,
             model: streamedResult.model ?? null,
           },
@@ -1443,6 +1457,44 @@ export default function ChatPage() {
                             {message.source}
                             {message.model ? ` · ${message.model}` : ""}
                           </p>
+                          {message.debug ? (
+                            <div className="mt-3 space-y-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                Shape Rationale
+                              </p>
+                              <p className="text-xs leading-6 text-zinc-400">
+                                {message.debug.outputShapeRationale}
+                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                Format Blueprint
+                              </p>
+                              <p className="text-xs leading-6 text-zinc-400">
+                                {message.debug.formatBlueprint}
+                              </p>
+                              {message.debug.formatExemplar ? (
+                                <>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    Format Exemplar
+                                  </p>
+                                  <p className="text-xs leading-6 text-zinc-400">
+                                    {message.debug.formatExemplar.id} ·{" "}
+                                    {formatEnumLabel(message.debug.formatExemplar.lane)} · goal-fit{" "}
+                                    {message.debug.formatExemplar.goalFitScore}
+                                  </p>
+                                  <p className="text-xs leading-6 text-zinc-500">
+                                    {message.debug.formatExemplar.selectionReason}
+                                  </p>
+                                  <p className="line-clamp-4 text-xs leading-6 text-zinc-300">
+                                    {message.debug.formatExemplar.text}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="text-xs leading-6 text-zinc-500">
+                                  No strong format exemplar selected.
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

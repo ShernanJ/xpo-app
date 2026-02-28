@@ -125,6 +125,20 @@ export type CreatorChatProgressPhase =
 
 export type CreatorDraftArtifact = DraftArtifactDetails;
 
+export interface CreatorChatDebugFormatExemplar {
+  id: string;
+  lane: CreatorRepresentativePost["lane"];
+  text: string;
+  selectionReason: string;
+  goalFitScore: number;
+}
+
+export interface CreatorChatDebugInfo {
+  formatExemplar: CreatorChatDebugFormatExemplar | null;
+  formatBlueprint: string;
+  outputShapeRationale: string;
+}
+
 export interface CreatorChatReplyResult {
   reply: string;
   angles: string[];
@@ -134,6 +148,7 @@ export interface CreatorChatReplyResult {
   outputShape: CreatorGenerationOutputShape | "ideation_angles";
   whyThisWorks: string[];
   watchOutFor: string[];
+  debug: CreatorChatDebugInfo;
   source: ChatModelProvider | "deterministic";
   model: string | null;
   mode: CreatorGenerationContract["mode"];
@@ -191,6 +206,19 @@ function buildDeterministicFallback(params: {
   selectedAngle?: string | null;
 }): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
   const { context, contract } = params;
+  const fallbackFormatExemplar = pickFormatExemplar({
+    context,
+    contract,
+  });
+  const fallbackFormatBlueprint = buildFormatBlueprint({
+    post: fallbackFormatExemplar,
+    outputShape: contract.planner.outputShape,
+  });
+  const debugInfo: CreatorChatDebugInfo = {
+    formatExemplar: buildFormatExemplarDebug(fallbackFormatExemplar),
+    formatBlueprint: fallbackFormatBlueprint,
+    outputShapeRationale: contract.planner.outputShapeRationale,
+  };
 
   if (contract.mode === "analysis_only") {
     return {
@@ -204,6 +232,7 @@ function buildDeterministicFallback(params: {
       watchOutFor: [
         "Wait for the sample to deepen before relying on generated drafts.",
       ],
+      debug: debugInfo,
     };
   }
 
@@ -230,6 +259,7 @@ function buildDeterministicFallback(params: {
         "Avoid placeholder hooks and generic engagement bait.",
         "Start from a real project, observation, or technical detail.",
       ],
+      debug: debugInfo,
     };
   }
 
@@ -273,6 +303,7 @@ function buildDeterministicFallback(params: {
       contract.writer.mustAvoid[0] ?? "Avoid broad generic phrasing.",
       plannerSafeConstraint(contract.planner.blockedReasons[0]),
     ].filter(Boolean),
+    debug: debugInfo,
   };
 }
 
@@ -313,6 +344,22 @@ export function buildDeterministicCreatorChatReply(params: {
 
 function plannerSafeConstraint(value: string | undefined): string {
   return value?.trim() || "";
+}
+
+function buildFormatExemplarDebug(
+  post: CreatorRepresentativePost | null,
+): CreatorChatDebugFormatExemplar | null {
+  if (!post) {
+    return null;
+  }
+
+  return {
+    id: post.id,
+    lane: post.lane,
+    text: post.text,
+    selectionReason: post.selectionReason,
+    goalFitScore: post.goalFitScore,
+  };
 }
 
 function normalizeHistory(history: ChatHistoryMessage[]): ChatHistoryMessage[] {
@@ -2411,6 +2458,14 @@ export async function generateCreatorChatReply(params: {
       writer.whyThisWorks,
     ),
     watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
+    debug: {
+      formatExemplar: buildFormatExemplarDebug(requestAnchors.formatExemplar),
+      formatBlueprint: buildFormatBlueprint({
+        post: requestAnchors.formatExemplar,
+        outputShape: contract.planner.outputShape,
+      }),
+      outputShapeRationale: contract.planner.outputShapeRationale,
+    },
     source: writerProvider.provider,
     model: writerProvider.model,
     mode: contract.mode,
