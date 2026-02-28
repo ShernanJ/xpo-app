@@ -83,6 +83,10 @@ The deterministic model should now explicitly capture whether the current topic 
 - niche enough to improve resonance
 - local enough to narrow reach while strengthening identity
 
+Topic extraction should prefer weighted entity and phrase candidates over raw single-token counting alone.
+
+That means repeated phrases and clearer named signals should outrank generic one-off words whenever possible.
+
 ### 4. Performance Layer
 
 This is what has historically worked:
@@ -344,6 +348,7 @@ These come from the scrape and structured analysis:
   - word count
   - emoji count
   - reply-like structure
+  - entity and phrase candidates
 - content distribution
 - hook patterns
 - performance model
