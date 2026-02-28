@@ -273,6 +273,44 @@ function buildPlannerSystemPrompt(params: {
   ].join("\n");
 }
 
+function formatVoiceProfile(context: CreatorAgentContext): string {
+  const voice = context.creatorProfile.voice;
+
+  return [
+    `Primary casing: ${voice.primaryCasing}`,
+    `Average length band: ${voice.averageLengthBand}`,
+    `Lowercase share percent: ${voice.lowercaseSharePercent}`,
+    `Question post rate: ${voice.questionPostRate}`,
+    `Multi-line post rate: ${voice.multiLinePostRate}`,
+    `Style notes: ${voice.styleNotes.join(" | ") || "none"}`,
+  ].join("\n");
+}
+
+function formatAnchorExamples(
+  label: string,
+  anchors: Array<{
+    id: string;
+    text: string;
+    selectionReason: string;
+    goalFitScore: number;
+  }>,
+  limit: number,
+): string {
+  const selected = anchors.slice(0, limit);
+
+  if (selected.length === 0) {
+    return `${label}: none`;
+  }
+
+  return [
+    `${label}:`,
+    ...selected.map(
+      (post, index) =>
+        `${index + 1}. ${post.id} [goal-fit ${post.goalFitScore}] (${post.selectionReason}) -> ${post.text}`,
+    ),
+  ].join("\n");
+}
+
 function buildWriterSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -285,6 +323,12 @@ function buildWriterSystemPrompt(params: {
     "Write one high-quality assistant response package for the user.",
     "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
+    "The user's native voice matters more than generic social-media best practices.",
+    "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
+    "If the anchors are casual, lowercase, clipped, or slangy, keep that character in the drafts.",
+    "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
+    "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
+    "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Objective: ${planner.objective}.`,
@@ -308,6 +352,9 @@ function buildCriticSystemPrompt(params: {
     "Review the candidate response package and either approve it or tighten it.",
     "Keep the final response concise, useful, and aligned to the deterministic checklist.",
     "Keep the draft candidates sharp and usable as actual X posts.",
+    "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
+    "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
+    "The final drafts should feel like the user's own tone with stronger strategy, not a different person.",
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
     `Readiness status: ${context.readiness.status}.`,
@@ -411,13 +458,25 @@ export async function generateCreatorChatReply(params: {
     user: [
       `User request: ${params.userMessage}`,
       `Recent chat history:\n${historyText}`,
-      `Positive anchors to learn from: ${context.positiveAnchors
+      `Voice profile:\n${formatVoiceProfile(context)}`,
+      formatAnchorExamples(
+        "Voice anchors to imitate for tone and casing",
+        context.creatorProfile.examples.voiceAnchors,
+        3,
+      ),
+      formatAnchorExamples(
+        "Strategy anchors to learn from",
+        context.creatorProfile.examples.strategyAnchors,
+        2,
+      ),
+      formatAnchorExamples(
+        "Goal anchors to learn from",
+        context.creatorProfile.examples.goalAnchors,
+        2,
+      ),
+      `Negative anchors to avoid:\n${context.negativeAnchors
         .slice(0, 3)
-        .map((post) => `${post.id}: ${post.text}`)
-        .join("\n")}`,
-      `Negative anchors to avoid: ${context.negativeAnchors
-        .slice(0, 3)
-        .map((post) => `${post.id}: ${post.selectionReason}`)
+        .map((post, index) => `${index + 1}. ${post.id}: ${post.selectionReason}`)
         .join("\n")}`,
       `Voice guidelines: ${contract.writer.voiceGuidelines.join(" | ")}`,
       `Must include: ${[
@@ -462,8 +521,15 @@ export async function generateCreatorChatReply(params: {
     system: buildCriticSystemPrompt({ contract, context }),
     user: [
       `User request: ${params.userMessage}`,
+      `Voice profile:\n${formatVoiceProfile(context)}`,
+      formatAnchorExamples(
+        "Voice anchors to compare against",
+        context.creatorProfile.examples.voiceAnchors,
+        3,
+      ),
       `Candidate response package:\n${JSON.stringify(writer)}`,
       `Checklist: ${contract.critic.checklist.join(" | ")}`,
+      `Hard constraints: drafts must sound like the user's real voice, not generic expert copy.`,
     ].join("\n\n"),
     schemaName: "creator_critic_output",
     schema: {
