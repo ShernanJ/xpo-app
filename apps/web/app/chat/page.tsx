@@ -222,7 +222,7 @@ function formatContentFocusLabel(value: ChatContentFocus): string {
 }
 
 function formatToneCasingLabel(value: ToneCasing): string {
-  return value === "lowercase" ? "Lowercase / Casual" : "Normal / Standard";
+  return value === "lowercase" ? "Lowercase" : "Standard Casing";
 }
 
 function formatToneRiskLabel(value: ToneRisk): string {
@@ -242,10 +242,17 @@ function inferInitialToneInputs(params: {
     voice.multiLinePostRate >= 30 ||
     voice.averageLengthBand === "long";
 
-  const shouldUseLowercase =
-    voice.primaryCasing === "lowercase" ||
-    (!isLongFormCreator && voice.lowercaseSharePercent >= 60) ||
-    (isLongFormCreator && voice.lowercaseSharePercent >= 85);
+  const stronglyLowercaseShortForm =
+    voice.primaryCasing === "lowercase" &&
+    voice.lowercaseSharePercent >= 68 &&
+    voice.multiLinePostRate < 35;
+  const overwhelminglyLowercaseLongForm =
+    voice.primaryCasing === "lowercase" &&
+    voice.lowercaseSharePercent >= 88 &&
+    voice.multiLinePostRate < 20;
+  const shouldUseLowercase = isLongFormCreator
+    ? overwhelminglyLowercaseLongForm
+    : stronglyLowercaseShortForm;
 
   return {
     toneCasing: shouldUseLowercase ? "lowercase" : "normal",

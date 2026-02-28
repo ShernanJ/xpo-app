@@ -1276,12 +1276,18 @@ function buildWriterSystemPrompt(params: {
       : "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
     intent === "ideate"
       ? "Each angle should feel like a believable post direction the user could actually say, not a generic instruction like 'share a recent win'."
-      : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
+      : contract.planner.outputShape === "long_form_post" ||
+          contract.planner.outputShape === "thread_seed"
+        ? "For draft mode, match the creator's natural structure and length. Do not compress long-form or thread-shaped outputs into tweet-sized copy."
+        : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
     intent === "ideate"
       ? "Angles should read like rough post premises or one-liners. Do not output category labels or gerund openers like 'sharing...', 'discussing...', 'highlighting...', or 'talking about...'."
-      : "At least one draft should feel blunt and native to X, like something the user would text to the timeline, not a polished content exercise.",
-    "A strong target shape for this user is a clipped lowercase line like: 'been building this project to help people draft x posts easier, thoughts?'",
-    "Prefer that kind of sentence rhythm when it fits: first-person, concrete, casual, one thought, then a simple ending.",
+      : contract.planner.outputShape === "long_form_post" ||
+          contract.planner.outputShape === "thread_seed"
+        ? "Long-form and thread-shaped drafts should still feel native to X, but they must preserve the creator's natural sections, spacing, and proof density."
+        : "At least one draft should feel blunt and native to X, like something the user would text to the timeline, not a polished content exercise.",
+    "Casual does not mean forced lowercase or one-line output. Preserve the creator's natural casing, line breaks, and structure unless the anchors and exemplar clearly show otherwise.",
+    "When a casual tone fits, prefer direct first-person wording and simple phrasing without flattening the creator's natural formatting.",
     "Avoid bland filler phrases like 'major milestone', 'currently working on', 'excited to share', 'for a while now', 'valuable insights', 'connect with your audience', or 'establish authority'.",
     `Creator-specific forbidden phrases: ${contract.writer.forbiddenPhrases.join(" | ") || "none"}`,
     "Avoid vague motivational framing unless the user explicitly asked for it.",
@@ -1365,7 +1371,7 @@ function buildCriticSystemPrompt(params: {
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Structural blueprint to enforce: ${formatBlueprint}`,
     "Reject long-form or thread outputs that ignore the structural blueprint and collapse into a generic tweet-sized answer.",
-    "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
+    "Treat lowercase as a casing preference only. Casual voice can still be sentence-case, multi-line, or sectioned when the creator's anchors or exemplar support that structure.",
     `Target casing: ${contract.writer.targetCasing}.`,
     `Target risk: ${contract.writer.targetRisk}.`,
     `Tone blend: ${contract.writer.toneBlendSummary}`,

@@ -229,8 +229,11 @@ function resolveTargetTone(params: {
   summary: string;
 } {
   const observedLowercase =
-    params.creatorProfile.voice.primaryCasing === "lowercase" ||
-    params.creatorProfile.voice.lowercaseSharePercent >= 72;
+    params.creatorProfile.voice.primaryCasing === "lowercase" &&
+    ((params.creatorProfile.voice.lowercaseSharePercent >= 68 &&
+      params.creatorProfile.voice.multiLinePostRate < 35) ||
+      (params.creatorProfile.voice.lowercaseSharePercent >= 88 &&
+        params.creatorProfile.voice.multiLinePostRate < 20));
   const requestedCasing = params.tonePreference?.casing ?? "normal";
   const requestedRisk = params.tonePreference?.risk ?? "safe";
   const casing: ToneCasing =
@@ -238,7 +241,7 @@ function resolveTargetTone(params: {
   const summary =
     casing === requestedCasing
       ? `Honor the ${requestedCasing} casing preference while preserving the observed voice.`
-      : `The stored casing preference is ${requestedCasing}, but the observed voice is clearly more lowercase, so generation should stay casual and lowercase-first.`;
+      : `The stored casing preference is ${requestedCasing}, but the observed voice is strongly lowercase. Keep the tone casual without flattening the creator's natural structure.`;
 
   return {
     casing,
