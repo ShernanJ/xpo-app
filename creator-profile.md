@@ -651,6 +651,13 @@ If readiness is too weak, the contract should fail closed into analysis-only mod
 
 If the observed niche is still broad/generalist, the generation contract should bias the planner and writer toward the recommended target niche instead of pretending the current feed is already clearly niched.
 
+The first live LLM integration should sit server-side on top of this contract:
+
+- planner consumes the planner contract
+- writer consumes the writer contract
+- critic consumes the critic contract
+- if the API key is missing or the contract is analysis-only, the route should fall back to deterministic behavior instead of breaking chat
+
 The product should also have a lightweight regression suite that runs multiple trusted onboarding runs through the current deterministic system and validates:
 
 - minimum acceptable overall score
