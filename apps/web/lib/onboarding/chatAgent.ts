@@ -152,7 +152,7 @@ function extractJsonObject(text: string): string {
 function resolveProviderConfig(
   preferredProvider?: ChatModelProvider,
 ): ModelProviderConfig | null {
-  const normalizedPreference = preferredProvider ?? "openai";
+  const normalizedPreference = preferredProvider ?? "groq";
 
   if (normalizedPreference === "groq") {
     const apiKey = process.env.GROQ_API_KEY?.trim();

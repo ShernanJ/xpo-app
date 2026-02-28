@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { generateCreatorChatReply } from "@/lib/onboarding/chatAgent";
+import {
+  applyCreatorStrategyOverrides,
+  extractCreatorStrategyOverrides,
+} from "@/lib/onboarding/strategyOverrides";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
 
 interface CreatorChatMessageInput {
@@ -8,7 +12,7 @@ interface CreatorChatMessageInput {
   content?: unknown;
 }
 
-interface CreatorChatRequest {
+interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
   message?: unknown;
   history?: unknown;
@@ -53,7 +57,7 @@ export async function POST(request: Request) {
   const provider =
     body.provider === "openai" || body.provider === "groq"
       ? body.provider
-      : "openai";
+      : "groq";
   const stream = body.stream === true;
 
   if (!runId) {
@@ -86,6 +90,11 @@ export async function POST(request: Request) {
       { status: 404 },
     );
   }
+
+  const onboarding = applyCreatorStrategyOverrides({
+    onboarding: storedRun.result,
+    overrides: extractCreatorStrategyOverrides(body),
+  });
 
   const rawHistory = Array.isArray(body.history) ? body.history : [];
   const history = rawHistory
@@ -122,7 +131,7 @@ export async function POST(request: Request) {
 
             const result = await generateCreatorChatReply({
               runId,
-              onboarding: storedRun.result,
+              onboarding,
               userMessage: message,
               history,
               provider,
@@ -168,7 +177,7 @@ export async function POST(request: Request) {
 
     const result = await generateCreatorChatReply({
       runId,
-      onboarding: storedRun.result,
+      onboarding,
       userMessage: message,
       history,
       provider,

@@ -5,6 +5,12 @@ import { useSearchParams } from "next/navigation";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
+import type {
+  PostingCadenceCapacity,
+  ReplyBudgetPerDay,
+  TransformationMode,
+  UserGoal,
+} from "@/lib/onboarding/types";
 
 interface ValidationError {
   field: string;
@@ -100,8 +106,34 @@ interface ChatMessage {
 
 type ChatProviderPreference = "openai" | "groq";
 
+interface ChatStrategyInputs {
+  goal: UserGoal;
+  postingCadenceCapacity: PostingCadenceCapacity;
+  replyBudgetPerDay: ReplyBudgetPerDay;
+  transformationMode: TransformationMode;
+}
+
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
+const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
+  goal: "followers",
+  postingCadenceCapacity: "1_per_day",
+  replyBudgetPerDay: "5_15",
+  transformationMode: "optimize",
+};
+const goalOptions: UserGoal[] = ["followers", "leads", "authority"];
+const transformationModeOptions: TransformationMode[] = [
+  "preserve",
+  "optimize",
+  "pivot_soft",
+  "pivot_hard",
+];
+const postingCapacityOptions: PostingCadenceCapacity[] = [
+  "3_per_week",
+  "1_per_day",
+  "2_per_day",
+];
+const replyBudgetOptions: ReplyBudgetPerDay[] = ["0_5", "5_15", "15_30"];
 
 function formatEnumLabel(value: string): string {
   return value
@@ -112,6 +144,30 @@ function formatEnumLabel(value: string): string {
 
 function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
+}
+
+function formatPostingCapacityLabel(value: PostingCadenceCapacity): string {
+  if (value === "3_per_week") {
+    return "3 / Week";
+  }
+
+  if (value === "1_per_day") {
+    return "1 / Day";
+  }
+
+  return "2 / Day";
+}
+
+function formatReplyBudgetLabel(value: ReplyBudgetPerDay): string {
+  if (value === "0_5") {
+    return "0-5 Replies";
+  }
+
+  if (value === "5_15") {
+    return "5-15 Replies";
+  }
+
+  return "15-30 Replies";
 }
 
 function formatNicheSummary(context: CreatorAgentContext): string {
@@ -247,16 +303,24 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [providerPreference, setProviderPreference] =
-    useState<ChatProviderPreference>("openai");
+    useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [strategyInputs, setStrategyInputs] = useState<ChatStrategyInputs>(
+    DEFAULT_CHAT_STRATEGY_INPUTS,
+  );
+  const [activeStrategyInputs, setActiveStrategyInputs] =
+    useState<ChatStrategyInputs | null>(null);
+  const [strategySetupOpen, setStrategySetupOpen] = useState(true);
+  const [isApplyingStrategyInputs, setIsApplyingStrategyInputs] = useState(false);
 
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(
+    async (overrides: ChatStrategyInputs | null = activeStrategyInputs) => {
     if (!runId) {
       setErrorMessage("Missing runId. Start from the landing page.");
       setIsLoading(false);
-      return;
+      return false;
     }
 
     setIsLoading(true);
@@ -269,14 +333,14 @@ export default function ChatPage() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ runId }),
+          body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
         }),
         fetch("/api/creator/generation-contract", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ runId }),
+          body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
         }),
       ]);
 
@@ -289,7 +353,7 @@ export default function ChatPage() {
             ? "Failed to load the creator context."
             : (contextData.errors[0]?.message ?? "Failed to load the creator context."),
         );
-        return;
+        return false;
       }
 
       if (!contractResponse.ok || !contractData.ok) {
@@ -298,17 +362,21 @@ export default function ChatPage() {
             ? "Failed to load the generation contract."
             : (contractData.errors[0]?.message ?? "Failed to load the generation contract."),
         );
-        return;
+        return false;
       }
 
       setContext(contextData.data);
       setContract(contractData.data);
+      return true;
     } catch {
       setErrorMessage("Network error while loading the chat workspace.");
+      return false;
     } finally {
       setIsLoading(false);
     }
-  }, [runId]);
+    },
+    [activeStrategyInputs, runId],
+  );
 
   useEffect(() => {
     void loadWorkspace();
@@ -477,6 +545,11 @@ export default function ChatPage() {
       return;
     }
 
+    if (!activeStrategyInputs) {
+      setErrorMessage("Set your goal, strategy path, and capacity before drafting.");
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -506,6 +579,7 @@ export default function ChatPage() {
           history,
           provider: providerPreference,
           stream: true,
+          ...activeStrategyInputs,
         }),
       });
 
@@ -637,6 +711,33 @@ export default function ChatPage() {
     }
   }
 
+  async function handleApplyStrategyInputs() {
+    setIsApplyingStrategyInputs(true);
+    setErrorMessage(null);
+
+    const nextInputs = { ...strategyInputs };
+    const loaded = await loadWorkspace(nextInputs);
+
+    if (loaded) {
+      setActiveStrategyInputs(nextInputs);
+      setStrategySetupOpen(false);
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-plan-${Date.now()}`,
+          role: "assistant",
+          content: `Plan locked: ${formatEnumLabel(nextInputs.goal)}, ${formatEnumLabel(
+            nextInputs.transformationMode,
+          )}, ${formatPostingCapacityLabel(
+            nextInputs.postingCadenceCapacity,
+          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}.`,
+        },
+      ]);
+    }
+
+    setIsApplyingStrategyInputs(false);
+  }
+
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
@@ -676,7 +777,9 @@ export default function ChatPage() {
             {sidebarOpen ? (
               <button
                 type="button"
-                onClick={loadWorkspace}
+                onClick={() => {
+                  void loadWorkspace();
+                }}
                 className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.04]"
               >
                 Refresh
@@ -812,11 +915,154 @@ export default function ChatPage() {
                     {chip}
                   </span>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setStrategySetupOpen((current) => !current)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
+                >
+                  {strategySetupOpen ? "Hide Plan" : "Tune Plan"}
+                </button>
               </div>
 
               {backfillNotice ? (
                 <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
                   {backfillNotice}
+                </div>
+              ) : null}
+
+              {strategySetupOpen && !isLoading ? (
+                <div className="border border-white/10 bg-white/[0.02] p-4">
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Before We Draft
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-300">
+                        Lock your goal, strategy path, and capacity so the model rebuilds around what you actually want now.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Goal
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {goalOptions.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() =>
+                                setStrategyInputs((current) => ({
+                                  ...current,
+                                  goal: option,
+                                }))
+                              }
+                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
+                                strategyInputs.goal === option
+                                  ? "border-white/30 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {formatEnumLabel(option)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Strategy Path
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {transformationModeOptions.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() =>
+                                setStrategyInputs((current) => ({
+                                  ...current,
+                                  transformationMode: option,
+                                }))
+                              }
+                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
+                                strategyInputs.transformationMode === option
+                                  ? "border-white/30 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {formatEnumLabel(option)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Posting Capacity
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {postingCapacityOptions.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() =>
+                                setStrategyInputs((current) => ({
+                                  ...current,
+                                  postingCadenceCapacity: option,
+                                }))
+                              }
+                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
+                                strategyInputs.postingCadenceCapacity === option
+                                  ? "border-white/30 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {formatPostingCapacityLabel(option)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Reply Capacity
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {replyBudgetOptions.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() =>
+                                setStrategyInputs((current) => ({
+                                  ...current,
+                                  replyBudgetPerDay: option,
+                                }))
+                              }
+                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
+                                strategyInputs.replyBudgetPerDay === option
+                                  ? "border-white/30 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {formatReplyBudgetLabel(option)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleApplyStrategyInputs}
+                        disabled={isApplyingStrategyInputs}
+                        className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:text-zinc-600"
+                      >
+                        {isApplyingStrategyInputs ? "Applying..." : "Apply Plan"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -920,13 +1166,23 @@ export default function ChatPage() {
                     <textarea
                       value={draftInput}
                       onChange={(event) => setDraftInput(event.target.value)}
-                      placeholder="What are we creating today?"
-                      disabled={isSending}
+                      placeholder={
+                        activeStrategyInputs
+                          ? "What are we creating today?"
+                          : "Set your plan above first."
+                      }
+                      disabled={isSending || !activeStrategyInputs}
                       className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
                     />
                     <button
                       type="submit"
-                      disabled={!context || !contract || !draftInput.trim() || isSending}
+                      disabled={
+                        !context ||
+                        !contract ||
+                        !activeStrategyInputs ||
+                        !draftInput.trim() ||
+                        isSending
+                      }
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
                       aria-label="Send message"
                     >

@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { buildCreatorGenerationContract } from "@/lib/onboarding/generationContract";
+import {
+  applyCreatorStrategyOverrides,
+  extractCreatorStrategyOverrides,
+} from "@/lib/onboarding/strategyOverrides";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
 
-interface CreatorGenerationContractRequest {
+interface CreatorGenerationContractRequest extends Record<string, unknown> {
   runId?: unknown;
 }
 
@@ -44,12 +48,17 @@ export async function POST(request: Request) {
     );
   }
 
+  const onboarding = applyCreatorStrategyOverrides({
+    onboarding: storedRun.result,
+    overrides: extractCreatorStrategyOverrides(body),
+  });
+
   return NextResponse.json(
     {
       ok: true,
       data: buildCreatorGenerationContract({
         runId,
-        onboarding: storedRun.result,
+        onboarding,
       }),
     },
     { status: 200 },
