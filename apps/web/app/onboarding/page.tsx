@@ -207,6 +207,10 @@ function OnboardingShell({ children }: { children: ReactNode }) {
 export default function OnboardingPage() {
   const [account, setAccount] = useState("");
   const [forceMock, setForceMock] = useState(false);
+  const [transformationMode, setTransformationMode] =
+    useState<OnboardingInput["transformationMode"]>("optimize");
+  const [hasTouchedTransformationMode, setHasTouchedTransformationMode] =
+    useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -232,9 +236,13 @@ export default function OnboardingPage() {
         casing: "normal" as OnboardingInput["tone"]["casing"],
         risk: "safe" as OnboardingInput["tone"]["risk"],
       },
+      transformationMode,
+      transformationModeSource: hasTouchedTransformationMode
+        ? ("user_selected" as const)
+        : ("default" as const),
       forceMock,
     }),
-    [account, forceMock],
+    [account, forceMock, hasTouchedTransformationMode, transformationMode],
   );
 
   useEffect(() => {
@@ -601,6 +609,33 @@ export default function OnboardingPage() {
                 Use mock
               </label>
             ) : null}
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="block text-left">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Strategy Path
+              </span>
+              <select
+                value={transformationMode ?? "optimize"}
+                onChange={(event) => {
+                  setTransformationMode(
+                    event.target.value as NonNullable<OnboardingInput["transformationMode"]>,
+                  );
+                  setHasTouchedTransformationMode(true);
+                }}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
+                aria-label="Transformation mode"
+              >
+                <option value="optimize">Optimize what already works</option>
+                <option value="preserve">Preserve current lane</option>
+                <option value="pivot_soft">Soft pivot into adjacent lane</option>
+                <option value="pivot_hard">Hard pivot into new lane</option>
+              </select>
+            </label>
+            <p className="max-w-xs text-left text-xs leading-5 text-zinc-500">
+              Choose whether the engine should refine, protect, or intentionally shift the account.
+            </p>
           </div>
 
           {isPreviewLoading || preview ? (

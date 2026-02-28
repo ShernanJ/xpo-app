@@ -5,7 +5,13 @@ import {
   computeHookPatterns,
 } from "./analysis";
 import { resolveOnboardingDataSource } from "./sources/resolveOnboardingSource";
-import type { OnboardingInput, OnboardingResult, StrategyState } from "./types";
+import type {
+  OnboardingInput,
+  OnboardingResult,
+  StrategyState,
+  TransformationMode,
+  TransformationModeSource,
+} from "./types";
 
 function inferRecommendedPostsPerWeek(timeBudgetMinutes: number): number {
   if (timeBudgetMinutes <= 20) {
@@ -23,13 +29,25 @@ function buildStrategyState(
   growthStage: OnboardingResult["growthStage"],
   goal: OnboardingInput["goal"],
   timeBudgetMinutes: number,
+  transformationMode: TransformationMode,
+  transformationModeSource: TransformationModeSource,
 ): StrategyState {
   const recommendedPostsPerWeek = inferRecommendedPostsPerWeek(timeBudgetMinutes);
+  const transformationRationale =
+    transformationMode === "preserve"
+      ? "Preserve what already works and improve execution without disrupting audience expectations."
+      : transformationMode === "pivot_soft"
+        ? "Shift gradually into adjacent positioning while protecting existing audience trust."
+        : transformationMode === "pivot_hard"
+          ? "Accept short-term volatility while building a clearer new position."
+          : null;
 
   if (growthStage === "0-1k") {
     return {
       growthStage,
       goal,
+      transformationMode,
+      transformationModeSource,
       recommendedPostsPerWeek,
       weights: {
         distribution: 0.65,
@@ -37,6 +55,7 @@ function buildStrategyState(
         leverage: 0.05,
       },
       rationale:
+        transformationRationale ??
         "Prioritize distribution and pattern-testing to find repeatable traction loops.",
     };
   }
@@ -45,6 +64,8 @@ function buildStrategyState(
     return {
       growthStage,
       goal,
+      transformationMode,
+      transformationModeSource,
       recommendedPostsPerWeek,
       weights: {
         distribution: 0.35,
@@ -52,6 +73,7 @@ function buildStrategyState(
         leverage: 0.1,
       },
       rationale:
+        transformationRationale ??
         "Shift weight toward authority-building while maintaining consistent discovery reach.",
     };
   }
@@ -59,13 +81,17 @@ function buildStrategyState(
   return {
     growthStage,
     goal,
+    transformationMode,
+    transformationModeSource,
     recommendedPostsPerWeek,
     weights: {
       distribution: 0.2,
       authority: 0.45,
       leverage: 0.35,
     },
-    rationale: "Focus on leverage loops while preserving core authority signals.",
+    rationale:
+      transformationRationale ??
+      "Focus on leverage loops while preserving core authority signals.",
   };
 }
 
@@ -107,6 +133,8 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
       growthStage,
       input.goal,
       input.timeBudgetMinutes,
+      input.transformationMode ?? "optimize",
+      input.transformationModeSource ?? "default",
     ),
     warnings,
   };

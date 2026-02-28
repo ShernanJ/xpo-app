@@ -2,6 +2,8 @@ import type {
   OnboardingInput,
   ToneCasing,
   ToneRisk,
+  TransformationMode,
+  TransformationModeSource,
   UserGoal,
 } from "./types";
 
@@ -9,6 +11,8 @@ type OnboardingField =
   | "account"
   | "goal"
   | "timeBudgetMinutes"
+  | "transformationMode"
+  | "transformationModeSource"
   | "tone.casing"
   | "tone.risk"
   | "forceMock";
@@ -23,6 +27,16 @@ export type OnboardingValidationResult =
   | { ok: false; errors: OnboardingValidationError[] };
 
 const GOALS: ReadonlySet<UserGoal> = new Set(["followers", "leads", "authority"]);
+const TRANSFORMATION_MODES: ReadonlySet<TransformationMode> = new Set([
+  "preserve",
+  "optimize",
+  "pivot_soft",
+  "pivot_hard",
+]);
+const TRANSFORMATION_MODE_SOURCES: ReadonlySet<TransformationModeSource> = new Set([
+  "default",
+  "user_selected",
+]);
 const TONE_CASINGS: ReadonlySet<ToneCasing> = new Set(["lowercase", "normal"]);
 const TONE_RISKS: ReadonlySet<ToneRisk> = new Set(["safe", "bold"]);
 const HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
@@ -107,6 +121,56 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
     });
   }
 
+  let transformationMode: TransformationMode | undefined;
+  if (body.transformationMode !== undefined) {
+    if (
+      typeof body.transformationMode !== "string" ||
+      !TRANSFORMATION_MODES.has(body.transformationMode as TransformationMode)
+    ) {
+      errors.push({
+        field: "transformationMode",
+        message:
+          "transformationMode must be one of: preserve, optimize, pivot_soft, pivot_hard.",
+      });
+    } else {
+      transformationMode = body.transformationMode as TransformationMode;
+    }
+  }
+
+  let transformationModeSource: TransformationModeSource | undefined;
+  if (body.transformationModeSource !== undefined) {
+    if (
+      typeof body.transformationModeSource !== "string" ||
+      !TRANSFORMATION_MODE_SOURCES.has(
+        body.transformationModeSource as TransformationModeSource,
+      )
+    ) {
+      errors.push({
+        field: "transformationModeSource",
+        message: "transformationModeSource must be default or user_selected.",
+      });
+    } else {
+      transformationModeSource =
+        body.transformationModeSource as TransformationModeSource;
+    }
+  }
+
+  if (transformationMode && !transformationModeSource) {
+    errors.push({
+      field: "transformationModeSource",
+      message:
+        "transformationModeSource is required when transformationMode is provided.",
+    });
+  }
+
+  if (!transformationMode && transformationModeSource) {
+    errors.push({
+      field: "transformationMode",
+      message:
+        "transformationMode is required when transformationModeSource is provided.",
+    });
+  }
+
   const toneRecord = asRecord(body.tone);
   const toneCasingRaw = toneRecord?.casing;
   const toneRiskRaw = toneRecord?.risk;
@@ -150,6 +214,8 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
       account,
       goal,
       timeBudgetMinutes,
+      transformationMode,
+      transformationModeSource,
       tone: {
         casing,
         risk,

@@ -22,7 +22,6 @@ import type {
   TopicSignal,
   TopicSpecificity,
   ToneCasing,
-  TransformationMode,
   UserGoal,
   XPublicPost,
 } from "./types";
@@ -831,8 +830,21 @@ function buildRecommendedAngles(
   goal: UserGoal,
   archetype: CreatorArchetype,
   execution: CreatorExecutionProfile,
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string[] {
   const angles: string[] = [];
+
+  if (transformationMode === "preserve") {
+    angles.push("Preserve the current lane and focus on cleaner execution, not a content identity reset.");
+  }
+
+  if (transformationMode === "pivot_soft") {
+    angles.push("Introduce adjacent themes gradually so the audience can follow the repositioning.");
+  }
+
+  if (transformationMode === "pivot_hard") {
+    angles.push("Bias toward clearer new positioning even if short-term engagement becomes less stable.");
+  }
 
   if (goal === "followers") {
     angles.push("Lean into distribution-friendly hooks and repeatable topic series.");
@@ -927,8 +939,21 @@ function buildExecutionWeaknesses(
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
   goal: UserGoal,
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string[] {
   const actions: string[] = [];
+
+  if (transformationMode === "preserve") {
+    actions.push("Keep the existing topic lane stable and test only execution-level improvements this week.");
+  }
+
+  if (transformationMode === "pivot_soft") {
+    actions.push("Add one adjacent-topic post this week while keeping the rest of the batch familiar.");
+  }
+
+  if (transformationMode === "pivot_hard") {
+    actions.push("Publish one post this week that clearly signals the new intended positioning.");
+  }
 
   if (execution.linkDependence === "high") {
     actions.push("Replace at least one link-led post this week with a native-text post that carries the same idea.");
@@ -949,29 +974,30 @@ function buildExecutionNextMoves(
   return actions;
 }
 
-function buildDefaultTransformationMode(): {
-  mode: TransformationMode;
-  source: "default";
-} {
-  return {
-    mode: "optimize",
-    source: "default",
-  };
-}
-
 function buildTargetState(params: {
   goal: UserGoal;
   archetype: CreatorArchetype;
   audienceBreadth: AudienceBreadth;
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"];
 }): {
   targetPrimaryArchetype: CreatorArchetype;
   targetAudienceBreadth: AudienceBreadth | "same";
   planningNote: string;
 } {
   const baseNote =
-    "The current default path assumes optimizing what already works until the user explicitly chooses preserve or pivot.";
+    params.transformationMode === "preserve"
+      ? "The user chose preserve mode, so the system should protect the current lane and avoid disruptive shifts."
+      : params.transformationMode === "pivot_soft"
+        ? "The user chose a soft pivot, so the system should move into adjacent territory without breaking existing audience trust."
+        : params.transformationMode === "pivot_hard"
+          ? "The user chose a hard pivot, so the system can accept short-term reach volatility in exchange for a clearer new direction."
+          : "The user chose optimize mode, so the system should refine what already works before pushing bigger repositioning moves.";
 
-  if (params.goal === "followers" && params.audienceBreadth === "narrow") {
+  if (
+    params.transformationMode !== "preserve" &&
+    params.goal === "followers" &&
+    params.audienceBreadth === "narrow"
+  ) {
     return {
       targetPrimaryArchetype: params.archetype,
       targetAudienceBreadth: "same",
@@ -994,7 +1020,23 @@ function buildTargetState(params: {
   };
 }
 
-function buildStrategyRationale(goal: UserGoal, archetype: CreatorArchetype): string {
+function buildStrategyRationale(
+  goal: UserGoal,
+  archetype: CreatorArchetype,
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"],
+): string {
+  if (transformationMode === "preserve") {
+    return `Protect the current ${archetype} lane and improve execution without disrupting audience expectations.`;
+  }
+
+  if (transformationMode === "pivot_soft") {
+    return `Use the current ${archetype} base as cover for a gradual repositioning into adjacent territory.`;
+  }
+
+  if (transformationMode === "pivot_hard") {
+    return `Treat the current ${archetype} pattern as a starting point, but accept near-term volatility while building a clearer new position.`;
+  }
+
   if (goal === "followers") {
     return `Optimize for discovery first. ${archetype} accounts grow faster when they package repeatable patterns into clearer hooks.`;
   }
@@ -1024,11 +1066,15 @@ export function buildCreatorProfile(params: {
   const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
   const executionProfile = buildExecutionProfile(posts);
-  const transformation = buildDefaultTransformationMode();
+  const transformationMode =
+    params.onboarding.strategyState.transformationMode ?? "optimize";
+  const transformationModeSource =
+    params.onboarding.strategyState.transformationModeSource ?? "default";
   const targetState = buildTargetState({
     goal: params.onboarding.strategyState.goal,
     archetype,
     audienceBreadth,
+    transformationMode,
   });
   const primaryCasing = inferPrimaryCasing(posts);
   const lowercaseSharePercent = computeLowercaseSharePercent(posts);
@@ -1127,8 +1173,8 @@ export function buildCreatorProfile(params: {
     strategy: {
       primaryGoal: params.onboarding.strategyState.goal,
       archetype,
-      transformationMode: transformation.mode,
-      transformationModeSource: transformation.source,
+      transformationMode,
+      transformationModeSource,
       currentState: {
         followerBand: params.onboarding.growthStage,
         primaryArchetype: archetype,
@@ -1151,17 +1197,20 @@ export function buildCreatorProfile(params: {
         params.onboarding.strategyState.goal,
         archetype,
         executionProfile,
+        transformationMode,
       ),
       nextMoves: [
         ...performanceModel.nextActions,
         ...buildExecutionNextMoves(
           executionProfile,
           params.onboarding.strategyState.goal,
+          transformationMode,
         ),
       ].slice(0, 5),
       rationale: buildStrategyRationale(
         params.onboarding.strategyState.goal,
         archetype,
+        transformationMode,
       ),
     },
   };

@@ -31,6 +31,8 @@ export interface OnboardingInput {
   goal: UserGoal;
   timeBudgetMinutes: number;
   tone: TonePreference;
+  transformationMode?: TransformationMode;
+  transformationModeSource?: TransformationModeSource;
   forceMock?: boolean;
 }
 
@@ -90,6 +92,8 @@ export interface StrategyWeights {
 export interface StrategyState {
   growthStage: GrowthStage;
   goal: UserGoal;
+  transformationMode: TransformationMode;
+  transformationModeSource: TransformationModeSource;
   recommendedPostsPerWeek: number;
   weights: StrategyWeights;
   rationale: string;
