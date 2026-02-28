@@ -109,10 +109,25 @@ The HTTP scraper generally follows this sequence:
 3. resolve the target user id (`rest_id`)
 4. discover the `UserTweets` query id if it is not cached
 5. call the X GraphQL `UserTweets` endpoint
-6. parse and normalize the payload
-7. persist the canonical capture
+6. follow the `Bottom` cursor for a small fixed number of pages
+7. parse and normalize the payload
+8. persist the canonical capture
 
 The result becomes the canonical onboarding record used by the rest of the app.
+
+### UserTweets pagination
+
+`UserTweets` is cursor-based.
+
+The first response typically contains a `TimelineTimelineCursor` entry with `cursorType: "Bottom"`.
+
+To fetch more posts, the scraper reuses the same `UserTweets` operation and sends:
+
+- the same `userId`
+- the same `count`
+- `variables.cursor = <bottom cursor>`
+
+The current implementation keeps this bounded for onboarding by fetching only a small fixed number of pages, rather than scrolling indefinitely.
 
 ## 3. Canonical Capture
 
