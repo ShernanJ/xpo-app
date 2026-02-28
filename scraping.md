@@ -84,6 +84,7 @@ Current behavior:
 - the app checks for a cached scrape capture for the requested account
 - if a capture already exists, onboarding reads it
 - if no capture exists, onboarding runs a bootstrap scrape and persists the result
+- the bootstrap path now requests multiple `UserTweets` pages by default and keeps up to a bounded recent-post cap for onboarding analysis
 
 The bootstrap scrape uses the HTTP scraper, not Playwright.
 
@@ -114,6 +115,14 @@ The HTTP scraper generally follows this sequence:
 8. persist the canonical capture
 
 The result becomes the canonical onboarding record used by the rest of the app.
+
+Current onboarding target:
+
+- default bootstrap depth: `5` pages
+- default page size: `40`
+- current normalized post cap: `250`
+
+This is intentionally deeper than the original first pass, but still bounded so onboarding does not turn into an unbounded full-history crawl.
 
 ### UserTweets pagination
 
