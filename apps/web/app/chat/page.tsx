@@ -46,6 +46,23 @@ interface BackfillJobStatusResponse {
   } | null;
 }
 
+interface CreatorChatSuccess {
+  ok: true;
+  data: {
+    reply: string;
+    source: "openai" | "deterministic";
+    model: string | null;
+    mode: CreatorGenerationContract["mode"];
+  };
+}
+
+interface CreatorChatFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type CreatorChatResponse = CreatorChatSuccess | CreatorChatFailure;
+
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
@@ -154,6 +171,7 @@ export default function ChatPage() {
   const [draftInput, setDraftInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -356,28 +374,73 @@ export default function ChatPage() {
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
 
-  function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedInput = draftInput.trim();
-    if (!trimmedInput || !context || !contract) {
+    if (!trimmedInput || !context || !contract || isSending) {
       return;
     }
 
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: trimmedInput,
+    };
+    const history = messages.slice(-6);
+
     setMessages((current) => [
       ...current,
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: trimmedInput,
-      },
-      {
-        id: `assistant-${Date.now() + 1}`,
-        role: "assistant",
-        content: buildDeterministicReply(context, contract),
-      },
+      userMessage,
     ]);
     setDraftInput("");
+
+    setIsSending(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/creator/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          runId,
+          message: trimmedInput,
+          history,
+        }),
+      });
+
+      const data: CreatorChatResponse = await response.json();
+
+      const reply =
+        response.ok && data.ok
+          ? data.data.reply
+          : data.ok
+            ? "The chat route failed to return a reply."
+            : (data.errors[0]?.message ?? "Failed to generate a reply.");
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now() + 1}`,
+          role: "assistant",
+          content: reply,
+        },
+      ]);
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now() + 1}`,
+          role: "assistant",
+          content: buildDeterministicReply(context, contract),
+        },
+      ]);
+      setErrorMessage("The live model failed, so the deterministic fallback was used.");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   return (
@@ -628,20 +691,21 @@ export default function ChatPage() {
                       value={draftInput}
                       onChange={(event) => setDraftInput(event.target.value)}
                       placeholder="What are we creating today?"
+                      disabled={isSending}
                       className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
                     />
                     <button
                       type="submit"
-                      disabled={!context || !contract || !draftInput.trim()}
+                      disabled={!context || !contract || !draftInput.trim() || isSending}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
                       aria-label="Send message"
                     >
-                      ↑
+                      {isSending ? "…" : "↑"}
                     </button>
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
-                      LLM wiring is next. This route already uses the deterministic contract.
+                      Live model replies now sit on top of the deterministic contract.
                     </p>
                     <span className="hidden rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 md:inline-flex">
                       {contract ? formatEnumLabel(contract.mode) : "Loading"}
