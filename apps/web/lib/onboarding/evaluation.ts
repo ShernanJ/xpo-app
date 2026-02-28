@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v6";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v7";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -15,6 +15,7 @@ export interface CreatorEvaluationCheck {
     | "sample_quality"
     | "topic_quality"
     | "niche_overlay_quality"
+    | "target_niche_quality"
     | "archetype_confidence"
     | "playbook_quality"
     | "strategy_specificity"
@@ -35,6 +36,7 @@ export interface CreatorEvaluationSnapshot {
   growthStage: OnboardingResult["growthStage"];
   primaryNiche: CreatorProfile["niche"]["primaryNiche"];
   secondaryNiche: CreatorProfile["niche"]["secondaryNiche"];
+  targetNiche: CreatorProfile["niche"]["targetNiche"];
   archetype: CreatorProfile["archetype"];
   secondaryArchetype: CreatorProfile["secondaryArchetype"];
   conversationReadiness: CreatorProfile["conversation"]["readiness"];
@@ -186,6 +188,63 @@ function evaluateNicheOverlayQuality(
       /_/g,
       " ",
     )}.`,
+  );
+}
+
+function evaluateTargetNicheQuality(profile: CreatorProfile): CreatorEvaluationCheck {
+  const { primaryNiche, targetNiche, recommendedNiches, transitionSummary } =
+    profile.niche;
+
+  if (!targetNiche) {
+    return createCheck(
+      "target_niche_quality",
+      "Target Niche Quality",
+      primaryNiche === "generalist" ? 28 : 62,
+      primaryNiche === "generalist"
+        ? "The account is broad right now, but no clear target niche recommendation was produced yet."
+        : "The current niche is usable, but there is no explicit target niche handoff yet.",
+    );
+  }
+
+  const topRecommendation = recommendedNiches[0] ?? null;
+  const secondRecommendation = recommendedNiches[1] ?? null;
+  const topScore = topRecommendation?.score ?? 0;
+  const secondScore = secondRecommendation?.score ?? 0;
+  const spread = Math.max(0, topScore - secondScore);
+  const rationaleLength = topRecommendation?.rationale.trim().length ?? 0;
+
+  let score =
+    30 +
+    Math.min(28, topScore * 0.7) +
+    Math.min(16, spread * 0.8) +
+    Math.min(12, recommendedNiches.length * 4) +
+    (rationaleLength >= 40 ? 8 : rationaleLength >= 15 ? 4 : 0);
+
+  if (primaryNiche === "generalist" && targetNiche !== "generalist") {
+    score += 8;
+  }
+
+  if (primaryNiche !== "generalist" && targetNiche === primaryNiche) {
+    score += 4;
+  }
+
+  if (/broad|generalist|mixed|clearer niche|build toward/i.test(transitionSummary)) {
+    score += 6;
+  }
+
+  return createCheck(
+    "target_niche_quality",
+    "Target Niche Quality",
+    score,
+    primaryNiche === "generalist"
+      ? `Observed niche is still broad, but the strongest target niche is ${targetNiche.replace(
+          /_/g,
+          " ",
+        )}. ${transitionSummary}`
+      : `Target niche is ${targetNiche.replace(
+          /_/g,
+          " ",
+        )} with ${recommendedNiches.length} ranked recommendation(s). ${transitionSummary}`,
   );
 }
 
@@ -513,6 +572,10 @@ function buildBlockers(
     blockers.push("Niche overlay is still too weak to reliably specialize the playbook.");
   }
 
+  if (checks.some((check) => check.key === "target_niche_quality" && check.status === "weak")) {
+    blockers.push("Target niche recommendation is still too weak to guide a clear niche transition.");
+  }
+
   if (profile.archetypeConfidence < 55) {
     blockers.push("Archetype signal is still mixed.");
   }
@@ -592,6 +655,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("target_niche_quality")) {
+    improvements.push(
+      "Strengthen target niche recommendations so broad accounts get a clearer lane to build toward.",
+    );
+  }
+
   if (weakKeys.has("archetype_confidence")) {
     improvements.push(
       "Keep archetype guidance blended until the creator signal becomes less mixed.",
@@ -659,6 +728,7 @@ export function evaluateCreatorProfile(params: {
     evaluateSampleQuality(params.onboarding),
     evaluateTopicQuality(profile),
     evaluateNicheOverlayQuality(params.onboarding, profile),
+    evaluateTargetNicheQuality(profile),
     evaluateArchetypeConfidence(profile),
     evaluatePlaybookQuality(profile),
     evaluateStrategySpecificity(profile),
@@ -692,6 +762,7 @@ export function evaluateCreatorProfile(params: {
       growthStage: params.onboarding.growthStage,
       primaryNiche: profile.niche.primaryNiche,
       secondaryNiche: profile.niche.secondaryNiche,
+      targetNiche: profile.niche.targetNiche,
       archetype: profile.archetype,
       secondaryArchetype: profile.secondaryArchetype,
       conversationReadiness: profile.conversation.readiness,
