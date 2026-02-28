@@ -163,6 +163,10 @@ export type TopicSpecificity = "broad" | "niche" | "local_scene";
 
 export type AudienceBreadth = "broad" | "mixed" | "narrow";
 
+export type DependenceLevel = "low" | "moderate" | "high";
+
+export type DeliveryStyle = "standalone" | "mixed" | "reply_led";
+
 export type TransformationMode =
   | "preserve"
   | "optimize"
@@ -220,6 +224,19 @@ export interface CreatorPerformanceProfile {
   bestHookPattern: HookPattern | null;
   recommendedLengthBand: LengthBand | null;
   recommendedPostsPerWeek: number;
+}
+
+export interface CreatorExecutionProfile {
+  linkUsageRate: number;
+  mentionUsageRate: number;
+  ctaUsageRate: number;
+  replyStyleRate: number;
+  standaloneStyleRate: number;
+  linkDependence: DependenceLevel;
+  mentionDependence: DependenceLevel;
+  ctaIntensity: DependenceLevel;
+  deliveryStyle: DeliveryStyle;
+  distributionNotes: string[];
 }
 
 export interface CreatorCurrentStateProfile {
@@ -291,6 +308,7 @@ export interface CreatorProfile {
   voice: CreatorVoiceProfile;
   topics: CreatorTopicProfile;
   performance: CreatorPerformanceProfile;
+  execution: CreatorExecutionProfile;
   archetype: CreatorArchetype;
   secondaryArchetype: CreatorArchetype | null;
   archetypeConfidence: number;

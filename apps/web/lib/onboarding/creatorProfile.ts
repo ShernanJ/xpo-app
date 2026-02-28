@@ -9,9 +9,12 @@ import type {
   AudienceBreadth,
   ContentType,
   CreatorArchetype,
+  CreatorExecutionProfile,
   CreatorProfile,
   CreatorRepresentativeExamples,
   CreatorRepresentativePost,
+  DeliveryStyle,
+  DependenceLevel,
   HookPattern,
   LengthBand,
   OnboardingResult,
@@ -635,6 +638,113 @@ function buildRepresentativeExamples(params: {
   };
 }
 
+function getDependenceLevel(rate: number): DependenceLevel {
+  if (rate >= 45) {
+    return "high";
+  }
+
+  if (rate >= 20) {
+    return "moderate";
+  }
+
+  return "low";
+}
+
+function inferDeliveryStyle(replyStyleRate: number): DeliveryStyle {
+  if (replyStyleRate >= 45) {
+    return "reply_led";
+  }
+
+  if (replyStyleRate <= 15) {
+    return "standalone";
+  }
+
+  return "mixed";
+}
+
+function buildExecutionProfile(posts: XPublicPost[]): CreatorExecutionProfile {
+  if (posts.length === 0) {
+    return {
+      linkUsageRate: 0,
+      mentionUsageRate: 0,
+      ctaUsageRate: 0,
+      replyStyleRate: 0,
+      standaloneStyleRate: 100,
+      linkDependence: "low",
+      mentionDependence: "low",
+      ctaIntensity: "low",
+      deliveryStyle: "standalone",
+      distributionNotes: [
+        "There is not enough post data yet to estimate link, mention, or reply dependence.",
+      ],
+    };
+  }
+
+  const features = posts.map((post) => analyzePostFeatures(post));
+  const rate = (count: number) => toPercent(count / posts.length);
+  const linkUsageRate = rate(features.filter((item) => item.hasLinks).length);
+  const mentionUsageRate = rate(features.filter((item) => item.hasMentions).length);
+  const ctaUsageRate = rate(features.filter((item) => item.hasCta).length);
+  const replyStyleRate = rate(features.filter((item) => item.isReply).length);
+  const standaloneStyleRate = rate(features.filter((item) => !item.isReply).length);
+  const linkDependence = getDependenceLevel(linkUsageRate);
+  const mentionDependence = getDependenceLevel(mentionUsageRate);
+  const ctaIntensity = getDependenceLevel(ctaUsageRate);
+  const deliveryStyle = inferDeliveryStyle(replyStyleRate);
+  const distributionNotes: string[] = [];
+
+  if (linkDependence === "high") {
+    distributionNotes.push(
+      "Current distribution leans heavily on links, which can help curation but reduce native in-feed hold if overused.",
+    );
+  } else if (linkDependence === "low") {
+    distributionNotes.push(
+      "The current mix is not especially link-dependent, which is healthier for native attention.",
+    );
+  }
+
+  if (mentionDependence === "high") {
+    distributionNotes.push(
+      "A high share of mention-led posts suggests reach may depend on existing network adjacency.",
+    );
+  }
+
+  if (deliveryStyle === "reply_led") {
+    distributionNotes.push(
+      "The current posting mix is reply-led. That supports relationships, but standalone posts matter more for broad discovery.",
+    );
+  } else if (deliveryStyle === "standalone") {
+    distributionNotes.push(
+      "Most posts already stand alone, which is a stronger base for scalable discovery.",
+    );
+  }
+
+  if (ctaIntensity === "high") {
+    distributionNotes.push(
+      "Calls-to-action are frequent, so the system should watch for over-asking versus genuine conversation.",
+    );
+  }
+
+  if (distributionNotes.length === 0) {
+    distributionNotes.push(
+      "The current execution mix is balanced enough that no single distribution dependency dominates yet.",
+    );
+  }
+
+  return {
+    linkUsageRate,
+    mentionUsageRate,
+    ctaUsageRate,
+    replyStyleRate,
+    standaloneStyleRate,
+    linkDependence,
+    mentionDependence,
+    ctaIntensity,
+    deliveryStyle,
+    distributionNotes: distributionNotes.slice(0, 4),
+  };
+}
+
 function inferArchetypeProfile(
   posts: XPublicPost[],
   topics: TopicSignal[],
@@ -717,7 +827,11 @@ function inferArchetypeProfile(
   };
 }
 
-function buildRecommendedAngles(goal: UserGoal, archetype: CreatorArchetype): string[] {
+function buildRecommendedAngles(
+  goal: UserGoal,
+  archetype: CreatorArchetype,
+  execution: CreatorExecutionProfile,
+): string[] {
   const angles: string[] = [];
 
   if (goal === "followers") {
@@ -752,11 +866,87 @@ function buildRecommendedAngles(goal: UserGoal, archetype: CreatorArchetype): st
     angles.push("Add stronger original commentary so curation builds authority.");
   }
 
+  if (execution.linkDependence === "high") {
+    angles.push("Reduce pure link dependence by pairing links with stronger native commentary and standalone takes.");
+  }
+
+  if (execution.mentionDependence === "high") {
+    angles.push("Publish more ideas that stand alone so reach is less dependent on tagged accounts.");
+  }
+
+  if (goal !== "authority" && execution.deliveryStyle === "reply_led") {
+    angles.push("Shift part of the weekly mix from reply-style posting into standalone discovery posts.");
+  }
+
+  if ((goal === "followers" || goal === "leads") && execution.ctaIntensity === "low") {
+    angles.push("Use clearer asks when you want replies, clicks, or conversion behavior.");
+  }
+
   if (angles.length === 0) {
     angles.push("Increase consistency around one repeatable content pillar.");
   }
 
   return angles.slice(0, 4);
+}
+
+function buildExecutionStrengths(execution: CreatorExecutionProfile): string[] {
+  const strengths: string[] = [];
+
+  if (execution.linkDependence === "low") {
+    strengths.push("Current post mix is not overly dependent on links, which helps native feed retention.");
+  }
+
+  if (execution.deliveryStyle === "standalone") {
+    strengths.push("Most posts already stand alone, which gives the account a better discovery base.");
+  }
+
+  return strengths;
+}
+
+function buildExecutionWeaknesses(
+  execution: CreatorExecutionProfile,
+  goal: UserGoal,
+): string[] {
+  const weaknesses: string[] = [];
+
+  if (execution.linkDependence === "high") {
+    weaknesses.push("A high link-dependent mix can suppress native hold if the commentary layer is too thin.");
+  }
+
+  if (execution.mentionDependence === "high") {
+    weaknesses.push("Mention-heavy posting can make reach too dependent on existing network adjacency.");
+  }
+
+  if (goal === "followers" && execution.deliveryStyle === "reply_led") {
+    weaknesses.push("Reply-led posting supports relationships, but broad follower growth needs more standalone posts.");
+  }
+
+  return weaknesses;
+}
+
+function buildExecutionNextMoves(
+  execution: CreatorExecutionProfile,
+  goal: UserGoal,
+): string[] {
+  const actions: string[] = [];
+
+  if (execution.linkDependence === "high") {
+    actions.push("Replace at least one link-led post this week with a native-text post that carries the same idea.");
+  }
+
+  if (execution.mentionDependence === "high") {
+    actions.push("Test one post this week that does not rely on tagging anyone for context or distribution.");
+  }
+
+  if (goal === "followers" && execution.deliveryStyle === "reply_led") {
+    actions.push("Shift one reply-style post into a standalone top-level post built for discovery.");
+  }
+
+  if ((goal === "followers" || goal === "leads") && execution.ctaIntensity === "low") {
+    actions.push("Add one explicit call-to-action in the next batch to test higher response behavior.");
+  }
+
+  return actions;
 }
 
 function buildDefaultTransformationMode(): {
@@ -833,6 +1023,7 @@ export function buildCreatorProfile(params: {
   const archetypeProfile = inferArchetypeProfile(posts, dominantTopics);
   const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
+  const executionProfile = buildExecutionProfile(posts);
   const transformation = buildDefaultTransformationMode();
   const targetState = buildTargetState({
     goal: params.onboarding.strategyState.goal,
@@ -917,6 +1108,7 @@ export function buildCreatorProfile(params: {
         audienceBreadth,
       ),
     },
+    execution: executionProfile,
     performance: {
       baselineAverageEngagement: params.onboarding.baseline.averageEngagement,
       medianEngagement: params.onboarding.baseline.medianEngagement,
@@ -944,13 +1136,29 @@ export function buildCreatorProfile(params: {
         audienceBreadth,
       },
       targetState,
-      currentStrengths: performanceModel.strengths,
-      currentWeaknesses: performanceModel.weaknesses,
+      currentStrengths: [
+        ...performanceModel.strengths,
+        ...buildExecutionStrengths(executionProfile),
+      ].slice(0, 4),
+      currentWeaknesses: [
+        ...performanceModel.weaknesses,
+        ...buildExecutionWeaknesses(
+          executionProfile,
+          params.onboarding.strategyState.goal,
+        ),
+      ].slice(0, 4),
       recommendedAngles: buildRecommendedAngles(
         params.onboarding.strategyState.goal,
         archetype,
+        executionProfile,
       ),
-      nextMoves: performanceModel.nextActions,
+      nextMoves: [
+        ...performanceModel.nextActions,
+        ...buildExecutionNextMoves(
+          executionProfile,
+          params.onboarding.strategyState.goal,
+        ),
+      ].slice(0, 5),
       rationale: buildStrategyRationale(
         params.onboarding.strategyState.goal,
         archetype,
