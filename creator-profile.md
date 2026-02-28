@@ -275,6 +275,28 @@ This is especially important for:
 
 The system should analyze replies, but it should not let reply-heavy behavior distort the main standalone-post strategy model.
 
+### 10. Quote Layer
+
+Quote posts should be modeled as a separate lane from both originals and replies.
+
+The quote layer should capture:
+
+- quote count
+- quote share of captured activity
+- dominant quote opener pattern
+- average quote length band
+- quote usage note
+
+This exists because quote posts are often a commentary and distribution format, not the same thing as a pure original post.
+
+The quote lane should help the system decide:
+
+- when quote posts are a useful wedge
+- when a strong quote take should be rewritten as a standalone post
+- when quote-heavy behavior is overshadowing the main original-post lane
+
+The system should analyze quotes, but it should not let quote-driven behavior distort the main standalone-post voice model.
+
 ## Input Sources
 
 The creator profile should be built from two categories of inputs.
@@ -286,6 +308,7 @@ These come from the scrape and structured analysis:
 - normalized profile
 - recent posts
 - recent replies
+- recent quote posts
 - engagement metrics
 - per-post feature extraction
   - links

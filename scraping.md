@@ -145,6 +145,7 @@ A successful onboarding scrape is normalized into:
 - profile
 - recent original posts
 - recent replies (stored separately from originals)
+- recent quote posts (stored separately from both originals and replies)
 - source metadata
 
 The canonical capture is stored in the scrape store and acts as the main input for:
@@ -157,22 +158,25 @@ This means user-facing flows should read cached captures whenever possible, not 
 
 ### Separate post lanes
 
-The canonical capture should now preserve at least two content lanes:
+The canonical capture should now preserve at least three content lanes:
 
 1. original posts
 2. replies
+3. quote posts
 
 Why:
 
 - original posts are the safer source for voice, topic, and standalone drafting strategy
 - replies matter for distribution and conversational behavior, especially for early-stage growth
+- quote posts matter as a commentary and leverage format, but should not override the main original-post lane
 
 These should stay separate in normalized storage so the product can:
 
 - build the main creator model from original posts
 - build a reply-behavior model for later extension workflows
+- build a quote-behavior model for commentary and leverage workflows
 
-The onboarding model should not blindly mix replies into the primary post lane.
+The onboarding model should not blindly mix replies or quote posts into the primary post lane.
 
 ## 4. Shared Scraper Infrastructure
 
