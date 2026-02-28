@@ -44,6 +44,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - topic quality
 - niche overlay quality
 - archetype confidence
+- playbook quality
 - strategy specificity
 - interaction signal quality
 - distribution loop quality
@@ -80,6 +81,13 @@ Niche-overlay quality should explicitly score whether:
 - the domain layer is distinct enough from the archetype layer
 - there is enough signal to specialize the playbook credibly
 - the likely offer is plausible for the current goal
+
+Playbook quality should explicitly score whether:
+
+- the playbook actually reflects the inferred niche when the niche is strong enough
+- the inferred distribution loop is operationalized in the playbook
+- cadence is expressed in a capacity-aware way
+- the playbook is specific enough to guide generation instead of acting like a generic style summary
 
 ## System Layers
 
