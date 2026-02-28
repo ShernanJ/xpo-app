@@ -147,6 +147,7 @@ export interface CreatorChatDebugInfo {
   formatExemplar: CreatorChatDebugFormatExemplar | null;
   evidencePack: CreatorChatDebugEvidencePack;
   formatBlueprint: string;
+  formatSkeleton: string;
   outputShapeRationale: string;
 }
 
@@ -179,6 +180,15 @@ interface FormatBlueprintProfile {
   prefersBulletCore: boolean;
   minimumProofSignals: number;
   preferConfidentClose: boolean;
+}
+
+interface LongFormContentSkeleton {
+  introMode: "identity_intro" | "direct_thesis";
+  hasContextBeat: boolean;
+  hasProofBlock: boolean;
+  hasTurningPoint: boolean;
+  hasLesson: boolean;
+  closeMode: "confident" | "question";
 }
 
 interface ModelProviderConfig {
@@ -230,10 +240,14 @@ function buildDeterministicFallback(params: {
     post: fallbackFormatExemplar,
     outputShape: contract.planner.outputShape,
   });
+  const fallbackFormatSkeleton = formatLongFormSkeleton(
+    buildLongFormContentSkeleton(fallbackFormatExemplar),
+  );
   const debugInfo: CreatorChatDebugInfo = {
     formatExemplar: buildFormatExemplarDebug(fallbackFormatExemplar),
     evidencePack: fallbackEvidencePack,
     formatBlueprint: fallbackFormatBlueprint,
+    formatSkeleton: fallbackFormatSkeleton,
     outputShapeRationale: contract.planner.outputShapeRationale,
   };
 
@@ -1329,6 +1343,140 @@ function buildFormatBlueprint(params: {
     .join(" ");
 }
 
+function buildLongFormContentSkeleton(
+  post: CreatorRepresentativePost | null,
+): LongFormContentSkeleton {
+  if (!post) {
+    return {
+      introMode: "direct_thesis",
+      hasContextBeat: false,
+      hasProofBlock: false,
+      hasTurningPoint: true,
+      hasLesson: true,
+      closeMode: "confident",
+    };
+  }
+
+  const lines = post.text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLine = lines[0] ?? "";
+  const introMode =
+    /\b(i(?:'m| am)|founder|builder|cto|ceo|engineer)\b/i.test(firstLine)
+      ? "identity_intro"
+      : "direct_thesis";
+  const hasContextBeat =
+    hasLongFormContextBeat(post.text) ||
+    lines.some((line) => hasLongFormContextBeat(line));
+  const hasProofBlock =
+    lines.filter((line) => /^[-*•]\s|^\d+\./.test(line)).length > 0 ||
+    countProofSignals(post.text) >= 2;
+  const hasTurningPoint = hasLongFormTurningPoint(post.text);
+  const hasLesson = hasLongFormLesson(post.text);
+
+  return {
+    introMode,
+    hasContextBeat,
+    hasProofBlock,
+    hasTurningPoint,
+    hasLesson,
+    closeMode: /\?\s*$/.test(post.text.trim()) ? "question" : "confident",
+  };
+}
+
+function hasLongFormContextBeat(text: string): boolean {
+  return /\b(i grew up|when i first|years later|small town|immigrat|winter|walked|moved)\b/i.test(
+    text,
+  );
+}
+
+function hasLongFormTurningPoint(text: string): boolean {
+  return /\bbut\b|\bhowever\b|\bi realized\b|\bthat changed\b|\bthe thing is\b/i.test(
+    text,
+  );
+}
+
+function hasLongFormLesson(text: string): boolean {
+  return /\bhere'?s what\b|\bthe lesson\b|\bwhat i learned\b|\bthe point is\b|\bthat arc\b|\bthat'?s why\b|\bif you ask me\b|\bmy goal\b/i.test(
+    text,
+  );
+}
+
+function formatLongFormSkeleton(skeleton: LongFormContentSkeleton): string {
+  return [
+    skeleton.introMode === "identity_intro"
+      ? "Open by grounding the reader in who the creator is or what they do."
+      : "Open with a direct thesis, not an identity bio.",
+    skeleton.hasContextBeat
+      ? "Include one short lived-context or backstory beat."
+      : "Context is optional; do not force a backstory beat.",
+    skeleton.hasProofBlock
+      ? "Use a concrete proof block in the middle (bullets or distinct proof beats)."
+      : "Use at least one concrete proof beat, even if not a full bullet block.",
+    skeleton.hasTurningPoint
+      ? "Include a turning-point or contrast beat that pivots the post."
+      : "Keep the progression linear unless a turning point is natural.",
+    skeleton.hasLesson
+      ? "Land on a clear lesson, principle, or explicit takeaway."
+      : "Make the lesson explicit even if the exemplar implied it.",
+    skeleton.closeMode === "confident"
+      ? "Close with a confident statement, not a trailing question."
+      : "A question close is acceptable only after the full thesis and proof are established.",
+  ].join(" ");
+}
+
+function matchesLongFormSkeleton(
+  draft: string,
+  skeleton: LongFormContentSkeleton,
+): boolean {
+  const trimmed = draft.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const lines = trimmed
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLine = lines[0] ?? "";
+  const hasBulletBlock = lines.some((line) => /^[-*•]\s|^\d+\./.test(line));
+  const proofSignals = countProofSignals(trimmed);
+
+  if (
+    skeleton.introMode === "identity_intro" &&
+    !/\b(i(?:'m| am)|founder|builder|cto|ceo|engineer)\b/i.test(firstLine)
+  ) {
+    return false;
+  }
+
+  if (skeleton.hasContextBeat && !hasLongFormContextBeat(trimmed)) {
+    return false;
+  }
+
+  if (skeleton.hasProofBlock && !hasBulletBlock && proofSignals < 2) {
+    return false;
+  }
+
+  if (skeleton.hasTurningPoint && !hasLongFormTurningPoint(trimmed)) {
+    return false;
+  }
+
+  if (skeleton.hasLesson && !hasLongFormLesson(trimmed)) {
+    return false;
+  }
+
+  if (skeleton.closeMode === "confident" && /\?\s*$/.test(trimmed)) {
+    return false;
+  }
+
+  if (skeleton.closeMode === "question" && !/\?\s*$/.test(trimmed)) {
+    return false;
+  }
+
+  return true;
+}
+
 function extractConcreteSubject(userMessage: string): string | null {
   const trimmed = userMessage.trim();
   const patterns = [
@@ -1491,6 +1639,9 @@ function buildWriterSystemPrompt(params: {
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
   });
+  const formatSkeleton = formatLongFormSkeleton(
+    buildLongFormContentSkeleton(requestAnchors.formatExemplar),
+  );
 
   return [
     "You are the writer for an X growth assistant.",
@@ -1565,6 +1716,7 @@ function buildWriterSystemPrompt(params: {
     `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
     `Concrete evidence pack (use this as topical proof, not just background flavor):\n${evidencePackLine}`,
     `Structural blueprint (follow this shape unless the user clearly needs something else): ${formatBlueprint}`,
+    `Long-form content skeleton (preserve this content progression when writing long form): ${formatSkeleton}`,
     requestAnchors.evidencePack.requiredEvidenceCount > 0
       ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
       : "No minimum evidence reuse requirement is available.",
@@ -1608,6 +1760,9 @@ function buildCriticSystemPrompt(params: {
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
   });
+  const formatSkeleton = formatLongFormSkeleton(
+    buildLongFormContentSkeleton(requestAnchors.formatExemplar),
+  );
 
   return [
     "You are the critic for an X growth assistant.",
@@ -1637,6 +1792,7 @@ function buildCriticSystemPrompt(params: {
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Concrete evidence pack to enforce:\n${evidencePackLine}`,
     `Structural blueprint to enforce: ${formatBlueprint}`,
+    `Long-form content skeleton to enforce: ${formatSkeleton}`,
     requestAnchors.evidencePack.requiredEvidenceCount > 0
       ? `Reject drafts that reuse fewer than ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) when the topic aligns with the evidence pack.`
       : "No minimum evidence reuse requirement is available.",
@@ -2054,6 +2210,7 @@ function scoreDraftCandidate(params: {
   concreteSubject: string | null;
   userMessage: string;
   blueprintProfile?: FormatBlueprintProfile;
+  contentSkeleton?: LongFormContentSkeleton;
   evidencePack?: CreatorChatDebugEvidencePack;
 }): number {
   const draft = params.draft.trim();
@@ -2134,6 +2291,12 @@ function scoreDraftCandidate(params: {
     ) {
       score += 8;
     }
+    if (
+      params.contentSkeleton &&
+      matchesLongFormSkeleton(draft, params.contentSkeleton)
+    ) {
+      score += 8;
+    }
     if (words.length >= 90) {
       score += 4;
     } else if (words.length >= 60) {
@@ -2169,6 +2332,12 @@ function scoreDraftCandidate(params: {
         score -= 4;
       }
     }
+    if (
+      params.contentSkeleton &&
+      !matchesLongFormSkeleton(draft, params.contentSkeleton)
+    ) {
+      score -= 6;
+    }
   } else if (params.contract.planner.outputShape === "thread_seed") {
     score += hasStructuredLongFormShape(draft) ? 4 : words.length >= 22 ? 1 : -4;
     if (/\?$/.test(draft)) {
@@ -2187,6 +2356,12 @@ function scoreDraftCandidate(params: {
       ) {
         score -= 2;
       }
+    }
+    if (
+      params.contentSkeleton &&
+      matchesLongFormSkeleton(draft, params.contentSkeleton)
+    ) {
+      score += 4;
     }
   }
 
@@ -2220,6 +2395,7 @@ function rerankDrafts(params: {
   concreteSubject: string | null;
   userMessage: string;
   blueprintProfile?: FormatBlueprintProfile;
+  contentSkeleton?: LongFormContentSkeleton;
   evidencePack?: CreatorChatDebugEvidencePack;
 }): string[] {
   const seen = new Set<string>();
@@ -2242,6 +2418,7 @@ function rerankDrafts(params: {
         concreteSubject: params.concreteSubject,
         userMessage: params.userMessage,
         blueprintProfile: params.blueprintProfile,
+        contentSkeleton: params.contentSkeleton,
         evidencePack: params.evidencePack,
       }),
     }))
@@ -2262,10 +2439,14 @@ function buildLongFormExpansionSystemPrompt(params: {
     post: params.requestAnchors.formatExemplar,
     outputShape: params.contract.planner.outputShape,
   });
+  const contentSkeleton = buildLongFormContentSkeleton(
+    params.requestAnchors.formatExemplar,
+  );
   const formatBlueprint = buildFormatBlueprint({
     post: params.requestAnchors.formatExemplar,
     outputShape: params.contract.planner.outputShape,
   });
+  const formatSkeleton = formatLongFormSkeleton(contentSkeleton);
 
   return [
     "You are expanding an X long-form draft into a stronger, more developed post.",
@@ -2299,6 +2480,7 @@ function buildLongFormExpansionSystemPrompt(params: {
     `Proof requirement: ${params.contract.writer.proofRequirement}`,
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Follow this structural blueprint: ${formatBlueprint}`,
+    `Follow this long-form content skeleton: ${formatSkeleton}`,
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -2377,6 +2559,9 @@ export async function generateCreatorChatReply(params: {
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
   });
+  const formatContentSkeleton = buildLongFormContentSkeleton(
+    requestAnchors.formatExemplar,
+  );
 
   params.onProgress?.("planning");
   const plannerResponse = await callProviderJson<PlannerOutput>({
@@ -2684,6 +2869,7 @@ export async function generateCreatorChatReply(params: {
           concreteSubject,
           userMessage: params.userMessage,
           blueprintProfile: formatBlueprintProfile,
+          contentSkeleton: formatContentSkeleton,
           evidencePack: requestAnchors.evidencePack,
         });
   const finalWatchOutFor = sanitizeStringList(
@@ -2699,7 +2885,8 @@ export async function generateCreatorChatReply(params: {
     !finalDrafts.some(
       (draft) =>
         isClearlyLongFormDraft(draft) &&
-        matchesLongFormBlueprint(draft, formatBlueprintProfile),
+        matchesLongFormBlueprint(draft, formatBlueprintProfile) &&
+        matchesLongFormSkeleton(draft, formatContentSkeleton),
     )
   ) {
     try {
@@ -2742,6 +2929,7 @@ export async function generateCreatorChatReply(params: {
           concreteSubject,
           userMessage: params.userMessage,
           blueprintProfile: formatBlueprintProfile,
+          contentSkeleton: formatContentSkeleton,
           evidencePack: requestAnchors.evidencePack,
         });
       }
@@ -2788,6 +2976,7 @@ export async function generateCreatorChatReply(params: {
         post: requestAnchors.formatExemplar,
         outputShape: contract.planner.outputShape,
       }),
+      formatSkeleton: formatLongFormSkeleton(formatContentSkeleton),
       outputShapeRationale: contract.planner.outputShapeRationale,
     },
     source: writerProvider.provider,
