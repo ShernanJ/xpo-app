@@ -200,6 +200,15 @@ That means the strategy layer should separate:
 
 The system should not assume every user wants the same kind of growth.
 
+The preferred product behavior is to capture transformation mode explicitly during onboarding:
+
+- preserve
+- optimize
+- pivot_soft
+- pivot_hard
+
+That should be a real user input, not a hidden inference.
+
 ### 8. Example Layer
 
 This is the concrete post context the future drafting agent should use.
@@ -252,6 +261,7 @@ These should be computed in code, not inferred loosely by an LLM.
 These come from the user:
 
 - growth goal
+- transformation intent (preserve vs optimize vs pivot)
 - later chat answers such as:
   - trying to get hired
   - trying to grow a company
