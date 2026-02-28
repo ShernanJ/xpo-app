@@ -113,6 +113,33 @@ interface ChatStrategyInputs {
   transformationMode: TransformationMode;
 }
 
+interface WorkspaceLoadResult {
+  ok: boolean;
+  contextData?: CreatorAgentContext;
+  contractData?: CreatorGenerationContract;
+}
+
+type StrategyPromptStep =
+  | "goal"
+  | "transformationMode"
+  | "postingCadenceCapacity"
+  | "replyBudgetPerDay";
+
+interface StrategyPromptOption {
+  value: string;
+  label: string;
+}
+
+interface StrategyPromptState {
+  step: StrategyPromptStep;
+  label: string;
+  helper: string;
+  options: StrategyPromptOption[];
+  currentValue: string;
+  index: number;
+  total: number;
+}
+
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
 const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
@@ -134,6 +161,12 @@ const postingCapacityOptions: PostingCadenceCapacity[] = [
   "2_per_day",
 ];
 const replyBudgetOptions: ReplyBudgetPerDay[] = ["0_5", "5_15", "15_30"];
+const strategyPromptSteps: StrategyPromptStep[] = [
+  "goal",
+  "transformationMode",
+  "postingCadenceCapacity",
+  "replyBudgetPerDay",
+];
 
 function formatEnumLabel(value: string): string {
   return value
@@ -168,6 +201,69 @@ function formatReplyBudgetLabel(value: ReplyBudgetPerDay): string {
   }
 
   return "15-30 Replies";
+}
+
+function buildStrategyPromptState(
+  step: StrategyPromptStep | null,
+  inputs: ChatStrategyInputs,
+): StrategyPromptState | null {
+  if (!step) {
+    return null;
+  }
+
+  const index = strategyPromptSteps.indexOf(step);
+  const base = {
+    step,
+    index: index + 1,
+    total: strategyPromptSteps.length,
+  };
+
+  switch (step) {
+    case "goal":
+      return {
+        ...base,
+        label: "What are you optimizing for first?",
+        helper: "Pick the primary outcome so the agent plans around the right type of growth.",
+        options: goalOptions.map((option) => ({
+          value: option,
+          label: formatEnumLabel(option),
+        })),
+        currentValue: inputs.goal,
+      };
+    case "transformationMode":
+      return {
+        ...base,
+        label: "How should we handle your current positioning?",
+        helper: "Choose whether to preserve what works, optimize it, or pivot into a new lane.",
+        options: transformationModeOptions.map((option) => ({
+          value: option,
+          label: formatEnumLabel(option),
+        })),
+        currentValue: inputs.transformationMode,
+      };
+    case "postingCadenceCapacity":
+      return {
+        ...base,
+        label: "How often can you realistically post?",
+        helper: "This caps the playbook so the plan is something you can actually sustain.",
+        options: postingCapacityOptions.map((option) => ({
+          value: option,
+          label: formatPostingCapacityLabel(option),
+        })),
+        currentValue: inputs.postingCadenceCapacity,
+      };
+    case "replyBudgetPerDay":
+      return {
+        ...base,
+        label: "How much reply bandwidth do you have each day?",
+        helper: "Reply-heavy loops only make sense if you can sustain them.",
+        options: replyBudgetOptions.map((option) => ({
+          value: option,
+          label: formatReplyBudgetLabel(option),
+        })),
+        currentValue: inputs.replyBudgetPerDay,
+      };
+  }
 }
 
 function formatNicheSummary(context: CreatorAgentContext): string {
@@ -312,68 +408,78 @@ export default function ChatPage() {
   );
   const [activeStrategyInputs, setActiveStrategyInputs] =
     useState<ChatStrategyInputs | null>(null);
-  const [strategySetupOpen, setStrategySetupOpen] = useState(true);
+  const [strategyPromptStep, setStrategyPromptStep] =
+    useState<StrategyPromptStep | null>("goal");
   const [isApplyingStrategyInputs, setIsApplyingStrategyInputs] = useState(false);
 
   const loadWorkspace = useCallback(
-    async (overrides: ChatStrategyInputs | null = activeStrategyInputs) => {
-    if (!runId) {
-      setErrorMessage("Missing runId. Start from the landing page.");
-      setIsLoading(false);
-      return false;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const [contextResponse, contractResponse] = await Promise.all([
-        fetch("/api/creator/context", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
-        }),
-        fetch("/api/creator/generation-contract", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
-        }),
-      ]);
-
-      const contextData: CreatorAgentContextResponse = await contextResponse.json();
-      const contractData: CreatorGenerationContractResponse = await contractResponse.json();
-
-      if (!contextResponse.ok || !contextData.ok) {
-        setErrorMessage(
-          contextData.ok
-            ? "Failed to load the creator context."
-            : (contextData.errors[0]?.message ?? "Failed to load the creator context."),
-        );
-        return false;
+    async (
+      overrides: ChatStrategyInputs | null = activeStrategyInputs,
+    ): Promise<WorkspaceLoadResult> => {
+      if (!runId) {
+        setErrorMessage("Missing runId. Start from the landing page.");
+        setIsLoading(false);
+        return { ok: false };
       }
 
-      if (!contractResponse.ok || !contractData.ok) {
-        setErrorMessage(
-          contractData.ok
-            ? "Failed to load the generation contract."
-            : (contractData.errors[0]?.message ?? "Failed to load the generation contract."),
-        );
-        return false;
-      }
+      setIsLoading(true);
+      setErrorMessage(null);
 
-      setContext(contextData.data);
-      setContract(contractData.data);
-      return true;
-    } catch {
-      setErrorMessage("Network error while loading the chat workspace.");
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+      try {
+        const [contextResponse, contractResponse] = await Promise.all([
+          fetch("/api/creator/context", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
+          }),
+          fetch("/api/creator/generation-contract", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
+          }),
+        ]);
+
+        const contextData: CreatorAgentContextResponse = await contextResponse.json();
+        const contractData: CreatorGenerationContractResponse =
+          await contractResponse.json();
+
+        if (!contextResponse.ok || !contextData.ok) {
+          setErrorMessage(
+            contextData.ok
+              ? "Failed to load the creator context."
+              : (contextData.errors[0]?.message ??
+                "Failed to load the creator context."),
+          );
+          return { ok: false };
+        }
+
+        if (!contractResponse.ok || !contractData.ok) {
+          setErrorMessage(
+            contractData.ok
+              ? "Failed to load the generation contract."
+              : (contractData.errors[0]?.message ??
+                "Failed to load the generation contract."),
+          );
+          return { ok: false };
+        }
+
+        setContext(contextData.data);
+        setContract(contractData.data);
+        return {
+          ok: true,
+          contextData: contextData.data,
+          contractData: contractData.data,
+        };
+      } catch {
+        setErrorMessage("Network error while loading the chat workspace.");
+        return { ok: false };
+      } finally {
+        setIsLoading(false);
+      }
     },
     [activeStrategyInputs, runId],
   );
@@ -536,6 +642,283 @@ export default function ChatPage() {
       },
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
+  const currentStrategyPrompt = useMemo(
+    () => buildStrategyPromptState(strategyPromptStep, strategyInputs),
+    [strategyInputs, strategyPromptStep],
+  );
+
+  const requestAssistantReply = useCallback(
+    async (options: {
+      prompt: string;
+      appendUserMessage: boolean;
+      historySeed?: ChatMessage[];
+      strategyInputOverride?: ChatStrategyInputs;
+      fallbackContext?: CreatorAgentContext;
+      fallbackContract?: CreatorGenerationContract;
+    }) => {
+      const resolvedContext = options.fallbackContext ?? context;
+      const resolvedContract = options.fallbackContract ?? contract;
+      const resolvedStrategyInputs =
+        options.strategyInputOverride ?? activeStrategyInputs;
+
+      if (
+        !runId ||
+        !resolvedContext ||
+        !resolvedContract ||
+        !resolvedStrategyInputs ||
+        isSending
+      ) {
+        return;
+      }
+
+      const trimmedPrompt = options.prompt.trim();
+      if (!trimmedPrompt) {
+        return;
+      }
+
+      let history = options.historySeed ?? messages.slice(-6);
+
+      if (options.appendUserMessage) {
+        const userMessage: ChatMessage = {
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: trimmedPrompt,
+        };
+
+        setMessages((current) => [...current, userMessage]);
+        history = [...history, userMessage].slice(-6);
+      }
+
+      setIsSending(true);
+      setStreamStatus("Planning the next move.");
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/creator/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            runId,
+            message: trimmedPrompt,
+            history,
+            provider: providerPreference,
+            stream: true,
+            ...resolvedStrategyInputs,
+          }),
+        });
+
+        const contentType = response.headers.get("content-type") ?? "";
+
+        if (contentType.includes("application/json")) {
+          const data: CreatorChatResponse = await response.json();
+
+          const reply =
+            response.ok && data.ok
+              ? data.data
+              : data.ok
+                ? {
+                    reply: "The chat route failed to return a reply.",
+                    drafts: [],
+                    whyThisWorks: [],
+                    watchOutFor: [],
+                    source: "deterministic" as const,
+                    model: null,
+                    mode: resolvedContract.mode,
+                  }
+                : null;
+
+          setMessages((current) => [
+            ...current,
+            {
+              id: `assistant-${Date.now() + 1}`,
+              role: "assistant",
+              content:
+                reply?.reply ??
+                (data.ok
+                  ? "The chat route failed to return a reply."
+                  : (data.errors[0]?.message ?? "Failed to generate a reply.")),
+              drafts: reply?.drafts ?? [],
+              whyThisWorks: reply?.whyThisWorks ?? [],
+              watchOutFor: reply?.watchOutFor ?? [],
+              source: reply?.source,
+              model: reply?.model ?? null,
+            },
+          ]);
+          return;
+        }
+
+        if (!response.body) {
+          throw new Error("The chat stream did not return a readable body.");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamedResult: CreatorChatSuccess["data"] | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) {
+              continue;
+            }
+
+            const event = JSON.parse(line) as CreatorChatStreamEvent;
+
+            if (event.type === "status") {
+              setStreamStatus(event.message);
+              continue;
+            }
+
+            if (event.type === "result") {
+              streamedResult = event.data;
+              continue;
+            }
+
+            if (event.type === "error") {
+              throw new Error(event.message);
+            }
+          }
+        }
+
+        if (buffer.trim()) {
+          const event = JSON.parse(buffer.trim()) as CreatorChatStreamEvent;
+          if (event.type === "status") {
+            setStreamStatus(event.message);
+          } else if (event.type === "result") {
+            streamedResult = event.data;
+          } else if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
+
+        if (!streamedResult) {
+          throw new Error("The chat stream finished without a result.");
+        }
+
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now() + 1}`,
+            role: "assistant",
+            content: streamedResult.reply,
+            drafts: streamedResult.drafts,
+            whyThisWorks: streamedResult.whyThisWorks,
+            watchOutFor: streamedResult.watchOutFor,
+            source: streamedResult.source,
+            model: streamedResult.model ?? null,
+          },
+        ]);
+      } catch {
+        const fallback = buildDeterministicReply(resolvedContext, resolvedContract);
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now() + 1}`,
+            role: "assistant",
+            ...fallback,
+          },
+        ]);
+        setErrorMessage(
+          "The live model failed, so the deterministic fallback was used.",
+        );
+      } finally {
+        setIsSending(false);
+        setStreamStatus(null);
+      }
+    },
+    [
+      activeStrategyInputs,
+      contract,
+      context,
+      isSending,
+      messages,
+      providerPreference,
+      runId,
+    ],
+  );
+
+  const finalizeStrategyPlan = useCallback(
+    async (nextInputs: ChatStrategyInputs) => {
+      setIsApplyingStrategyInputs(true);
+      setErrorMessage(null);
+
+      const loaded = await loadWorkspace(nextInputs);
+
+      if (loaded.ok && loaded.contextData && loaded.contractData) {
+        const confirmationMessage: ChatMessage = {
+          id: `assistant-plan-${Date.now()}`,
+          role: "assistant",
+          content: `Plan locked: ${formatEnumLabel(nextInputs.goal)}, ${formatEnumLabel(
+            nextInputs.transformationMode,
+          )}, ${formatPostingCapacityLabel(
+            nextInputs.postingCadenceCapacity,
+          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}.`,
+        };
+
+        setActiveStrategyInputs(nextInputs);
+        setStrategyPromptStep(null);
+        setMessages((current) => [...current, confirmationMessage]);
+
+        await requestAssistantReply({
+          prompt: "Give me the first concrete X post to start with based on this plan.",
+          appendUserMessage: false,
+          historySeed: [...messages, confirmationMessage].slice(-6),
+          strategyInputOverride: nextInputs,
+          fallbackContext: loaded.contextData,
+          fallbackContract: loaded.contractData,
+        });
+      }
+
+      setIsApplyingStrategyInputs(false);
+    },
+    [loadWorkspace, messages, requestAssistantReply],
+  );
+
+  async function handleStrategyPromptSelect(
+    step: StrategyPromptStep,
+    selectedValue: string,
+  ) {
+    if (isApplyingStrategyInputs || isSending) {
+      return;
+    }
+
+    const nextInputs: ChatStrategyInputs = { ...strategyInputs };
+
+    if (step === "goal") {
+      nextInputs.goal = selectedValue as UserGoal;
+    } else if (step === "transformationMode") {
+      nextInputs.transformationMode = selectedValue as TransformationMode;
+    } else if (step === "postingCadenceCapacity") {
+      nextInputs.postingCadenceCapacity =
+        selectedValue as PostingCadenceCapacity;
+    } else if (step === "replyBudgetPerDay") {
+      nextInputs.replyBudgetPerDay = selectedValue as ReplyBudgetPerDay;
+    }
+
+    setStrategyInputs(nextInputs);
+
+    const currentIndex = strategyPromptSteps.indexOf(step);
+    const nextStep = strategyPromptSteps[currentIndex + 1] ?? null;
+
+    if (nextStep) {
+      setStrategyPromptStep(nextStep);
+      return;
+    }
+
+    await finalizeStrategyPlan(nextInputs);
+  }
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -545,197 +928,18 @@ export default function ChatPage() {
       return;
     }
 
-    if (!activeStrategyInputs) {
-      setErrorMessage("Set your goal, strategy path, and capacity before drafting.");
+    if (!activeStrategyInputs || strategyPromptStep) {
+      setErrorMessage("Finish the setup prompts before drafting.");
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: trimmedInput,
-    };
-    const history = messages.slice(-6);
-
-    setMessages((current) => [
-      ...current,
-      userMessage,
-    ]);
     setDraftInput("");
 
-    setIsSending(true);
-    setStreamStatus("Planning the next move.");
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/creator/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          runId,
-          message: trimmedInput,
-          history,
-          provider: providerPreference,
-          stream: true,
-          ...activeStrategyInputs,
-        }),
-      });
-
-      const contentType = response.headers.get("content-type") ?? "";
-
-      if (contentType.includes("application/json")) {
-        const data: CreatorChatResponse = await response.json();
-
-        const reply =
-          response.ok && data.ok
-            ? data.data
-            : data.ok
-              ? {
-                  reply: "The chat route failed to return a reply.",
-                  drafts: [],
-                  whyThisWorks: [],
-                  watchOutFor: [],
-                  source: "deterministic" as const,
-                  model: null,
-                  mode: contract.mode,
-                }
-              : null;
-
-        setMessages((current) => [
-          ...current,
-          {
-            id: `assistant-${Date.now() + 1}`,
-            role: "assistant",
-            content:
-              reply?.reply ??
-              (data.ok
-                ? "The chat route failed to return a reply."
-                : (data.errors[0]?.message ?? "Failed to generate a reply.")),
-            drafts: reply?.drafts ?? [],
-            whyThisWorks: reply?.whyThisWorks ?? [],
-            watchOutFor: reply?.watchOutFor ?? [],
-            source: reply?.source,
-            model: reply?.model ?? null,
-          },
-        ]);
-        return;
-      }
-
-      if (!response.body) {
-        throw new Error("The chat stream did not return a readable body.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let streamedResult: CreatorChatSuccess["data"] | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const rawLine of lines) {
-          const line = rawLine.trim();
-          if (!line) {
-            continue;
-          }
-
-          const event = JSON.parse(line) as CreatorChatStreamEvent;
-
-          if (event.type === "status") {
-            setStreamStatus(event.message);
-            continue;
-          }
-
-          if (event.type === "result") {
-            streamedResult = event.data;
-            continue;
-          }
-
-          if (event.type === "error") {
-            throw new Error(event.message);
-          }
-        }
-      }
-
-      if (buffer.trim()) {
-        const event = JSON.parse(buffer.trim()) as CreatorChatStreamEvent;
-        if (event.type === "status") {
-          setStreamStatus(event.message);
-        } else if (event.type === "result") {
-          streamedResult = event.data;
-        } else if (event.type === "error") {
-          throw new Error(event.message);
-        }
-      }
-
-      if (!streamedResult) {
-        throw new Error("The chat stream finished without a result.");
-      }
-
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now() + 1}`,
-          role: "assistant",
-          content: streamedResult.reply,
-          drafts: streamedResult.drafts,
-          whyThisWorks: streamedResult.whyThisWorks,
-          watchOutFor: streamedResult.watchOutFor,
-          source: streamedResult.source,
-          model: streamedResult.model ?? null,
-        },
-      ]);
-    } catch {
-      const fallback = buildDeterministicReply(context, contract);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now() + 1}`,
-          role: "assistant",
-          ...fallback,
-        },
-      ]);
-      setErrorMessage("The live model failed, so the deterministic fallback was used.");
-    } finally {
-      setIsSending(false);
-      setStreamStatus(null);
-    }
-  }
-
-  async function handleApplyStrategyInputs() {
-    setIsApplyingStrategyInputs(true);
-    setErrorMessage(null);
-
-    const nextInputs = { ...strategyInputs };
-    const loaded = await loadWorkspace(nextInputs);
-
-    if (loaded) {
-      setActiveStrategyInputs(nextInputs);
-      setStrategySetupOpen(false);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-plan-${Date.now()}`,
-          role: "assistant",
-          content: `Plan locked: ${formatEnumLabel(nextInputs.goal)}, ${formatEnumLabel(
-            nextInputs.transformationMode,
-          )}, ${formatPostingCapacityLabel(
-            nextInputs.postingCadenceCapacity,
-          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}.`,
-        },
-      ]);
-    }
-
-    setIsApplyingStrategyInputs(false);
+    await requestAssistantReply({
+      prompt: trimmedInput,
+      appendUserMessage: true,
+      strategyInputOverride: activeStrategyInputs,
+    });
   }
 
   return (
@@ -917,10 +1121,14 @@ export default function ChatPage() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setStrategySetupOpen((current) => !current)}
+                  onClick={() => {
+                    setStrategyInputs(activeStrategyInputs ?? strategyInputs);
+                    setStrategyPromptStep("goal");
+                    setErrorMessage(null);
+                  }}
                   className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
                 >
-                  {strategySetupOpen ? "Hide Plan" : "Tune Plan"}
+                  {strategyPromptStep ? "Planning..." : "Retune Plan"}
                 </button>
               </div>
 
@@ -930,150 +1138,57 @@ export default function ChatPage() {
                 </div>
               ) : null}
 
-              {strategySetupOpen && !isLoading ? (
-                <div className="border border-white/10 bg-white/[0.02] p-4">
-                  <div className="flex flex-col gap-4">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        Before We Draft
-                      </p>
-                      <p className="mt-2 text-sm text-zinc-300">
-                        Lock your goal, strategy path, and capacity so the model rebuilds around what you actually want now.
-                      </p>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Goal
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {goalOptions.map((option) => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() =>
-                                setStrategyInputs((current) => ({
-                                  ...current,
-                                  goal: option,
-                                }))
-                              }
-                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                                strategyInputs.goal === option
-                                  ? "border-white/30 bg-white/[0.08] text-white"
-                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {formatEnumLabel(option)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Strategy Path
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {transformationModeOptions.map((option) => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() =>
-                                setStrategyInputs((current) => ({
-                                  ...current,
-                                  transformationMode: option,
-                                }))
-                              }
-                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                                strategyInputs.transformationMode === option
-                                  ? "border-white/30 bg-white/[0.08] text-white"
-                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {formatEnumLabel(option)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Posting Capacity
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {postingCapacityOptions.map((option) => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() =>
-                                setStrategyInputs((current) => ({
-                                  ...current,
-                                  postingCadenceCapacity: option,
-                                }))
-                              }
-                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                                strategyInputs.postingCadenceCapacity === option
-                                  ? "border-white/30 bg-white/[0.08] text-white"
-                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {formatPostingCapacityLabel(option)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Reply Capacity
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {replyBudgetOptions.map((option) => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() =>
-                                setStrategyInputs((current) => ({
-                                  ...current,
-                                  replyBudgetPerDay: option,
-                                }))
-                              }
-                              className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                                strategyInputs.replyBudgetPerDay === option
-                                  ? "border-white/30 bg-white/[0.08] text-white"
-                                  : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {formatReplyBudgetLabel(option)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleApplyStrategyInputs}
-                        disabled={isApplyingStrategyInputs}
-                        className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:text-zinc-600"
-                      >
-                        {isApplyingStrategyInputs ? "Applying..." : "Apply Plan"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {isLoading ? (
+              {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
-              ) : errorMessage ? (
-                <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                  {errorMessage}
-                </div>
               ) : (
                 <>
+                  {currentStrategyPrompt ? (
+                    <div className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                        Setup {currentStrategyPrompt.index} / {currentStrategyPrompt.total}
+                      </p>
+                      <p className="mt-3 text-sm font-medium leading-7 text-white">
+                        {currentStrategyPrompt.label}
+                      </p>
+                      <p className="mt-2 text-sm leading-7 text-zinc-400">
+                        {currentStrategyPrompt.helper}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {currentStrategyPrompt.options.map((option) => (
+                          <button
+                            key={`${currentStrategyPrompt.step}-${option.value}`}
+                            type="button"
+                            onClick={() =>
+                              void handleStrategyPromptSelect(
+                                currentStrategyPrompt.step,
+                                option.value,
+                              )
+                            }
+                            disabled={isApplyingStrategyInputs || isSending}
+                            className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
+                              currentStrategyPrompt.currentValue === option.value
+                                ? "border-white/30 bg-white/[0.08] text-white"
+                                : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
+                            } disabled:cursor-not-allowed disabled:text-zinc-600`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      {isApplyingStrategyInputs ? (
+                        <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Rebuilding the plan and drafting the first move.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {errorMessage ? (
+                    <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                      {errorMessage}
+                    </div>
+                  ) : null}
+
                   {messages.map((message) => (
                     <div
                       key={message.id}
@@ -1167,11 +1282,11 @@ export default function ChatPage() {
                       value={draftInput}
                       onChange={(event) => setDraftInput(event.target.value)}
                       placeholder={
-                        activeStrategyInputs
+                        activeStrategyInputs && !strategyPromptStep
                           ? "What are we creating today?"
-                          : "Set your plan above first."
+                          : "Finish the setup prompts first."
                       }
-                      disabled={isSending || !activeStrategyInputs}
+                      disabled={isSending || !activeStrategyInputs || !!strategyPromptStep}
                       className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
                     />
                     <button
@@ -1180,6 +1295,7 @@ export default function ChatPage() {
                         !context ||
                         !contract ||
                         !activeStrategyInputs ||
+                        !!strategyPromptStep ||
                         !draftInput.trim() ||
                         isSending
                       }
