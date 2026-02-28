@@ -67,16 +67,16 @@ Work from top to bottom unless a blocking dependency appears.
 
 ### 1. Evidence Pack Extraction
 
-- [ ] Add a deterministic `evidence pack` extracted from the selected anchor/exemplar
-- [ ] Extract:
+- [x] Add a deterministic `evidence pack` extracted from the selected anchor/exemplar
+- [x] Extract:
   - entities
   - metrics
   - constraints
   - outcomes
   - story beats
   - proof artifacts (when inferable)
-- [ ] Keep the evidence pack backend-owned
-- [ ] Make it reusable by live generation and deterministic fallback
+- [x] Keep the evidence pack backend-owned
+- [x] Make it reusable by live generation and deterministic fallback
 
 Definition of done:
 - a selected anchor/exemplar yields a structured evidence object
@@ -90,10 +90,10 @@ Likely files:
 
 ### 2. Planner Becomes Evidence-Aware
 
-- [ ] Feed the evidence pack into the planner
-- [ ] Require planner output to stay tied to concrete evidence
-- [ ] Prevent planner from collapsing into abstract generic themes too early
-- [ ] Add evidence-linked angle planning (for example, angle references specific evidence items)
+- [x] Feed the evidence pack into the planner
+- [x] Require planner output to stay tied to concrete evidence
+- [x] Prevent planner from collapsing into abstract generic themes too early
+- [x] Add evidence-linked angle planning (for example, angle references specific evidence items)
 
 Definition of done:
 - planner output preserves concrete nouns/metrics when they are relevant
@@ -104,12 +104,12 @@ Likely files:
 
 ### 3. Writer Uses Evidence, Not Just Structure
 
-- [ ] Change writer behavior so the exemplar is not treated as structure-only
-- [ ] Require the writer to use evidence pack details as proof points
-- [ ] Keep structure and evidence as separate inputs:
+- [x] Change writer behavior so the exemplar is not treated as structure-only
+- [x] Require the writer to use evidence pack details as proof points
+- [x] Keep structure and evidence as separate inputs:
   - structure blueprint
   - concrete evidence pack
-- [ ] Explicitly forbid invented metrics/numbers when real metrics exist
+- [x] Explicitly forbid invented metrics/numbers when real metrics exist
 
 Definition of done:
 - drafts reuse concrete details from the retrieved evidence when relevant
@@ -120,10 +120,10 @@ Likely files:
 
 ### 4. Grounding Critic Gate
 
-- [ ] Add a critic rule that checks evidence usage directly
-- [ ] Reject drafts that omit critical evidence when evidence is available
-- [ ] Reject drafts that invent unsupported metrics or named entities
-- [ ] Force rewrite when grounding is too weak
+- [x] Add a critic rule that checks evidence usage directly
+- [x] Reject drafts that omit critical evidence when evidence is available
+- [x] Reject drafts that invent unsupported metrics or named entities
+- [x] Force rewrite when grounding is too weak
 
 Definition of done:
 - generic drafts fail closed instead of being accepted
@@ -135,13 +135,13 @@ Likely files:
 
 ### 5. Rerank On Evidence Coverage
 
-- [ ] Add evidence coverage as a first-class reranking score
-- [ ] Score:
+- [x] Add evidence coverage as a first-class reranking score
+- [x] Score:
   - evidence reuse
   - evidence precision
   - subject fidelity
   - voice fidelity
-- [ ] Stop allowing readable-but-generic drafts to outrank grounded drafts
+- [x] Stop allowing readable-but-generic drafts to outrank grounded drafts
 
 Definition of done:
 - the top-ranked draft uses the strongest relevant evidence more consistently
@@ -151,12 +151,12 @@ Likely files:
 
 ### 6. Redesign Deterministic Fallback
 
-- [ ] Replace abstract fallback templates with evidence-based fallback synthesis
-- [ ] Make fallback produce:
+- [x] Replace abstract fallback templates with evidence-based fallback synthesis
+- [x] Make fallback produce:
   - grounded angles
   - grounded drafts
   - grounded artifacts
-- [ ] Use selected exemplar + evidence pack as the fallback source
+- [x] Use selected exemplar + evidence pack as the fallback source
 
 Definition of done:
 - fallback output is still useful when the live model fails
@@ -252,12 +252,11 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Evidence Pack Extraction
-2. Planner Becomes Evidence-Aware
-3. Writer Uses Evidence, Not Just Structure
-4. Grounding Critic Gate
-5. Rerank On Evidence Coverage
-6. Redesign Deterministic Fallback
+1. Long-Form Content Skeleton Extraction
+2. Better Pinning: Voice Pins vs Evidence Pins
+3. Prompt Compaction / Salience Ordering
+4. Better Debugging For Grounding
+5. Offline Grounding Regression Checks
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
