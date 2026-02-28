@@ -47,6 +47,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - playbook quality
 - strategy specificity
 - interaction signal quality
+- conversation conversion quality
 - distribution loop quality
 - anchor quality
 
@@ -88,6 +89,13 @@ Playbook quality should explicitly score whether:
 - the inferred distribution loop is operationalized in the playbook
 - cadence is expressed in a capacity-aware way
 - the playbook is specific enough to guide generation instead of acting like a generic style summary
+
+Conversation-conversion quality should explicitly score whether:
+
+- original posts are actually turning into replies
+- the account shows enough conversation pull to justify reply-led growth advice
+- author follow-through in threads is strong enough to compound that conversation
+- conversation signals are strong enough to trust as a planning input
 
 ## System Layers
 
@@ -593,6 +601,40 @@ This exists so the future LLM can immediately decide whether to:
 This object should be stable and versioned.
 
 The future LLM should consume this context pack directly rather than assembling context ad hoc from multiple endpoints.
+
+## Generation Contract
+
+Before adding any LLM, the system should expose one deterministic generation contract.
+
+This contract should sit on top of the agent context pack and enforce the existing readiness gate.
+
+It should define three stages:
+
+- planner
+- writer
+- critic
+
+The generation contract should make these things explicit:
+
+- whether generation is allowed at all
+- whether generation should be conservative
+- which lane the draft should target (original, reply, or quote)
+- the primary angle to push
+- which formats and hooks are preferred
+- what must be included
+- what must be avoided
+- which anchor examples should be used as references
+- which critic checks must pass
+
+This should be deterministic and stable before any LLM prompt is introduced.
+
+If readiness is too weak, the contract should fail closed into analysis-only mode instead of attempting generation.
+
+The product should also have a lightweight regression suite that runs multiple trusted onboarding runs through the current deterministic system and validates:
+
+- minimum acceptable overall score
+- acceptable generation mode
+- whether the current heuristics regress after a change
 
 ### 12. Reply Layer
 
