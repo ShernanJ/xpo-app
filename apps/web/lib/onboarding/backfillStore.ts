@@ -22,6 +22,14 @@ export interface StoredOnboardingBackfillJob {
   completedAt: string | null;
 }
 
+export interface OnboardingBackfillJobSummary {
+  total: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}
+
 function candidateBackfillStorePaths(): string[] {
   if (process.env.ONBOARDING_BACKFILL_STORE_PATH) {
     return [process.env.ONBOARDING_BACKFILL_STORE_PATH];
@@ -184,4 +192,23 @@ export async function readRecentOnboardingBackfillJobs(
 ): Promise<StoredOnboardingBackfillJob[]> {
   const jobs = await readAllBackfillJobs();
   return jobs.slice(-Math.max(1, limit)).reverse();
+}
+
+export async function readOnboardingBackfillJobSummary(): Promise<OnboardingBackfillJobSummary> {
+  const jobs = await readAllBackfillJobs();
+
+  return jobs.reduce<OnboardingBackfillJobSummary>(
+    (summary, job) => {
+      summary.total += 1;
+      summary[job.status] += 1;
+      return summary;
+    },
+    {
+      total: 0,
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+    },
+  );
 }
