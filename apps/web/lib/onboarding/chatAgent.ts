@@ -145,6 +145,13 @@ export interface CreatorChatReplyResult {
   mode: CreatorGenerationContract["mode"];
 }
 
+interface RequestConditionedAnchors {
+  topicAnchors: CreatorRepresentativePost[];
+  laneAnchors: CreatorRepresentativePost[];
+  formatAnchors: CreatorRepresentativePost[];
+  formatExemplar: CreatorRepresentativePost | null;
+}
+
 interface ModelProviderConfig {
   provider: ChatModelProvider;
   apiKey: string;
@@ -705,6 +712,117 @@ function formatAnchorExamples(
   ].join("\n");
 }
 
+function scoreRetrievedAnchor(params: {
+  post: CreatorRepresentativePost;
+  signalTerms: string[];
+  preferredLane: CreatorGenerationContract["planner"]["targetLane"];
+  outputShape: CreatorGenerationOutputShape;
+}): {
+  topicScore: number;
+  laneScore: number;
+  formatScore: number;
+} {
+  const text = params.post.text;
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const hasStructure = /\n|^- /m.test(text) ? 1 : 0;
+  const matchingTerms = params.signalTerms.filter((term) =>
+    new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+      text,
+    ),
+  ).length;
+  const proofBonus =
+    hasProofSignal(text) || /\b(arr|users|team|engineers|profit|scale)\b/i.test(text)
+      ? 1.5
+      : 0;
+  const laneBonus = params.post.lane === params.preferredLane ? 3 : 0;
+  let formatBonus = 0;
+
+  if (
+    params.outputShape === "long_form_post" ||
+    params.outputShape === "thread_seed"
+  ) {
+    formatBonus += hasStructure ? 4 : 0;
+    formatBonus += wordCount >= 120 ? 4 : wordCount >= 80 ? 2 : wordCount >= 50 ? 1 : -3;
+  } else {
+    formatBonus += wordCount <= 40 ? 2 : wordCount <= 70 ? 0.5 : -2;
+  }
+
+  return {
+    topicScore:
+      matchingTerms * 3 + params.post.goalFitScore * 0.25 + proofBonus + laneBonus * 0.5,
+    laneScore:
+      laneBonus + matchingTerms * 1.5 + params.post.goalFitScore * 0.2 + proofBonus,
+    formatScore:
+      formatBonus + matchingTerms * 2 + params.post.goalFitScore * 0.25 + laneBonus + proofBonus,
+  };
+}
+
+function selectRequestConditionedAnchors(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+  userMessage: string;
+  concreteSubject: string | null;
+  selectedAngle: string | null;
+  contentFocus: string | null;
+}): RequestConditionedAnchors {
+  const pool = params.context.positiveAnchors;
+
+  if (pool.length === 0) {
+    return {
+      topicAnchors: [],
+      laneAnchors: [],
+      formatAnchors: [],
+      formatExemplar: null,
+    };
+  }
+
+  const signalTerms = Array.from(
+    new Set([
+      ...collectSignalTerms(params.selectedAngle),
+      ...collectSignalTerms(params.concreteSubject),
+      ...collectSignalTerms(params.contentFocus),
+      ...collectSignalTerms(params.userMessage),
+    ]),
+  );
+
+  const scored = pool.map((post) => ({
+    post,
+    ...scoreRetrievedAnchor({
+      post,
+      signalTerms,
+      preferredLane: params.contract.planner.targetLane,
+      outputShape: params.contract.planner.outputShape,
+    }),
+  }));
+
+  const topicAnchors = [...scored]
+    .sort((left, right) => right.topicScore - left.topicScore)
+    .slice(0, 4)
+    .map((item) => item.post);
+
+  const laneAnchors = [...scored]
+    .sort((left, right) => right.laneScore - left.laneScore)
+    .slice(0, 3)
+    .map((item) => item.post);
+
+  const formatAnchors = [...scored]
+    .sort((left, right) => right.formatScore - left.formatScore)
+    .slice(0, 2)
+    .map((item) => item.post);
+
+  return {
+    topicAnchors,
+    laneAnchors,
+    formatAnchors,
+    formatExemplar:
+      formatAnchors[0] ??
+      pickFormatExemplar({
+        context: params.context,
+        contract: params.contract,
+      }),
+  };
+}
+
 function pickFormatExemplar(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -956,24 +1074,25 @@ function buildWriterSystemPrompt(params: {
   intent: CreatorChatIntent;
   contentFocus: string | null;
   selectedAngle: string | null;
+  requestAnchors: RequestConditionedAnchors;
 }): string {
-  const { context, contract, planner, intent, contentFocus, selectedAngle } = params;
+  const {
+    context,
+    contract,
+    planner,
+    intent,
+    contentFocus,
+    selectedAngle,
+    requestAnchors,
+  } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
   const outputShapeGuidance = buildOutputShapeGuidance(
     contract.planner.outputShape,
     intent,
   );
-  const formatExemplarLine = formatExemplar(
-    pickFormatExemplar({
-      context,
-      contract,
-    }),
-  );
+  const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
   const formatBlueprint = buildFormatBlueprint({
-    post: pickFormatExemplar({
-      context,
-      contract,
-    }),
+    post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
   });
 
@@ -1039,24 +1158,24 @@ function buildCriticSystemPrompt(params: {
   intent: CreatorChatIntent;
   contentFocus: string | null;
   selectedAngle: string | null;
+  requestAnchors: RequestConditionedAnchors;
 }): string {
-  const { contract, context, intent, contentFocus, selectedAngle } = params;
+  const {
+    contract,
+    context,
+    intent,
+    contentFocus,
+    selectedAngle,
+    requestAnchors,
+  } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
   const outputShapeGuidance = buildOutputShapeGuidance(
     contract.planner.outputShape,
     intent,
   );
-  const formatExemplarLine = formatExemplar(
-    pickFormatExemplar({
-      context,
-      contract,
-    }),
-  );
+  const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
   const formatBlueprint = buildFormatBlueprint({
-    post: pickFormatExemplar({
-      context,
-      contract,
-    }),
+    post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
   });
 
@@ -1510,18 +1629,11 @@ function buildLongFormExpansionSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
   selectedAngle: string | null;
+  requestAnchors: RequestConditionedAnchors;
 }): string {
-  const formatExemplarLine = formatExemplar(
-    pickFormatExemplar({
-      context: params.context,
-      contract: params.contract,
-    }),
-  );
+  const formatExemplarLine = formatExemplar(params.requestAnchors.formatExemplar);
   const formatBlueprint = buildFormatBlueprint({
-    post: pickFormatExemplar({
-      context: params.context,
-      contract: params.contract,
-    }),
+    post: params.requestAnchors.formatExemplar,
     outputShape: params.contract.planner.outputShape,
   });
 
@@ -1602,6 +1714,14 @@ export async function generateCreatorChatReply(params: {
   }
 
   const concreteSubject = extractConcreteSubject(params.userMessage);
+  const requestAnchors = selectRequestConditionedAnchors({
+    context,
+    contract,
+    userMessage: params.userMessage,
+    concreteSubject,
+    selectedAngle: params.selectedAngle ?? null,
+    contentFocus: params.contentFocus ?? null,
+  });
   const history = normalizeHistory(params.history ?? []);
   const historyText =
     history.length > 0
@@ -1672,6 +1792,7 @@ export async function generateCreatorChatReply(params: {
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
       selectedAngle: params.selectedAngle?.trim() || null,
+      requestAnchors,
     }),
     user: [
       `User request: ${params.userMessage}`,
@@ -1682,6 +1803,21 @@ export async function generateCreatorChatReply(params: {
       `Recent chat history:\n${historyText}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
+      formatAnchorExamples(
+        "Request-conditioned topic anchors",
+        requestAnchors.topicAnchors,
+        4,
+      ),
+      formatAnchorExamples(
+        "Request-conditioned lane anchors",
+        requestAnchors.laneAnchors,
+        3,
+      ),
+      formatAnchorExamples(
+        "Request-conditioned format anchors",
+        requestAnchors.formatAnchors,
+        2,
+      ),
       formatAnchorExamples(
         "Voice anchors to imitate for tone and casing",
         context.creatorProfile.examples.voiceAnchors,
@@ -1763,6 +1899,7 @@ export async function generateCreatorChatReply(params: {
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
       selectedAngle: params.selectedAngle?.trim() || null,
+      requestAnchors,
     }),
     user: [
       `User request: ${params.userMessage}`,
@@ -1772,6 +1909,16 @@ export async function generateCreatorChatReply(params: {
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
+      formatAnchorExamples(
+        "Request-conditioned topic anchors",
+        requestAnchors.topicAnchors,
+        4,
+      ),
+      formatAnchorExamples(
+        "Request-conditioned format anchors",
+        requestAnchors.formatAnchors,
+        2,
+      ),
       formatAnchorExamples(
         "Voice anchors to compare against",
         context.creatorProfile.examples.voiceAnchors,
@@ -1873,6 +2020,7 @@ export async function generateCreatorChatReply(params: {
           context,
           contract,
           selectedAngle: params.selectedAngle?.trim() || null,
+          requestAnchors,
         }),
         user: [
           `Original user request: ${params.userMessage}`,
