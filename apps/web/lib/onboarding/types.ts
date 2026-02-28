@@ -416,6 +416,7 @@ export interface CreatorRepresentativeExamples {
   bestPerforming: CreatorRepresentativePost[];
   voiceAnchors: CreatorRepresentativePost[];
   strategyAnchors: CreatorRepresentativePost[];
+  goalAnchors: CreatorRepresentativePost[];
   cautionExamples: CreatorRepresentativePost[];
 }
 

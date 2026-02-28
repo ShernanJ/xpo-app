@@ -483,6 +483,7 @@ function buildRepresentativeExamples(params: {
   replyPosts: XPublicPost[];
   quotePosts: XPublicPost[];
   baselineEngagement: number;
+  goal: UserGoal;
   dominantContentType: ContentType | null;
   dominantHookPattern: HookPattern | null;
   primaryCasing: ToneCasing;
@@ -496,6 +497,7 @@ function buildRepresentativeExamples(params: {
       bestPerforming: [],
       voiceAnchors: [],
       strategyAnchors: [],
+      goalAnchors: [],
       cautionExamples: [],
     };
   }
@@ -586,6 +588,13 @@ function buildRepresentativeExamples(params: {
     baselineEngagement,
     strategyDelta: params.strategyDelta,
   });
+  const goalAnchors = buildGoalAnchors({
+    originalPosts: posts,
+    replyPosts: params.replyPosts,
+    quotePosts: params.quotePosts,
+    baselineEngagement,
+    goal: params.goal,
+  });
 
   const byEngagementAsc = [...posts].sort((a, b) => {
     const engagementDelta = computePostEngagement(a) - computePostEngagement(b);
@@ -611,6 +620,7 @@ function buildRepresentativeExamples(params: {
     bestPerforming,
     voiceAnchors,
     strategyAnchors,
+    goalAnchors,
     cautionExamples,
   };
 }
@@ -707,6 +717,110 @@ function buildStrategyAnchors(params: {
       primaryAdjustment
         ? `Best example for the current strategy gap (${primaryAdjustment.area}). Use this as a retrieval anchor when planning the next move.`
         : "Representative example for the current strategy gap. Use this as a planning anchor.",
+    ),
+  );
+}
+
+function buildGoalAnchors(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
+  baselineEngagement: number;
+  goal: UserGoal;
+}): CreatorRepresentativePost[] {
+  const candidates: Array<{ post: XPublicPost; lane: CreatorContentLane }> = [
+    ...params.originalPosts.map((post) => ({ post, lane: "original" as const })),
+    ...params.replyPosts.map((post) => ({ post, lane: "reply" as const })),
+    ...params.quotePosts.map((post) => ({ post, lane: "quote" as const })),
+  ];
+
+  const scored = candidates
+    .map(({ post, lane }) => {
+      const features = analyzePostFeatures(post);
+      let score = Math.min(
+        2,
+        features.engagementTotal / Math.max(1, params.baselineEngagement || 1),
+      );
+
+      if (params.goal === "followers") {
+        if (lane === "original") {
+          score += 1.6;
+        }
+        if (!features.hasLinks) {
+          score += 1;
+        }
+        if (!features.hasMentions) {
+          score += 0.75;
+        }
+        if (features.hookPattern === "statement_open" || features.hookPattern === "question_open") {
+          score += 0.6;
+        }
+        if (lane === "reply" || lane === "quote") {
+          score += 0.3;
+        }
+      }
+
+      if (params.goal === "leads") {
+        if (lane === "original") {
+          score += 1.25;
+        }
+        if (features.hasCta) {
+          score += 1.2;
+        }
+        if (features.hasNumbers) {
+          score += 0.8;
+        }
+        if (features.hasLinks) {
+          score += 0.6;
+        }
+        if (features.wordCount >= 20) {
+          score += 0.45;
+        }
+      }
+
+      if (params.goal === "authority") {
+        if (lane === "original") {
+          score += 1.5;
+        }
+        if (lane === "quote") {
+          score += 0.5;
+        }
+        if (features.wordCount >= 18) {
+          score += 0.9;
+        }
+        if (features.lineCount > 1) {
+          score += 0.5;
+        }
+        if (features.hasNumbers) {
+          score += 0.5;
+        }
+        if (!features.hasLinks) {
+          score += 0.4;
+        }
+      }
+
+      return {
+        post,
+        lane,
+        score,
+        engagementTotal: features.engagementTotal,
+      };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return b.engagementTotal - a.engagementTotal;
+    });
+
+  return scored.slice(0, 3).map(({ post, lane }) =>
+    buildRepresentativePost(
+      post,
+      lane,
+      params.baselineEngagement,
+      `Best example for the current goal (${params.goal}). Use this as a goal-specific drafting anchor.`,
     ),
   );
 }
@@ -1750,6 +1864,7 @@ export function buildCreatorProfile(params: {
     replyPosts,
     quotePosts,
     baselineEngagement: params.onboarding.baseline.averageEngagement,
+    goal: params.onboarding.strategyState.goal,
     dominantContentType,
     dominantHookPattern,
     primaryCasing,
