@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/backfill";
 import { runOnboarding } from "@/lib/onboarding/service";
 import { persistOnboardingRun } from "@/lib/onboarding/store";
 import { parseOnboardingInput } from "@/lib/onboarding/validation";
@@ -30,12 +31,18 @@ export async function POST(request: Request) {
     result,
     userAgent: request.headers.get("user-agent"),
   });
+  const backfill = await maybeEnqueueOnboardingBackfillJob({
+    runId: persisted.runId,
+    input: parsed.data,
+    result,
+  });
 
   return NextResponse.json(
     {
       ok: true,
       runId: persisted.runId,
       persistedAt: persisted.persistedAt,
+      backfill,
       data: result,
     },
     { status: 200 },

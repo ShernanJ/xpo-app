@@ -28,9 +28,6 @@ async function resolveScrapeScriptPath(): Promise<string> {
 }
 
 export async function bootstrapScrapeCapture(account: string) {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-"));
-  const outputPath = path.join(tmpDir, `${account}-payload.json`);
-  const scriptPath = await resolveScrapeScriptPath();
   const pages = Math.max(
     1,
     Math.min(
@@ -49,6 +46,26 @@ export async function bootstrapScrapeCapture(account: string) {
         : 40,
     ),
   );
+  return bootstrapScrapeCaptureWithOptions(account, {
+    pages,
+    count,
+    userAgent: "onboarding-bootstrap",
+  });
+}
+
+export async function bootstrapScrapeCaptureWithOptions(
+  account: string,
+  options: {
+    pages: number;
+    count: number;
+    userAgent: string;
+  },
+) {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-"));
+  const outputPath = path.join(tmpDir, `${account}-payload.json`);
+  const scriptPath = await resolveScrapeScriptPath();
+  const pages = Math.max(1, Math.min(12, Math.floor(options.pages)));
+  const count = Math.max(20, Math.min(100, Math.floor(options.count)));
 
   try {
     await execFileAsync(
@@ -75,7 +92,7 @@ export async function bootstrapScrapeCapture(account: string) {
       account,
       payload,
       source: "bootstrap",
-      userAgent: "onboarding-bootstrap",
+      userAgent: options.userAgent,
     });
   } catch (error) {
     const execError = error as {
