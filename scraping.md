@@ -232,6 +232,7 @@ Current behavior:
 - after onboarding completes, if the sample is still below the recommended depth, the app can queue a backfill job
 - that backfill job is persisted separately from the onboarding run
 - a separate worker should process those jobs outside the user-facing request path
+- the onboarding UI can poll the job state and automatically refresh the snapshot from the updated cached capture when the job completes
 
 The current MVP implementation is queue-ready:
 
@@ -242,11 +243,19 @@ Worker entrypoint:
 
 - `POST /api/onboarding/backfill/process`
 
+Inspection entrypoint:
+
+- `GET /api/onboarding/backfill/jobs`
+- `GET /api/onboarding/backfill/jobs?jobId=<job id>`
+
 This is intentionally separate from the main onboarding request.
 In production, this should be driven by a real background worker or scheduler, not by the main web request thread.
 
 Backfill uses the same HTTP scraper and parser stack as onboarding.
 It only increases scrape depth; it does not introduce a second scraping implementation.
+
+The UI refresh path should read from cache only after backfill completes.
+It should not trigger another fresh scrape just to display the deeper result.
 
 ## 6. Planned Async Enrichment Scrape
 

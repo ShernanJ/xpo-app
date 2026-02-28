@@ -173,6 +173,14 @@ Current guidance:
 
 This confidence should be persisted in the onboarding result so downstream systems know whether to trust the current read or keep backfilling.
 
+When the sample is below target depth, the product should be able to:
+
+- render the first-pass snapshot immediately
+- queue a background backfill
+- refresh the snapshot from the improved cached capture when that backfill completes
+
+This allows the creator model to improve after onboarding without blocking the initial user flow.
+
 ### 5. Archetype Layer
 
 This is the behavioral label for the creator.
