@@ -28,6 +28,10 @@ export interface OnboardingBackfillJobSummary {
   processing: number;
   completed: number;
   failed: number;
+  activeJobCount: number;
+  oldestPendingAgeMinutes: number | null;
+  recentFailureCount: number;
+  hasStalledQueue: boolean;
 }
 
 const TERMINAL_BACKFILL_JOB_STATUSES: ReadonlySet<OnboardingBackfillJobStatus> =
@@ -87,6 +91,24 @@ function getMaxTerminalBackfillJobs(): number {
   }
 
   return Math.floor(raw);
+}
+
+function getBackfillFailureWindowMs(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_FAILURE_WINDOW_HOURS);
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 1000 * 60 * 60 * 24;
+  }
+
+  return Math.floor(raw) * 60 * 60 * 1000;
+}
+
+function getStalledPendingThresholdMs(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_STALLED_PENDING_MINUTES);
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 1000 * 60 * 15;
+  }
+
+  return Math.floor(raw) * 60 * 1000;
 }
 
 function toTimestamp(value: string | null | undefined): number {
@@ -249,8 +271,17 @@ export async function readRecentOnboardingBackfillJobs(
 
 export async function readOnboardingBackfillJobSummary(): Promise<OnboardingBackfillJobSummary> {
   const jobs = await readAllBackfillJobs();
+  const now = Date.now();
+  const failureWindowMs = getBackfillFailureWindowMs();
+  const stalledPendingThresholdMs = getStalledPendingThresholdMs();
 
-  return jobs.reduce<OnboardingBackfillJobSummary>(
+  const oldestPendingAgeMinutes = jobs
+    .filter((job) => job.status === "pending")
+    .map((job) => now - toTimestamp(job.createdAt))
+    .filter((ageMs) => ageMs >= 0)
+    .sort((left, right) => right - left)[0];
+
+  const summary = jobs.reduce<OnboardingBackfillJobSummary>(
     (summary, job) => {
       summary.total += 1;
       summary[job.status] += 1;
@@ -262,8 +293,27 @@ export async function readOnboardingBackfillJobSummary(): Promise<OnboardingBack
       processing: 0,
       completed: 0,
       failed: 0,
+      activeJobCount: 0,
+      oldestPendingAgeMinutes: null,
+      recentFailureCount: 0,
+      hasStalledQueue: false,
     },
   );
+
+  summary.activeJobCount = summary.processing;
+  summary.oldestPendingAgeMinutes =
+    oldestPendingAgeMinutes !== undefined
+      ? Math.floor(oldestPendingAgeMinutes / (1000 * 60))
+      : null;
+  summary.recentFailureCount = jobs.filter(
+    (job) =>
+      job.status === "failed" && now - toTimestamp(job.updatedAt) <= failureWindowMs,
+  ).length;
+  summary.hasStalledQueue =
+    oldestPendingAgeMinutes !== undefined &&
+    oldestPendingAgeMinutes >= stalledPendingThresholdMs;
+
+  return summary;
 }
 
 export async function readOnboardingBackfillJobById(
