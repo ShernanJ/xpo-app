@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v3";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v4";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -14,6 +14,7 @@ export interface CreatorEvaluationCheck {
   key:
     | "sample_quality"
     | "topic_quality"
+    | "niche_overlay_quality"
     | "archetype_confidence"
     | "strategy_specificity"
     | "interaction_signal_quality"
@@ -30,6 +31,8 @@ export interface CreatorEvaluationSnapshot {
   replyCount: number;
   quoteCount: number;
   growthStage: OnboardingResult["growthStage"];
+  primaryNiche: CreatorProfile["niche"]["primaryNiche"];
+  secondaryNiche: CreatorProfile["niche"]["secondaryNiche"];
   archetype: CreatorProfile["archetype"];
   secondaryArchetype: CreatorProfile["secondaryArchetype"];
   distributionLoop: CreatorProfile["distribution"]["primaryLoop"];
@@ -120,6 +123,66 @@ function evaluateTopicQuality(profile: CreatorProfile): CreatorEvaluationCheck {
     "Topic Quality",
     scoreBase,
     `${topTopic.label} is the current top topic (${topTopic.percentage}% of posts, ${topTopic.stability}). Topic specificity is ${topTopic.specificity}.`,
+  );
+}
+
+function evaluateNicheOverlayQuality(
+  onboarding: OnboardingResult,
+  profile: CreatorProfile,
+): CreatorEvaluationCheck {
+  const primaryNiche = profile.niche.primaryNiche;
+  const secondaryNiche = profile.niche.secondaryNiche;
+  const domainSignalCount = profile.niche.domainSignals.length;
+  const offerSignalCount = profile.niche.offerSignals.length;
+  const topTopic = profile.topics.dominantTopics[0] ?? null;
+  const readablePrimary = primaryNiche.replace(/_/g, " ");
+  const readableSecondary = secondaryNiche?.replace(/_/g, " ");
+
+  let score =
+    profile.niche.confidence * 0.65 +
+    Math.min(15, domainSignalCount * 5) +
+    Math.min(10, offerSignalCount * 3);
+
+  if (primaryNiche === "generalist") {
+    score -= 18;
+  }
+
+  if (topTopic && primaryNiche !== "generalist") {
+    const topicLabel = topTopic.label.toLowerCase();
+    const nicheMatch = readablePrimary
+      .split(" ")
+      .some((token) => token.length > 2 && topicLabel.includes(token));
+    if (nicheMatch) {
+      score += 8;
+    } else if (profile.niche.domainSignals.some((signal) => signal.score >= 4)) {
+      score += 4;
+    }
+  }
+
+  if (
+    onboarding.strategyState.goal === "leads" &&
+    profile.niche.likelyOffer === "audience_only"
+  ) {
+    score -= 6;
+  }
+
+  const summaryBase =
+    primaryNiche === "generalist"
+      ? "The account still reads as generalist, so domain-specific playbook guidance should stay cautious."
+      : `Primary niche is ${readablePrimary} at ${profile.niche.confidence}% confidence.`;
+
+  const secondaryNote = readableSecondary
+    ? ` Secondary niche pressure exists around ${readableSecondary}.`
+    : "";
+
+  return createCheck(
+    "niche_overlay_quality",
+    "Niche Overlay Quality",
+    score,
+    `${summaryBase}${secondaryNote} Likely offer is ${profile.niche.likelyOffer.replace(
+      /_/g,
+      " ",
+    )}.`,
   );
 }
 
@@ -337,6 +400,10 @@ function buildBlockers(
     blockers.push("Topic layer is too weak to drive strong strategy.");
   }
 
+  if (checks.some((check) => check.key === "niche_overlay_quality" && check.status === "weak")) {
+    blockers.push("Niche overlay is still too weak to reliably specialize the playbook.");
+  }
+
   if (profile.archetypeConfidence < 55) {
     blockers.push("Archetype signal is still mixed.");
   }
@@ -395,6 +462,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("niche_overlay_quality")) {
+    improvements.push(
+      "Tighten domain detection until the system can separate niche, offer, and behavior more clearly.",
+    );
+  }
+
   if (weakKeys.has("archetype_confidence")) {
     improvements.push(
       "Keep archetype guidance blended until the creator signal becomes less mixed.",
@@ -449,6 +522,7 @@ export function evaluateCreatorProfile(params: {
   const checks = [
     evaluateSampleQuality(params.onboarding),
     evaluateTopicQuality(profile),
+    evaluateNicheOverlayQuality(params.onboarding, profile),
     evaluateArchetypeConfidence(profile),
     evaluateStrategySpecificity(profile),
     evaluateInteractionSignalQuality(profile),
@@ -478,6 +552,8 @@ export function evaluateCreatorProfile(params: {
       replyCount: params.onboarding.replyPostSampleCount,
       quoteCount: params.onboarding.quotePostSampleCount,
       growthStage: params.onboarding.growthStage,
+      primaryNiche: profile.niche.primaryNiche,
+      secondaryNiche: profile.niche.secondaryNiche,
       archetype: profile.archetype,
       secondaryArchetype: profile.secondaryArchetype,
       distributionLoop: profile.distribution.primaryLoop,
