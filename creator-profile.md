@@ -97,6 +97,15 @@ Examples:
 
 This keeps topic signals from fragmenting across equivalent variants.
 
+It should also collapse low-information suffix variants back into the base entity when the suffix is not meaningfully changing the topic.
+
+Examples:
+
+- `ampm ventures` -> `ampm`
+- `creator lab` -> `creator`
+
+This prevents joke labels, entity wrappers, or lightweight brand suffixes from fragmenting the same underlying topic signal.
+
 ### 4. Performance Layer
 
 This is what has historically worked:
