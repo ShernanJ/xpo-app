@@ -666,6 +666,12 @@ The generation contract should make these things explicit:
   - thread seed
   - reply candidate
   - quote candidate
+- why that output shape was chosen from the creator signals:
+  - lane
+  - authority
+  - length behavior
+  - multiline behavior
+  - thread bias
 - the target tone blend:
   - observed voice
   - stored tone preference
