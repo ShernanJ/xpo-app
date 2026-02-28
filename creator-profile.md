@@ -45,6 +45,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - archetype confidence
 - strategy specificity
 - interaction signal quality
+- anchor quality
 
 It should output:
 
@@ -54,6 +55,15 @@ It should output:
 - next improvements
 
 This exists so heuristic changes can be measured before the system adds a generative layer on top.
+
+Anchor quality should explicitly score whether:
+
+- positive anchors are diverse enough to be useful
+- multiple retrieval sets are actually populated
+- anchors span the relevant content lanes when possible
+- goal-conflict examples are meaningfully different from generic caution examples
+
+This prevents the future LLM layer from getting shallow or repetitive retrieval context.
 
 ## System Layers
 
