@@ -135,6 +135,10 @@ It should include:
 
 - primary goal
 - archetype
+- transformation mode
+- whether the mode is a default assumption or user-selected
+- current state
+- target state
 - current strengths
 - current weaknesses
 - recommended angles
@@ -144,6 +148,21 @@ It should include:
 This is the part the drafting agent should care about most.
 
 It answers: given who this person is and what they want, what should the system push them toward next?
+
+This layer must stay open-ended enough to support:
+
+- small accounts trying to grow from zero
+- accounts simply optimizing an existing lane
+- large accounts preserving a working position
+- large accounts pivoting toward a different audience or identity
+
+That means the strategy layer should separate:
+
+1. current state
+2. target state
+3. transformation mode
+
+The system should not assume every user wants the same kind of growth.
 
 ## Input Sources
 
@@ -174,6 +193,10 @@ These come from the user:
   - trying to book clients
 
 These should shape strategy, not overwrite the behavioral truth of the account.
+
+Until the product explicitly collects preserve vs optimize vs pivot intent, the system may carry a default transformation mode.
+
+That default should be marked as a default assumption, not treated as final truth.
 
 ## Canonical Model
 
