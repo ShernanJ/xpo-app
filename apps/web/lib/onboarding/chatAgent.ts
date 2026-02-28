@@ -145,12 +145,32 @@ export interface CreatorChatDebugEvidencePack {
 
 export interface CreatorChatDebugInfo {
   formatExemplar: CreatorChatDebugFormatExemplar | null;
+  topicAnchors: CreatorChatDebugFormatExemplar[];
   pinnedVoiceReferences: CreatorChatDebugFormatExemplar[];
   pinnedEvidenceReferences: CreatorChatDebugFormatExemplar[];
   evidencePack: CreatorChatDebugEvidencePack;
   formatBlueprint: string;
   formatSkeleton: string;
   outputShapeRationale: string;
+  draftDiagnostics: CreatorChatDebugDraftDiagnostic[];
+}
+
+export interface CreatorChatDebugDraftDiagnostic {
+  preview: string;
+  score: number;
+  chosen: boolean;
+  evidenceCoverage: {
+    entityMatches: number;
+    metricMatches: number;
+    proofMatches: number;
+    total: number;
+  };
+  focusTermMatches: number;
+  genericPhraseCount: number;
+  strategyLeakCount: number;
+  matchesBlueprint: boolean | null;
+  matchesSkeleton: boolean | null;
+  reasons: string[];
 }
 
 export interface CreatorChatReplyResult {
@@ -260,6 +280,10 @@ function buildDeterministicFallback(params: {
   );
   const debugInfo: CreatorChatDebugInfo = {
     formatExemplar: buildFormatExemplarDebug(fallbackFormatExemplar),
+    topicAnchors: context.positiveAnchors
+      .slice(0, 2)
+      .map(buildFormatExemplarDebug)
+      .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
     pinnedVoiceReferences: pinnedVoiceAnchors.map(buildFormatExemplarDebug).filter(
       (post): post is CreatorChatDebugFormatExemplar => post !== null,
     ),
@@ -270,6 +294,7 @@ function buildDeterministicFallback(params: {
     formatBlueprint: fallbackFormatBlueprint,
     formatSkeleton: fallbackFormatSkeleton,
     outputShapeRationale: contract.planner.outputShapeRationale,
+    draftDiagnostics: [],
   };
 
   if (contract.mode === "analysis_only") {
@@ -373,6 +398,28 @@ function buildDeterministicFallback(params: {
     ],
     2,
   ).map((draft) => loosenDraftText(draft, contract));
+  const fallbackDraftDiagnostics = buildDraftDiagnostics({
+    drafts:
+      fallbackDrafts.length > 0
+        ? fallbackDrafts
+        : [
+            params.selectedAngle?.trim() ||
+              `${topHook}: ${contract.planner.primaryAngle}`,
+            `${topType} version: ${
+              params.selectedAngle?.trim() || params.userMessage
+            }`,
+          ].map((draft) => loosenDraftText(draft, contract)),
+    contract,
+    selectedAngle: params.selectedAngle?.trim() || null,
+    concreteSubject: extractConcreteSubject(params.userMessage),
+    userMessage: params.userMessage,
+    blueprintProfile: buildFormatBlueprintProfile({
+      post: fallbackFormatExemplar,
+      outputShape: contract.planner.outputShape,
+    }),
+    contentSkeleton: buildLongFormContentSkeleton(fallbackFormatExemplar),
+    evidencePack: fallbackEvidencePack,
+  });
 
   return {
     reply: fallbackEvidencePack.requiredEvidenceCount > 0
@@ -422,7 +469,10 @@ function buildDeterministicFallback(params: {
       contract.writer.mustAvoid[0] ?? "Avoid broad generic phrasing.",
       plannerSafeConstraint(contract.planner.blockedReasons[0]),
     ].filter(Boolean),
-    debug: debugInfo,
+    debug: {
+      ...debugInfo,
+      draftDiagnostics: fallbackDraftDiagnostics,
+    },
   };
 }
 
@@ -2490,6 +2540,111 @@ function rerankDrafts(params: {
   return candidates.slice(0, 3).map((candidate) => candidate.draft);
 }
 
+function buildDraftDiagnostics(params: {
+  drafts: string[];
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+  blueprintProfile?: FormatBlueprintProfile;
+  contentSkeleton?: LongFormContentSkeleton;
+  evidencePack?: CreatorChatDebugEvidencePack;
+}): CreatorChatDebugDraftDiagnostic[] {
+  const focusTerms = Array.from(
+    new Set([
+      ...collectSignalTerms(params.selectedAngle),
+      ...collectSignalTerms(params.concreteSubject),
+      ...collectSignalTerms(params.userMessage).slice(0, 4),
+    ]),
+  );
+
+  return params.drafts.map((draft, index) => {
+    const trimmedDraft = draft.trim();
+    const evidenceCoverage = countEvidenceCoverage(trimmedDraft, params.evidencePack);
+    const focusTermMatches = focusTerms.filter((term) =>
+      new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+        trimmedDraft,
+      ),
+    ).length;
+    const genericPhraseCount = countPhraseMatches(trimmedDraft, GENERIC_DRAFT_PHRASES);
+    const strategyLeakCount = countPhraseMatches(
+      trimmedDraft,
+      STRATEGY_LEAKAGE_PHRASES,
+    );
+    const matchesBlueprint =
+      params.contract.planner.outputShape === "long_form_post" ||
+      params.contract.planner.outputShape === "thread_seed"
+        ? params.blueprintProfile
+          ? matchesLongFormBlueprint(trimmedDraft, params.blueprintProfile)
+          : null
+        : null;
+    const matchesSkeleton =
+      params.contract.planner.outputShape === "long_form_post" ||
+      params.contract.planner.outputShape === "thread_seed"
+        ? params.contentSkeleton
+          ? matchesLongFormSkeleton(trimmedDraft, params.contentSkeleton)
+          : null
+        : null;
+    const score = scoreDraftCandidate({
+      draft: trimmedDraft,
+      contract: params.contract,
+      selectedAngle: params.selectedAngle,
+      concreteSubject: params.concreteSubject,
+      userMessage: params.userMessage,
+      blueprintProfile: params.blueprintProfile,
+      contentSkeleton: params.contentSkeleton,
+      evidencePack: params.evidencePack,
+    });
+
+    const reasons: string[] = [];
+
+    if (index === 0) {
+      reasons.push("Top-ranked after reranking.");
+    }
+    if (evidenceCoverage.total > 0) {
+      reasons.push(
+        `Reuses ${evidenceCoverage.total} evidence signal(s) (${evidenceCoverage.metricMatches} metric, ${evidenceCoverage.proofMatches} proof, ${evidenceCoverage.entityMatches} entity).`,
+      );
+    } else {
+      reasons.push("Uses no concrete evidence from the current evidence pack.");
+    }
+    if (focusTermMatches > 0) {
+      reasons.push(`Matches ${focusTermMatches} concrete request term(s).`);
+    } else if (params.selectedAngle || params.concreteSubject) {
+      reasons.push("Misses the strongest concrete request terms.");
+    }
+    if (matchesBlueprint === true) {
+      reasons.push("Matches the current structural blueprint.");
+    } else if (matchesBlueprint === false) {
+      reasons.push("Misses the current structural blueprint.");
+    }
+    if (matchesSkeleton === true) {
+      reasons.push("Matches the long-form content skeleton.");
+    } else if (matchesSkeleton === false) {
+      reasons.push("Misses the long-form content skeleton.");
+    }
+    if (genericPhraseCount > 0) {
+      reasons.push(`Contains ${genericPhraseCount} generic filler phrase hit(s).`);
+    }
+    if (strategyLeakCount > 0) {
+      reasons.push(`Contains ${strategyLeakCount} strategy-leak phrase hit(s).`);
+    }
+
+    return {
+      preview: compactTextForPrompt(trimmedDraft, 220),
+      score: Math.round(score * 100) / 100,
+      chosen: index === 0,
+      evidenceCoverage,
+      focusTermMatches,
+      genericPhraseCount,
+      strategyLeakCount,
+      matchesBlueprint,
+      matchesSkeleton,
+      reasons,
+    };
+  });
+}
+
 function buildLongFormExpansionSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -3046,6 +3201,9 @@ export async function generateCreatorChatReply(params: {
     watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
     debug: {
       formatExemplar: buildFormatExemplarDebug(requestAnchors.formatExemplar),
+      topicAnchors: requestAnchors.topicAnchors
+        .map(buildFormatExemplarDebug)
+        .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
       pinnedVoiceReferences: pinnedVoiceAnchors
         .map(buildFormatExemplarDebug)
         .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
@@ -3059,6 +3217,19 @@ export async function generateCreatorChatReply(params: {
       }),
       formatSkeleton: formatLongFormSkeleton(formatContentSkeleton),
       outputShapeRationale: contract.planner.outputShapeRationale,
+      draftDiagnostics:
+        intent === "ideate"
+          ? []
+          : buildDraftDiagnostics({
+              drafts: finalDrafts,
+              contract,
+              selectedAngle: params.selectedAngle?.trim() || null,
+              concreteSubject,
+              userMessage: params.userMessage,
+              blueprintProfile: formatBlueprintProfile,
+              contentSkeleton: formatContentSkeleton,
+              evidencePack: requestAnchors.evidencePack,
+            }),
     },
     source: writerProvider.provider,
     model: writerProvider.model,

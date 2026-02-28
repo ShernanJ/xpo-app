@@ -85,6 +85,13 @@ interface CreatorChatSuccess {
         selectionReason: string;
         goalFitScore: number;
       } | null;
+      topicAnchors: Array<{
+        id: string;
+        lane: "original" | "reply" | "quote";
+        text: string;
+        selectionReason: string;
+        goalFitScore: number;
+      }>;
       pinnedVoiceReferences: Array<{
         id: string;
         lane: "original" | "reply" | "quote";
@@ -99,8 +106,35 @@ interface CreatorChatSuccess {
         selectionReason: string;
         goalFitScore: number;
       }>;
+      evidencePack: {
+        sourcePostIds: string[];
+        entities: string[];
+        metrics: string[];
+        proofPoints: string[];
+        storyBeats: string[];
+        constraints: string[];
+        requiredEvidenceCount: number;
+      };
       formatBlueprint: string;
+      formatSkeleton: string;
       outputShapeRationale: string;
+      draftDiagnostics: Array<{
+        preview: string;
+        score: number;
+        chosen: boolean;
+        evidenceCoverage: {
+          entityMatches: number;
+          metricMatches: number;
+          proofMatches: number;
+          total: number;
+        };
+        focusTermMatches: number;
+        genericPhraseCount: number;
+        strategyLeakCount: number;
+        matchesBlueprint: boolean | null;
+        matchesSkeleton: boolean | null;
+        reasons: string[];
+      }>;
     };
     source: "openai" | "groq" | "deterministic";
     model: string | null;
@@ -1510,6 +1544,27 @@ export default function ChatPage() {
                               <p className="text-xs leading-6 text-zinc-400">
                                 {message.debug.formatBlueprint}
                               </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                Format Skeleton
+                              </p>
+                              <p className="text-xs leading-6 text-zinc-400">
+                                {message.debug.formatSkeleton}
+                              </p>
+                              {message.debug.topicAnchors.length > 0 ? (
+                                <>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    Selected Topic Anchors
+                                  </p>
+                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
+                                    {message.debug.topicAnchors.map((post) => (
+                                      <li key={`${message.id}-topic-anchor-${post.id}`}>
+                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
+                                        {post.selectionReason}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </>
+                              ) : null}
                               {message.debug.pinnedVoiceReferences.length > 0 ? (
                                 <>
                                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
@@ -1562,6 +1617,120 @@ export default function ChatPage() {
                                   No strong format exemplar selected.
                                 </p>
                               )}
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                Evidence Pack
+                              </p>
+                              <div className="space-y-1 text-xs leading-6 text-zinc-400">
+                                <p>
+                                  Required evidence:{" "}
+                                  {message.debug.evidencePack.requiredEvidenceCount}
+                                </p>
+                                {message.debug.evidencePack.entities.length > 0 ? (
+                                  <p>
+                                    Entities:{" "}
+                                    {message.debug.evidencePack.entities.join(", ")}
+                                  </p>
+                                ) : null}
+                                {message.debug.evidencePack.metrics.length > 0 ? (
+                                  <p>
+                                    Metrics:{" "}
+                                    {message.debug.evidencePack.metrics.join(", ")}
+                                  </p>
+                                ) : null}
+                                {message.debug.evidencePack.proofPoints.length > 0 ? (
+                                  <p>
+                                    Proof:{" "}
+                                    {message.debug.evidencePack.proofPoints.join(" | ")}
+                                  </p>
+                                ) : null}
+                                {message.debug.evidencePack.storyBeats.length > 0 ? (
+                                  <p>
+                                    Story beats:{" "}
+                                    {message.debug.evidencePack.storyBeats.join(" | ")}
+                                  </p>
+                                ) : null}
+                                {message.debug.evidencePack.constraints.length > 0 ? (
+                                  <p>
+                                    Constraints:{" "}
+                                    {message.debug.evidencePack.constraints.join(" | ")}
+                                  </p>
+                                ) : null}
+                              </div>
+                              {message.debug.draftDiagnostics.length > 0 ? (
+                                <>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    Draft Diagnostics
+                                  </p>
+                                  <div className="space-y-3">
+                                    {message.debug.draftDiagnostics.map(
+                                      (diagnostic, index) => (
+                                        <div
+                                          key={`${message.id}-diagnostic-${index}`}
+                                          className="rounded-2xl border border-white/10 bg-white/[0.02] p-3"
+                                        >
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <p className="text-xs font-semibold text-zinc-200">
+                                              Draft {index + 1}
+                                            </p>
+                                            {diagnostic.chosen ? (
+                                              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                                                Chosen
+                                              </span>
+                                            ) : null}
+                                            <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                                              Score {diagnostic.score}
+                                            </span>
+                                          </div>
+                                          <p className="mt-2 text-xs leading-6 text-zinc-300">
+                                            {diagnostic.preview}
+                                          </p>
+                                          <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                                            <span>
+                                              Evidence {diagnostic.evidenceCoverage.total}
+                                            </span>
+                                            <span>
+                                              Focus {diagnostic.focusTermMatches}
+                                            </span>
+                                            <span>
+                                              Generic {diagnostic.genericPhraseCount}
+                                            </span>
+                                            <span>
+                                              Leak {diagnostic.strategyLeakCount}
+                                            </span>
+                                            {diagnostic.matchesBlueprint !== null ? (
+                                              <span>
+                                                Blueprint{" "}
+                                                {diagnostic.matchesBlueprint
+                                                  ? "Match"
+                                                  : "Miss"}
+                                              </span>
+                                            ) : null}
+                                            {diagnostic.matchesSkeleton !== null ? (
+                                              <span>
+                                                Skeleton{" "}
+                                                {diagnostic.matchesSkeleton
+                                                  ? "Match"
+                                                  : "Miss"}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          {diagnostic.reasons.length > 0 ? (
+                                            <ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">
+                                              {diagnostic.reasons.map((reason, reasonIndex) => (
+                                                <li
+                                                  key={`${message.id}-diagnostic-${index}-reason-${reasonIndex}`}
+                                                >
+                                                  {reason}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : null}
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                </>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
