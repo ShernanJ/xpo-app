@@ -248,6 +248,8 @@ The reply layer should capture:
 
 - reply count
 - reply share of captured activity
+- reply signal confidence
+- reply signal reliability
 - average reply engagement
 - reply engagement delta vs original posts
 - dominant reply tone
@@ -285,6 +287,8 @@ The quote layer should capture:
 
 - quote count
 - quote share of captured activity
+- quote signal confidence
+- quote signal reliability
 - average quote engagement
 - quote engagement delta vs original posts
 - dominant quote opener pattern
@@ -302,6 +306,14 @@ The quote lane should help the system decide:
 The system should analyze quotes, but it should not let quote-driven behavior distort the main standalone-post voice model.
 
 The deterministic model should compare reply and quote engagement against the original-post baseline.
+
+It should also confidence-gate those conclusions.
+
+If the sample is too small, the system should:
+
+- still show the lane
+- mark it as low-sample
+- avoid letting that lane drive strong strategic recommendations
 
 This matters because the system should know whether:
 
