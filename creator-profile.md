@@ -129,6 +129,15 @@ This is how the user tends to write:
 - dominant hook pattern
 - concise style notes
 
+The voice layer should also produce a deterministic style card:
+
+- preferred opener patterns
+- preferred closer patterns
+- repeated signature phrases
+- punctuation guidance
+- emoji policy
+- creator-specific forbidden filler phrases
+
 This keeps the drafting agent from writing in a generic tone that does not sound like the user.
 
 ### 3. Topic Layer
