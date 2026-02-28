@@ -1,5 +1,11 @@
 import { buildCreatorAgentContext } from "./agentContext";
-import type { CreatorRepresentativePost, OnboardingResult } from "./types";
+import type {
+  CreatorRepresentativePost,
+  OnboardingResult,
+  ToneCasing,
+  TonePreference,
+  ToneRisk,
+} from "./types";
 
 export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v3";
 
@@ -17,12 +23,15 @@ export type CreatorGenerationOutputShape =
   | "reply_candidate"
   | "quote_candidate";
 
+export type CreatorAuthorityBudget = "low" | "medium" | "high";
+
 export interface CreatorPlannerContract {
   mode: CreatorGenerationStageMode;
   objective: string;
   primaryAngle: string;
   targetLane: CreatorGenerationTargetLane;
   outputShape: CreatorGenerationOutputShape;
+  authorityBudget: CreatorAuthorityBudget;
   suggestedContentTypes: string[];
   suggestedHookPatterns: string[];
   strategyDeltaSummary: string;
@@ -31,6 +40,10 @@ export interface CreatorPlannerContract {
 
 export interface CreatorWriterContract {
   mode: CreatorGenerationStageMode;
+  targetCasing: ToneCasing;
+  targetRisk: ToneRisk;
+  toneBlendSummary: string;
+  proofRequirement: string;
   voiceGuidelines: string[];
   mustInclude: string[];
   mustAvoid: string[];
@@ -97,6 +110,72 @@ function pickOutputShape(
   return "short_form_post";
 }
 
+function deriveAuthorityBudget(
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
+): CreatorAuthorityBudget {
+  if (
+    creatorProfile.identity.isVerified ||
+    creatorProfile.identity.followerBand === "10k+"
+  ) {
+    return "high";
+  }
+
+  if (creatorProfile.identity.followerBand === "1k-10k") {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function resolveTargetTone(params: {
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"];
+  tonePreference?: TonePreference | null;
+}): {
+  casing: ToneCasing;
+  risk: ToneRisk;
+  summary: string;
+} {
+  const observedLowercase =
+    params.creatorProfile.voice.primaryCasing === "lowercase" ||
+    params.creatorProfile.voice.lowercaseSharePercent >= 72;
+  const requestedCasing = params.tonePreference?.casing ?? "normal";
+  const requestedRisk = params.tonePreference?.risk ?? "safe";
+  const casing: ToneCasing =
+    requestedCasing === "lowercase" || observedLowercase ? "lowercase" : "normal";
+  const summary =
+    casing === requestedCasing
+      ? `Honor the ${requestedCasing} casing preference while preserving the observed voice.`
+      : `The stored casing preference is ${requestedCasing}, but the observed voice is clearly more lowercase, so generation should stay casual and lowercase-first.`;
+
+  return {
+    casing,
+    risk: requestedRisk,
+    summary,
+  };
+}
+
+function buildProofRequirement(params: {
+  authorityBudget: CreatorAuthorityBudget;
+  outputShape: CreatorGenerationOutputShape;
+}): string {
+  if (params.authorityBudget === "high") {
+    return "Specific proof helps, but a sharper thesis can carry more of the post.";
+  }
+
+  if (params.authorityBudget === "medium") {
+    return "Prefer at least one concrete detail, receipt, metric, or real example so the post does not feel abstract.";
+  }
+
+  if (
+    params.outputShape === "reply_candidate" ||
+    params.outputShape === "quote_candidate"
+  ) {
+    return "Even short replies and quote takes should include one concrete observation, example, or specific detail instead of empty commentary.";
+  }
+
+  return "Low-authority accounts should include at least one real receipt: a metric, screenshot, build detail, hard constraint, concrete lesson, or specific example.";
+}
+
 function summarizeAdjustments(
   adjustments: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"]["strategy"]["delta"]["adjustments"],
 ): string {
@@ -124,6 +203,7 @@ function formatReadableLabel(value: string): string {
 export function buildCreatorGenerationContract(params: {
   runId: string;
   onboarding: OnboardingResult;
+  tonePreference?: TonePreference | null;
 }): CreatorGenerationContract {
   const context = buildCreatorAgentContext({
     runId: params.runId,
@@ -132,6 +212,15 @@ export function buildCreatorGenerationContract(params: {
   const { creatorProfile } = context;
   const targetLane = pickTargetLane(creatorProfile.distribution.primaryLoop);
   const outputShape = pickOutputShape(creatorProfile, targetLane);
+  const authorityBudget = deriveAuthorityBudget(creatorProfile);
+  const targetTone = resolveTargetTone({
+    creatorProfile,
+    tonePreference: params.tonePreference,
+  });
+  const proofRequirement = buildProofRequirement({
+    authorityBudget,
+    outputShape,
+  });
   const mode = context.readiness.recommendedMode;
   const blockedReasons =
     mode === "analysis_only" ? context.readiness.reasons.slice(0, 3) : [];
@@ -153,7 +242,10 @@ export function buildCreatorGenerationContract(params: {
       : `Primary niche: ${formatReadableLabel(effectiveNiche)}`,
     `Distribution loop: ${formatReadableLabel(creatorProfile.distribution.primaryLoop)}`,
     `Primary goal: ${creatorProfile.strategy.primaryGoal}`,
+    `Target casing: ${targetTone.casing}`,
+    `Risk appetite: ${targetTone.risk}`,
     creatorProfile.playbook.ctaPolicy,
+    proofRequirement,
   ];
 
   if (shouldPlanTowardTargetNiche) {
@@ -230,6 +322,7 @@ export function buildCreatorGenerationContract(params: {
       primaryAngle,
       targetLane,
       outputShape,
+      authorityBudget,
       suggestedContentTypes: creatorProfile.playbook.preferredContentTypes,
       suggestedHookPatterns: creatorProfile.playbook.preferredHookPatterns,
       strategyDeltaSummary: summarizeAdjustments(creatorProfile.strategy.delta.adjustments),
@@ -237,11 +330,15 @@ export function buildCreatorGenerationContract(params: {
     },
     writer: {
       mode,
+      targetCasing: targetTone.casing,
+      targetRisk: targetTone.risk,
+      toneBlendSummary: targetTone.summary,
+      proofRequirement,
       voiceGuidelines: [
         ...creatorProfile.playbook.toneGuidelines,
         ...creatorProfile.voice.styleNotes,
       ].slice(0, 6),
-      mustInclude: mustInclude.slice(0, 5),
+      mustInclude: mustInclude.slice(0, 7),
       mustAvoid: mustAvoid.slice(0, 5),
       positiveAnchorIds: selectAnchorIds(context.positiveAnchors, 5),
       negativeAnchorIds: selectAnchorIds(context.negativeAnchors, 3),

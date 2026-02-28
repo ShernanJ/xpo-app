@@ -152,6 +152,7 @@ export async function POST(request: Request) {
             const result = await generateCreatorChatReply({
               runId,
               onboarding,
+              tonePreference: storedRun.input.tone,
               userMessage: message,
               history,
               provider,
@@ -201,6 +202,7 @@ export async function POST(request: Request) {
     const result = await generateCreatorChatReply({
       runId,
       onboarding,
+      tonePreference: storedRun.input.tone,
       userMessage: message,
       history,
       provider,

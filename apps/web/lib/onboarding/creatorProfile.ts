@@ -1095,12 +1095,11 @@ function inferPrimaryCasing(posts: XPublicPost[]): ToneCasing {
     return "normal";
   }
 
-  const lowercaseOnlyCount = alphaPosts.filter((post) => {
-    const lettersOnly = post.text.replace(/[^A-Za-z]/g, "");
-    return lettersOnly.length > 0 && lettersOnly === lettersOnly.toLowerCase();
-  }).length;
+  const averageLowercaseShare = average(
+    alphaPosts.map((post) => computeLowercaseLetterShare(post.text)),
+  );
 
-  return lowercaseOnlyCount / alphaPosts.length >= 0.6 ? "lowercase" : "normal";
+  return averageLowercaseShare >= 0.88 ? "lowercase" : "normal";
 }
 
 function computeLowercaseSharePercent(posts: XPublicPost[]): number {
@@ -1109,12 +1108,9 @@ function computeLowercaseSharePercent(posts: XPublicPost[]): number {
     return 0;
   }
 
-  const lowercaseOnlyCount = alphaPosts.filter((post) => {
-    const lettersOnly = post.text.replace(/[^A-Za-z]/g, "");
-    return lettersOnly.length > 0 && lettersOnly === lettersOnly.toLowerCase();
-  }).length;
-
-  return toPercent(lowercaseOnlyCount / alphaPosts.length);
+  return toPercent(
+    average(alphaPosts.map((post) => computeLowercaseLetterShare(post.text))),
+  );
 }
 
 function inferAverageLengthBand(posts: XPublicPost[]): LengthBand | null {
@@ -1215,9 +1211,24 @@ function inferLengthBandForPost(text: string): LengthBand {
   return "long";
 }
 
+function normalizeTextForLowercaseDetection(text: string): string {
+  return text.replace(/\b[A-Z]{2,6}\b/g, (token) => token.toLowerCase());
+}
+
+function computeLowercaseLetterShare(text: string): number {
+  const normalized = normalizeTextForLowercaseDetection(text);
+  const letters = normalized.match(/[A-Za-z]/g) ?? [];
+
+  if (letters.length === 0) {
+    return 0;
+  }
+
+  const lowercaseLetters = normalized.match(/[a-z]/g) ?? [];
+  return lowercaseLetters.length / letters.length;
+}
+
 function isLowercaseOnlyPost(text: string): boolean {
-  const lettersOnly = text.replace(/[^A-Za-z]/g, "");
-  return lettersOnly.length > 0 && lettersOnly === lettersOnly.toLowerCase();
+  return computeLowercaseLetterShare(text) >= 0.88;
 }
 
 function toDeltaVsBaselinePercent(engagement: number, baseline: number): number {

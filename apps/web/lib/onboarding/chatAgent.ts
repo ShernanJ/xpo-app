@@ -4,7 +4,7 @@ import {
   type CreatorGenerationContract,
   type CreatorGenerationOutputShape,
 } from "./generationContract";
-import type { OnboardingResult } from "./types";
+import type { OnboardingResult, TonePreference } from "./types";
 
 interface ChatHistoryMessage {
   role: "assistant" | "user";
@@ -67,6 +67,20 @@ interface ModelProviderConfig {
   baseUrl: string;
 }
 
+const ACRONYM_CASE_MAP = new Map<string, string>([
+  ["ai", "AI"],
+  ["api", "API"],
+  ["cpu", "CPU"],
+  ["gpu", "GPU"],
+  ["http", "HTTP"],
+  ["https", "HTTPS"],
+  ["json", "JSON"],
+  ["oauth", "OAuth"],
+  ["sql", "SQL"],
+  ["url", "URL"],
+  ["urls", "URLs"],
+]);
+
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -107,7 +121,7 @@ function buildDeterministicFallback(params: {
         `the real build problem or insight behind ${focus}`,
         `what you're seeing while building ${focus} that other people miss`,
         `one concrete lesson from ${focus} + "thoughts?"`,
-      ],
+      ].map((angle) => loosenDraftText(angle, contract)),
       drafts: [],
       supportAsset:
         "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
@@ -140,7 +154,7 @@ function buildDeterministicFallback(params: {
       `${topType} version: ${
         params.selectedAngle?.trim() || params.userMessage
       }`,
-    ],
+    ].map((draft) => loosenDraftText(draft, contract)),
     supportAsset:
       "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
     outputShape: contract.planner.outputShape,
@@ -603,10 +617,15 @@ function buildWriterSystemPrompt(params: {
     "The user's native voice matters more than generic social-media best practices.",
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
+    `Target casing: ${contract.writer.targetCasing}.`,
+    `Target risk: ${contract.writer.targetRisk}.`,
+    `Tone blend: ${contract.writer.toneBlendSummary}`,
     "If the anchors are casual, lowercase, clipped, or slangy, keep that character in the drafts.",
     "When the current user message is explicit about the topic, use the anchors for syntax and tone only, not for changing the subject.",
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
+    `Authority budget: ${contract.planner.authorityBudget}.`,
+    `Proof requirement: ${contract.writer.proofRequirement}`,
     "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
     selectedAngle
       ? `A structured angle was explicitly selected by the user. Preserve it as the central premise: ${selectedAngle}`
@@ -669,6 +688,14 @@ function buildCriticSystemPrompt(params: {
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
     "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
+    `Target casing: ${contract.writer.targetCasing}.`,
+    `Target risk: ${contract.writer.targetRisk}.`,
+    `Tone blend: ${contract.writer.toneBlendSummary}`,
+    `Authority budget: ${contract.planner.authorityBudget}.`,
+    `Proof requirement: ${contract.writer.proofRequirement}`,
+    contract.planner.authorityBudget === "low"
+      ? "Reject drafts that stay abstract. For low-authority accounts, every real post should include a concrete receipt, artifact, metric, constraint, or explicit example."
+      : "Prefer concrete specifics over abstraction, even when broader claims are allowed.",
     ...formFactorGuidance,
     "Reject generic 'why this works' bullets like 'connects with the audience' or 'establishes authority' when they are not specific to the actual content.",
     "Reject generic 'watch out for' bullets like 'keep it concise' unless they are specifically justified by the draft.",
@@ -686,9 +713,68 @@ function buildCriticSystemPrompt(params: {
   ].join("\n");
 }
 
+function applyTargetCasing(
+  text: string,
+  targetCasing: CreatorGenerationContract["writer"]["targetCasing"],
+): string {
+  if (targetCasing !== "lowercase") {
+    return text;
+  }
+
+  const urlPlaceholders: string[] = [];
+  const protectedText = text.replace(/https?:\/\/\S+/gi, (url) => {
+    const placeholder = `__URL_${urlPlaceholders.length}__`;
+    urlPlaceholders.push(url);
+    return placeholder;
+  });
+
+  const lowered = protectedText.toLowerCase();
+  const withAcronyms = lowered.replace(/\b[a-z][a-z0-9]{1,6}\b/g, (token) => {
+    return ACRONYM_CASE_MAP.get(token) ?? token;
+  });
+
+  return withAcronyms.replace(/__url_(\d+)__/gi, (match, index) => {
+    const numericIndex = Number(index);
+    return Number.isInteger(numericIndex) && urlPlaceholders[numericIndex]
+      ? urlPlaceholders[numericIndex]
+      : match;
+  });
+}
+
+function loosenDraftText(text: string, contract: CreatorGenerationContract): string {
+  let next = text.trim().replace(/[ \t]+/g, " ");
+
+  if (
+    contract.writer.targetCasing === "lowercase" ||
+    contract.writer.targetRisk === "bold"
+  ) {
+    next = next
+      .replace(/\bI am\b/g, "i'm")
+      .replace(/\bI have\b/g, "i've")
+      .replace(/\bI will\b/g, "i'll");
+
+    if (!next.includes("\n")) {
+      next = next.replace(/[.!]+$/g, "");
+    }
+  }
+
+  return applyTargetCasing(next, contract.writer.targetCasing);
+}
+
+function hasProofSignal(text: string): boolean {
+  return (
+    /\d/.test(text) ||
+    /https?:\/\//i.test(text) ||
+    /\b(screenshot|demo|clip|repo|commit|metric|users|arr|mrr|latency|shipped|built|launched|prototype|feature|bug|constraint|days?|hours?|weeks?)\b/i.test(
+      text,
+    )
+  );
+}
+
 export async function generateCreatorChatReply(params: {
   runId: string;
   onboarding: OnboardingResult;
+  tonePreference?: TonePreference | null;
   userMessage: string;
   history?: ChatHistoryMessage[];
   provider?: ChatModelProvider;
@@ -704,6 +790,7 @@ export async function generateCreatorChatReply(params: {
   const contract = buildCreatorGenerationContract({
     runId: params.runId,
     onboarding: params.onboarding,
+    tonePreference: params.tonePreference ?? null,
   });
 
   const deterministicFallback = buildDeterministicFallback({
@@ -969,17 +1056,39 @@ export async function generateCreatorChatReply(params: {
 
   params.onProgress?.("finalizing");
   const intent = params.intent ?? "draft";
+  const finalAngles =
+    intent === "ideate"
+      ? sanitizeStringList(critic.finalAngles, 4, writer.angles).map((angle) =>
+          loosenDraftText(angle, contract),
+        )
+      : [];
+  const finalDrafts =
+    intent === "ideate"
+      ? []
+      : sanitizeStringList(critic.finalDrafts, 3, writer.drafts).map((draft) =>
+          loosenDraftText(draft, contract),
+        );
+  const finalWatchOutFor = sanitizeStringList(
+    critic.finalWatchOutFor,
+    3,
+    writer.watchOutFor,
+  );
+
+  if (
+    intent !== "ideate" &&
+    contract.planner.authorityBudget === "low" &&
+    finalDrafts.length > 0 &&
+    finalDrafts.every((draft) => !hasProofSignal(draft))
+  ) {
+    finalWatchOutFor.unshift(
+      "This needs one real receipt: a metric, screenshot, build detail, hard constraint, or explicit example.",
+    );
+  }
 
   return {
     reply: critic.finalResponse.trim() || writer.response.trim(),
-    angles:
-      intent === "ideate"
-        ? sanitizeStringList(critic.finalAngles, 4, writer.angles)
-        : [],
-    drafts:
-      intent === "ideate"
-        ? []
-        : sanitizeStringList(critic.finalDrafts, 3, writer.drafts),
+    angles: finalAngles,
+    drafts: finalDrafts,
     supportAsset:
       (critic.finalSupportAsset || writer.supportAsset).trim() || null,
     outputShape:
@@ -989,11 +1098,7 @@ export async function generateCreatorChatReply(params: {
       3,
       writer.whyThisWorks,
     ),
-    watchOutFor: sanitizeStringList(
-      critic.finalWatchOutFor,
-      3,
-      writer.watchOutFor,
-    ),
+    watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
     source: provider.provider,
     model: provider.model,
     mode: contract.mode,

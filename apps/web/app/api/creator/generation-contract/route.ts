@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       data: buildCreatorGenerationContract({
         runId,
         onboarding,
+        tonePreference: storedRun.input.tone,
       }),
     },
     { status: 200 },
