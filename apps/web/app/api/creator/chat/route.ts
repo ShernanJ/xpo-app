@@ -76,6 +76,7 @@ export async function POST(request: Request) {
       ? body.contentFocus.trim()
       : null;
   const stream = body.stream === true;
+  const effectiveMessage = message || selectedAngle || (intent === "ideate" ? contentFocus ?? "" : "");
 
   if (!runId) {
     return NextResponse.json(
@@ -87,14 +88,15 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!message && !selectedAngle) {
+  if (!effectiveMessage) {
     return NextResponse.json(
       {
         ok: false,
         errors: [
           {
             field: "message",
-            message: "Either message or selectedAngle is required.",
+            message:
+              "A message, selectedAngle, or ideation contentFocus is required.",
           },
         ],
       },
@@ -159,7 +161,7 @@ export async function POST(request: Request) {
               runId,
               onboarding,
               tonePreference,
-              userMessage: message,
+              userMessage: effectiveMessage,
               history,
               provider,
               intent,
@@ -209,7 +211,7 @@ export async function POST(request: Request) {
       runId,
       onboarding,
       tonePreference,
-      userMessage: message,
+      userMessage: effectiveMessage,
       history,
       provider,
       intent,

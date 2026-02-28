@@ -128,6 +128,7 @@ interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  excludeFromHistory?: boolean;
   angles?: string[];
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
@@ -290,6 +291,30 @@ function formatToneCasingLabel(value: ToneCasing): string {
 
 function formatToneRiskLabel(value: ToneRisk): string {
   return value === "bold" ? "Bold / Punchier" : "Safe / Steady";
+}
+
+function inferInitialToneInputs(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+}): ChatToneInputs {
+  const { context, contract } = params;
+  const voice = context.creatorProfile.voice;
+  const isLongFormCreator =
+    context.creatorProfile.identity.isVerified ||
+    contract.planner.outputShape === "long_form_post" ||
+    contract.planner.outputShape === "thread_seed" ||
+    voice.multiLinePostRate >= 30 ||
+    voice.averageLengthBand === "long";
+
+  const shouldUseLowercase =
+    voice.primaryCasing === "lowercase" ||
+    (!isLongFormCreator && voice.lowercaseSharePercent >= 60) ||
+    (isLongFormCreator && voice.lowercaseSharePercent >= 85);
+
+  return {
+    toneCasing: shouldUseLowercase ? "lowercase" : "normal",
+    toneRisk: contract.writer.targetRisk,
+  };
 }
 
 function buildStrategyPromptState(
@@ -945,14 +970,7 @@ export default function ChatPage() {
         return current;
       }
 
-      return {
-        toneCasing:
-          context.creatorProfile.voice.primaryCasing === "lowercase" ||
-          context.creatorProfile.voice.lowercaseSharePercent >= 60
-            ? "lowercase"
-            : "normal",
-        toneRisk: contract.writer.targetRisk,
-      };
+      return inferInitialToneInputs({ context, contract });
     });
   }, [activeToneInputs, context, contract, messages.length, strategyPromptStep]);
 
@@ -1111,9 +1129,10 @@ export default function ChatPage() {
 
   const requestAssistantReply = useCallback(
     async (options: {
-      prompt: string;
+      prompt?: string;
       appendUserMessage: boolean;
       displayUserMessage?: string;
+      includeUserMessageInHistory?: boolean;
       selectedAngle?: string | null;
       intent?: ChatIntent;
       historySeed?: ChatMessage[];
@@ -1142,22 +1161,31 @@ export default function ChatPage() {
         return;
       }
 
-      const trimmedPrompt = options.prompt.trim();
-      if (!trimmedPrompt) {
+      const trimmedPrompt = options.prompt?.trim() ?? "";
+      const hasStructuredIntent =
+        !!options.selectedAngle ||
+        ((options.intent ?? "draft") === "ideate" && !!resolvedContentFocus);
+
+      if (!trimmedPrompt && !hasStructuredIntent) {
         return;
       }
 
-      let history = options.historySeed ?? messages.slice(-6);
+      let history = (options.historySeed ?? messages)
+        .filter((message) => !message.excludeFromHistory)
+        .slice(-6);
 
       if (options.appendUserMessage) {
         const userMessage: ChatMessage = {
           id: `user-${Date.now()}`,
           role: "user",
           content: options.displayUserMessage?.trim() || trimmedPrompt,
+          excludeFromHistory: options.includeUserMessageInHistory === false,
         };
 
         setMessages((current) => [...current, userMessage]);
-        history = [...history, userMessage].slice(-6);
+        if (options.includeUserMessageInHistory !== false) {
+          history = [...history, userMessage].slice(-6);
+        }
       }
 
       setIsSending(true);
@@ -1351,8 +1379,9 @@ export default function ChatPage() {
       }
 
       await requestAssistantReply({
-        prompt: "Turn this angle into real X drafts.",
+        prompt: "",
         displayUserMessage: `use this angle: ${angle}`,
+        includeUserMessageInHistory: false,
         selectedAngle: angle,
         appendUserMessage: true,
         intent: "draft",
@@ -1393,6 +1422,7 @@ export default function ChatPage() {
           )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}, ${formatToneCasingLabel(
             nextToneInputs.toneCasing,
           )}, ${formatToneRiskLabel(nextToneInputs.toneRisk)}.`,
+          excludeFromHistory: true,
         };
 
         setActiveStrategyInputs(nextInputs);
@@ -1402,11 +1432,11 @@ export default function ChatPage() {
         setMessages((current) => [...current, confirmationMessage]);
 
         await requestAssistantReply({
-          prompt: `I want to focus on ${formatContentFocusLabel(
-            nextContentFocus,
-          ).toLowerCase()}. Help me decide the best authentic directions to post about next. Do not draft final posts yet. Give me concrete angles, what each angle would prove, and the best next move.`,
+          prompt: "",
           appendUserMessage: false,
-          historySeed: [...messages, confirmationMessage].slice(-6),
+          historySeed: [...messages, confirmationMessage]
+            .filter((message) => !message.excludeFromHistory)
+            .slice(-6),
           strategyInputOverride: nextInputs,
           toneInputOverride: nextToneInputs,
           contentFocusOverride: nextContentFocus,
