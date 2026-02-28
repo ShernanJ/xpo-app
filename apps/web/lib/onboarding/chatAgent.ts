@@ -24,11 +24,20 @@ interface CriticOutput {
   issues: string[];
 }
 
+export type ChatModelProvider = "openai" | "groq";
+
 export interface CreatorChatReplyResult {
   reply: string;
-  source: "openai" | "deterministic";
+  source: ChatModelProvider | "deterministic";
   model: string | null;
   mode: CreatorGenerationContract["mode"];
+}
+
+interface ModelProviderConfig {
+  provider: ChatModelProvider;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
 }
 
 function formatEnumLabel(value: string): string {
@@ -76,40 +85,114 @@ function normalizeHistory(history: ChatHistoryMessage[]): ChatHistoryMessage[] {
     }));
 }
 
-async function callOpenAIJson<T>(params: {
-  apiKey: string;
-  model: string;
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim();
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return trimmed;
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    return fenced[1].trim();
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return trimmed;
+}
+
+function resolveProviderConfig(
+  preferredProvider?: ChatModelProvider,
+): ModelProviderConfig | null {
+  const normalizedPreference = preferredProvider ?? "openai";
+
+  if (normalizedPreference === "groq") {
+    const apiKey = process.env.GROQ_API_KEY?.trim();
+    if (!apiKey) {
+      return null;
+    }
+
+    return {
+      provider: "groq",
+      apiKey,
+      model: process.env.GROQ_MODEL?.trim() || "llama-3.1-8b-instant",
+      baseUrl: "https://api.groq.com/openai/v1/chat/completions",
+    };
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    return null;
+  }
+
+  return {
+    provider: "openai",
+    apiKey,
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
+    baseUrl: "https://api.openai.com/v1/chat/completions",
+  };
+}
+
+async function callProviderJson<T>(params: {
+  provider: ModelProviderConfig;
   system: string;
   user: string;
   schemaName: string;
   schema: Record<string, unknown>;
 }): Promise<T> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const body =
+    params.provider.provider === "openai"
+      ? {
+          model: params.provider.model,
+          messages: [
+            { role: "system", content: params.system },
+            { role: "user", content: params.user },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: params.schemaName,
+              schema: params.schema,
+              strict: true,
+            },
+          },
+        }
+      : {
+          model: params.provider.model,
+          messages: [
+            {
+              role: "system",
+              content: `${params.system}\nReturn only valid JSON. Do not use markdown fences.`,
+            },
+            {
+              role: "user",
+              content: `${params.user}\n\nReturn JSON that matches this shape:\n${JSON.stringify(
+                params.schema,
+              )}`,
+            },
+          ],
+          temperature: 0.2,
+        };
+
+  const response = await fetch(params.provider.baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${params.apiKey}`,
+      Authorization: `Bearer ${params.provider.apiKey}`,
     },
-    body: JSON.stringify({
-      model: params.model,
-      messages: [
-        { role: "system", content: params.system },
-        { role: "user", content: params.user },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: params.schemaName,
-          schema: params.schema,
-          strict: true,
-        },
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenAI request failed: ${response.status} ${errorText}`);
+    throw new Error(
+      `${params.provider.provider} request failed: ${response.status} ${errorText}`,
+    );
   }
 
   const payload = (await response.json()) as {
@@ -122,26 +205,25 @@ async function callOpenAIJson<T>(params: {
 
   const content = payload.choices?.[0]?.message?.content?.trim();
   if (!content) {
-    throw new Error("OpenAI returned an empty structured response.");
+    throw new Error(`${params.provider.provider} returned an empty structured response.`);
   }
 
-  return JSON.parse(content) as T;
+  return JSON.parse(extractJsonObject(content)) as T;
 }
 
-async function callOpenAIText(params: {
-  apiKey: string;
-  model: string;
+async function callProviderText(params: {
+  provider: ModelProviderConfig;
   system: string;
   user: string;
 }): Promise<string> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(params.provider.baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${params.apiKey}`,
+      Authorization: `Bearer ${params.provider.apiKey}`,
     },
     body: JSON.stringify({
-      model: params.model,
+      model: params.provider.model,
       messages: [
         { role: "system", content: params.system },
         { role: "user", content: params.user },
@@ -151,7 +233,9 @@ async function callOpenAIText(params: {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenAI request failed: ${response.status} ${errorText}`);
+    throw new Error(
+      `${params.provider.provider} request failed: ${response.status} ${errorText}`,
+    );
   }
 
   const payload = (await response.json()) as {
@@ -164,7 +248,7 @@ async function callOpenAIText(params: {
 
   const content = payload.choices?.[0]?.message?.content?.trim();
   if (!content) {
-    throw new Error("OpenAI returned an empty text response.");
+    throw new Error(`${params.provider.provider} returned an empty text response.`);
   }
 
   return content;
@@ -233,6 +317,7 @@ export async function generateCreatorChatReply(params: {
   onboarding: OnboardingResult;
   userMessage: string;
   history?: ChatHistoryMessage[];
+  provider?: ChatModelProvider;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
     runId: params.runId,
@@ -256,10 +341,9 @@ export async function generateCreatorChatReply(params: {
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
+  const provider = resolveProviderConfig(params.provider);
 
-  if (!apiKey) {
+  if (!provider) {
     return {
       reply: buildDeterministicFallback({
         context,
@@ -278,9 +362,8 @@ export async function generateCreatorChatReply(params: {
       ? history.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n")
       : "No prior chat history.";
 
-  const planner = await callOpenAIJson<PlannerOutput>({
-    apiKey,
-    model,
+  const planner = await callProviderJson<PlannerOutput>({
+    provider,
     system: buildPlannerSystemPrompt({ context, contract }),
     user: [
       `User request: ${params.userMessage}`,
@@ -316,9 +399,8 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
-  const writerReply = await callOpenAIText({
-    apiKey,
-    model,
+  const writerReply = await callProviderText({
+    provider,
     system: buildWriterSystemPrompt({ context, contract, planner }),
     user: [
       `User request: ${params.userMessage}`,
@@ -343,9 +425,8 @@ export async function generateCreatorChatReply(params: {
     ].join("\n\n"),
   });
 
-  const critic = await callOpenAIJson<CriticOutput>({
-    apiKey,
-    model,
+  const critic = await callProviderJson<CriticOutput>({
+    provider,
     system: buildCriticSystemPrompt({ contract, context }),
     user: [
       `User request: ${params.userMessage}`,
@@ -371,8 +452,8 @@ export async function generateCreatorChatReply(params: {
 
   return {
     reply: critic.finalReply.trim() || writerReply,
-    source: "openai",
-    model,
+    source: provider.provider,
+    model: provider.model,
     mode: contract.mode,
   };
 }

@@ -12,6 +12,7 @@ interface CreatorChatRequest {
   runId?: unknown;
   message?: unknown;
   history?: unknown;
+  provider?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -31,6 +32,10 @@ export async function POST(request: Request) {
 
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  const provider =
+    body.provider === "openai" || body.provider === "groq"
+      ? body.provider
+      : "openai";
 
   if (!runId) {
     return NextResponse.json(
@@ -83,6 +88,7 @@ export async function POST(request: Request) {
       onboarding: storedRun.result,
       userMessage: message,
       history,
+      provider,
     });
 
     return NextResponse.json(

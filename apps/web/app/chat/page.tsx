@@ -50,7 +50,7 @@ interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
-    source: "openai" | "deterministic";
+    source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
   };
@@ -68,6 +68,11 @@ interface ChatMessage {
   role: "assistant" | "user";
   content: string;
 }
+
+type ChatProviderPreference = "openai" | "groq";
+
+const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
+const chatProviderStorageKey = "stanley-x-chat-provider";
 
 const compactNumberFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -172,6 +177,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [providerPreference, setProviderPreference] =
+    useState<ChatProviderPreference>("openai");
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -322,6 +329,25 @@ export default function ChatPage() {
     };
   }, [backfillJobId, loadWorkspace]);
 
+  useEffect(() => {
+    if (!showDevTools) {
+      return;
+    }
+
+    const storedValue = window.localStorage.getItem(chatProviderStorageKey);
+    if (storedValue === "openai" || storedValue === "groq") {
+      setProviderPreference(storedValue);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showDevTools) {
+      return;
+    }
+
+    window.localStorage.setItem(chatProviderStorageKey, providerPreference);
+  }, [providerPreference]);
+
   const summaryChips = useMemo(() => {
     if (!context) {
       return [];
@@ -408,6 +434,7 @@ export default function ChatPage() {
           runId,
           message: trimmedInput,
           history,
+          provider: providerPreference,
         }),
       });
 
@@ -448,6 +475,21 @@ export default function ChatPage() {
       <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
+      {showDevTools ? (
+        <div className="fixed bottom-24 right-4 z-20 md:bottom-6">
+          <button
+            type="button"
+            onClick={() =>
+              setProviderPreference((current) =>
+                current === "openai" ? "groq" : "openai",
+              )
+            }
+            className="rounded-full border border-white/10 bg-black/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur-xl transition hover:bg-white/[0.04]"
+          >
+            Provider: {providerPreference === "openai" ? "OpenAI" : "Groq"}
+          </button>
+        </div>
+      ) : null}
 
       <div className="relative flex min-h-screen">
         <aside
@@ -707,9 +749,16 @@ export default function ChatPage() {
                     <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
                       Live model replies now sit on top of the deterministic contract.
                     </p>
-                    <span className="hidden rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 md:inline-flex">
-                      {contract ? formatEnumLabel(contract.mode) : "Loading"}
-                    </span>
+                    <div className="hidden items-center gap-2 md:flex">
+                      {showDevTools ? (
+                        <span className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          {providerPreference === "openai" ? "OpenAI" : "Groq"}
+                        </span>
+                      ) : null}
+                      <span className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        {contract ? formatEnumLabel(contract.mode) : "Loading"}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </form>
