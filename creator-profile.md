@@ -140,6 +140,16 @@ The voice layer should also produce a deterministic style card:
 
 This keeps the drafting agent from writing in a generic tone that does not sound like the user.
 
+The voice layer should not assume one shared voice regime across every post lane.
+
+It should support lane-specific voice anchors for:
+
+- original posts
+- replies
+- quote posts
+
+This matters because a creator may write differently in top-level posts vs conversational replies vs quote commentary.
+
 ### 3. Topic Layer
 
 This is what the user tends to talk about:
@@ -516,6 +526,8 @@ It should include:
 
 - best-performing examples
 - voice-anchor examples
+- reply-voice-anchor examples
+- quote-voice-anchor examples
 - strategy-anchor examples
 - goal-anchor examples
 - goal-conflict examples
@@ -527,6 +539,8 @@ The product should be able to hand the writer real post references that show:
 
 - what the user's audience already responds to
 - what most closely matches the user's natural voice
+- what most closely matches the user's reply voice when the target lane is replies
+- what most closely matches the user's quote voice when the target lane is quote commentary
 - what best matches the current strategy gap and target direction
 - what best matches the current goal (followers, leads, or authority)
 - what actively conflicts with the current goal or target direction
