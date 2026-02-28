@@ -168,15 +168,15 @@ Likely files:
 
 ### 7. Long-Form Content Skeleton Extraction
 
-- [ ] Extract a deterministic content skeleton for long-form exemplars
-- [ ] Break long-form structure into enforceable sections such as:
+- [x] Extract a deterministic content skeleton for long-form exemplars
+- [x] Break long-form structure into enforceable sections such as:
   - thesis
   - context
   - proof block
   - turning point
   - lesson
   - close
-- [ ] Use this skeleton in writer and critic
+- [x] Use this skeleton in writer and critic
 
 Definition of done:
 - long-form outputs are not just longer tweets
@@ -252,11 +252,10 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Long-Form Content Skeleton Extraction
-2. Better Pinning: Voice Pins vs Evidence Pins
-3. Prompt Compaction / Salience Ordering
-4. Better Debugging For Grounding
-5. Offline Grounding Regression Checks
+1. Better Pinning: Voice Pins vs Evidence Pins
+2. Prompt Compaction / Salience Ordering
+3. Better Debugging For Grounding
+4. Offline Grounding Regression Checks
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
