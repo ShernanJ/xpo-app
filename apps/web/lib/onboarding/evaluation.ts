@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v1";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v2";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -16,7 +16,8 @@ export interface CreatorEvaluationCheck {
     | "topic_quality"
     | "archetype_confidence"
     | "strategy_specificity"
-    | "interaction_signal_quality";
+    | "interaction_signal_quality"
+    | "anchor_quality";
   label: string;
   score: number;
   status: CreatorEvaluationStatus;
@@ -188,6 +189,54 @@ function evaluateInteractionSignalQuality(profile: CreatorProfile): CreatorEvalu
   );
 }
 
+function evaluateAnchorQuality(profile: CreatorProfile): CreatorEvaluationCheck {
+  const positiveGroups = [
+    profile.examples.bestPerforming,
+    profile.examples.voiceAnchors,
+    profile.examples.strategyAnchors,
+    profile.examples.goalAnchors,
+  ];
+  const positiveAnchors = positiveGroups.flat();
+  const presentPositiveGroups = positiveGroups.filter((group) => group.length > 0).length;
+  const positiveUniqueIds = new Set(positiveAnchors.map((post) => post.id));
+  const positiveLanes = new Set(positiveAnchors.map((post) => post.lane));
+
+  const goalConflictExamples = profile.examples.goalConflictExamples;
+  const cautionExamples = profile.examples.cautionExamples;
+  const negativeAnchors = [...goalConflictExamples, ...cautionExamples];
+  const negativeUniqueIds = new Set(negativeAnchors.map((post) => post.id));
+  const negativeLanes = new Set(negativeAnchors.map((post) => post.lane));
+  const cautionIds = new Set(cautionExamples.map((post) => post.id));
+  const distinctGoalConflictCount = goalConflictExamples.filter(
+    (post) => !cautionIds.has(post.id),
+  ).length;
+
+  const score =
+    18 +
+    Math.min(24, positiveUniqueIds.size * 4) +
+    Math.min(16, presentPositiveGroups * 4) +
+    Math.min(12, positiveLanes.size * 4) +
+    Math.min(12, negativeUniqueIds.size * 3) +
+    Math.min(10, distinctGoalConflictCount * 5) +
+    Math.min(8, negativeLanes.size * 4) -
+    (presentPositiveGroups <= 1 ? 18 : 0) -
+    (goalConflictExamples.length === 0 ? 12 : 0);
+
+  const conflictNote =
+    goalConflictExamples.length === 0
+      ? "No goal-conflict examples were selected yet."
+      : distinctGoalConflictCount === 0
+        ? "Goal-conflict retrieval currently overlaps with generic caution examples."
+        : `${distinctGoalConflictCount} goal-conflict examples are distinct from generic caution examples.`;
+
+  return createCheck(
+    "anchor_quality",
+    "Anchor Quality",
+    score,
+    `Positive anchors cover ${presentPositiveGroups} retrieval sets, ${positiveUniqueIds.size} unique posts, and ${positiveLanes.size} lanes. ${conflictNote}`,
+  );
+}
+
 function buildBlockers(
   onboarding: OnboardingResult,
   profile: CreatorProfile,
@@ -206,6 +255,10 @@ function buildBlockers(
 
   if (profile.archetypeConfidence < 55) {
     blockers.push("Archetype signal is still mixed.");
+  }
+
+  if (checks.some((check) => check.key === "anchor_quality" && check.status === "weak")) {
+    blockers.push("Retrieval anchors are still too shallow for reliable planning context.");
   }
 
   if (
@@ -268,6 +321,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("anchor_quality")) {
+    improvements.push(
+      "Improve positive and negative retrieval coverage so the agent context has stronger concrete examples to follow and avoid.",
+    );
+  }
+
   if (improvements.length === 0) {
     improvements.push(
       "The current deterministic layer is in a usable place. The next gains should come from deeper data and retrieval, not broad rewrites.",
@@ -295,6 +354,7 @@ export function evaluateCreatorProfile(params: {
     evaluateArchetypeConfidence(profile),
     evaluateStrategySpecificity(profile),
     evaluateInteractionSignalQuality(profile),
+    evaluateAnchorQuality(profile),
   ];
 
   const overallScore = Number(
