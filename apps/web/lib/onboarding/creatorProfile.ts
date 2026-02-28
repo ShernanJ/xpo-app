@@ -9,6 +9,8 @@ import type {
   ContentType,
   CreatorArchetype,
   CreatorProfile,
+  CreatorRepresentativeExamples,
+  CreatorRepresentativePost,
   HookPattern,
   LengthBand,
   OnboardingResult,
@@ -464,6 +466,164 @@ function buildStyleNotes(params: {
   return notes.slice(0, 4);
 }
 
+function inferLengthBandForPost(text: string): LengthBand {
+  const length = text.trim().length;
+  if (length <= 120) {
+    return "short";
+  }
+
+  if (length <= 220) {
+    return "medium";
+  }
+
+  return "long";
+}
+
+function isLowercaseOnlyPost(text: string): boolean {
+  const lettersOnly = text.replace(/[^A-Za-z]/g, "");
+  return lettersOnly.length > 0 && lettersOnly === lettersOnly.toLowerCase();
+}
+
+function toDeltaVsBaselinePercent(engagement: number, baseline: number): number {
+  if (baseline <= 0) {
+    return engagement > 0 ? 100 : 0;
+  }
+
+  return Number((((engagement - baseline) / baseline) * 100).toFixed(2));
+}
+
+function buildRepresentativePost(
+  post: XPublicPost,
+  baselineEngagement: number,
+  selectionReason: string,
+): CreatorRepresentativePost {
+  const engagementTotal = computePostEngagement(post);
+
+  return {
+    id: post.id,
+    text: post.text,
+    createdAt: post.createdAt,
+    engagementTotal,
+    deltaVsBaselinePercent: toDeltaVsBaselinePercent(engagementTotal, baselineEngagement),
+    contentType: classifyContentType(post.text),
+    hookPattern: detectHookPattern(post.text),
+    selectionReason,
+  };
+}
+
+function buildRepresentativeExamples(params: {
+  posts: XPublicPost[];
+  baselineEngagement: number;
+  dominantContentType: ContentType | null;
+  dominantHookPattern: HookPattern | null;
+  primaryCasing: ToneCasing;
+  averageLengthBand: LengthBand | null;
+}): CreatorRepresentativeExamples {
+  const { posts, baselineEngagement } = params;
+
+  if (posts.length === 0) {
+    return {
+      bestPerforming: [],
+      voiceAnchors: [],
+      cautionExamples: [],
+    };
+  }
+
+  const excluded = new Set<string>();
+  const byEngagementDesc = [...posts].sort((a, b) => {
+    const engagementDelta = computePostEngagement(b) - computePostEngagement(a);
+    if (engagementDelta !== 0) {
+      return engagementDelta;
+    }
+
+    return getTimeOrFallback(b.createdAt, 0) - getTimeOrFallback(a.createdAt, 0);
+  });
+
+  const bestPerforming = byEngagementDesc.slice(0, 3).map((post) => {
+    excluded.add(post.id);
+    return buildRepresentativePost(
+      post,
+      baselineEngagement,
+      "Top engagement in the current sample. Use this as proof of what already earns attention.",
+    );
+  });
+
+  const voiceScoredPosts = posts
+    .map((post) => {
+      let score = 0;
+      const contentType = classifyContentType(post.text);
+      const hookPattern = detectHookPattern(post.text);
+      const postLengthBand = inferLengthBandForPost(post.text);
+      const postIsLowercase = isLowercaseOnlyPost(post.text);
+      const engagementLift = Math.max(0, computePostEngagement(post) - baselineEngagement);
+
+      if (params.dominantContentType && contentType === params.dominantContentType) {
+        score += 2;
+      }
+      if (params.dominantHookPattern && hookPattern === params.dominantHookPattern) {
+        score += 2;
+      }
+      if (params.averageLengthBand && postLengthBand === params.averageLengthBand) {
+        score += 1;
+      }
+      if (
+        (params.primaryCasing === "lowercase" && postIsLowercase) ||
+        (params.primaryCasing === "normal" && !postIsLowercase)
+      ) {
+        score += 1;
+      }
+
+      score += Math.min(1.5, engagementLift / Math.max(1, baselineEngagement));
+
+      return { post, score };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return computePostEngagement(b.post) - computePostEngagement(a.post);
+    });
+
+  const voiceAnchors = voiceScoredPosts
+    .filter(({ post }) => !excluded.has(post.id))
+    .slice(0, 3)
+    .map(({ post }) => {
+      excluded.add(post.id);
+      return buildRepresentativePost(
+        post,
+        baselineEngagement,
+        "Strong match for the account's current voice and structure. Use this as a style anchor.",
+      );
+    });
+
+  const byEngagementAsc = [...posts].sort((a, b) => {
+    const engagementDelta = computePostEngagement(a) - computePostEngagement(b);
+    if (engagementDelta !== 0) {
+      return engagementDelta;
+    }
+
+    return getTimeOrFallback(b.createdAt, 0) - getTimeOrFallback(a.createdAt, 0);
+  });
+
+  const cautionPool = byEngagementAsc.filter((post) => !excluded.has(post.id));
+  const cautionSource = cautionPool.length > 0 ? cautionPool : byEngagementAsc;
+  const cautionExamples = cautionSource.slice(0, Math.min(2, cautionSource.length)).map((post) =>
+    buildRepresentativePost(
+      post,
+      baselineEngagement,
+      "Lower-performing relative to the current sample. Use this as a caution example before repeating the pattern.",
+    ),
+  );
+
+  return {
+    bestPerforming,
+    voiceAnchors,
+    cautionExamples,
+  };
+}
+
 function inferArchetypeProfile(
   posts: XPublicPost[],
   topics: TopicSignal[],
@@ -690,6 +850,14 @@ export function buildCreatorProfile(params: {
     extractDominantContentType(posts) ?? performanceModel.bestContentType;
   const dominantHookPattern =
     extractDominantHookPattern(posts) ?? performanceModel.bestHookPattern;
+  const representativeExamples = buildRepresentativeExamples({
+    posts,
+    baselineEngagement: params.onboarding.baseline.averageEngagement,
+    dominantContentType,
+    dominantHookPattern,
+    primaryCasing,
+    averageLengthBand,
+  });
   const createdAt = new Date(params.onboarding.profile.createdAt);
   const accountAgeDays = Number.isFinite(createdAt.getTime())
     ? Math.max(
@@ -752,6 +920,7 @@ export function buildCreatorProfile(params: {
     archetype,
     secondaryArchetype: archetypeProfile.secondary,
     archetypeConfidence: archetypeProfile.confidence,
+    examples: representativeExamples,
     strategy: {
       primaryGoal: params.onboarding.strategyState.goal,
       archetype,

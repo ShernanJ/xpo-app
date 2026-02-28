@@ -249,6 +249,23 @@ export interface CreatorStrategyProfile {
   rationale: string;
 }
 
+export interface CreatorRepresentativePost {
+  id: string;
+  text: string;
+  createdAt: string;
+  engagementTotal: number;
+  deltaVsBaselinePercent: number;
+  contentType: ContentType;
+  hookPattern: HookPattern;
+  selectionReason: string;
+}
+
+export interface CreatorRepresentativeExamples {
+  bestPerforming: CreatorRepresentativePost[];
+  voiceAnchors: CreatorRepresentativePost[];
+  cautionExamples: CreatorRepresentativePost[];
+}
+
 export interface CreatorProfile {
   generatedAt: string;
   sourceRunId: string;
@@ -259,5 +276,6 @@ export interface CreatorProfile {
   archetype: CreatorArchetype;
   secondaryArchetype: CreatorArchetype | null;
   archetypeConfidence: number;
+  examples: CreatorRepresentativeExamples;
   strategy: CreatorStrategyProfile;
 }
