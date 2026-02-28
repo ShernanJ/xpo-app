@@ -785,13 +785,19 @@ function formatVoiceProfile(context: CreatorAgentContext): string {
   const voice = context.creatorProfile.voice;
 
   return [
-    `Primary casing: ${voice.primaryCasing}`,
-    `Average length band: ${voice.averageLengthBand}`,
-    `Lowercase share percent: ${voice.lowercaseSharePercent}`,
-    `Question post rate: ${voice.questionPostRate}`,
-    `Multi-line post rate: ${voice.multiLinePostRate}`,
-    `Style notes: ${voice.styleNotes.join(" | ") || "none"}`,
+    `Casing=${voice.primaryCasing}; Length=${voice.averageLengthBand}; Lowercase=${voice.lowercaseSharePercent}%; Questions=${voice.questionPostRate}%; Multiline=${voice.multiLinePostRate}%`,
+    `Style notes: ${voice.styleNotes.slice(0, 2).join(" | ") || "none"}`,
   ].join("\n");
+}
+
+function compactTextForPrompt(text: string, maxLength = 180): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function formatAnchorExamples(
@@ -814,7 +820,26 @@ function formatAnchorExamples(
     `${label}:`,
     ...selected.map(
       (post, index) =>
-        `${index + 1}. ${post.id} [goal-fit ${post.goalFitScore}] (${post.selectionReason}) -> ${post.text}`,
+        `${index + 1}. ${post.id} [goal-fit ${post.goalFitScore}] (${post.selectionReason}) -> ${compactTextForPrompt(post.text)}`,
+    ),
+  ].join("\n");
+}
+
+function formatNegativeAnchorSummary(
+  anchors: CreatorRepresentativePost[],
+  limit: number,
+): string {
+  const selected = anchors.slice(0, limit);
+
+  if (selected.length === 0) {
+    return "Negative anchors: none";
+  }
+
+  return [
+    "Negative anchors:",
+    ...selected.map(
+      (post, index) =>
+        `${index + 1}. ${post.id} (${post.selectionReason}) -> ${compactTextForPrompt(post.text, 140)}`,
     ),
   ].join("\n");
 }
@@ -1165,13 +1190,13 @@ function formatEvidencePack(evidencePack: CreatorChatDebugEvidencePack): string 
   }
 
   return [
-    `Source posts: ${evidencePack.sourcePostIds.join(" | ") || "none"}`,
     `Entities: ${evidencePack.entities.join(" | ") || "none"}`,
     `Metrics: ${evidencePack.metrics.join(" | ") || "none"}`,
     `Proof points: ${evidencePack.proofPoints.join(" | ") || "none"}`,
     `Story beats: ${evidencePack.storyBeats.join(" | ") || "none"}`,
     `Constraints: ${evidencePack.constraints.join(" | ") || "none"}`,
     `Required evidence count: ${evidencePack.requiredEvidenceCount}`,
+    `Source posts: ${evidencePack.sourcePostIds.join(" | ") || "none"}`,
   ].join("\n");
 }
 
@@ -1686,10 +1711,31 @@ function buildWriterSystemPrompt(params: {
       ? "Return a short strategic response, 0-4 angle candidates, why the direction fits, and what to watch out for."
       : "Return a short strategic response, 4-6 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
-    "The user's native voice matters more than generic social-media best practices.",
-    "The retrieved evidence pack is the concrete topic ground truth. Use it for actual nouns, proof, metrics, and story details whenever the request is compatible with it.",
+    "Priority order: selected angle -> concrete subject -> evidence pack -> explicit content focus -> user request.",
+    "The retrieved evidence pack is the concrete topic ground truth. Treat it as the main factual source whenever the request is compatible with it.",
+    selectedAngle
+      ? `Selected angle (highest-priority topic constraint): ${selectedAngle}`
+      : "Selected angle (highest-priority topic constraint): none",
+    concreteSubject
+      ? `Concrete subject (keep this wording family): ${concreteSubject}`
+      : "Concrete subject (keep this wording family): none",
+    `Concrete evidence pack (high-salience factual source):\n${evidencePackLine}`,
+    requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
+      : "No minimum evidence reuse requirement is available.",
+    `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
+    `Structural blueprint: ${formatBlueprint}`,
+    `Long-form content skeleton: ${formatSkeleton}`,
+    `Required output shape: ${contract.planner.outputShape}.`,
+    `Output shape rationale: ${contract.planner.outputShapeRationale}`,
+    "Use strategy, niche, goal, and growth-loop guidance as background constraints only. They can shape framing, structure, and proof density, but they must not become the literal topic of the post.",
+    "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
+    buildConcreteTopicGuardrail({
+      selectedAngle,
+      concreteSubject,
+      userMessage,
+    }),
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
-    "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
     pinnedVoiceAnchorCount > 0
       ? "Pinned voice references are the highest-priority tone source. If they conflict with weaker inferred signals, follow the pinned references."
       : "No pinned voice references were provided.",
@@ -1701,22 +1747,11 @@ function buildWriterSystemPrompt(params: {
     `Signature phrases: ${contract.writer.signaturePhrases.join(" | ") || "none"}`,
     `Punctuation guidance: ${contract.writer.punctuationGuidelines.join(" | ") || "none"}`,
     `Emoji policy: ${contract.writer.emojiPolicy}`,
-    "If the anchors are casual, lowercase, clipped, or slangy, keep that character in the drafts.",
-    "When the current user message is explicit about the topic, use the anchors for syntax and tone only, not for changing the subject.",
+    "Mirror the user's actual tone, casing, looseness, and level of polish from the voice anchors.",
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
     `Authority budget: ${contract.planner.authorityBudget}.`,
     `Proof requirement: ${contract.writer.proofRequirement}`,
-    "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
-    buildConcreteTopicGuardrail({
-      selectedAngle,
-      concreteSubject,
-      userMessage,
-    }),
-    "Treat strategy, niche, goal, and growth-loop guidance as background constraints only. They can shape framing, structure, and proof density, but they must not become the literal topic of the post.",
-    selectedAngle
-      ? `A structured angle was explicitly selected by the user. Preserve it as the central premise: ${selectedAngle}`
-      : "No structured angle was explicitly selected.",
     "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
     intent === "ideate"
       ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize 2-4 concrete, X-native angles written in the user's voice, and leave drafts empty."
@@ -1742,20 +1777,11 @@ function buildWriterSystemPrompt(params: {
     ...outputShapeGuidance,
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
-    `Required output shape: ${contract.planner.outputShape}.`,
-    `Output shape rationale: ${contract.planner.outputShapeRationale}`,
     `Objective: ${planner.objective}.`,
     `Primary angle: ${planner.angle}.`,
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
-    `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
-    `Concrete evidence pack (use this as topical proof, not just background flavor):\n${evidencePackLine}`,
-    `Structural blueprint (follow this shape unless the user clearly needs something else): ${formatBlueprint}`,
-    `Long-form content skeleton (preserve this content progression when writing long form): ${formatSkeleton}`,
-    requestAnchors.evidencePack.requiredEvidenceCount > 0
-      ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
-      : "No minimum evidence reuse requirement is available.",
     "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
     "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
@@ -1807,31 +1833,32 @@ function buildCriticSystemPrompt(params: {
     intent === "ideate"
       ? "If the user is still planning, keep the response focused on authentic angles, keep final drafts empty, and make the angles feel like something the user would naturally say."
       : "Keep the draft candidates sharp and usable as actual X posts.",
-    "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
-    pinnedVoiceAnchorCount > 0
-      ? "Pinned voice references are the strongest authority for tone. Reject outputs that drift away from them even if other inferred signals look weaker."
-      : "No pinned voice references were provided.",
-    "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
-    "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
+    "Priority order: selected angle -> concrete subject -> evidence pack -> explicit content focus -> user request.",
+    "Reject outputs that replace the concrete topic with generic adjacent advice.",
     buildConcreteTopicGuardrail({
       selectedAngle,
       concreteSubject,
       userMessage,
     }),
+    `Concrete evidence pack to enforce:\n${evidencePackLine}`,
+    requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Reject drafts that reuse fewer than ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) when the topic aligns with the evidence pack.`
+      : "No minimum evidence reuse requirement is available.",
+    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
+    `Structural blueprint to enforce: ${formatBlueprint}`,
+    `Long-form content skeleton to enforce: ${formatSkeleton}`,
     "Reject outputs that ignore the strongest concrete evidence and replace it with generic category-level advice.",
     "Reject outputs where broad strategy or goal phrasing becomes the literal topic. Strategy should shape framing only, not replace the concrete subject.",
+    "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
+    pinnedVoiceAnchorCount > 0
+      ? "Pinned voice references are the strongest authority for tone. Reject outputs that drift away from them even if other inferred signals look weaker."
+      : "No pinned voice references were provided.",
+    "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
     contract.planner.outputShape === "long_form_post"
       ? "Reject long-form drafts that still read like short tweet-sized posts. They should be meaningfully developed, usually beyond tweet length, with a clear thesis and structure."
       : "",
-    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
-    `Concrete evidence pack to enforce:\n${evidencePackLine}`,
-    `Structural blueprint to enforce: ${formatBlueprint}`,
-    `Long-form content skeleton to enforce: ${formatSkeleton}`,
-    requestAnchors.evidencePack.requiredEvidenceCount > 0
-      ? `Reject drafts that reuse fewer than ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) when the topic aligns with the evidence pack.`
-      : "No minimum evidence reuse requirement is available.",
     "Reject long-form or thread outputs that ignore the structural blueprint and collapse into a generic tweet-sized answer.",
     "Treat lowercase as a casing preference only. Casual voice can still be sentence-case, multi-line, or sectioned when the creator's anchors or exemplar support that structure.",
     `Target casing: ${contract.writer.targetCasing}.`,
@@ -2489,6 +2516,17 @@ function buildLongFormExpansionSystemPrompt(params: {
     "Return one expanded draft only.",
     "The expanded draft must stay faithful to the existing premise, voice, and subject.",
     "Do not change the topic or turn it into generic advice.",
+    "Priority order: selected angle -> evidence pack -> existing draft premise.",
+    params.selectedAngle
+      ? `Selected angle (highest-priority topic constraint): ${params.selectedAngle}`
+      : "Selected angle (highest-priority topic constraint): none",
+    `Concrete evidence pack (high-salience factual source):\n${evidencePackLine}`,
+    params.requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Carry forward at least ${params.requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from that pack.`
+      : "No minimum evidence reuse requirement is available.",
+    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
+    `Follow this structural blueprint: ${formatBlueprint}`,
+    `Follow this long-form content skeleton: ${formatSkeleton}`,
     "Keep the user's voice and casing. Preserve casualness when appropriate.",
     "For long-form on X, the post should be substantially developed and usually exceed normal tweet length.",
     `Exemplar-derived minimums: at least ${blueprintProfile.minimumWords} words and ${blueprintProfile.minimumSections} clear sections.`,
@@ -2502,21 +2540,11 @@ function buildLongFormExpansionSystemPrompt(params: {
       ? "Prefer a confident close, not a trailing question."
       : "A question close is only acceptable after a fully developed thesis.",
     "Do not pad with filler. Add specifics, examples, constraints, or stronger framing.",
-    params.selectedAngle
-      ? `The selected angle must remain the central premise: ${params.selectedAngle}`
-      : "No explicit selected angle was provided.",
-    `Concrete evidence pack to preserve and reuse:\n${evidencePackLine}`,
-    params.requestAnchors.evidencePack.requiredEvidenceCount > 0
-      ? `Carry forward at least ${params.requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from that pack.`
-      : "No minimum evidence reuse requirement is available.",
     `Required output shape: ${params.contract.planner.outputShape}.`,
     `Output shape rationale: ${params.contract.planner.outputShapeRationale}`,
     `Target casing: ${params.contract.writer.targetCasing}.`,
     `Tone blend: ${params.contract.writer.toneBlendSummary}`,
     `Proof requirement: ${params.contract.writer.proofRequirement}`,
-    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
-    `Follow this structural blueprint: ${formatBlueprint}`,
-    `Follow this long-form content skeleton: ${formatSkeleton}`,
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -2601,7 +2629,13 @@ export async function generateCreatorChatReply(params: {
   const history = normalizeHistory(params.history ?? []);
   const historyText =
     history.length > 0
-      ? history.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n")
+      ? history
+          .slice(-6)
+          .map(
+            (message) =>
+              `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 180)}`,
+          )
+          .join("\n")
       : "No prior chat history.";
   const formatBlueprintProfile = buildFormatBlueprintProfile({
     post: requestAnchors.formatExemplar,
@@ -2618,9 +2652,9 @@ export async function generateCreatorChatReply(params: {
     user: [
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
-      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
@@ -2693,57 +2727,44 @@ export async function generateCreatorChatReply(params: {
     user: [
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
-      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
-      `Recent chat history:\n${historyText}`,
-      `Voice profile:\n${formatVoiceProfile(context)}`,
-      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
+      formatAnchorExamples(
+        "Pinned evidence references (facts/proof first)",
+        pinnedEvidenceAnchors,
+        2,
+      ),
       formatAnchorExamples(
         "Request-conditioned topic anchors",
         requestAnchors.topicAnchors,
-        4,
-      ),
-      formatAnchorExamples(
-        "Request-conditioned lane anchors",
-        requestAnchors.laneAnchors,
         3,
       ),
-      formatAnchorExamples(
-        "Request-conditioned format anchors",
-        requestAnchors.formatAnchors,
-        2,
-      ),
+      `Recent chat history:\n${historyText}`,
+      `Voice profile:\n${formatVoiceProfile(context)}`,
+      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
         "Pinned voice references (highest priority)",
         pinnedVoiceAnchors,
         2,
       ),
       formatAnchorExamples(
-        "Pinned evidence references (highest priority for facts and proof)",
-        pinnedEvidenceAnchors,
-        2,
-      ),
-      formatAnchorExamples(
         "Voice anchors to imitate for tone and casing",
         effectiveVoiceAnchors,
-        3,
+        2,
       ),
       formatAnchorExamples(
-        "Strategy anchors to learn from for structure and proof density only (not topic)",
+        "Format anchors (structure only)",
+        requestAnchors.formatAnchors,
+        1,
+      ),
+      formatAnchorExamples(
+        "Strategy anchors (background only)",
         context.creatorProfile.examples.strategyAnchors,
-        2,
+        1,
       ),
-      formatAnchorExamples(
-        "Goal anchors to learn from for framing only (not topic)",
-        context.creatorProfile.examples.goalAnchors,
-        2,
-      ),
-      `Negative anchors to avoid:\n${context.negativeAnchors
-        .slice(0, 3)
-        .map((post, index) => `${index + 1}. ${post.id}: ${post.selectionReason}`)
-        .join("\n")}`,
+      formatNegativeAnchorSummary(context.negativeAnchors, 2),
       `Voice guidelines: ${contract.writer.voiceGuidelines.join(" | ")}`,
       `Must include: ${[
         ...contract.writer.mustInclude,
@@ -2814,36 +2835,36 @@ export async function generateCreatorChatReply(params: {
     user: [
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
-      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
-      `Voice profile:\n${formatVoiceProfile(context)}`,
-      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
+      formatAnchorExamples(
+        "Pinned evidence references (facts/proof first)",
+        pinnedEvidenceAnchors,
+        2,
+      ),
       formatAnchorExamples(
         "Request-conditioned topic anchors",
         requestAnchors.topicAnchors,
-        4,
+        3,
       ),
-      formatAnchorExamples(
-        "Request-conditioned format anchors",
-        requestAnchors.formatAnchors,
-        2,
-      ),
+      `Voice profile:\n${formatVoiceProfile(context)}`,
+      `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
         "Pinned voice references (highest priority)",
         pinnedVoiceAnchors,
         2,
       ),
       formatAnchorExamples(
-        "Pinned evidence references (highest priority for facts and proof)",
-        pinnedEvidenceAnchors,
+        "Voice anchors to compare against",
+        effectiveVoiceAnchors,
         2,
       ),
       formatAnchorExamples(
-        "Voice anchors to compare against",
-        effectiveVoiceAnchors,
-        3,
+        "Format anchors (structure only)",
+        requestAnchors.formatAnchors,
+        1,
       ),
       `Candidate response package:\n${JSON.stringify(writer)}`,
       `Checklist: ${contract.critic.checklist.join(" | ")}`,
