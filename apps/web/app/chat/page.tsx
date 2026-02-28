@@ -165,6 +165,26 @@ function buildDeterministicReply(
   return `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`;
 }
 
+function AssistantTypingBubble() {
+  return (
+    <div
+      className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100"
+      aria-live="polite"
+      aria-label="Assistant is typing"
+    >
+      <div className="flex items-center gap-2">
+        {[0, 1, 2].map((index) => (
+          <span
+            key={index}
+            className="h-2.5 w-2.5 rounded-full bg-zinc-400/80 animate-pulse"
+            style={{ animationDelay: `${index * 180}ms` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId")?.trim() ?? "";
@@ -673,6 +693,8 @@ export default function ChatPage() {
                       {message.content}
                     </div>
                   ))}
+
+                  {isSending ? <AssistantTypingBubble /> : null}
 
                   {context ? (
                     <div className="border-t border-white/10 pt-6">
