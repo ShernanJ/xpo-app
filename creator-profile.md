@@ -32,6 +32,29 @@ The system should always be able to answer:
 
 If the product cannot answer those five questions clearly, the creator model is not good enough yet.
 
+## Evaluation Harness
+
+Before adding an LLM, the product needs a repeatable evaluation harness for the deterministic layer.
+
+The goal is to score whether the current creator model is improving or regressing across real onboarding runs.
+
+The evaluation harness should produce rubric-style checks for at least:
+
+- sample quality
+- topic quality
+- archetype confidence
+- strategy specificity
+- interaction signal quality
+
+It should output:
+
+- an overall score
+- per-check scores
+- blockers
+- next improvements
+
+This exists so heuristic changes can be measured before the system adds a generative layer on top.
+
 ## System Layers
 
 The creator-understanding system is built in layers.
