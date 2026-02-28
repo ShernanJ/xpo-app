@@ -322,6 +322,7 @@ It should include:
 - best-performing examples
 - voice-anchor examples
 - strategy-anchor examples
+- goal-anchor examples
 - caution examples to avoid repeating weak patterns
 
 This layer exists so the agent does not draft from abstract summaries alone.
@@ -331,6 +332,7 @@ The product should be able to hand the writer real post references that show:
 - what the user's audience already responds to
 - what most closely matches the user's natural voice
 - what best matches the current strategy gap and target direction
+- what best matches the current goal (followers, leads, or authority)
 - what kinds of structures currently underperform
 
 These examples should be selected deterministically first, not manually curated.
@@ -344,6 +346,14 @@ That means the retrieval layer should be able to pull from:
 - quote posts
 
 depending on which lane best matches the current strategy delta.
+
+Goal-anchor examples should also be selected deterministically.
+
+That means the retrieval layer should prefer examples that best fit the current goal mode:
+
+- followers: discovery-friendly and broadly legible
+- leads: stronger proof, CTA, and outcome structure
+- authority: stronger standalone point-of-view and structured insight
 
 ### 9. Reply Layer
 
