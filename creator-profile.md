@@ -422,3 +422,4 @@ The immediate implementation path is:
 3. use it as the future context object for the chat/drafting agent
 
 That is the minimum viable path to move from “scraped analytics” to “agent that can write like the user and for the user.”
+
