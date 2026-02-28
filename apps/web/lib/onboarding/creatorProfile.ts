@@ -16,6 +16,7 @@ import type {
   CreatorReplyProfile,
   CreatorRepresentativeExamples,
   CreatorRepresentativePost,
+  CreatorStrategyProfile,
   DeliveryStyle,
   DependenceLevel,
   HookPattern,
@@ -1421,6 +1422,141 @@ function buildStrategyRationale(
   return `Authority compounds when voice, proof, and consistency line up. The current ${archetype} pattern should become more opinionated and structured.`;
 }
 
+function buildStrategyDelta(params: {
+  goal: UserGoal;
+  growthStage: OnboardingResult["growthStage"];
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"];
+  archetype: CreatorArchetype;
+  audienceBreadth: AudienceBreadth;
+  dominantTopics: TopicSignal[];
+  execution: CreatorExecutionProfile;
+  replyProfile: CreatorReplyProfile;
+  quoteProfile: CreatorQuoteProfile;
+}): CreatorStrategyProfile["delta"] {
+  const preserveTraits: string[] = [`Keep the core ${params.archetype} identity recognizable.`];
+  const shiftTraits: string[] = [];
+  const adjustments: CreatorStrategyProfile["delta"]["adjustments"] = [];
+  const topTopic = params.dominantTopics[0] ?? null;
+
+  if (params.transformationMode === "preserve") {
+    preserveTraits.push("Protect the current audience lane and bias toward execution improvements.");
+  } else if (params.transformationMode === "pivot_soft") {
+    shiftTraits.push("Introduce adjacent topics without breaking the audience's mental model.");
+  } else if (params.transformationMode === "pivot_hard") {
+    shiftTraits.push("Use clearer position shifts even if short-term reach becomes less stable.");
+  } else {
+    preserveTraits.push("Refine what already works before making bigger positioning changes.");
+  }
+
+  if (params.execution.linkDependence === "high") {
+    adjustments.push({
+      area: "link_dependence",
+      direction: "decrease",
+      priority: "high",
+      note: "The current mix is too link-dependent. The fastest gain is turning the same ideas into stronger native-text posts.",
+    });
+  }
+
+  if (params.execution.mentionDependence === "high") {
+    adjustments.push({
+      area: "mention_dependence",
+      direction: "decrease",
+      priority: "medium",
+      note: "Distribution is leaning too heavily on tagged accounts. Increase standalone context so posts travel on their own.",
+    });
+  }
+
+  if (params.goal === "followers" && params.execution.deliveryStyle === "reply_led") {
+    adjustments.push({
+      area: "standalone_posts",
+      direction: "increase",
+      priority: "high",
+      note: "The account is too reply-led for broad follower growth. More top-level standalone posts are needed for discovery.",
+    });
+  }
+
+  if (
+    params.goal === "followers" &&
+    params.growthStage === "0-1k" &&
+    (params.replyProfile.replyCount === 0 || params.replyProfile.replyShareOfCapturedActivity < 10)
+  ) {
+    adjustments.push({
+      area: "reply_activity",
+      direction: "increase",
+      priority: "medium",
+      note: "Early-stage growth can use replies as a second distribution lane. The current reply share is too low to exploit that lever.",
+    });
+  }
+
+  if (
+    params.quoteProfile.isReliable &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
+  ) {
+    adjustments.push({
+      area: "quote_activity",
+      direction: "increase",
+      priority: "medium",
+      note: "Quote posts are outperforming the original-post baseline, so commentary is a real leverage lane worth expanding.",
+    });
+  }
+
+  if (
+    params.goal === "followers" &&
+    params.transformationMode !== "preserve" &&
+    params.audienceBreadth === "narrow"
+  ) {
+    adjustments.push({
+      area: "audience_breadth",
+      direction: "shift",
+      priority: "high",
+      note: "The current audience lane is narrow. Broader discovery will require adjacent topics that remain legible outside the current niche.",
+    });
+  }
+
+  if (
+    topTopic &&
+    topTopic.specificity === "local_scene" &&
+    params.transformationMode !== "preserve"
+  ) {
+    adjustments.push({
+      area: "topic_specificity",
+      direction: "shift",
+      priority: "medium",
+      note: `The current top signal (${topTopic.label}) is highly local. Keep the identity value, but translate more of it into ideas that travel beyond one scene.`,
+    });
+  }
+
+  if (adjustments.length === 0) {
+    adjustments.push({
+      area: "standalone_posts",
+      direction: "protect",
+      priority: "low",
+      note: "There is no urgent structural gap. The next win is consistency around the strongest current lane.",
+    });
+  }
+
+  const primaryGap =
+    params.transformationMode === "preserve"
+      ? "Protect current positioning while tightening execution."
+      : params.transformationMode === "pivot_soft"
+        ? "Bridge the current audience into an adjacent lane without losing trust."
+        : params.transformationMode === "pivot_hard"
+          ? "Replace the current positioning with a clearer new lane while accepting near-term volatility."
+          : adjustments.some((item) => item.area === "standalone_posts" && item.priority === "high")
+            ? "Increase standalone discovery so the account is less dependent on reactive distribution."
+            : adjustments.some((item) => item.area === "audience_breadth" && item.priority === "high")
+              ? "Expand beyond the current narrow lane without losing the strongest identity signals."
+              : "Turn current strengths into a more repeatable growth system.";
+
+  return {
+    primaryGap,
+    preserveTraits: preserveTraits.slice(0, 3),
+    shiftTraits: shiftTraits.slice(0, 3),
+    adjustments: adjustments.slice(0, 5),
+  };
+}
+
 export function buildCreatorProfile(params: {
   sourceRunId: string;
   onboarding: OnboardingResult;
@@ -1460,6 +1596,17 @@ export function buildCreatorProfile(params: {
     archetype,
     audienceBreadth,
     transformationMode,
+  });
+  const strategyDelta = buildStrategyDelta({
+    goal: params.onboarding.strategyState.goal,
+    growthStage: params.onboarding.growthStage,
+    transformationMode,
+    archetype,
+    audienceBreadth,
+    dominantTopics,
+    execution: executionProfile,
+    replyProfile,
+    quoteProfile,
   });
   const primaryCasing = inferPrimaryCasing(posts);
   const lowercaseSharePercent = computeLowercaseSharePercent(posts);
@@ -1569,6 +1716,7 @@ export function buildCreatorProfile(params: {
         audienceBreadth,
       },
       targetState,
+      delta: strategyDelta,
       currentStrengths: [
         ...performanceModel.strengths,
         ...buildExecutionStrengths(executionProfile),

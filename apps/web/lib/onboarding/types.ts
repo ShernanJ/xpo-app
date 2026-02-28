@@ -335,6 +335,35 @@ export interface CreatorTargetStateProfile {
   planningNote: string;
 }
 
+export type CreatorStrategyDeltaDirection =
+  | "increase"
+  | "decrease"
+  | "protect"
+  | "shift";
+
+export type CreatorStrategyDeltaPriority = "high" | "medium" | "low";
+
+export interface CreatorStrategyDeltaItem {
+  area:
+    | "audience_breadth"
+    | "topic_specificity"
+    | "standalone_posts"
+    | "reply_activity"
+    | "quote_activity"
+    | "link_dependence"
+    | "mention_dependence";
+  direction: CreatorStrategyDeltaDirection;
+  priority: CreatorStrategyDeltaPriority;
+  note: string;
+}
+
+export interface CreatorStrategyDeltaProfile {
+  primaryGap: string;
+  preserveTraits: string[];
+  shiftTraits: string[];
+  adjustments: CreatorStrategyDeltaItem[];
+}
+
 export interface CreatorStrategyProfile {
   primaryGoal: UserGoal;
   archetype: CreatorArchetype;
@@ -342,6 +371,7 @@ export interface CreatorStrategyProfile {
   transformationModeSource: TransformationModeSource;
   currentState: CreatorCurrentStateProfile;
   targetState: CreatorTargetStateProfile;
+  delta: CreatorStrategyDeltaProfile;
   currentStrengths: string[];
   currentWeaknesses: string[];
   recommendedAngles: string[];
