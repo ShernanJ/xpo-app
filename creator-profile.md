@@ -323,6 +323,7 @@ It should include:
 - voice-anchor examples
 - strategy-anchor examples
 - goal-anchor examples
+- goal-conflict examples
 - caution examples to avoid repeating weak patterns
 
 This layer exists so the agent does not draft from abstract summaries alone.
@@ -333,6 +334,7 @@ The product should be able to hand the writer real post references that show:
 - what most closely matches the user's natural voice
 - what best matches the current strategy gap and target direction
 - what best matches the current goal (followers, leads, or authority)
+- what actively conflicts with the current goal or target direction
 - what kinds of structures currently underperform
 
 These examples should be selected deterministically first, not manually curated.
@@ -354,6 +356,15 @@ That means the retrieval layer should prefer examples that best fit the current 
 - followers: discovery-friendly and broadly legible
 - leads: stronger proof, CTA, and outcome structure
 - authority: stronger standalone point-of-view and structured insight
+
+Goal-conflict examples should be selected separately from generic caution examples.
+
+That means the system should be able to say:
+
+- this pattern underperforms in general
+- and this pattern is specifically wrong for the current goal or strategy delta
+
+Those are related, but not the same retrieval job.
 
 ### 9. Reply Layer
 
