@@ -35,6 +35,11 @@ interface CriticOutput {
 }
 
 export type ChatModelProvider = "openai" | "groq";
+export type CreatorChatProgressPhase =
+  | "planning"
+  | "writing"
+  | "critic"
+  | "finalizing";
 
 export interface CreatorChatReplyResult {
   reply: string;
@@ -316,6 +321,7 @@ export async function generateCreatorChatReply(params: {
   userMessage: string;
   history?: ChatHistoryMessage[];
   provider?: ChatModelProvider;
+  onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
     runId: params.runId,
@@ -333,6 +339,7 @@ export async function generateCreatorChatReply(params: {
   });
 
   if (contract.mode === "analysis_only") {
+    params.onProgress?.("finalizing");
     return {
       ...deterministicFallback,
       source: "deterministic",
@@ -344,6 +351,7 @@ export async function generateCreatorChatReply(params: {
   const provider = resolveProviderConfig(params.provider);
 
   if (!provider) {
+    params.onProgress?.("finalizing");
     return {
       ...deterministicFallback,
       source: "deterministic",
@@ -358,6 +366,7 @@ export async function generateCreatorChatReply(params: {
       ? history.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n")
       : "No prior chat history.";
 
+  params.onProgress?.("planning");
   const planner = await callProviderJson<PlannerOutput>({
     provider,
     system: buildPlannerSystemPrompt({ context, contract }),
@@ -395,6 +404,7 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
+  params.onProgress?.("writing");
   const writer = await callProviderJson<WriterOutput>({
     provider,
     system: buildWriterSystemPrompt({ context, contract, planner }),
@@ -446,6 +456,7 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
+  params.onProgress?.("critic");
   const critic = await callProviderJson<CriticOutput>({
     provider,
     system: buildCriticSystemPrompt({ contract, context }),
@@ -494,6 +505,7 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
+  params.onProgress?.("finalizing");
   return {
     reply: critic.finalResponse.trim() || writer.response.trim(),
     drafts: sanitizeStringList(critic.finalDrafts, 3, writer.drafts),

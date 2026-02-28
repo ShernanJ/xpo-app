@@ -66,6 +66,27 @@ interface CreatorChatFailure {
 
 type CreatorChatResponse = CreatorChatSuccess | CreatorChatFailure;
 
+interface CreatorChatStreamStatusEvent {
+  type: "status";
+  phase: "planning" | "writing" | "critic" | "finalizing";
+  message: string;
+}
+
+interface CreatorChatStreamResultEvent {
+  type: "result";
+  data: CreatorChatSuccess["data"];
+}
+
+interface CreatorChatStreamErrorEvent {
+  type: "error";
+  message: string;
+}
+
+type CreatorChatStreamEvent =
+  | CreatorChatStreamStatusEvent
+  | CreatorChatStreamResultEvent
+  | CreatorChatStreamErrorEvent;
+
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
@@ -81,15 +102,6 @@ type ChatProviderPreference = "openai" | "groq";
 
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
-
-const compactNumberFormatter = new Intl.NumberFormat("en-US", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-
-function formatCompactNumber(value: number): string {
-  return compactNumberFormatter.format(value);
-}
 
 function formatEnumLabel(value: string): string {
   return value
@@ -196,7 +208,7 @@ function buildDeterministicReply(
   };
 }
 
-function AssistantTypingBubble() {
+function AssistantTypingBubble(props: { status?: string | null }) {
   return (
     <div
       className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100"
@@ -212,6 +224,11 @@ function AssistantTypingBubble() {
           />
         ))}
       </div>
+      {props.status ? (
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          {props.status}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -228,6 +245,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("openai");
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -473,6 +491,7 @@ export default function ChatPage() {
     setDraftInput("");
 
     setIsSending(true);
+    setStreamStatus("Planning the next move.");
     setErrorMessage(null);
 
     try {
@@ -486,41 +505,119 @@ export default function ChatPage() {
           message: trimmedInput,
           history,
           provider: providerPreference,
+          stream: true,
         }),
       });
 
-      const data: CreatorChatResponse = await response.json();
+      const contentType = response.headers.get("content-type") ?? "";
 
-      const reply =
-        response.ok && data.ok
-          ? data.data
-          : data.ok
-            ? {
-                reply: "The chat route failed to return a reply.",
-                drafts: [],
-                whyThisWorks: [],
-                watchOutFor: [],
-                source: "deterministic" as const,
-                model: null,
-                mode: contract.mode,
-              }
-            : null;
+      if (contentType.includes("application/json")) {
+        const data: CreatorChatResponse = await response.json();
+
+        const reply =
+          response.ok && data.ok
+            ? data.data
+            : data.ok
+              ? {
+                  reply: "The chat route failed to return a reply.",
+                  drafts: [],
+                  whyThisWorks: [],
+                  watchOutFor: [],
+                  source: "deterministic" as const,
+                  model: null,
+                  mode: contract.mode,
+                }
+              : null;
+
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now() + 1}`,
+            role: "assistant",
+            content:
+              reply?.reply ??
+              (data.ok
+                ? "The chat route failed to return a reply."
+                : (data.errors[0]?.message ?? "Failed to generate a reply.")),
+            drafts: reply?.drafts ?? [],
+            whyThisWorks: reply?.whyThisWorks ?? [],
+            watchOutFor: reply?.watchOutFor ?? [],
+            source: reply?.source,
+            model: reply?.model ?? null,
+          },
+        ]);
+        return;
+      }
+
+      if (!response.body) {
+        throw new Error("The chat stream did not return a readable body.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamedResult: CreatorChatSuccess["data"] | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) {
+            continue;
+          }
+
+          const event = JSON.parse(line) as CreatorChatStreamEvent;
+
+          if (event.type === "status") {
+            setStreamStatus(event.message);
+            continue;
+          }
+
+          if (event.type === "result") {
+            streamedResult = event.data;
+            continue;
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const event = JSON.parse(buffer.trim()) as CreatorChatStreamEvent;
+        if (event.type === "status") {
+          setStreamStatus(event.message);
+        } else if (event.type === "result") {
+          streamedResult = event.data;
+        } else if (event.type === "error") {
+          throw new Error(event.message);
+        }
+      }
+
+      if (!streamedResult) {
+        throw new Error("The chat stream finished without a result.");
+      }
 
       setMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now() + 1}`,
           role: "assistant",
-          content:
-            reply?.reply ??
-            (data.ok
-              ? "The chat route failed to return a reply."
-              : (data.errors[0]?.message ?? "Failed to generate a reply.")),
-          drafts: reply?.drafts ?? [],
-          whyThisWorks: reply?.whyThisWorks ?? [],
-          watchOutFor: reply?.watchOutFor ?? [],
-          source: reply?.source,
-          model: reply?.model ?? null,
+          content: streamedResult.reply,
+          drafts: streamedResult.drafts,
+          whyThisWorks: streamedResult.whyThisWorks,
+          watchOutFor: streamedResult.watchOutFor,
+          source: streamedResult.source,
+          model: streamedResult.model ?? null,
         },
       ]);
     } catch {
@@ -536,6 +633,7 @@ export default function ChatPage() {
       setErrorMessage("The live model failed, so the deterministic fallback was used.");
     } finally {
       setIsSending(false);
+      setStreamStatus(null);
     }
   }
 
@@ -802,47 +900,7 @@ export default function ChatPage() {
                     </div>
                   ))}
 
-                  {isSending ? <AssistantTypingBubble /> : null}
-
-                  {context ? (
-                    <div className="border-t border-white/10 pt-6">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        Current Working Model
-                      </p>
-                      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                        <div className="border border-white/10 p-4">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            Context Readiness
-                          </p>
-                          <p className="mt-2 text-3xl font-semibold text-white">
-                            {context.readiness.score}
-                          </p>
-                          <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            {formatEnumLabel(context.readiness.recommendedMode)}
-                          </p>
-                        </div>
-                        <div className="border border-white/10 p-4">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            Total Captured
-                          </p>
-                          <p className="mt-2 text-3xl font-semibold text-white">
-                            {formatCompactNumber(context.confidence.sampleSize)}
-                          </p>
-                          <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            {formatEnumLabel(context.confidence.sampleBand)}
-                          </p>
-                        </div>
-                        <div className="border border-white/10 p-4">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            Primary Angle
-                          </p>
-                          <p className="mt-2 text-sm leading-7 text-zinc-200">
-                            {contract?.planner.primaryAngle ?? "Waiting for the generation contract."}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                  {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
                 </>
               )}
             </div>

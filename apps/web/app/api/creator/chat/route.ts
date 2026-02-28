@@ -13,6 +13,24 @@ interface CreatorChatRequest {
   message?: unknown;
   history?: unknown;
   provider?: unknown;
+  stream?: unknown;
+}
+
+type ChatProgressPhase = "planning" | "writing" | "critic" | "finalizing";
+
+function formatProgressMessage(phase: ChatProgressPhase): string {
+  switch (phase) {
+    case "planning":
+      return "Planning the next move.";
+    case "writing":
+      return "Writing draft options.";
+    case "critic":
+      return "Tightening the response.";
+    case "finalizing":
+      return "Finalizing the reply.";
+    default:
+      return "Working.";
+  }
 }
 
 export async function POST(request: Request) {
@@ -36,6 +54,7 @@ export async function POST(request: Request) {
     body.provider === "openai" || body.provider === "groq"
       ? body.provider
       : "openai";
+  const stream = body.stream === true;
 
   if (!runId) {
     return NextResponse.json(
@@ -83,6 +102,70 @@ export async function POST(request: Request) {
     .filter((entry) => entry.content.length > 0);
 
   try {
+    if (stream) {
+      const encoder = new TextEncoder();
+
+      const responseStream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const push = (payload: unknown) => {
+            controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          };
+          let lastPhase: ChatProgressPhase | null = null;
+
+          try {
+            push({
+              type: "status",
+              phase: "planning",
+              message: formatProgressMessage("planning"),
+            });
+            lastPhase = "planning";
+
+            const result = await generateCreatorChatReply({
+              runId,
+              onboarding: storedRun.result,
+              userMessage: message,
+              history,
+              provider,
+              onProgress: (phase) => {
+                if (phase === lastPhase) {
+                  return;
+                }
+                lastPhase = phase;
+                push({
+                  type: "status",
+                  phase,
+                  message: formatProgressMessage(phase),
+                });
+              },
+            });
+
+            push({
+              type: "result",
+              data: result,
+            });
+          } catch (error) {
+            push({
+              type: "error",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to generate a chat reply.",
+            });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(responseStream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+        },
+      });
+    }
+
     const result = await generateCreatorChatReply({
       runId,
       onboarding: storedRun.result,
