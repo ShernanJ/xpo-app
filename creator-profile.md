@@ -366,6 +366,38 @@ That means the system should be able to say:
 
 Those are related, but not the same retrieval job.
 
+## Agent Context Pack
+
+Before adding an LLM, the system should expose one deterministic agent-context object.
+
+This should be the primary handoff contract to any future planner, writer, or critic model.
+
+It should bundle:
+
+- the full `CreatorProfile`
+- the `PerformanceModel`
+- the current strategy delta
+- a compact confidence summary
+- positive anchors
+- negative anchors
+- the grouped retrieval sets used to build those anchors
+
+The positive anchor bundle should prioritize:
+
+- best-performing examples
+- voice anchors
+- strategy anchors
+- goal anchors
+
+The negative anchor bundle should prioritize:
+
+- goal-conflict examples
+- generic caution examples
+
+This object should be stable and versioned.
+
+The future LLM should consume this context pack directly rather than assembling context ad hoc from multiple endpoints.
+
 ### 9. Reply Layer
 
 Replies should be modeled as a separate lane, not mixed into the main original-post lane.
