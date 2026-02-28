@@ -1,3 +1,4 @@
+import { resolveFreshOnboardingProfilePreview } from "../profilePreview";
 import { readLatestScrapeCaptureByAccount } from "../scrapeStore";
 import type { OnboardingInput } from "../types";
 import { bootstrapScrapeCapture } from "./scrapeBootstrap";
@@ -19,9 +20,19 @@ export async function resolveScrapeDataSource(
     throw new Error(`No scrape capture found for @${input.account} after bootstrap.`);
   }
 
+  const freshPreview = await resolveFreshOnboardingProfilePreview(input.account);
+  const profile = {
+    ...latestCapture.profile,
+    ...(freshPreview?.avatarUrl &&
+    freshPreview.avatarUrl !== latestCapture.profile.avatarUrl
+      ? { avatarUrl: freshPreview.avatarUrl }
+      : {}),
+    isVerified: latestCapture.profile.isVerified || freshPreview?.isVerified || false,
+  };
+
   return {
     source: "scrape",
-    profile: latestCapture.profile,
+    profile,
     posts: latestCapture.posts.slice(0, 50),
     warnings,
   };

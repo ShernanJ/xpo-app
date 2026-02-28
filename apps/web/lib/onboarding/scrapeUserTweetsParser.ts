@@ -1,3 +1,4 @@
+import { normalizeXAvatarUrl } from "./avatarUrl";
 import { normalizeAccountInput } from "./validation";
 import type { XPublicPost, XPublicProfile } from "./types";
 
@@ -29,6 +30,14 @@ function asNumber(value: unknown): number {
   }
 
   return 0;
+}
+
+function asBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return null;
 }
 
 function toIsoDate(value: unknown): string {
@@ -191,6 +200,7 @@ function extractProfileFromTweetNode(
   const userLegacy = asRecord(userNode.legacy);
   const profileBio = asRecord(userNode.profile_bio);
   const avatar = asRecord(userNode.avatar);
+  const verification = asRecord(userNode.verification);
 
   const username = asString(userCore?.screen_name) ?? asString(userLegacy?.screen_name);
   if (!username) {
@@ -204,11 +214,17 @@ function extractProfileFromTweetNode(
       asString(userLegacy?.description) ??
       asString(profileBio?.description) ??
       "",
-    avatarUrl:
+    avatarUrl: normalizeXAvatarUrl(
       asString(avatar?.image_url) ??
-      asString(userLegacy?.profile_image_url_https) ??
-      asString(userLegacy?.profile_image_url) ??
-      null,
+        asString(userLegacy?.profile_image_url_https) ??
+        asString(userLegacy?.profile_image_url) ??
+        null,
+    ),
+    isVerified:
+      asBoolean(verification?.verified) ??
+      asBoolean(userNode.is_blue_verified) ??
+      asBoolean(userLegacy?.verified) ??
+      false,
     followersCount: asNumber(
       userLegacy?.followers_count ?? userLegacy?.normal_followers_count,
     ),
@@ -299,8 +315,18 @@ export function parseUserTweetsGraphqlPayload(params: {
   let profileCandidate: XPublicProfile | null = null;
 
   for (const node of nodes) {
-    if (!profileCandidate) {
-      profileCandidate = extractProfileFromTweetNode(node);
+    const nodeProfile = extractProfileFromTweetNode(node);
+    if (nodeProfile) {
+      if (!profileCandidate) {
+        profileCandidate = nodeProfile;
+      }
+
+      if (
+        accountNormalized &&
+        nodeProfile.username.toLowerCase() === accountNormalized.toLowerCase()
+      ) {
+        profileCandidate = nodeProfile;
+      }
     }
 
     const fallbackPost = extractPostFromTweetNode(node, accountNormalized, {
@@ -345,6 +371,7 @@ export function parseUserTweetsGraphqlPayload(params: {
       name: inferredUsername,
       bio: "",
       avatarUrl: null,
+      isVerified: false,
       followersCount: 0,
       followingCount: 0,
       createdAt: new Date(0).toISOString(),

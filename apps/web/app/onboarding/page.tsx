@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import Image from "next/image";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
   OnboardingInput,
   OnboardingResult,
+  XPublicProfile,
   PerformanceModel,
 } from "@/lib/onboarding/types";
 
@@ -39,13 +41,55 @@ interface PerformanceModelFailure {
 
 type PerformanceModelResponse = PerformanceModelSuccess | PerformanceModelFailure;
 
+interface OnboardingPreviewSuccess {
+  ok: true;
+  account: string;
+  preview: XPublicProfile | null;
+  source:
+    | "cache"
+    | "user_by_screen_name"
+    | "syndication"
+    | "users_show"
+    | "html"
+    | "none";
+}
+
+interface OnboardingPreviewFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+
 const compactNumberFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
 
+const LOADING_STEPS = [
+  "Finding profile",
+  "Reading recent posts",
+  "Building your growth snapshot",
+] as const;
+
+const showOnboardingDevTools =
+  process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
+
+const scanlineStyle = {
+  backgroundImage:
+    "linear-gradient(to bottom, rgba(255,255,255,0.035) 1px, transparent 1px)",
+  backgroundSize: "100% 6px",
+};
+
 function formatCompactNumber(value: number): string {
   return compactNumberFormatter.format(value);
+}
+
+function formatEnumLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function getProfileInitials(name: string, username: string): string {
@@ -62,14 +106,86 @@ function getProfileInitials(name: string, username: string): string {
   return username.slice(0, 2).toUpperCase();
 }
 
+function VerifiedBadge({ visible }: { visible?: boolean }) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Image
+      src="/x-verified.svg"
+      alt="Verified account"
+      width={18}
+      height={18}
+      className="h-[18px] w-[18px] shrink-0"
+    />
+  );
+}
+
+function ProfileAvatar({
+  profile,
+  sizeClassName,
+  textClassName,
+  borderClassName,
+  fallbackClassName,
+}: {
+  profile: XPublicProfile;
+  sizeClassName: string;
+  textClassName: string;
+  borderClassName: string;
+  fallbackClassName: string;
+}) {
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full ${sizeClassName} ${borderClassName} ${textClassName} ${fallbackClassName}`}
+    >
+      {profile.avatarUrl ? (
+        <div
+          className="h-full w-full bg-cover bg-center"
+          style={{ backgroundImage: `url(${profile.avatarUrl})` }}
+          role="img"
+          aria-label={`${profile.name} profile photo`}
+        />
+      ) : (
+        getProfileInitials(profile.name, profile.username)
+      )}
+    </div>
+  );
+}
+
+function OnboardingShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="min-h-screen bg-black text-white">
+      <div className="mx-auto min-h-screen max-w-7xl px-2 py-2 sm:px-4 sm:py-4">
+        <div className="relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#050505] sm:min-h-[calc(100vh-2rem)]">
+          <div className="pointer-events-none absolute inset-0 opacity-20" style={scanlineStyle} />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
+          <div className="relative flex-1">{children}</div>
+          <footer className="relative border-t border-white/10 px-6 py-4">
+            <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3 text-[10px] font-medium uppercase tracking-[0.28em] text-zinc-500 sm:text-[11px]">
+              <span>Dev</span>
+              <span className="h-3 w-px bg-white/10" />
+              <span>Growth Scan</span>
+              <span className="h-3 w-px bg-white/10" />
+              <span>Live</span>
+              <span className="h-3 w-px bg-white/10" />
+              <span>Agent Ready</span>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function OnboardingPage() {
-  const [account, setAccount] = useState("@");
-  const [goal, setGoal] = useState<OnboardingInput["goal"]>("followers");
-  const [timeBudgetMinutes, setTimeBudgetMinutes] = useState("30");
-  const [casing, setCasing] = useState<OnboardingInput["tone"]["casing"]>("normal");
-  const [risk, setRisk] = useState<OnboardingInput["tone"]["risk"]>("safe");
+  const [account, setAccount] = useState("");
   const [forceMock, setForceMock] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStepIndex, setLoadingStepIndex] = useState(0);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<XPublicProfile | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [result, setResult] = useState<OnboardingRunResponse | null>(null);
   const [performanceModel, setPerformanceModel] = useState<PerformanceModel | null>(
@@ -81,16 +197,92 @@ export default function OnboardingPage() {
   const payload = useMemo(
     () => ({
       account,
-      goal,
-      timeBudgetMinutes: Number(timeBudgetMinutes),
+      goal: "followers" as OnboardingInput["goal"],
+      timeBudgetMinutes: 30,
       tone: {
-        casing,
-        risk,
+        casing: "normal" as OnboardingInput["tone"]["casing"],
+        risk: "safe" as OnboardingInput["tone"]["risk"],
       },
       forceMock,
     }),
-    [account, goal, timeBudgetMinutes, casing, risk, forceMock],
+    [account, forceMock],
   );
+
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingStepIndex(0);
+      return;
+    }
+
+    setLoadingStepIndex(0);
+    const interval = window.setInterval(() => {
+      setLoadingStepIndex((current) => Math.min(current + 1, LOADING_STEPS.length - 1));
+    }, 1400);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isLoading]);
+
+  useEffect(() => {
+    const trimmed = account.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setPreview(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsPreviewLoading(true);
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
+          {
+            method: "GET",
+            signal: controller.signal,
+          },
+        );
+
+        const text = await response.text();
+        let data: OnboardingPreviewResponse | null = null;
+
+        try {
+          data = JSON.parse(text) as OnboardingPreviewResponse;
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok || !data) {
+          setPreview(null);
+          return;
+        }
+
+        if (!data.ok) {
+          setPreview(null);
+          return;
+        }
+
+        setPreview(data.preview);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        setPreview(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsPreviewLoading(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [account]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,139 +342,259 @@ export default function OnboardingPage() {
     }
   }
 
+  const successResult = result && result.ok ? result : null;
+  const bestFormat = successResult?.data.bestFormats[0] ?? null;
+  const weakestFormat = successResult?.data.underperformingFormats[0] ?? null;
+  const strongestHook = successResult?.data.hookPatterns[0] ?? null;
+
+  if (isLoading) {
+    return (
+      <OnboardingShell>
+        <section className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-center px-6 py-12 sm:py-20">
+          <div className="space-y-2 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-500">
+              X Growth Engine
+            </p>
+            <h1 className="font-mono text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              Analyzing {account}
+            </h1>
+            <p className="mx-auto max-w-xl text-sm leading-7 text-zinc-400">
+              We&apos;re pulling your recent posts and building a high-signal snapshot.
+            </p>
+          </div>
+
+          <div className="mt-10 rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-6 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+            <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full border border-white/10 bg-white/[0.04]">
+              <svg
+                viewBox="0 0 120 120"
+                className="h-16 w-16"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="42"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.12)"
+                  strokeWidth="10"
+                />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="42"
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                  strokeDasharray="160 264"
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="rotate"
+                    from="0 60 60"
+                    to="360 60 60"
+                    dur="1.2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+                <circle cx="60" cy="60" r="6" fill="#ffffff">
+                  <animate
+                    attributeName="opacity"
+                    values="0.2;1;0.2"
+                    dur="1.2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              </svg>
+            </div>
+
+            <ol className="mt-8 space-y-3">
+              {LOADING_STEPS.map((step, index) => {
+                const isActive = index === loadingStepIndex;
+                const isComplete = index < loadingStepIndex;
+
+                return (
+                  <li
+                    key={step}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3"
+                  >
+                    <span
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                        isComplete || isActive
+                          ? "bg-white text-black"
+                          : "bg-white/5 text-zinc-500"
+                      }`}
+                    >
+                      {isComplete ? "✓" : index + 1}
+                    </span>
+                    <span
+                      className={`text-sm ${
+                        isActive ? "font-medium text-white" : "text-zinc-500"
+                      }`}
+                    >
+                      {step}
+                    </span>
+                    {isActive ? (
+                      <span className="ml-auto flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white [animation:ping_1.2s_ease-in-out_infinite]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-white [animation:ping_1.2s_ease-in-out_0.15s_infinite]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-white [animation:ping_1.2s_ease-in-out_0.3s_infinite]" />
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
+      </OnboardingShell>
+    );
+  }
+
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-8 px-6 py-12">
-      <section className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Onboarding</h1>
-        <p className="text-sm text-zinc-600">
-          Stage 1 run with selectable source modes: x_api, scrape, or mock fallback.
-        </p>
-      </section>
-
-      <form className="space-y-6 rounded-xl border border-zinc-200 p-6" onSubmit={handleSubmit}>
-        <div className="space-y-2">
-          <label className="block text-sm font-medium" htmlFor="account">
-            Account
-          </label>
-          <input
-            id="account"
-            value={account}
-            onChange={(event) => setAccount(event.target.value)}
-            placeholder="@username or x.com/username"
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-          />
+    <OnboardingShell>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-6 py-12 sm:py-16">
+        <section className="mx-auto w-full max-w-3xl space-y-8 pt-6 text-center sm:pt-10">
+        <div className="space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-500">
+            X Growth Engine
+          </p>
+          <h1 className="font-mono text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+            Map What Wins On X.
+          </h1>
+          <p className="mx-auto max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
+            Enter your handle. We&apos;ll pull the signal from your recent posts, map what works,
+            and turn it into a clean growth snapshot you can actually use.
+          </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium" htmlFor="goal">
-              Goal
-            </label>
-            <select
-              id="goal"
-              value={goal}
-              onChange={(event) => setGoal(event.target.value as OnboardingInput["goal"])}
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-            >
-              <option value="followers">followers</option>
-              <option value="leads">leads</option>
-              <option value="authority">authority</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium" htmlFor="timeBudget">
-              Time Budget Minutes
-            </label>
-            <input
-              id="timeBudget"
-              type="number"
-              min={5}
-              max={360}
-              value={timeBudgetMinutes}
-              onChange={(event) => setTimeBudgetMinutes(event.target.value)}
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium" htmlFor="casing">
-              Tone Casing
-            </label>
-            <select
-              id="casing"
-              value={casing}
-              onChange={(event) =>
-                setCasing(event.target.value as OnboardingInput["tone"]["casing"])
-              }
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-            >
-              <option value="normal">normal</option>
-              <option value="lowercase">lowercase</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium" htmlFor="risk">
-              Tone Risk
-            </label>
-            <select
-              id="risk"
-              value={risk}
-              onChange={(event) => setRisk(event.target.value as OnboardingInput["tone"]["risk"])}
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-            >
-              <option value="safe">safe</option>
-              <option value="bold">bold</option>
-            </select>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
+        <form
+          className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-4 shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+          onSubmit={handleSubmit}
         >
-          {isLoading ? "Running..." : "Run Onboarding"}
-        </button>
-        <label className="ml-3 inline-flex items-center gap-2 text-sm text-zinc-700">
-          <input
-            type="checkbox"
-            checked={forceMock}
-            onChange={(event) => setForceMock(event.target.checked)}
-          />
-          Use mock data
-        </label>
-      </form>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+              <span className="mr-2 text-lg font-medium text-zinc-600">@</span>
+              <input
+                id="account"
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
+                placeholder="username"
+                className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600"
+                aria-label="X username"
+              />
+            </div>
 
-      {networkError ? <p className="text-sm text-red-700">{networkError}</p> : null}
-      {modelError ? <p className="text-sm text-red-700">{modelError}</p> : null}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="rounded-2xl bg-white px-6 py-3 font-mono text-sm font-semibold uppercase tracking-[0.22em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-500"
+            >
+              Analyze My X
+            </button>
+          </div>
 
-      {result ? (
-        <section className="space-y-3 rounded-xl border border-zinc-200 p-6">
-          <h2 className="text-lg font-semibold">Result</h2>
+          <div
+            className={`mt-3 flex items-center px-1 text-left ${
+              showOnboardingDevTools ? "justify-between gap-4" : ""
+            }`}
+          >
+            <p className="text-xs text-zinc-500">
+              We default to a followers-focused baseline for this first pass.
+            </p>
+            {showOnboardingDevTools ? (
+              <label className="inline-flex items-center gap-2 text-xs text-zinc-500">
+                <input
+                  type="checkbox"
+                  checked={forceMock}
+                  onChange={(event) => setForceMock(event.target.checked)}
+                />
+                Use mock
+              </label>
+            ) : null}
+          </div>
+
+          {isPreviewLoading || preview ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-3">
+              {isPreviewLoading ? (
+                <div className="flex items-center gap-3 text-left">
+                  <div className="h-10 w-10 rounded-full bg-white/10" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-28 rounded bg-white/10" />
+                    <div className="h-3 w-20 rounded bg-white/10" />
+                  </div>
+                </div>
+              ) : preview ? (
+                <div className="flex items-center gap-3 text-left">
+                  <ProfileAvatar
+                    profile={preview}
+                    sizeClassName="h-12 w-12"
+                    textClassName="text-sm font-semibold text-zinc-200"
+                    borderClassName="border border-white/10"
+                    fallbackClassName="bg-white/[0.04]"
+                  />
+
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-white">
+                      <span className="truncate">{preview.name}</span>
+                      <VerifiedBadge visible={preview.isVerified} />
+                    </p>
+                    <p className="truncate text-xs text-zinc-500">@{preview.username}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-white">
+                      {formatCompactNumber(preview.followersCount)}
+                    </p>
+                    <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                      Followers
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </form>
+        </section>
+
+        {networkError ? (
+          <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {networkError}
+          </p>
+        ) : null}
+        {modelError ? (
+          <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {modelError}
+          </p>
+        ) : null}
+
+        {result ? (
+          <section className="space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_18px_60px_rgba(24,24,27,0.06)]">
           {result.ok ? (
             <div className="space-y-5 text-sm">
-              <p className="text-emerald-700">Onboarding run complete.</p>
-              <p className="text-xs text-zinc-500">
-                Run ID: <span className="font-mono">{result.runId}</span> at{" "}
-                {new Date(result.persistedAt).toLocaleString()}
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">
+                    Snapshot Ready
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Built {new Date(result.persistedAt).toLocaleString()}
+                  </p>
+                </div>
 
-              <button
-                type="button"
-                onClick={handleBuildPerformanceModel}
-                disabled={isModelLoading}
-                className="rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-zinc-400"
-              >
-                {isModelLoading ? "Building model..." : "Build Performance Model"}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleBuildPerformanceModel}
+                  disabled={isModelLoading}
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isModelLoading ? "Building..." : "Load Deeper Breakdown"}
+                </button>
+              </div>
 
-              {result.data.warnings.length > 0 ? (
+              {successResult?.data.warnings.length ? (
                 <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
-                  {result.data.warnings[0]}
+                  {successResult.data.warnings[0]}
                 </div>
               ) : null}
 
@@ -291,27 +603,18 @@ export default function OnboardingPage() {
                 <div className="px-5 pb-5">
                   <div className="-mt-10 flex items-end justify-between gap-4">
                     <div className="flex min-w-0 items-end gap-4">
-                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-zinc-200 text-lg font-semibold text-zinc-700 shadow-sm">
-                        {result.data.profile.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{
-                              backgroundImage: `url(${result.data.profile.avatarUrl})`,
-                            }}
-                            role="img"
-                            aria-label={`${result.data.profile.name} profile photo`}
-                          />
-                        ) : (
-                          getProfileInitials(
-                            result.data.profile.name,
-                            result.data.profile.username,
-                          )
-                        )}
-                      </div>
+                      <ProfileAvatar
+                        profile={result.data.profile}
+                        sizeClassName="h-20 w-20"
+                        textClassName="text-lg font-semibold text-zinc-700"
+                        borderClassName="border-4 border-white"
+                        fallbackClassName="bg-zinc-200 shadow-sm"
+                      />
 
                       <div className="min-w-0 pb-1">
-                        <p className="truncate text-xl font-semibold text-zinc-950">
-                          {result.data.profile.name}
+                        <p className="flex items-center gap-1.5 truncate text-xl font-semibold text-zinc-950">
+                          <span className="truncate">{result.data.profile.name}</span>
+                          <VerifiedBadge visible={result.data.profile.isVerified} />
                         </p>
                         <p className="truncate text-sm text-zinc-500">
                           @{result.data.profile.username}
@@ -347,6 +650,71 @@ export default function OnboardingPage() {
                 </div>
               </section>
 
+              <section className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-zinc-500">
+                    Quick Overview
+                  </p>
+                  <h2 className="text-2xl font-semibold tracking-tight text-zinc-950">
+                    High-ROI signals from your recent posts.
+                  </h2>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Growth Stage</p>
+                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                      {result.data.growthStage}
+                    </p>
+                  </article>
+                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Best Format</p>
+                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                      {bestFormat ? formatEnumLabel(bestFormat.type) : "Not enough data"}
+                    </p>
+                  </article>
+                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Weak Spot</p>
+                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                      {weakestFormat ? formatEnumLabel(weakestFormat.type) : "Not enough data"}
+                    </p>
+                  </article>
+                  <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      Posts / Week
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-zinc-950">
+                      {result.data.strategyState.recommendedPostsPerWeek}
+                    </p>
+                  </article>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Do More Of</p>
+                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                      {bestFormat
+                        ? `${formatEnumLabel(bestFormat.type)} posts average ${bestFormat.averageEngagement} engagement.`
+                        : "We need a bit more data before calling a winner."}
+                    </p>
+                  </article>
+                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Watch For</p>
+                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                      {strongestHook
+                        ? `${formatEnumLabel(strongestHook.pattern)} appears most often in your strongest openers.`
+                        : "Your top hook pattern will appear here after more posts are parsed."}
+                    </p>
+                  </article>
+                  <article className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Next Move</p>
+                    <p className="mt-2 text-sm font-medium text-zinc-950">
+                      {result.data.strategyState.rationale}
+                    </p>
+                  </article>
+                </div>
+              </section>
+
               <div className="grid gap-3 sm:grid-cols-3">
                 <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
@@ -360,31 +728,6 @@ export default function OnboardingPage() {
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Cadence / Week</p>
                   <p className="mt-1 text-lg font-semibold">
                     {result.data.baseline.postingCadencePerWeek}
-                  </p>
-                </article>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">
-                    Growth Stage
-                  </p>
-                  <p className="mt-1 text-lg font-semibold">{result.data.growthStage}</p>
-                </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">
-                    Avg Engagement
-                  </p>
-                  <p className="mt-1 text-lg font-semibold">
-                    {result.data.baseline.averageEngagement}
-                  </p>
-                </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">
-                    Engagement Rate
-                  </p>
-                  <p className="mt-1 text-lg font-semibold">
-                    {result.data.baseline.engagementRate}%
                   </p>
                 </article>
               </div>
@@ -463,14 +806,10 @@ export default function OnboardingPage() {
                   ))}
                 </ul>
               </div>
-
-              <pre className="overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">
-                {JSON.stringify(result, null, 2)}
-              </pre>
             </div>
           ) : (
             <div className="space-y-2 text-sm">
-              <p className="text-red-700">Input has validation errors.</p>
+              <p className="text-red-700">We couldn&apos;t start the analysis.</p>
               <ul className="list-disc pl-5">
                 {result.errors.map((error) => (
                   <li key={`${error.field}-${error.message}`}>
@@ -480,12 +819,12 @@ export default function OnboardingPage() {
               </ul>
             </div>
           )}
-        </section>
-      ) : null}
+          </section>
+        ) : null}
 
-      {performanceModel ? (
-        <section className="space-y-4 rounded-xl border border-zinc-200 p-6">
-          <h2 className="text-lg font-semibold">Performance Model</h2>
+        {performanceModel ? (
+          <section className="space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_18px_60px_rgba(24,24,27,0.04)]">
+          <h2 className="text-lg font-semibold">Deeper Breakdown</h2>
           <div className="grid gap-3 sm:grid-cols-4">
             <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
@@ -556,8 +895,9 @@ export default function OnboardingPage() {
               ))}
             </ul>
           </div>
-        </section>
-      ) : null}
-    </main>
+          </section>
+        ) : null}
+      </div>
+    </OnboardingShell>
   );
 }

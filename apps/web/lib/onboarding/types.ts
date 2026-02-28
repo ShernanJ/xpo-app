@@ -39,6 +39,7 @@ export interface XPublicProfile {
   name: string;
   bio: string;
   avatarUrl?: string | null;
+  isVerified?: boolean;
   followersCount: number;
   followingCount: number;
   createdAt: string;
