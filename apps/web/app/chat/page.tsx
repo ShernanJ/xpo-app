@@ -50,6 +50,9 @@ interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
+    drafts: string[];
+    whyThisWorks: string[];
+    watchOutFor: string[];
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
@@ -67,6 +70,11 @@ interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  drafts?: string[];
+  whyThisWorks?: string[];
+  watchOutFor?: string[];
+  source?: "openai" | "groq" | "deterministic";
+  model?: string | null;
 }
 
 type ChatProviderPreference = "openai" | "groq";
@@ -150,7 +158,7 @@ function buildInitialAssistantMessage(
 function buildDeterministicReply(
   context: CreatorAgentContext,
   contract: CreatorGenerationContract,
-): string {
+): Omit<ChatMessage, "id" | "role"> {
   const topHook = contract.planner.suggestedHookPatterns[0]
     ? formatEnumLabel(contract.planner.suggestedHookPatterns[0])
     : "Statement Open";
@@ -159,10 +167,33 @@ function buildDeterministicReply(
     : "Single Line";
 
   if (contract.mode === "analysis_only") {
-    return `Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.`;
+    return {
+      content:
+        "Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.",
+      drafts: [],
+      whyThisWorks: [],
+      watchOutFor: [
+        "Wait for a deeper sample before treating drafts as reliable.",
+      ],
+      source: "deterministic",
+      model: null,
+    };
   }
 
-  return `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`;
+  return {
+    content: `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`,
+    drafts: [
+      `${topHook}: ${contract.planner.primaryAngle}`,
+      `${topType} angle: ${contract.planner.primaryAngle}`,
+    ],
+    whyThisWorks: [
+      "It stays aligned to the current lane and angle.",
+      "It keeps the draft inside the strongest deterministic constraints.",
+    ],
+    watchOutFor: ["Avoid broad generic phrasing."],
+    source: "deterministic",
+    model: null,
+  };
 }
 
 function AssistantTypingBubble() {
@@ -462,26 +493,44 @@ export default function ChatPage() {
 
       const reply =
         response.ok && data.ok
-          ? data.data.reply
+          ? data.data
           : data.ok
-            ? "The chat route failed to return a reply."
-            : (data.errors[0]?.message ?? "Failed to generate a reply.");
+            ? {
+                reply: "The chat route failed to return a reply.",
+                drafts: [],
+                whyThisWorks: [],
+                watchOutFor: [],
+                source: "deterministic" as const,
+                model: null,
+                mode: contract.mode,
+              }
+            : null;
 
       setMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now() + 1}`,
           role: "assistant",
-          content: reply,
+          content:
+            reply?.reply ??
+            (data.ok
+              ? "The chat route failed to return a reply."
+              : (data.errors[0]?.message ?? "Failed to generate a reply.")),
+          drafts: reply?.drafts ?? [],
+          whyThisWorks: reply?.whyThisWorks ?? [],
+          watchOutFor: reply?.watchOutFor ?? [],
+          source: reply?.source,
+          model: reply?.model ?? null,
         },
       ]);
     } catch {
+      const fallback = buildDeterministicReply(context, contract);
       setMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now() + 1}`,
           role: "assistant",
-          content: buildDeterministicReply(context, contract),
+          ...fallback,
         },
       ]);
       setErrorMessage("The live model failed, so the deterministic fallback was used.");
@@ -690,7 +739,66 @@ export default function ChatPage() {
                           : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
                       }`}
                     >
-                      {message.content}
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+
+                      {message.role === "assistant" && message.drafts?.length ? (
+                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                          {message.drafts.map((draft, index) => (
+                            <div
+                              key={`${message.id}-draft-${index}`}
+                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                            >
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                Draft {index + 1}
+                              </p>
+                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
+                                {draft}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {message.role === "assistant" &&
+                      ((message.whyThisWorks?.length ?? 0) > 0 ||
+                        (message.watchOutFor?.length ?? 0) > 0) ? (
+                        <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
+                          {message.whyThisWorks?.length ? (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                Why This Works
+                              </p>
+                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                {message.whyThisWorks.map((item, index) => (
+                                  <li key={`${message.id}-why-${index}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {message.watchOutFor?.length ? (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                Watch Out For
+                              </p>
+                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                {message.watchOutFor.map((item, index) => (
+                                  <li key={`${message.id}-watch-${index}`}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {showDevTools && message.role === "assistant" && message.source ? (
+                        <div className="mt-4 border-t border-white/10 pt-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            {message.source}
+                            {message.model ? ` · ${message.model}` : ""}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
 

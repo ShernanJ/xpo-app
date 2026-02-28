@@ -18,9 +18,19 @@ interface PlannerOutput {
   mustAvoid: string[];
 }
 
+interface WriterOutput {
+  response: string;
+  drafts: string[];
+  whyThisWorks: string[];
+  watchOutFor: string[];
+}
+
 interface CriticOutput {
   approved: boolean;
-  finalReply: string;
+  finalResponse: string;
+  finalDrafts: string[];
+  finalWhyThisWorks: string[];
+  finalWatchOutFor: string[];
   issues: string[];
 }
 
@@ -28,6 +38,9 @@ export type ChatModelProvider = "openai" | "groq";
 
 export interface CreatorChatReplyResult {
   reply: string;
+  drafts: string[];
+  whyThisWorks: string[];
+  watchOutFor: string[];
   source: ChatModelProvider | "deterministic";
   model: string | null;
   mode: CreatorGenerationContract["mode"];
@@ -51,11 +64,18 @@ function buildDeterministicFallback(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
   userMessage: string;
-}): string {
+}): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
   const { context, contract } = params;
 
   if (contract.mode === "analysis_only") {
-    return `The model is still in analysis mode. ${context.readiness.reasons[0] ?? "The current sample is not strong enough for reliable drafting yet."}`;
+    return {
+      reply: `The model is still in analysis mode. ${context.readiness.reasons[0] ?? "The current sample is not strong enough for reliable drafting yet."}`,
+      drafts: [],
+      whyThisWorks: [],
+      watchOutFor: [
+        "Wait for the sample to deepen before relying on generated drafts.",
+      ],
+    };
   }
 
   const topHook = contract.planner.suggestedHookPatterns[0]
@@ -65,9 +85,27 @@ function buildDeterministicFallback(params: {
     ? formatEnumLabel(contract.planner.suggestedContentTypes[0])
     : "Single Line";
 
-  return `Use the ${formatEnumLabel(
-    contract.planner.targetLane,
-  )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`;
+  return {
+    reply: `Use the ${formatEnumLabel(
+      contract.planner.targetLane,
+    )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
+    drafts: [
+      `${topHook}: ${contract.planner.primaryAngle}`,
+      `${topType} version: ${params.userMessage}. ${contract.planner.primaryAngle}`,
+    ],
+    whyThisWorks: [
+      "It stays inside the deterministic lane, hook, and angle constraints.",
+      "It keeps the draft aligned to the strongest current strategy signal.",
+    ],
+    watchOutFor: [
+      contract.writer.mustAvoid[0] ?? "Avoid broad generic phrasing.",
+      plannerSafeConstraint(contract.planner.blockedReasons[0]),
+    ].filter(Boolean),
+  };
+}
+
+function plannerSafeConstraint(value: string | undefined): string {
+  return value?.trim() || "";
 }
 
 function normalizeHistory(history: ChatHistoryMessage[]): ChatHistoryMessage[] {
@@ -211,49 +249,6 @@ async function callProviderJson<T>(params: {
   return JSON.parse(extractJsonObject(content)) as T;
 }
 
-async function callProviderText(params: {
-  provider: ModelProviderConfig;
-  system: string;
-  user: string;
-}): Promise<string> {
-  const response = await fetch(params.provider.baseUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.provider.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: params.provider.model,
-      messages: [
-        { role: "system", content: params.system },
-        { role: "user", content: params.user },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `${params.provider.provider} request failed: ${response.status} ${errorText}`,
-    );
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) {
-    throw new Error(`${params.provider.provider} returned an empty text response.`);
-  }
-
-  return content;
-}
-
 function buildPlannerSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -282,8 +277,9 @@ function buildWriterSystemPrompt(params: {
 
   return [
     "You are the writer for an X growth assistant.",
-    "Write one high-quality assistant reply to the user.",
-    "The reply should be directly useful, specific, and aligned to the deterministic contract.",
+    "Write one high-quality assistant response package for the user.",
+    "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
+    "The package must be directly useful, specific, and aligned to the deterministic contract.",
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Objective: ${planner.objective}.`,
@@ -291,7 +287,8 @@ function buildWriterSystemPrompt(params: {
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     "Do not mention internal model fields unless useful to the user.",
-    "If the user is asking for drafting help, provide concrete draft-ready guidance. If they ask for strategy, answer strategically.",
+    "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
+    "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
 
@@ -303,8 +300,9 @@ function buildCriticSystemPrompt(params: {
 
   return [
     "You are the critic for an X growth assistant.",
-    "Review the candidate reply and either approve it or tighten it.",
-    "Keep the final reply concise, useful, and aligned to the deterministic checklist.",
+    "Review the candidate response package and either approve it or tighten it.",
+    "Keep the final response concise, useful, and aligned to the deterministic checklist.",
+    "Keep the draft candidates sharp and usable as actual X posts.",
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
     `Readiness status: ${context.readiness.status}.`,
@@ -328,13 +326,15 @@ export async function generateCreatorChatReply(params: {
     onboarding: params.onboarding,
   });
 
+  const deterministicFallback = buildDeterministicFallback({
+    context,
+    contract,
+    userMessage: params.userMessage,
+  });
+
   if (contract.mode === "analysis_only") {
     return {
-      reply: buildDeterministicFallback({
-        context,
-        contract,
-        userMessage: params.userMessage,
-      }),
+      ...deterministicFallback,
       source: "deterministic",
       model: null,
       mode: contract.mode,
@@ -345,11 +345,7 @@ export async function generateCreatorChatReply(params: {
 
   if (!provider) {
     return {
-      reply: buildDeterministicFallback({
-        context,
-        contract,
-        userMessage: params.userMessage,
-      }),
+      ...deterministicFallback,
       source: "deterministic",
       model: null,
       mode: contract.mode,
@@ -399,7 +395,7 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
-  const writerReply = await callProviderText({
+  const writer = await callProviderJson<WriterOutput>({
     provider,
     system: buildWriterSystemPrompt({ context, contract, planner }),
     user: [
@@ -423,6 +419,31 @@ export async function generateCreatorChatReply(params: {
         ...planner.mustAvoid,
       ].join(" | ")}`,
     ].join("\n\n"),
+    schemaName: "creator_writer_output",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        response: { type: "string" },
+        drafts: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 3,
+        },
+        whyThisWorks: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 3,
+        },
+        watchOutFor: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 3,
+        },
+      },
+      required: ["response", "drafts", "whyThisWorks", "watchOutFor"],
+    },
   });
 
   const critic = await callProviderJson<CriticOutput>({
@@ -430,7 +451,7 @@ export async function generateCreatorChatReply(params: {
     system: buildCriticSystemPrompt({ contract, context }),
     user: [
       `User request: ${params.userMessage}`,
-      `Candidate reply:\n${writerReply}`,
+      `Candidate response package:\n${JSON.stringify(writer)}`,
       `Checklist: ${contract.critic.checklist.join(" | ")}`,
     ].join("\n\n"),
     schemaName: "creator_critic_output",
@@ -439,21 +460,68 @@ export async function generateCreatorChatReply(params: {
       additionalProperties: false,
       properties: {
         approved: { type: "boolean" },
-        finalReply: { type: "string" },
+        finalResponse: { type: "string" },
+        finalDrafts: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 3,
+        },
+        finalWhyThisWorks: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 3,
+        },
+        finalWatchOutFor: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 3,
+        },
         issues: {
           type: "array",
           items: { type: "string" },
           maxItems: 5,
         },
       },
-      required: ["approved", "finalReply", "issues"],
+      required: [
+        "approved",
+        "finalResponse",
+        "finalDrafts",
+        "finalWhyThisWorks",
+        "finalWatchOutFor",
+        "issues",
+      ],
     },
   });
 
   return {
-    reply: critic.finalReply.trim() || writerReply,
+    reply: critic.finalResponse.trim() || writer.response.trim(),
+    drafts: sanitizeStringList(critic.finalDrafts, 3, writer.drafts),
+    whyThisWorks: sanitizeStringList(
+      critic.finalWhyThisWorks,
+      3,
+      writer.whyThisWorks,
+    ),
+    watchOutFor: sanitizeStringList(
+      critic.finalWatchOutFor,
+      3,
+      writer.watchOutFor,
+    ),
     source: provider.provider,
     model: provider.model,
     mode: contract.mode,
   };
+}
+
+function sanitizeStringList(
+  values: string[] | undefined,
+  maxItems: number,
+  fallback: string[] = [],
+): string[] {
+  const source = Array.isArray(values) && values.length > 0 ? values : fallback;
+
+  return source
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .slice(0, maxItems);
 }
