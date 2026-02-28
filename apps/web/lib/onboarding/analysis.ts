@@ -120,6 +120,22 @@ const ENTITY_ALIAS_MAP = new Map<string, string>([
   ["new york city", "new york"],
 ]);
 
+const ENTITY_FAMILY_SUFFIXES = new Set([
+  "app",
+  "co",
+  "company",
+  "inc",
+  "lab",
+  "labs",
+  "media",
+  "project",
+  "projects",
+  "studio",
+  "studios",
+  "venture",
+  "ventures",
+]);
+
 function getPostEngagement(post: XPublicPost): number {
   const { likeCount, replyCount, repostCount, quoteCount } = post.metrics;
   return likeCount + replyCount + repostCount + quoteCount;
@@ -258,7 +274,23 @@ export function normalizeEntityCandidate(candidate: string): string | null {
     }
   }
 
-  return parts.join(" ");
+  const normalizedParts =
+    parts.length >= 2 && ENTITY_FAMILY_SUFFIXES.has(parts[parts.length - 1] ?? "")
+      ? parts.slice(0, -1)
+      : parts;
+
+  if (normalizedParts.length === 0) {
+    return null;
+  }
+
+  if (
+    normalizedParts.length === 1 &&
+    (normalizedParts[0].length < 2 || ENTITY_STOPWORDS.has(normalizedParts[0]))
+  ) {
+    return null;
+  }
+
+  return normalizedParts.join(" ");
 }
 
 export function extractEntityCandidates(text: string): string[] {
