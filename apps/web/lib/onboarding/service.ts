@@ -9,21 +9,43 @@ import type {
   AnalysisConfidence,
   OnboardingInput,
   OnboardingResult,
+  PostingCadenceCapacity,
+  ReplyBudgetPerDay,
   StrategyState,
   TransformationMode,
   TransformationModeSource,
 } from "./types";
 
-function inferRecommendedPostsPerWeek(timeBudgetMinutes: number): number {
-  if (timeBudgetMinutes <= 20) {
+function getPostingCapacityMaxPostsPerWeek(
+  postingCadenceCapacity: PostingCadenceCapacity,
+): number {
+  if (postingCadenceCapacity === "3_per_week") {
     return 3;
   }
 
-  if (timeBudgetMinutes <= 45) {
-    return 5;
+  if (postingCadenceCapacity === "1_per_day") {
+    return 7;
   }
 
-  return 7;
+  return 14;
+}
+
+function inferRecommendedPostsPerWeek(
+  timeBudgetMinutes: number,
+  postingCadenceCapacity: PostingCadenceCapacity,
+): number {
+  let budgetRecommended = 7;
+
+  if (timeBudgetMinutes <= 20) {
+    budgetRecommended = 3;
+  } else if (timeBudgetMinutes <= 45) {
+    budgetRecommended = 5;
+  }
+
+  return Math.min(
+    budgetRecommended,
+    getPostingCapacityMaxPostsPerWeek(postingCadenceCapacity),
+  );
 }
 
 function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
@@ -102,10 +124,15 @@ function buildStrategyState(
   growthStage: OnboardingResult["growthStage"],
   goal: OnboardingInput["goal"],
   timeBudgetMinutes: number,
+  postingCadenceCapacity: PostingCadenceCapacity,
+  replyBudgetPerDay: ReplyBudgetPerDay,
   transformationMode: TransformationMode,
   transformationModeSource: TransformationModeSource,
 ): StrategyState {
-  const recommendedPostsPerWeek = inferRecommendedPostsPerWeek(timeBudgetMinutes);
+  const recommendedPostsPerWeek = inferRecommendedPostsPerWeek(
+    timeBudgetMinutes,
+    postingCadenceCapacity,
+  );
   const transformationRationale =
     transformationMode === "preserve"
       ? "Preserve what already works and improve execution without disrupting audience expectations."
@@ -116,20 +143,29 @@ function buildStrategyState(
           : null;
 
   if (growthStage === "0-1k") {
+    const lowReplyCapacity = replyBudgetPerDay === "0_5";
+    const highReplyCapacity = replyBudgetPerDay === "15_30";
+
     return {
       growthStage,
       goal,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
       transformationMode,
       transformationModeSource,
       recommendedPostsPerWeek,
       weights: {
-        distribution: 0.65,
-        authority: 0.3,
+        distribution: lowReplyCapacity ? 0.55 : highReplyCapacity ? 0.7 : 0.65,
+        authority: lowReplyCapacity ? 0.4 : highReplyCapacity ? 0.25 : 0.3,
         leverage: 0.05,
       },
       rationale:
         transformationRationale ??
-        "Prioritize distribution and pattern-testing to find repeatable traction loops.",
+        lowReplyCapacity
+        ? "Prioritize higher-quality standalone distribution because reply capacity is limited."
+        : highReplyCapacity
+          ? "Prioritize distribution and a structured reply habit to compound early traction loops."
+          : "Prioritize distribution and pattern-testing to find repeatable traction loops.",
     };
   }
 
@@ -137,6 +173,8 @@ function buildStrategyState(
     return {
       growthStage,
       goal,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
       transformationMode,
       transformationModeSource,
       recommendedPostsPerWeek,
@@ -154,6 +192,8 @@ function buildStrategyState(
   return {
     growthStage,
     goal,
+    postingCadenceCapacity,
+    replyBudgetPerDay,
     transformationMode,
     transformationModeSource,
     recommendedPostsPerWeek,
@@ -169,6 +209,8 @@ function buildStrategyState(
 }
 
 export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
+  const postingCadenceCapacity = input.postingCadenceCapacity ?? "1_per_day";
+  const replyBudgetPerDay = input.replyBudgetPerDay ?? "5_15";
   const dataSource = await resolveOnboardingDataSource(input);
   const {
     source,
@@ -238,6 +280,8 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
       growthStage,
       input.goal,
       input.timeBudgetMinutes,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
       input.transformationMode ?? "optimize",
       input.transformationModeSource ?? "default",
     ),

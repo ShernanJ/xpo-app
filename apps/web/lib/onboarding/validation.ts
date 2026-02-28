@@ -1,5 +1,7 @@
 import type {
   OnboardingInput,
+  PostingCadenceCapacity,
+  ReplyBudgetPerDay,
   ScrapeFreshnessMode,
   ToneCasing,
   ToneRisk,
@@ -12,6 +14,8 @@ type OnboardingField =
   | "account"
   | "goal"
   | "timeBudgetMinutes"
+  | "postingCadenceCapacity"
+  | "replyBudgetPerDay"
   | "transformationMode"
   | "transformationModeSource"
   | "scrapeFreshness"
@@ -30,6 +34,16 @@ export type OnboardingValidationResult =
   | { ok: false; errors: OnboardingValidationError[] };
 
 const GOALS: ReadonlySet<UserGoal> = new Set(["followers", "leads", "authority"]);
+const POSTING_CAPACITIES: ReadonlySet<PostingCadenceCapacity> = new Set([
+  "3_per_week",
+  "1_per_day",
+  "2_per_day",
+]);
+const REPLY_BUDGETS: ReadonlySet<ReplyBudgetPerDay> = new Set([
+  "0_5",
+  "5_15",
+  "15_30",
+]);
 const TRANSFORMATION_MODES: ReadonlySet<TransformationMode> = new Set([
   "preserve",
   "optimize",
@@ -127,6 +141,38 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
       field: "timeBudgetMinutes",
       message: "timeBudgetMinutes must be an integer between 5 and 360.",
     });
+  }
+
+  let postingCadenceCapacity: PostingCadenceCapacity | undefined;
+  if (body.postingCadenceCapacity !== undefined) {
+    if (
+      typeof body.postingCadenceCapacity !== "string" ||
+      !POSTING_CAPACITIES.has(body.postingCadenceCapacity as PostingCadenceCapacity)
+    ) {
+      errors.push({
+        field: "postingCadenceCapacity",
+        message:
+          "postingCadenceCapacity must be one of: 3_per_week, 1_per_day, 2_per_day.",
+      });
+    } else {
+      postingCadenceCapacity =
+        body.postingCadenceCapacity as PostingCadenceCapacity;
+    }
+  }
+
+  let replyBudgetPerDay: ReplyBudgetPerDay | undefined;
+  if (body.replyBudgetPerDay !== undefined) {
+    if (
+      typeof body.replyBudgetPerDay !== "string" ||
+      !REPLY_BUDGETS.has(body.replyBudgetPerDay as ReplyBudgetPerDay)
+    ) {
+      errors.push({
+        field: "replyBudgetPerDay",
+        message: "replyBudgetPerDay must be one of: 0_5, 5_15, 15_30.",
+      });
+    } else {
+      replyBudgetPerDay = body.replyBudgetPerDay as ReplyBudgetPerDay;
+    }
   }
 
   let transformationMode: TransformationMode | undefined;
@@ -249,6 +295,8 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
       account,
       goal,
       timeBudgetMinutes,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
       transformationMode,
       transformationModeSource,
       scrapeFreshness,

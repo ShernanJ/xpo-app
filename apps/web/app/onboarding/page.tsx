@@ -259,6 +259,10 @@ function OnboardingShell({ children }: { children: ReactNode }) {
 export default function OnboardingPage() {
   const [account, setAccount] = useState("");
   const [forceMock, setForceMock] = useState(false);
+  const [postingCadenceCapacity, setPostingCadenceCapacity] =
+    useState<NonNullable<OnboardingInput["postingCadenceCapacity"]>>("1_per_day");
+  const [replyBudgetPerDay, setReplyBudgetPerDay] =
+    useState<NonNullable<OnboardingInput["replyBudgetPerDay"]>>("5_15");
   const [transformationMode, setTransformationMode] =
     useState<OnboardingInput["transformationMode"]>("optimize");
   const [hasTouchedTransformationMode, setHasTouchedTransformationMode] =
@@ -286,6 +290,8 @@ export default function OnboardingPage() {
       account,
       goal: "followers" as OnboardingInput["goal"],
       timeBudgetMinutes: 30,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
       tone: {
         casing: "normal" as OnboardingInput["tone"]["casing"],
         risk: "safe" as OnboardingInput["tone"]["risk"],
@@ -297,7 +303,14 @@ export default function OnboardingPage() {
       scrapeFreshness: "always" as const,
       forceMock,
     }),
-    [account, forceMock, hasTouchedTransformationMode, transformationMode],
+    [
+      account,
+      forceMock,
+      hasTouchedTransformationMode,
+      postingCadenceCapacity,
+      replyBudgetPerDay,
+      transformationMode,
+    ],
   );
 
   useEffect(() => {
@@ -798,6 +811,48 @@ export default function OnboardingPage() {
             <p className="max-w-xs text-left text-xs leading-5 text-zinc-500">
               Choose whether the engine should refine, protect, or intentionally shift the account.
             </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="block text-left">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Posting Capacity
+              </span>
+              <select
+                value={postingCadenceCapacity}
+                onChange={(event) =>
+                  setPostingCadenceCapacity(
+                    event.target.value as NonNullable<OnboardingInput["postingCadenceCapacity"]>,
+                  )
+                }
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
+                aria-label="Posting capacity"
+              >
+                <option value="3_per_week">3 posts per week</option>
+                <option value="1_per_day">1 post per day</option>
+                <option value="2_per_day">2 posts per day</option>
+              </select>
+            </label>
+
+            <label className="block text-left">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Reply Capacity
+              </span>
+              <select
+                value={replyBudgetPerDay}
+                onChange={(event) =>
+                  setReplyBudgetPerDay(
+                    event.target.value as NonNullable<OnboardingInput["replyBudgetPerDay"]>,
+                  )
+                }
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
+                aria-label="Reply budget"
+              >
+                <option value="0_5">0-5 replies / day</option>
+                <option value="5_15">5-15 replies / day</option>
+                <option value="15_30">15-30 replies / day</option>
+              </select>
+            </label>
           </div>
 
           {isPreviewLoading || preview ? (

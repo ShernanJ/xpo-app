@@ -4,6 +4,10 @@ export type ToneCasing = "lowercase" | "normal";
 
 export type ToneRisk = "safe" | "bold";
 
+export type PostingCadenceCapacity = "3_per_week" | "1_per_day" | "2_per_day";
+
+export type ReplyBudgetPerDay = "0_5" | "5_15" | "15_30";
+
 export type GrowthStage = "0-1k" | "1k-10k" | "10k+";
 
 export type ContentType =
@@ -30,6 +34,8 @@ export interface OnboardingInput {
   account: string;
   goal: UserGoal;
   timeBudgetMinutes: number;
+  postingCadenceCapacity?: PostingCadenceCapacity;
+  replyBudgetPerDay?: ReplyBudgetPerDay;
   tone: TonePreference;
   transformationMode?: TransformationMode;
   transformationModeSource?: TransformationModeSource;
@@ -94,6 +100,8 @@ export interface StrategyWeights {
 export interface StrategyState {
   growthStage: GrowthStage;
   goal: UserGoal;
+  postingCadenceCapacity: PostingCadenceCapacity;
+  replyBudgetPerDay: ReplyBudgetPerDay;
   transformationMode: TransformationMode;
   transformationModeSource: TransformationModeSource;
   recommendedPostsPerWeek: number;

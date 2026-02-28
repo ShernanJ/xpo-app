@@ -27,6 +27,8 @@ import type {
   LengthBand,
   OnboardingResult,
   PerformanceModel,
+  PostingCadenceCapacity,
+  ReplyBudgetPerDay,
   ReplyStyle,
   ReplyStyleMixItem,
   ReplyTone,
@@ -1662,6 +1664,7 @@ function buildRecommendedAngles(
   archetype: CreatorArchetype,
   execution: CreatorExecutionProfile,
   distribution: CreatorDistributionLoopProfile,
+  replyBudgetPerDay: ReplyBudgetPerDay,
   replyProfile: CreatorReplyProfile,
   quoteProfile: CreatorQuoteProfile,
   growthStage: OnboardingResult["growthStage"],
@@ -1715,7 +1718,9 @@ function buildRecommendedAngles(
 
   if (distribution.primaryLoop === "reply_driven") {
     angles.push(
-      "Treat replies as a deliberate distribution loop: add real perspective, then compound the best angles into standalone posts.",
+      replyBudgetPerDay === "0_5"
+        ? "Use a selective reply loop: focus on a few high-leverage replies, then compound the best angles into standalone posts."
+        : "Treat replies as a deliberate distribution loop: add real perspective, then compound the best angles into standalone posts.",
     );
   }
 
@@ -1760,9 +1765,16 @@ function buildRecommendedAngles(
   }
 
   if (goal === "followers" && growthStage === "0-1k") {
-    if (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10) {
+    if (
+      replyBudgetPerDay !== "0_5" &&
+      (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10)
+    ) {
       angles.push(
         "Use strategic replies as a second growth lane on niche-relevant posts with existing momentum.",
+      );
+    } else if (replyBudgetPerDay === "0_5") {
+      angles.push(
+        "Because reply capacity is limited, concentrate on stronger standalone posts and reserve replies for the highest-leverage opportunities.",
       );
     } else if (
       replyProfile.isReliable &&
@@ -1836,6 +1848,8 @@ function buildPlaybookProfile(params: {
   goal: UserGoal;
   archetype: CreatorArchetype;
   distribution: CreatorDistributionLoopProfile;
+  postingCadenceCapacity: PostingCadenceCapacity;
+  replyBudgetPerDay: ReplyBudgetPerDay;
   transformationMode: OnboardingResult["strategyState"]["transformationMode"];
   growthStage: OnboardingResult["growthStage"];
   execution: CreatorExecutionProfile;
@@ -1964,6 +1978,21 @@ function buildPlaybookProfile(params: {
   const experimentFocus = [
     `Test 2-3 variations of the strongest ${params.distribution.primaryLoop.replace(/_/g, " ")} loop.`,
   ];
+  const cadence = {
+    ...base.cadence,
+    posting:
+      params.postingCadenceCapacity === "3_per_week"
+        ? "Cap output near 3 posts per week and put more effort into each post."
+        : params.postingCadenceCapacity === "1_per_day"
+          ? "Plan around roughly 1 post per day as the sustainable default."
+          : "You can sustain up to 2 posts per day, but keep the second slot for tested formats only.",
+    replies:
+      params.replyBudgetPerDay === "0_5"
+        ? "Reply budget is limited (0-5/day), so use only the highest-leverage reply windows."
+        : params.replyBudgetPerDay === "5_15"
+          ? "Reply budget supports one deliberate conversation block per day (5-15 replies)."
+          : "Reply budget is strong enough for an aggressive conversation routine (15-30 replies/day).",
+  };
 
   if (params.transformationMode === "preserve") {
     toneGuidelines.push("Keep the existing audience expectation stable; optimize execution, not identity.");
@@ -2003,9 +2032,16 @@ function buildPlaybookProfile(params: {
   if (
     params.goal === "followers" &&
     params.growthStage === "0-1k" &&
+    params.replyBudgetPerDay !== "0_5" &&
     (params.replyProfile.replyCount === 0 || params.replyProfile.replyShareOfCapturedActivity < 10)
   ) {
     experimentFocus.push("Add a deliberate reply block each day to create a second discovery lane.");
+  }
+
+  if (params.replyBudgetPerDay === "0_5") {
+    experimentFocus.push(
+      "Use one tightly scoped reply window on high-leverage threads instead of spreading attention thin.",
+    );
   }
 
   if (
@@ -2017,9 +2053,13 @@ function buildPlaybookProfile(params: {
 
   const ctaPolicy =
     params.goal === "followers"
-      ? "Use one clear reply-first CTA at a time. Prefer questions, prompts, or lightweight participation asks over hard asks."
+      ? params.execution.ctaIntensity === "high"
+        ? "Keep CTAs lightweight and conversation-first so asks do not crowd out the reply loop."
+        : "Use one clear reply-first CTA at a time. Prefer questions, prompts, or lightweight participation asks over hard asks."
       : params.goal === "leads"
-        ? "Use one clear proof-linked CTA. Tie the ask to a specific outcome, and avoid stacking multiple asks in one post."
+        ? params.execution.ctaIntensity === "low"
+          ? "Use one clear proof-linked CTA. Tie the ask to a specific outcome, and avoid stacking multiple asks in one post."
+          : "Keep CTAs singular and specific. One outcome-driven ask is enough per post."
         : "Use CTAs to invite substantive responses, examples, or counterarguments. Avoid generic 'thoughts?' asks.";
 
   const conversationTactic =
@@ -2039,7 +2079,7 @@ function buildPlaybookProfile(params: {
     preferredContentTypes: base.preferredContentTypes,
     preferredHookPatterns: base.preferredHookPatterns,
     ctaPolicy,
-    cadence: base.cadence,
+    cadence,
     conversationTactic,
     experimentFocus: experimentFocus.slice(0, 4),
   };
@@ -2133,6 +2173,7 @@ function buildInteractionWeaknesses(params: {
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
   distribution: CreatorDistributionLoopProfile,
+  replyBudgetPerDay: ReplyBudgetPerDay,
   replyProfile: CreatorReplyProfile,
   quoteProfile: CreatorQuoteProfile,
   goal: UserGoal,
@@ -2170,9 +2211,16 @@ function buildExecutionNextMoves(
   }
 
   if (goal === "followers" && growthStage === "0-1k") {
-    if (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10) {
+    if (
+      replyBudgetPerDay !== "0_5" &&
+      (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10)
+    ) {
       actions.push(
         "Test 3-5 thoughtful replies this week on niche-adjacent posts that already have attention.",
+      );
+    } else if (replyBudgetPerDay === "0_5") {
+      actions.push(
+        "Use one focused 10-15 minute reply block this week on the highest-leverage niche threads, then shift back to standalone posts.",
       );
     } else if (
       replyProfile.isReliable &&
@@ -2209,7 +2257,9 @@ function buildExecutionNextMoves(
 
   if (distribution.primaryLoop === "reply_driven") {
     actions.push(
-      "Block one focused reply session this week, then convert the strongest reply angle into a top-level post within 24 hours.",
+      replyBudgetPerDay === "0_5"
+        ? "Use one short high-conviction reply session this week, then convert the strongest reply angle into a top-level post within 24 hours."
+        : "Block one focused reply session this week, then convert the strongest reply angle into a top-level post within 24 hours.",
     );
   }
 
@@ -2538,6 +2588,8 @@ export function buildCreatorProfile(params: {
     goal: params.onboarding.strategyState.goal,
     archetype,
     distribution: distributionProfile,
+    postingCadenceCapacity: params.onboarding.strategyState.postingCadenceCapacity,
+    replyBudgetPerDay: params.onboarding.strategyState.replyBudgetPerDay,
     transformationMode,
     growthStage: params.onboarding.growthStage,
     execution: executionProfile,
@@ -2664,6 +2716,7 @@ export function buildCreatorProfile(params: {
         archetype,
         executionProfile,
         distributionProfile,
+        params.onboarding.strategyState.replyBudgetPerDay,
         replyProfile,
         quoteProfile,
         params.onboarding.growthStage,
@@ -2674,6 +2727,7 @@ export function buildCreatorProfile(params: {
         ...buildExecutionNextMoves(
           executionProfile,
           distributionProfile,
+          params.onboarding.strategyState.replyBudgetPerDay,
           replyProfile,
           quoteProfile,
           params.onboarding.strategyState.goal,
