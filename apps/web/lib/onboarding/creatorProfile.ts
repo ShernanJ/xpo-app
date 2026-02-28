@@ -27,6 +27,7 @@ import type {
   ReplyTone,
   TopicSignal,
   TopicSpecificity,
+  TopicStability,
   ToneCasing,
   UserGoal,
   XPublicPost,
@@ -37,6 +38,8 @@ const LOCATION_CONTEXT_PATTERN =
 
 interface TopicAccumulator {
   count: number;
+  recentCount: number;
+  olderCount: number;
   totalEngagement: number;
   weightedScore: number;
   hasLocalContext: boolean;
@@ -80,24 +83,52 @@ function inferTopicSpecificity(label: string, stats: TopicAccumulator): TopicSpe
   return "broad";
 }
 
+function inferTopicStability(stats: TopicAccumulator): TopicStability {
+  if (stats.count < 3) {
+    return "steady";
+  }
+
+  const recentShare = stats.recentCount / Math.max(1, stats.count);
+  if (recentShare >= 0.7 && stats.recentCount >= 2) {
+    return "emerging";
+  }
+
+  if (recentShare <= 0.3 && stats.olderCount >= 2) {
+    return "fading";
+  }
+
+  return "steady";
+}
+
+function getPrimaryTopicSignal(topics: TopicSignal[]): TopicSignal | null {
+  const current = topics.find((topic) => topic.stability !== "fading");
+  return current ?? topics[0] ?? null;
+}
+
 function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
   if (posts.length === 0) {
     return [];
   }
 
+  const orderedPosts = [...posts].sort(
+    (a, b) =>
+      getTimeOrFallback(b.createdAt, 0) - getTimeOrFallback(a.createdAt, 0),
+  );
+
   const baselineEngagement = Math.max(
     1,
-    average(posts.map((post) => computePostEngagement(post))),
+    average(orderedPosts.map((post) => computePostEngagement(post))),
   );
-  const timestamps = posts
+  const timestamps = orderedPosts
     .map((post) => new Date(post.createdAt).getTime())
     .filter(Number.isFinite);
   const newestTimestamp = timestamps.length ? Math.max(...timestamps) : Date.now();
   const oldestTimestamp = timestamps.length ? Math.min(...timestamps) : newestTimestamp;
   const span = Math.max(1, newestTimestamp - oldestTimestamp);
+  const recentWindowSize = Math.max(1, Math.ceil(orderedPosts.length / 2));
 
   const counter = new Map<string, TopicAccumulator>();
-  for (const post of posts) {
+  for (const [index, post] of orderedPosts.entries()) {
     const postEngagement = computePostEngagement(post);
     const features = analyzePostFeatures(post);
     const postTimestamp = getTimeOrFallback(post.createdAt, newestTimestamp);
@@ -120,6 +151,8 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
           : 0.9;
       const current = counter.get(candidate) ?? {
         count: 0,
+        recentCount: 0,
+        olderCount: 0,
         totalEngagement: 0,
         weightedScore: 0,
         hasLocalContext: false,
@@ -127,6 +160,8 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
 
       counter.set(candidate, {
         count: current.count + 1,
+        recentCount: current.recentCount + (index < recentWindowSize ? 1 : 0),
+        olderCount: current.olderCount + (index >= recentWindowSize ? 1 : 0),
         totalEngagement: current.totalEngagement + postEngagement,
         weightedScore:
           current.weightedScore +
@@ -139,20 +174,29 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
   return Array.from(counter.entries())
     .map(([label, stats]) => {
       const specificity = inferTopicSpecificity(label, stats);
+      const stability = inferTopicStability(stats);
       const specificityMultiplier =
         specificity === "local_scene"
           ? 1.15
           : specificity === "niche"
             ? 1.05
             : 0.9;
+      const stabilityMultiplier =
+        stability === "emerging" ? 1.08 : stability === "fading" ? 0.92 : 1;
 
       return {
         label,
         count: stats.count,
-        percentage: Number(((stats.count / posts.length) * 100).toFixed(2)),
+        percentage: Number(((stats.count / orderedPosts.length) * 100).toFixed(2)),
+        recentSharePercent: toPercent(stats.recentCount / Math.max(1, stats.count)),
         averageEngagement: Number((stats.totalEngagement / stats.count).toFixed(2)),
-        score: Number((stats.weightedScore * specificityMultiplier).toFixed(2)),
+        score: Number(
+          (stats.weightedScore * specificityMultiplier * stabilityMultiplier).toFixed(
+            2,
+          ),
+        ),
         specificity,
+        stability,
       };
     })
     .sort((a, b) => b.score - a.score || b.count - a.count || b.averageEngagement - a.averageEngagement)
@@ -161,8 +205,22 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
 
 function buildContentPillars(topics: TopicSignal[]): string[] {
   const prioritized = [
-    ...topics.filter((topic) => topic.specificity !== "broad"),
-    ...topics.filter((topic) => topic.specificity === "broad"),
+    ...topics.filter(
+      (topic) =>
+        topic.specificity !== "broad" && topic.stability !== "fading",
+    ),
+    ...topics.filter(
+      (topic) =>
+        topic.specificity !== "broad" && topic.stability === "fading",
+    ),
+    ...topics.filter(
+      (topic) =>
+        topic.specificity === "broad" && topic.stability !== "fading",
+    ),
+    ...topics.filter(
+      (topic) =>
+        topic.specificity === "broad" && topic.stability === "fading",
+    ),
   ];
 
   return prioritized.slice(0, 3).map((topic) => topic.label);
@@ -189,11 +247,17 @@ function buildAudienceSignals(posts: XPublicPost[], topics: TopicSignal[]): stri
   }
 
   if (signals.length === 0 && topics.length > 0) {
-    const topTopic = topics[0];
+    const topTopic = getPrimaryTopicSignal(topics);
+    if (!topTopic) {
+      return signals;
+    }
+
     if (topTopic.specificity === "local_scene") {
       signals.push(
         `People already familiar with ${topTopic.label} or its local scene`,
       );
+    } else if (topTopic.stability === "emerging") {
+      signals.push(`People increasingly responding to ${topTopic.label}`);
     } else {
       signals.push(`People interested in ${topTopic.label}`);
     }
@@ -203,7 +267,7 @@ function buildAudienceSignals(posts: XPublicPost[], topics: TopicSignal[]): stri
 }
 
 function inferAudienceBreadth(topics: TopicSignal[]): AudienceBreadth {
-  const topTopic = topics[0];
+  const topTopic = getPrimaryTopicSignal(topics);
   if (!topTopic) {
     return "broad";
   }
@@ -223,24 +287,31 @@ function buildSpecificityTradeoff(
   topics: TopicSignal[],
   audienceBreadth: AudienceBreadth,
 ): string {
-  const topTopic = topics[0];
+  const topTopic = getPrimaryTopicSignal(topics);
   if (!topTopic) {
     return "There is not enough repeated topic signal yet to estimate audience breadth tradeoffs.";
   }
 
+  const stabilityPrefix =
+    topTopic.stability === "emerging"
+      ? `${topTopic.label} is becoming more prominent in recent posts. `
+      : topTopic.stability === "fading"
+        ? `${topTopic.label} appears more historical than current right now. `
+        : "";
+
   if (topTopic.specificity === "local_scene") {
-    return `References to ${topTopic.label} likely strengthen identity and niche resonance, but can narrow discovery outside that scene.`;
+    return `${stabilityPrefix}References to ${topTopic.label} likely strengthen identity and niche resonance, but can narrow discovery outside that scene.`;
   }
 
   if (topTopic.specificity === "niche") {
-    return `Leaning on ${topTopic.label} can improve relevance for a focused audience, but may reduce broad-audience clarity if overused.`;
+    return `${stabilityPrefix}Leaning on ${topTopic.label} can improve relevance for a focused audience, but may reduce broad-audience clarity if overused.`;
   }
 
   if (audienceBreadth === "broad") {
-    return "Current topic signals are broadly legible, which helps reach, but may need more specificity to feel distinct.";
+    return `${stabilityPrefix}Current topic signals are broadly legible, which helps reach, but may need more specificity to feel distinct.`;
   }
 
-  return "The current mix balances broad discovery with some niche-specific resonance.";
+  return `${stabilityPrefix}The current mix balances broad discovery with some niche-specific resonance.`;
 }
 
 function inferPrimaryCasing(posts: XPublicPost[]): ToneCasing {

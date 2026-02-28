@@ -187,6 +187,8 @@ export type CreatorArchetype =
 
 export type TopicSpecificity = "broad" | "niche" | "local_scene";
 
+export type TopicStability = "emerging" | "steady" | "fading";
+
 export type AudienceBreadth = "broad" | "mixed" | "narrow";
 
 export type DependenceLevel = "low" | "moderate" | "high";
@@ -218,9 +220,11 @@ export interface TopicSignal {
   label: string;
   count: number;
   percentage: number;
+  recentSharePercent: number;
   averageEngagement: number;
   score: number;
   specificity: TopicSpecificity;
+  stability: TopicStability;
 }
 
 export interface CreatorIdentityProfile {
