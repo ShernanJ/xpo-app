@@ -87,6 +87,16 @@ Topic extraction should prefer weighted entity and phrase candidates over raw si
 
 That means repeated phrases and clearer named signals should outrank generic one-off words whenever possible.
 
+The deterministic layer should also collapse obvious aliases into one canonical entity before scoring.
+
+Examples:
+
+- `sf` -> `san francisco`
+- `nyc` -> `new york`
+- `ai` -> `artificial intelligence`
+
+This keeps topic signals from fragmenting across equivalent variants.
+
 ### 4. Performance Layer
 
 This is what has historically worked:
