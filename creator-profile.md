@@ -262,6 +262,33 @@ This is the part the drafting agent should care about most.
 
 It answers: given who this person is and what they want, what should the system push them toward next?
 
+The strategy layer should also expose an explicit strategy delta.
+
+This is the cleanest deterministic expression of the gap between:
+
+- the current account state
+- the target direction
+- the highest-leverage behavior changes needed to move between them
+
+The delta should include:
+
+- one primary gap statement
+- what should be preserved
+- what should shift
+- a small list of prioritized adjustments
+
+Examples of adjustment areas:
+
+- audience breadth
+- topic specificity
+- standalone posting
+- reply activity
+- quote activity
+- link dependence
+- mention dependence
+
+This gives the future LLM a much stronger planning object than raw strengths and weaknesses alone.
+
 This layer must stay open-ended enough to support:
 
 - small accounts trying to grow from zero
