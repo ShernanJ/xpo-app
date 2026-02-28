@@ -864,6 +864,25 @@ function pickFormatExemplar(params: {
   return scored[0] ?? null;
 }
 
+function selectLaneVoiceAnchors(
+  context: CreatorAgentContext,
+  targetLane: CreatorGenerationContract["planner"]["targetLane"],
+): CreatorRepresentativePost[] {
+  if (targetLane === "reply") {
+    return context.creatorProfile.examples.replyVoiceAnchors.length > 0
+      ? context.creatorProfile.examples.replyVoiceAnchors
+      : context.creatorProfile.examples.voiceAnchors;
+  }
+
+  if (targetLane === "quote") {
+    return context.creatorProfile.examples.quoteVoiceAnchors.length > 0
+      ? context.creatorProfile.examples.quoteVoiceAnchors
+      : context.creatorProfile.examples.voiceAnchors;
+  }
+
+  return context.creatorProfile.examples.voiceAnchors;
+}
+
 function formatExemplar(post: CreatorRepresentativePost | null): string {
   if (!post) {
     return "No strong format exemplar available.";
@@ -1793,6 +1812,10 @@ export async function generateCreatorChatReply(params: {
       : planner.mustInclude,
     mustAvoid: planner.mustAvoid,
   };
+  const laneVoiceAnchors = selectLaneVoiceAnchors(
+    context,
+    effectivePlanner.targetLane,
+  );
 
   params.onProgress?.("writing");
   const writerResponse = await callProviderJson<WriterOutput>({
@@ -1832,7 +1855,7 @@ export async function generateCreatorChatReply(params: {
       ),
       formatAnchorExamples(
         "Voice anchors to imitate for tone and casing",
-        context.creatorProfile.examples.voiceAnchors,
+        laneVoiceAnchors,
         3,
       ),
       formatAnchorExamples(
@@ -1933,7 +1956,7 @@ export async function generateCreatorChatReply(params: {
       ),
       formatAnchorExamples(
         "Voice anchors to compare against",
-        context.creatorProfile.examples.voiceAnchors,
+        laneVoiceAnchors,
         3,
       ),
       `Candidate response package:\n${JSON.stringify(writer)}`,

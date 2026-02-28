@@ -1554,6 +1554,144 @@ function buildRepresentativePost(
   };
 }
 
+function selectMode<T extends string>(values: T[]): T | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const counts = new Map<T, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  let best: T | null = null;
+  let bestCount = -1;
+
+  for (const [value, count] of counts.entries()) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+
+  return best;
+}
+
+function buildLaneVoiceAnchors(params: {
+  posts: XPublicPost[];
+  lane: CreatorContentLane;
+  baselineEngagement: number;
+  goal: UserGoal;
+  fallbackDominantContentType: ContentType | null;
+  fallbackDominantHookPattern: HookPattern | null;
+  fallbackPrimaryCasing: ToneCasing;
+  fallbackAverageLengthBand: LengthBand | null;
+}): CreatorRepresentativePost[] {
+  if (params.posts.length === 0) {
+    return [];
+  }
+
+  const analyzed = params.posts.map((post) => {
+    const features = analyzePostFeatures(post);
+    return {
+      post,
+      features,
+      lengthBand: inferLengthBandForPost(post.text),
+      isLowercase: isLowercaseOnlyPost(post.text),
+    };
+  });
+
+  const dominantContentType =
+    selectMode(analyzed.map((item) => item.features.contentType)) ??
+    params.fallbackDominantContentType;
+  const dominantHookPattern =
+    selectMode(analyzed.map((item) => item.features.hookPattern)) ??
+    params.fallbackDominantHookPattern;
+  const averageLengthBand =
+    selectMode(analyzed.map((item) => item.lengthBand)) ??
+    params.fallbackAverageLengthBand;
+  const lowercaseShare =
+    analyzed.filter((item) => item.isLowercase).length / analyzed.length;
+  const primaryCasing =
+    lowercaseShare >= 0.55 ? "lowercase" : params.fallbackPrimaryCasing;
+
+  const scored = analyzed
+    .map((item) => {
+      let score = 0;
+      const engagementLift = Math.max(
+        0,
+        item.features.engagementTotal - params.baselineEngagement,
+      );
+
+      if (
+        dominantContentType &&
+        item.features.contentType === dominantContentType
+      ) {
+        score += 2;
+      }
+      if (
+        dominantHookPattern &&
+        item.features.hookPattern === dominantHookPattern
+      ) {
+        score += 2;
+      }
+      if (averageLengthBand && item.lengthBand === averageLengthBand) {
+        score += 1;
+      }
+      if (
+        (primaryCasing === "lowercase" && item.isLowercase) ||
+        (primaryCasing === "normal" && !item.isLowercase)
+      ) {
+        score += 1;
+      }
+      if (item.features.hasQuestion) {
+        score += 0.35;
+      }
+      if (item.features.hasCta) {
+        score += 0.35;
+      }
+      if (item.features.lineCount > 1) {
+        score += 0.2;
+      }
+
+      score += Math.min(
+        1.5,
+        engagementLift / Math.max(1, params.baselineEngagement),
+      );
+
+      return {
+        post: item.post,
+        score,
+        engagementTotal: item.features.engagementTotal,
+      };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return b.engagementTotal - a.engagementTotal;
+    });
+
+  const laneLabel =
+    params.lane === "reply"
+      ? "reply"
+      : params.lane === "quote"
+        ? "quote"
+        : "original post";
+
+  return scored.slice(0, 3).map(({ post }) =>
+    buildRepresentativePost(
+      post,
+      params.lane,
+      params.baselineEngagement,
+      `Strong match for the account's ${laneLabel} voice and structure. Use this as a lane-specific style anchor.`,
+      params.goal,
+    ),
+  );
+}
+
 function buildRepresentativeExamples(params: {
   posts: XPublicPost[];
   replyPosts: XPublicPost[];
@@ -1572,6 +1710,8 @@ function buildRepresentativeExamples(params: {
     return {
       bestPerforming: [],
       voiceAnchors: [],
+      replyVoiceAnchors: [],
+      quoteVoiceAnchors: [],
       strategyAnchors: [],
       goalAnchors: [],
       goalConflictExamples: [],
@@ -1660,6 +1800,28 @@ function buildRepresentativeExamples(params: {
       );
     });
 
+  const replyVoiceAnchors = buildLaneVoiceAnchors({
+    posts: params.replyPosts,
+    lane: "reply",
+    baselineEngagement,
+    goal: params.goal,
+    fallbackDominantContentType: params.dominantContentType,
+    fallbackDominantHookPattern: params.dominantHookPattern,
+    fallbackPrimaryCasing: params.primaryCasing,
+    fallbackAverageLengthBand: params.averageLengthBand,
+  });
+
+  const quoteVoiceAnchors = buildLaneVoiceAnchors({
+    posts: params.quotePosts,
+    lane: "quote",
+    baselineEngagement,
+    goal: params.goal,
+    fallbackDominantContentType: params.dominantContentType,
+    fallbackDominantHookPattern: params.dominantHookPattern,
+    fallbackPrimaryCasing: params.primaryCasing,
+    fallbackAverageLengthBand: params.averageLengthBand,
+  });
+
   const strategyAnchors = buildStrategyAnchors({
     originalPosts: posts,
     replyPosts: params.replyPosts,
@@ -1708,6 +1870,8 @@ function buildRepresentativeExamples(params: {
   return {
     bestPerforming,
     voiceAnchors,
+    replyVoiceAnchors,
+    quoteVoiceAnchors,
     strategyAnchors,
     goalAnchors,
     goalConflictExamples,

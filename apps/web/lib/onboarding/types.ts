@@ -524,6 +524,8 @@ export interface CreatorRepresentativePost {
 export interface CreatorRepresentativeExamples {
   bestPerforming: CreatorRepresentativePost[];
   voiceAnchors: CreatorRepresentativePost[];
+  replyVoiceAnchors: CreatorRepresentativePost[];
+  quoteVoiceAnchors: CreatorRepresentativePost[];
   strategyAnchors: CreatorRepresentativePost[];
   goalAnchors: CreatorRepresentativePost[];
   goalConflictExamples: CreatorRepresentativePost[];
