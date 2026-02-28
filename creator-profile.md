@@ -388,6 +388,7 @@ It should bundle:
 - the `PerformanceModel`
 - the current strategy delta
 - a compact confidence summary
+- a compact anchor summary
 - positive anchors
 - negative anchors
 - the grouped retrieval sets used to build those anchors
@@ -403,6 +404,14 @@ The negative anchor bundle should prioritize:
 
 - goal-conflict examples
 - generic caution examples
+
+The compact anchor summary should expose:
+
+- positive-anchor coverage
+- how many lanes are represented
+- how many positive retrieval sets are populated
+- whether goal-conflict retrieval is meaningfully distinct from generic caution retrieval
+- the current anchor-quality score/status from the evaluation harness
 
 This object should be stable and versioned.
 
