@@ -7,7 +7,7 @@ import type {
   ToneRisk,
 } from "./types";
 
-export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v4";
+export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v5";
 
 export type CreatorGenerationStageMode =
   | "full_generation"
@@ -31,6 +31,7 @@ export interface CreatorPlannerContract {
   primaryAngle: string;
   targetLane: CreatorGenerationTargetLane;
   outputShape: CreatorGenerationOutputShape;
+  outputShapeRationale: string;
   authorityBudget: CreatorAuthorityBudget;
   suggestedContentTypes: string[];
   suggestedHookPatterns: string[];
@@ -90,30 +91,116 @@ function pickTargetLane(
   return "original";
 }
 
-function pickOutputShape(
+function prefersLongFormVoice(
   creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
-  targetLane: CreatorGenerationTargetLane,
-): CreatorGenerationOutputShape {
-  if (targetLane === "reply") {
-    return "reply_candidate";
-  }
+): boolean {
+  return (
+    creatorProfile.identity.isVerified ||
+    creatorProfile.voice.averageLengthBand === "long" ||
+    creatorProfile.performance.recommendedLengthBand === "long" ||
+    (creatorProfile.voice.averageLengthBand === "medium" &&
+      creatorProfile.voice.multiLinePostRate >= 25) ||
+    creatorProfile.voice.multiLinePostRate >= 45
+  );
+}
 
-  if (targetLane === "quote") {
-    return "quote_candidate";
-  }
-
+function prefersThreadSeed(
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
+): boolean {
   if (creatorProfile.playbook.cadence.threadBias === "high") {
-    return "thread_seed";
+    return true;
   }
 
   if (
-    creatorProfile.identity.isVerified ||
-    creatorProfile.voice.averageLengthBand === "long"
+    creatorProfile.playbook.cadence.threadBias === "medium" &&
+    creatorProfile.voice.multiLinePostRate >= 55 &&
+    (creatorProfile.strategy.primaryGoal === "authority" ||
+      creatorProfile.distribution.primaryLoop === "authority_building")
   ) {
-    return "long_form_post";
+    return true;
   }
 
-  return "short_form_post";
+  return false;
+}
+
+function shouldBiasShortForm(
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
+): boolean {
+  return (
+    !creatorProfile.identity.isVerified &&
+    creatorProfile.identity.followerBand === "0-1k" &&
+    creatorProfile.strategy.primaryGoal === "followers" &&
+    creatorProfile.voice.averageLengthBand === "short" &&
+    creatorProfile.voice.multiLinePostRate < 20 &&
+    creatorProfile.playbook.cadence.threadBias === "low"
+  );
+}
+
+function selectOutputShape(params: {
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"];
+  targetLane: CreatorGenerationTargetLane;
+}): {
+  shape: CreatorGenerationOutputShape;
+  rationale: string;
+} {
+  const { creatorProfile, targetLane } = params;
+
+  if (targetLane === "reply") {
+    return {
+      shape: "reply_candidate",
+      rationale:
+        "The primary loop is reply-led, so the contract should generate a reply candidate instead of a top-level post.",
+    };
+  }
+
+  if (targetLane === "quote") {
+    return {
+      shape: "quote_candidate",
+      rationale:
+        "The primary loop is quote commentary, so the contract should generate a quote candidate rather than a standalone post.",
+    };
+  }
+
+  if (prefersThreadSeed(creatorProfile)) {
+    return {
+      shape: "thread_seed",
+      rationale:
+        "The creator shows strong thread bias and enough multiline/authority signal that a thread seed is a better fit than a compressed post.",
+    };
+  }
+
+  if (prefersLongFormVoice(creatorProfile)) {
+    return {
+      shape: "long_form_post",
+      rationale:
+        "The creator has enough authority, multiline behavior, or long-form history that the contract should plan a developed long-form post.",
+    };
+  }
+
+  if (shouldBiasShortForm(creatorProfile)) {
+    return {
+      shape: "short_form_post",
+      rationale:
+        "The creator is still early-stage and currently strongest in short, lightweight posts, so a short-form draft is the safest default.",
+    };
+  }
+
+  if (
+    creatorProfile.voice.averageLengthBand === "medium" ||
+    creatorProfile.performance.recommendedLengthBand === "medium"
+  ) {
+    return {
+      shape: "long_form_post",
+      rationale:
+        "The creator trends beyond one-liners, so a more developed standalone post is a better fit than a compressed short-form draft.",
+    };
+  }
+
+  return {
+    shape: "short_form_post",
+    rationale:
+      "The creator currently reads as a shorter-form account, so the contract should default to a compact standalone post.",
+  };
 }
 
 function deriveAuthorityBudget(
@@ -217,7 +304,11 @@ export function buildCreatorGenerationContract(params: {
   });
   const { creatorProfile } = context;
   const targetLane = pickTargetLane(creatorProfile.distribution.primaryLoop);
-  const outputShape = pickOutputShape(creatorProfile, targetLane);
+  const outputShapeDecision = selectOutputShape({
+    creatorProfile,
+    targetLane,
+  });
+  const outputShape = outputShapeDecision.shape;
   const authorityBudget = deriveAuthorityBudget(creatorProfile);
   const targetTone = resolveTargetTone({
     creatorProfile,
@@ -328,6 +419,7 @@ export function buildCreatorGenerationContract(params: {
       primaryAngle,
       targetLane,
       outputShape,
+      outputShapeRationale: outputShapeDecision.rationale,
       authorityBudget,
       suggestedContentTypes: creatorProfile.playbook.preferredContentTypes,
       suggestedHookPatterns: creatorProfile.playbook.preferredHookPatterns,

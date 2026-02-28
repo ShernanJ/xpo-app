@@ -1163,6 +1163,7 @@ function buildWriterSystemPrompt(params: {
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Required output shape: ${contract.planner.outputShape}.`,
+    `Output shape rationale: ${contract.planner.outputShapeRationale}`,
     `Objective: ${planner.objective}.`,
     `Primary angle: ${planner.angle}.`,
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
@@ -1248,6 +1249,7 @@ function buildCriticSystemPrompt(params: {
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
     `Required output shape: ${contract.planner.outputShape}.`,
+    `Output shape rationale: ${contract.planner.outputShapeRationale}`,
     `Readiness status: ${context.readiness.status}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
     "Return only valid JSON that follows the provided schema.",
@@ -1682,6 +1684,7 @@ function buildLongFormExpansionSystemPrompt(params: {
       ? `The selected angle must remain the central premise: ${params.selectedAngle}`
       : "No explicit selected angle was provided.",
     `Required output shape: ${params.contract.planner.outputShape}.`,
+    `Output shape rationale: ${params.contract.planner.outputShapeRationale}`,
     `Target casing: ${params.contract.writer.targetCasing}.`,
     `Tone blend: ${params.contract.writer.toneBlendSummary}`,
     `Proof requirement: ${params.contract.writer.proofRequirement}`,
