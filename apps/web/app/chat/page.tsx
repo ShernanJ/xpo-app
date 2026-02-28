@@ -105,6 +105,13 @@ interface ChatMessage {
 }
 
 type ChatProviderPreference = "openai" | "groq";
+type ChatIntent = "ideate" | "draft" | "review";
+type ChatContentFocus =
+  | "project_showcase"
+  | "technical_insight"
+  | "build_in_public"
+  | "operator_lessons"
+  | "social_observation";
 
 interface ChatStrategyInputs {
   goal: UserGoal;
@@ -123,7 +130,8 @@ type StrategyPromptStep =
   | "goal"
   | "transformationMode"
   | "postingCadenceCapacity"
-  | "replyBudgetPerDay";
+  | "replyBudgetPerDay"
+  | "contentFocus";
 
 interface StrategyPromptOption {
   value: string;
@@ -161,11 +169,19 @@ const postingCapacityOptions: PostingCadenceCapacity[] = [
   "2_per_day",
 ];
 const replyBudgetOptions: ReplyBudgetPerDay[] = ["0_5", "5_15", "15_30"];
+const contentFocusOptions: ChatContentFocus[] = [
+  "project_showcase",
+  "technical_insight",
+  "build_in_public",
+  "operator_lessons",
+  "social_observation",
+];
 const strategyPromptSteps: StrategyPromptStep[] = [
   "goal",
   "transformationMode",
   "postingCadenceCapacity",
   "replyBudgetPerDay",
+  "contentFocus",
 ];
 
 function formatEnumLabel(value: string): string {
@@ -203,9 +219,25 @@ function formatReplyBudgetLabel(value: ReplyBudgetPerDay): string {
   return "15-30 Replies";
 }
 
+function formatContentFocusLabel(value: ChatContentFocus): string {
+  switch (value) {
+    case "project_showcase":
+      return "Project Showcase";
+    case "technical_insight":
+      return "Technical Insight";
+    case "build_in_public":
+      return "Build In Public";
+    case "operator_lessons":
+      return "Operator Lessons";
+    case "social_observation":
+      return "Social Observation";
+  }
+}
+
 function buildStrategyPromptState(
   step: StrategyPromptStep | null,
   inputs: ChatStrategyInputs,
+  contentFocus: ChatContentFocus,
 ): StrategyPromptState | null {
   if (!step) {
     return null;
@@ -262,6 +294,18 @@ function buildStrategyPromptState(
           label: formatReplyBudgetLabel(option),
         })),
         currentValue: inputs.replyBudgetPerDay,
+      };
+    case "contentFocus":
+      return {
+        ...base,
+        label: "What do you want to focus on posting about next?",
+        helper:
+          "Use this to steer the subject matter. The agent should keep your voice, but help you build clearer, more authentic topic direction.",
+        options: contentFocusOptions.map((option) => ({
+          value: option,
+          label: formatContentFocusLabel(option),
+        })),
+        currentValue: contentFocus,
       };
   }
 }
@@ -322,6 +366,10 @@ function buildInitialAssistantMessage(
 function buildDeterministicReply(
   context: CreatorAgentContext,
   contract: CreatorGenerationContract,
+  options?: {
+    intent?: ChatIntent;
+    contentFocus?: ChatContentFocus | null;
+  },
 ): Omit<ChatMessage, "id" | "role"> {
   const topHook = contract.planner.suggestedHookPatterns[0]
     ? formatEnumLabel(contract.planner.suggestedHookPatterns[0])
@@ -338,6 +386,27 @@ function buildDeterministicReply(
       whyThisWorks: [],
       watchOutFor: [
         "Wait for a deeper sample before treating drafts as reliable.",
+      ],
+      source: "deterministic",
+      model: null,
+    };
+  }
+
+  if (options?.intent === "ideate") {
+    const focusLabel = options.contentFocus
+      ? formatContentFocusLabel(options.contentFocus)
+      : "the next content lane";
+
+    return {
+      content: `Start with ${focusLabel.toLowerCase()}. Keep the tone natural, lowercase, and specific to what you actually did or noticed. The first move is to pick 2-3 honest angles in that lane before writing final post copy.`,
+      drafts: [],
+      whyThisWorks: [
+        "It separates subject-matter planning from final copywriting.",
+        "It keeps the next move anchored to a specific content lane instead of broad generic posting.",
+      ],
+      watchOutFor: [
+        "Do not jump straight into polished generic startup takes.",
+        "Use a real observation, project, or technical detail instead of abstract advice.",
       ],
       source: "deterministic",
       model: null,
@@ -406,6 +475,10 @@ export default function ChatPage() {
   const [strategyInputs, setStrategyInputs] = useState<ChatStrategyInputs>(
     DEFAULT_CHAT_STRATEGY_INPUTS,
   );
+  const [contentFocus, setContentFocus] =
+    useState<ChatContentFocus>("project_showcase");
+  const [activeContentFocus, setActiveContentFocus] =
+    useState<ChatContentFocus | null>(null);
   const [activeStrategyInputs, setActiveStrategyInputs] =
     useState<ChatStrategyInputs | null>(null);
   const [strategyPromptStep, setStrategyPromptStep] =
@@ -601,8 +674,11 @@ export default function ChatPage() {
       `Niche: ${formatNicheSummary(context)}`,
       `Loop: ${formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}`,
       `Readiness: ${formatEnumLabel(context.readiness.status)}`,
+      ...(activeContentFocus
+        ? [`Focus: ${formatContentFocusLabel(activeContentFocus)}`]
+        : []),
     ];
-  }, [context]);
+  }, [activeContentFocus, context]);
 
   const sidebarThreads = useMemo(() => {
     if (!context || !contract) {
@@ -643,16 +719,18 @@ export default function ChatPage() {
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
   const currentStrategyPrompt = useMemo(
-    () => buildStrategyPromptState(strategyPromptStep, strategyInputs),
-    [strategyInputs, strategyPromptStep],
+    () => buildStrategyPromptState(strategyPromptStep, strategyInputs, contentFocus),
+    [contentFocus, strategyInputs, strategyPromptStep],
   );
 
   const requestAssistantReply = useCallback(
     async (options: {
       prompt: string;
       appendUserMessage: boolean;
+      intent?: ChatIntent;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
+      contentFocusOverride?: ChatContentFocus | null;
       fallbackContext?: CreatorAgentContext;
       fallbackContract?: CreatorGenerationContract;
     }) => {
@@ -660,6 +738,8 @@ export default function ChatPage() {
       const resolvedContract = options.fallbackContract ?? contract;
       const resolvedStrategyInputs =
         options.strategyInputOverride ?? activeStrategyInputs;
+      const resolvedContentFocus =
+        options.contentFocusOverride ?? activeContentFocus;
 
       if (
         !runId ||
@@ -705,6 +785,8 @@ export default function ChatPage() {
             history,
             provider: providerPreference,
             stream: true,
+            intent: options.intent ?? "draft",
+            contentFocus: resolvedContentFocus,
             ...resolvedStrategyInputs,
           }),
         });
@@ -820,8 +902,11 @@ export default function ChatPage() {
             model: streamedResult.model ?? null,
           },
         ]);
-      } catch {
-        const fallback = buildDeterministicReply(resolvedContext, resolvedContract);
+      } catch (error) {
+        const fallback = buildDeterministicReply(resolvedContext, resolvedContract, {
+          intent: options.intent,
+          contentFocus: resolvedContentFocus,
+        });
         setMessages((current) => [
           ...current,
           {
@@ -831,7 +916,9 @@ export default function ChatPage() {
           },
         ]);
         setErrorMessage(
-          "The live model failed, so the deterministic fallback was used.",
+          error instanceof Error
+            ? `${error.message} The deterministic fallback was used.`
+            : "The live model failed, so the deterministic fallback was used.",
         );
       } finally {
         setIsSending(false);
@@ -839,6 +926,7 @@ export default function ChatPage() {
       }
     },
     [
+      activeContentFocus,
       activeStrategyInputs,
       contract,
       context,
@@ -850,7 +938,10 @@ export default function ChatPage() {
   );
 
   const finalizeStrategyPlan = useCallback(
-    async (nextInputs: ChatStrategyInputs) => {
+    async (
+      nextInputs: ChatStrategyInputs,
+      nextContentFocus: ChatContentFocus,
+    ) => {
       setIsApplyingStrategyInputs(true);
       setErrorMessage(null);
 
@@ -868,14 +959,19 @@ export default function ChatPage() {
         };
 
         setActiveStrategyInputs(nextInputs);
+        setActiveContentFocus(nextContentFocus);
         setStrategyPromptStep(null);
         setMessages((current) => [...current, confirmationMessage]);
 
         await requestAssistantReply({
-          prompt: "Give me the first concrete X post to start with based on this plan.",
+          prompt: `I want to focus on ${formatContentFocusLabel(
+            nextContentFocus,
+          ).toLowerCase()}. Help me decide the best authentic directions to post about next. Do not draft final posts yet. Give me concrete angles, what each angle would prove, and the best next move.`,
           appendUserMessage: false,
           historySeed: [...messages, confirmationMessage].slice(-6),
           strategyInputOverride: nextInputs,
+          contentFocusOverride: nextContentFocus,
+          intent: "ideate",
           fallbackContext: loaded.contextData,
           fallbackContract: loaded.contractData,
         });
@@ -891,6 +987,13 @@ export default function ChatPage() {
     selectedValue: string,
   ) {
     if (isApplyingStrategyInputs || isSending) {
+      return;
+    }
+
+    if (step === "contentFocus") {
+      const nextContentFocus = selectedValue as ChatContentFocus;
+      setContentFocus(nextContentFocus);
+      await finalizeStrategyPlan(strategyInputs, nextContentFocus);
       return;
     }
 
@@ -917,7 +1020,7 @@ export default function ChatPage() {
       return;
     }
 
-    await finalizeStrategyPlan(nextInputs);
+    await finalizeStrategyPlan(nextInputs, contentFocus);
   }
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -938,7 +1041,9 @@ export default function ChatPage() {
     await requestAssistantReply({
       prompt: trimmedInput,
       appendUserMessage: true,
+      intent: "draft",
       strategyInputOverride: activeStrategyInputs,
+      contentFocusOverride: activeContentFocus,
     });
   }
 
@@ -1123,6 +1228,7 @@ export default function ChatPage() {
                   type="button"
                   onClick={() => {
                     setStrategyInputs(activeStrategyInputs ?? strategyInputs);
+                    setContentFocus(activeContentFocus ?? contentFocus);
                     setStrategyPromptStep("goal");
                     setErrorMessage(null);
                   }}

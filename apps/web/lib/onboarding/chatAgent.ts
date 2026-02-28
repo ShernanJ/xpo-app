@@ -35,6 +35,7 @@ interface CriticOutput {
 }
 
 export type ChatModelProvider = "openai" | "groq";
+export type CreatorChatIntent = "ideate" | "draft" | "review";
 export type CreatorChatProgressPhase =
   | "planning"
   | "writing"
@@ -69,6 +70,8 @@ function buildDeterministicFallback(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
   userMessage: string;
+  intent?: CreatorChatIntent;
+  contentFocus?: string | null;
 }): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
   const { context, contract } = params;
 
@@ -79,6 +82,23 @@ function buildDeterministicFallback(params: {
       whyThisWorks: [],
       watchOutFor: [
         "Wait for the sample to deepen before relying on generated drafts.",
+      ],
+    };
+  }
+
+  if (params.intent === "ideate") {
+    const focus = params.contentFocus?.trim() || "the next content lane";
+
+    return {
+      reply: `Focus on ${focus} first. Do not force a polished post yet. Pick 2-3 specific angles you could talk about naturally, then choose the one that best proves something real about you.`,
+      drafts: [],
+      whyThisWorks: [
+        "It separates planning from final post writing.",
+        "It keeps the next move anchored to a specific content focus instead of generic posting advice.",
+      ],
+      watchOutFor: [
+        "Avoid placeholder hooks and generic engagement bait.",
+        "Start from a real project, observation, or technical detail.",
       ],
     };
   }
@@ -409,13 +429,17 @@ function buildWriterSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
   planner: PlannerOutput;
+  intent: CreatorChatIntent;
+  contentFocus: string | null;
 }): string {
-  const { context, contract, planner } = params;
+  const { context, contract, planner, intent, contentFocus } = params;
 
   return [
     "You are the writer for an X growth assistant.",
     "Write one high-quality assistant response package for the user.",
-    "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
+    intent === "ideate"
+      ? "Return a short strategic response, 0-3 draft candidates, why the direction fits, and what to watch out for."
+      : "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
     "The user's native voice matters more than generic social-media best practices.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
@@ -423,14 +447,17 @@ function buildWriterSystemPrompt(params: {
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
     "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
+    intent === "ideate"
+      ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize authentic angles, themes, and what each idea should prove."
+      : "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Objective: ${planner.objective}.`,
     `Primary angle: ${planner.angle}.`,
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
+    `Explicit content focus: ${contentFocus ?? "none"}.`,
     "Do not mention internal model fields unless useful to the user.",
-    "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -438,20 +465,25 @@ function buildWriterSystemPrompt(params: {
 function buildCriticSystemPrompt(params: {
   contract: CreatorGenerationContract;
   context: CreatorAgentContext;
+  intent: CreatorChatIntent;
+  contentFocus: string | null;
 }): string {
-  const { contract, context } = params;
+  const { contract, context, intent, contentFocus } = params;
 
   return [
     "You are the critic for an X growth assistant.",
     "Review the candidate response package and either approve it or tighten it.",
     "Keep the final response concise, useful, and aligned to the deterministic checklist.",
-    "Keep the draft candidates sharp and usable as actual X posts.",
+    intent === "ideate"
+      ? "If the user is still planning, keep the response focused on authentic angles and do not force finished post drafts."
+      : "Keep the draft candidates sharp and usable as actual X posts.",
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
     "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
     "The final drafts should feel like the user's own tone with stronger strategy, not a different person.",
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
     `Readiness status: ${context.readiness.status}.`,
+    `Explicit content focus: ${contentFocus ?? "none"}.`,
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -462,6 +494,8 @@ export async function generateCreatorChatReply(params: {
   userMessage: string;
   history?: ChatHistoryMessage[];
   provider?: ChatModelProvider;
+  intent?: CreatorChatIntent;
+  contentFocus?: string | null;
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
@@ -477,6 +511,8 @@ export async function generateCreatorChatReply(params: {
     context,
     contract,
     userMessage: params.userMessage,
+    intent: params.intent,
+    contentFocus: params.contentFocus,
   });
 
   if (contract.mode === "analysis_only") {
@@ -513,6 +549,8 @@ export async function generateCreatorChatReply(params: {
     system: buildPlannerSystemPrompt({ context, contract }),
     user: [
       `User request: ${params.userMessage}`,
+      `Task intent: ${params.intent ?? "draft"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
       `Blocked reasons: ${contract.planner.blockedReasons.join(" | ") || "none"}`,
@@ -548,9 +586,17 @@ export async function generateCreatorChatReply(params: {
   params.onProgress?.("writing");
   const writer = await callProviderJson<WriterOutput>({
     provider,
-    system: buildWriterSystemPrompt({ context, contract, planner }),
+    system: buildWriterSystemPrompt({
+      context,
+      contract,
+      planner,
+      intent: params.intent ?? "draft",
+      contentFocus: params.contentFocus ?? null,
+    }),
     user: [
       `User request: ${params.userMessage}`,
+      `Task intent: ${params.intent ?? "draft"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Recent chat history:\n${historyText}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       formatAnchorExamples(
@@ -591,7 +637,7 @@ export async function generateCreatorChatReply(params: {
         drafts: {
           type: "array",
           items: { type: "string" },
-          minItems: 1,
+          minItems: 0,
           maxItems: 3,
         },
         whyThisWorks: {
@@ -612,9 +658,16 @@ export async function generateCreatorChatReply(params: {
   params.onProgress?.("critic");
   const critic = await callProviderJson<CriticOutput>({
     provider,
-    system: buildCriticSystemPrompt({ contract, context }),
+    system: buildCriticSystemPrompt({
+      contract,
+      context,
+      intent: params.intent ?? "draft",
+      contentFocus: params.contentFocus ?? null,
+    }),
     user: [
       `User request: ${params.userMessage}`,
+      `Task intent: ${params.intent ?? "draft"}`,
+      `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       formatAnchorExamples(
         "Voice anchors to compare against",
@@ -635,7 +688,7 @@ export async function generateCreatorChatReply(params: {
         finalDrafts: {
           type: "array",
           items: { type: "string" },
-          minItems: 1,
+          minItems: 0,
           maxItems: 3,
         },
         finalWhyThisWorks: {

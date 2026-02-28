@@ -17,6 +17,8 @@ interface CreatorChatRequest extends Record<string, unknown> {
   message?: unknown;
   history?: unknown;
   provider?: unknown;
+  intent?: unknown;
+  contentFocus?: unknown;
   stream?: unknown;
 }
 
@@ -58,6 +60,14 @@ export async function POST(request: Request) {
     body.provider === "openai" || body.provider === "groq"
       ? body.provider
       : "groq";
+  const intent =
+    body.intent === "ideate" || body.intent === "draft" || body.intent === "review"
+      ? body.intent
+      : "draft";
+  const contentFocus =
+    typeof body.contentFocus === "string" && body.contentFocus.trim().length > 0
+      ? body.contentFocus.trim()
+      : null;
   const stream = body.stream === true;
 
   if (!runId) {
@@ -135,6 +145,8 @@ export async function POST(request: Request) {
               userMessage: message,
               history,
               provider,
+              intent,
+              contentFocus,
               onProgress: (phase) => {
                 if (phase === lastPhase) {
                   return;
@@ -181,6 +193,8 @@ export async function POST(request: Request) {
       userMessage: message,
       history,
       provider,
+      intent,
+      contentFocus,
     });
 
     return NextResponse.json(
