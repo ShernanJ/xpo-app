@@ -104,6 +104,17 @@ The system should not declare a clear "best" or "worst" pattern when the sample 
 
 Small-sample insights should remain visible, but they should be marked as low-confidence and should not drive aggressive strategy recommendations.
 
+The system should also expose an explicit sample-confidence read for the onboarding scrape itself.
+
+Current guidance:
+
+- under 20 posts: below minimum viable confidence
+- 20-39 posts: directional only
+- 40-79 posts: usable first-pass signal
+- 80+ posts: strong onboarding baseline
+
+This confidence should be persisted in the onboarding result so downstream systems know whether to trust the current read or keep backfilling.
+
 ### 5. Archetype Layer
 
 This is the behavioral label for the creator.
