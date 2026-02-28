@@ -136,6 +136,10 @@ const NICHE_DEFINITIONS: Array<{
       "gtm",
       "revenue",
       "company",
+      "fundraising",
+      "fundraise",
+      "pre-seed",
+      "seed round",
     ],
     contentSignals: [
       "founder",
@@ -150,6 +154,13 @@ const NICHE_DEFINITIONS: Array<{
       "company",
       "market",
       "distribution",
+      "fundraising",
+      "fundraise",
+      "pre-seed",
+      "seed round",
+      "raise",
+      "raising",
+      "round",
     ],
     audienceIntent:
       "Founders, operators, and business-minded builders looking for customer, product, or distribution insight.",
@@ -179,36 +190,63 @@ const NICHE_DEFINITIONS: Array<{
     bioSignals: [
       "investor",
       "investing",
-      "vc",
-      "vcs",
-      "fund",
-      "angel",
-      "pre-seed",
-      "seed",
       "finance",
-      "capital",
+      "macro",
+      "markets",
+      "market",
+      "portfolio",
+      "asset allocation",
+      "stocks",
     ],
     contentSignals: [
       "investor",
       "investing",
-      "vc",
-      "vcs",
-      "fund",
-      "fundraise",
-      "fundraising",
-      "angel",
-      "pre-seed",
-      "seed",
-      "round",
       "finance",
-      "capital",
       "macro",
       "market",
+      "markets",
+      "portfolio",
+      "asset allocation",
+      "stocks",
+      "equity",
+      "bonds",
+      "public markets",
+      "invested",
     ],
     audienceIntent:
-      "Founders, investors, and finance-minded audiences looking for fundraising, market, or capital-allocation signal.",
+      "Investors and finance-minded audiences looking for market, portfolio, or investing insight.",
     rationale:
-      "The recurring signals point toward finance, investing, and fundraising language rather than general business commentary.",
+      "The recurring signals point toward actual investing and market language, not just founder fundraising updates.",
+  },
+  {
+    label: "community_and_events",
+    bioSignals: [
+      "community",
+      "event",
+      "events",
+      "meetup",
+      "host",
+      "club",
+      "social",
+      "party",
+    ],
+    contentSignals: [
+      "community",
+      "event",
+      "events",
+      "meetup",
+      "host",
+      "club",
+      "social",
+      "party",
+      "scene",
+      "friends",
+      "people",
+    ],
+    audienceIntent:
+      "People showing up for community, events, social energy, and shared scene-specific references.",
+    rationale:
+      "The strongest repeated cues point to a community or event-driven niche, where identity and social context matter more than business jargon alone.",
   },
   {
     label: "fitness_and_health",
@@ -648,7 +686,20 @@ function countSignalMatches(haystack: string, signals: string[]): number {
       return count;
     }
 
-    return haystack.includes(signal.toLowerCase()) ? count + 1 : count;
+    const normalizedSignal = signal.toLowerCase().trim();
+    if (!normalizedSignal) {
+      return count;
+    }
+
+    const escapedSignal = normalizedSignal
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\s+/g, "\\s+");
+    const matcher = new RegExp(
+      `(^|[^a-z0-9])${escapedSignal}(?=$|[^a-z0-9])`,
+      "i",
+    );
+
+    return matcher.test(haystack) ? count + 1 : count;
   }, 0);
 }
 
@@ -664,6 +715,8 @@ function formatNicheLabel(label: CreatorNicheLabel): string {
       return "career and hiring";
     case "finance_and_investing":
       return "finance and investing";
+    case "community_and_events":
+      return "community and events";
     case "fitness_and_health":
       return "fitness and health";
     case "design_and_creative":
@@ -682,6 +735,7 @@ function buildNicheOverlayProfile(params: {
   posts: XPublicPost[];
   topics: TopicSignal[];
 }): CreatorNicheOverlayProfile {
+  const MIN_CONFIDENT_NICHE_SCORE = 55;
   const bio = params.profileBio.toLowerCase();
   const fullText = params.posts.map((post) => post.text.toLowerCase()).join("\n");
   const topicLabels = params.topics.map((topic) => topic.label).join("\n");
@@ -740,8 +794,8 @@ function buildNicheOverlayProfile(params: {
   const combinedText = `${bio}\n${fullText}`;
   const offerRanked = OFFER_DEFINITIONS.map((definition) => ({
     type: definition.type,
-    matches: definition.signals.filter((signal) =>
-      combinedText.includes(signal.toLowerCase()),
+    matches: definition.signals.filter(
+      (signal) => countSignalMatches(combinedText, [signal]) > 0,
     ),
   }))
     .filter((entry) => entry.matches.length > 0)
@@ -749,6 +803,31 @@ function buildNicheOverlayProfile(params: {
 
   const likelyOffer = offerRanked[0]?.type ?? "audience_only";
   const offerSignals = offerRanked[0]?.matches.slice(0, 3) ?? [];
+
+  if (confidence < MIN_CONFIDENT_NICHE_SCORE) {
+    return {
+      primaryNiche: "generalist",
+      secondaryNiche: null,
+      confidence,
+      domainSignals: ranked.slice(0, 3).map((entry) => ({
+        label: entry.label,
+        score: entry.score,
+      })),
+      likelyOffer,
+      offerSignals,
+      audienceIntent:
+        "The account currently reads as broad or mixed, so there is not enough signal to place it in a strong niche confidently yet.",
+      rationale:
+        `The strongest observed niche is ${formatNicheLabel(
+          primary.label,
+        )}, but the signal is still too weak (${confidence}% confidence) to treat that as a reliable niche. The account should be treated as broad/generalist until clearer repeated domain signals emerge.` +
+        (secondary
+          ? ` There is also weaker pressure toward ${formatNicheLabel(
+              secondary.label,
+            )}, which reinforces that the current mix is still split.`
+          : ""),
+    };
+  }
 
   return {
     primaryNiche: primary.label,

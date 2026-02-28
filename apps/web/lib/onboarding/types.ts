@@ -211,6 +211,7 @@ export type CreatorNicheLabel =
   | "startups_and_growth"
   | "career_and_hiring"
   | "finance_and_investing"
+  | "community_and_events"
   | "fitness_and_health"
   | "design_and_creative"
   | "policy_and_society"

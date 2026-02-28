@@ -273,6 +273,7 @@ Examples:
 - design and creative
 - policy and society
 - media and creators
+- community and events
 
 The niche layer should expose:
 
@@ -283,6 +284,14 @@ The niche layer should expose:
 - offer signals
 - audience intent
 - rationale
+
+Important rule:
+
+- if observed niche confidence is low, do not force a domain label
+- treat the account as broad / mixed / generalist instead
+- explicitly say the current signal is too general to trust as a niche yet
+
+This prevents false precision on accounts that have posted casually, broadly, or without a deliberate growth lane so far.
 
 This exists so the system can distinguish between:
 
