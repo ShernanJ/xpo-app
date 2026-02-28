@@ -3,6 +3,7 @@ import {
   classifyContentType,
   computePostEngagement,
   detectHookPattern,
+  isLowSignalEntityCandidate,
 } from "./analysis";
 import { buildPerformanceModel } from "./performanceModel";
 import type {
@@ -30,107 +31,6 @@ import type {
   UserGoal,
   XPublicPost,
 } from "./types";
-
-const STOPWORDS = new Set([
-  "a",
-  "about",
-  "after",
-  "all",
-  "also",
-  "am",
-  "an",
-  "and",
-  "any",
-  "are",
-  "as",
-  "at",
-  "be",
-  "been",
-  "but",
-  "by",
-  "can",
-  "did",
-  "do",
-  "for",
-  "from",
-  "get",
-  "had",
-  "has",
-  "have",
-  "how",
-  "i",
-  "if",
-  "im",
-  "in",
-  "into",
-  "is",
-  "it",
-  "its",
-  "just",
-  "like",
-  "me",
-  "more",
-  "my",
-  "not",
-  "of",
-  "on",
-  "or",
-  "our",
-  "out",
-  "so",
-  "that",
-  "the",
-  "their",
-  "them",
-  "there",
-  "they",
-  "this",
-  "to",
-  "too",
-  "up",
-  "ur",
-  "was",
-  "we",
-  "what",
-  "when",
-  "with",
-  "you",
-  "your",
-]);
-
-const LOW_SIGNAL_TOPIC_WORDS = new Set([
-  "almost",
-  "back",
-  "come",
-  "day",
-  "days",
-  "friend",
-  "friends",
-  "going",
-  "good",
-  "great",
-  "last",
-  "life",
-  "love",
-  "made",
-  "make",
-  "next",
-  "outside",
-  "people",
-  "planning",
-  "site",
-  "stuff",
-  "thing",
-  "things",
-  "throwback",
-  "time",
-  "today",
-  "tomorrow",
-  "week",
-  "weeks",
-  "win",
-  "years",
-]);
 
 const LOCATION_CONTEXT_PATTERN =
   /\b(toronto|ontario|canada|burlington|montreal|vancouver|new york|nyc|sf|san francisco|la|los angeles|london)\b/i;
@@ -160,35 +60,20 @@ function toPercent(value: number): number {
   return Number((value * 100).toFixed(2));
 }
 
-function normalizePostText(text: string): string {
-  return text
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/@\w+/g, " ")
-    .replace(/[^\p{L}\p{N}\s_-]+/gu, " ")
-    .toLowerCase();
-}
-
-function tokenizePost(text: string): string[] {
-  return normalizePostText(text)
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3)
-    .filter((token) => !STOPWORDS.has(token));
-}
-
 function getTimeOrFallback(value: string, fallback: number): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function inferTopicSpecificity(label: string, stats: TopicAccumulator): TopicSpecificity {
-  const isLowSignal = LOW_SIGNAL_TOPIC_WORDS.has(label);
+  const isLowSignal = isLowSignalEntityCandidate(label);
+  const looksLikePhrase = label.includes(" ");
 
-  if (!isLowSignal && stats.hasLocalContext && stats.count >= 2) {
+  if (!isLowSignal && stats.hasLocalContext && (stats.count >= 2 || looksLikePhrase)) {
     return "local_scene";
   }
 
-  if (!isLowSignal && stats.count >= 2) {
+  if (!isLowSignal && (stats.count >= 2 || looksLikePhrase)) {
     return "niche";
   }
 
@@ -214,6 +99,7 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
   const counter = new Map<string, TopicAccumulator>();
   for (const post of posts) {
     const postEngagement = computePostEngagement(post);
+    const features = analyzePostFeatures(post);
     const postTimestamp = getTimeOrFallback(post.createdAt, newestTimestamp);
     const normalizedRecency = Math.min(
       1,
@@ -223,27 +109,23 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
     const engagementWeight =
       0.75 + Math.min(1.25, postEngagement / baselineEngagement);
     const hasLocalContext = LOCATION_CONTEXT_PATTERN.test(post.text);
-    const seenInPost = new Set<string>();
 
-    for (const token of tokenizePost(post.text)) {
-      if (seenInPost.has(token)) {
-        continue;
-      }
-
-      seenInPost.add(token);
-      const specificityWeight = LOW_SIGNAL_TOPIC_WORDS.has(token)
+    for (const candidate of features.entityCandidates) {
+      const specificityWeight = isLowSignalEntityCandidate(candidate)
         ? 0.45
-        : token.length >= 4
+        : candidate.includes(" ")
+          ? 1.35
+          : candidate.length >= 4
           ? 1.1
           : 0.9;
-      const current = counter.get(token) ?? {
+      const current = counter.get(candidate) ?? {
         count: 0,
         totalEngagement: 0,
         weightedScore: 0,
         hasLocalContext: false,
       };
 
-      counter.set(token, {
+      counter.set(candidate, {
         count: current.count + 1,
         totalEngagement: current.totalEngagement + postEngagement,
         weightedScore:

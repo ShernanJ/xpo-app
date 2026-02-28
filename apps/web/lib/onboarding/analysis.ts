@@ -9,6 +9,107 @@ import type {
   XPublicPost,
 } from "./types";
 
+const ENTITY_STOPWORDS = new Set([
+  "a",
+  "about",
+  "after",
+  "all",
+  "also",
+  "am",
+  "an",
+  "and",
+  "any",
+  "are",
+  "as",
+  "at",
+  "be",
+  "been",
+  "but",
+  "by",
+  "can",
+  "did",
+  "do",
+  "for",
+  "from",
+  "get",
+  "had",
+  "has",
+  "have",
+  "how",
+  "i",
+  "if",
+  "im",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "just",
+  "like",
+  "me",
+  "more",
+  "my",
+  "not",
+  "of",
+  "on",
+  "or",
+  "our",
+  "out",
+  "so",
+  "that",
+  "the",
+  "their",
+  "them",
+  "there",
+  "they",
+  "this",
+  "to",
+  "too",
+  "up",
+  "ur",
+  "was",
+  "we",
+  "what",
+  "when",
+  "with",
+  "you",
+  "your",
+]);
+
+const LOW_SIGNAL_ENTITY_WORDS = new Set([
+  "almost",
+  "back",
+  "come",
+  "day",
+  "days",
+  "friend",
+  "friends",
+  "going",
+  "good",
+  "great",
+  "last",
+  "life",
+  "love",
+  "made",
+  "make",
+  "next",
+  "outside",
+  "people",
+  "planning",
+  "site",
+  "stuff",
+  "thing",
+  "things",
+  "throwback",
+  "time",
+  "today",
+  "tomorrow",
+  "week",
+  "weeks",
+  "win",
+  "years",
+]);
+
 function getPostEngagement(post: XPublicPost): number {
   const { likeCount, replyCount, repostCount, quoteCount } = post.metrics;
   return likeCount + replyCount + repostCount + quoteCount;
@@ -101,6 +202,68 @@ export function detectHookPattern(text: string): HookPattern {
   return "statement_open";
 }
 
+export function isLowSignalEntityCandidate(candidate: string): boolean {
+  const parts = candidate
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return true;
+  }
+
+  return parts.every((part) => LOW_SIGNAL_ENTITY_WORDS.has(part));
+}
+
+export function extractEntityCandidates(text: string): string[] {
+  const withoutUrls = text.replace(/https?:\/\/\S+/gi, " ");
+  const hashtagMatches = withoutUrls.match(/#([\p{L}\p{N}_]+)/gu) ?? [];
+  const hashtagCandidates = hashtagMatches
+    .map((tag) => tag.replace(/^#/, "").toLowerCase())
+    .filter((tag) => tag.length >= 3)
+    .filter((tag) => !ENTITY_STOPWORDS.has(tag));
+
+  const normalized = withoutUrls
+    .replace(/@\w+/g, " ")
+    .replace(/#/g, " ")
+    .replace(/[^\p{L}\p{N}\s_-]+/gu, " ")
+    .toLowerCase();
+  const tokens = normalized
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !ENTITY_STOPWORDS.has(token));
+
+  const candidates = new Set<string>(hashtagCandidates);
+
+  for (const token of tokens) {
+    candidates.add(token);
+  }
+
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    const first = tokens[index];
+    const second = tokens[index + 1];
+    if (!first || !second) {
+      continue;
+    }
+
+    if (
+      LOW_SIGNAL_ENTITY_WORDS.has(first) &&
+      LOW_SIGNAL_ENTITY_WORDS.has(second)
+    ) {
+      continue;
+    }
+
+    const phrase = `${first} ${second}`;
+    if (phrase.length >= 7) {
+      candidates.add(phrase);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
 export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
   const trimmed = post.text.trim();
   const lines = trimmed
@@ -130,6 +293,7 @@ export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
     wordCount,
     emojiCount: emojiMatches.length,
     isReply: trimmed.startsWith("@"),
+    entityCandidates: extractEntityCandidates(post.text),
   };
 }
 

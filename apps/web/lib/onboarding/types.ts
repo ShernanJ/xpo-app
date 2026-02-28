@@ -352,6 +352,7 @@ export interface PostFeatureSnapshot {
   wordCount: number;
   emojiCount: number;
   isReply: boolean;
+  entityCandidates: string[];
 }
 
 export interface CreatorRepresentativePost {
