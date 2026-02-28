@@ -118,6 +118,7 @@ interface ChatMessage {
   role: "assistant" | "user";
   content: string;
   excludeFromHistory?: boolean;
+  quickReplies?: ChatQuickReply[];
   angles?: string[];
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
@@ -138,6 +139,12 @@ type ChatContentFocus =
   | "operator_lessons"
   | "social_observation";
 
+interface ChatQuickReply {
+  kind: "content_focus";
+  value: ChatContentFocus;
+  label: string;
+}
+
 interface ChatStrategyInputs {
   goal: UserGoal;
   postingCadenceCapacity: PostingCadenceCapacity;
@@ -156,30 +163,6 @@ interface WorkspaceLoadResult {
   contractData?: CreatorGenerationContract;
 }
 
-type StrategyPromptStep =
-  | "goal"
-  | "transformationMode"
-  | "postingCadenceCapacity"
-  | "replyBudgetPerDay"
-  | "contentFocus"
-  | "toneCasing"
-  | "toneRisk";
-
-interface StrategyPromptOption {
-  value: string;
-  label: string;
-}
-
-interface StrategyPromptState {
-  step: StrategyPromptStep;
-  label: string;
-  helper: string;
-  options: StrategyPromptOption[];
-  currentValue: string;
-  index: number;
-  total: number;
-}
-
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
 const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
@@ -192,36 +175,12 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
-const goalOptions: UserGoal[] = ["followers", "leads", "authority"];
-const transformationModeOptions: TransformationMode[] = [
-  "preserve",
-  "optimize",
-  "pivot_soft",
-  "pivot_hard",
-];
-const postingCapacityOptions: PostingCadenceCapacity[] = [
-  "3_per_week",
-  "1_per_day",
-  "2_per_day",
-];
-const replyBudgetOptions: ReplyBudgetPerDay[] = ["0_5", "5_15", "15_30"];
 const contentFocusOptions: ChatContentFocus[] = [
   "project_showcase",
   "technical_insight",
   "build_in_public",
   "operator_lessons",
   "social_observation",
-];
-const toneCasingOptions: ToneCasing[] = ["lowercase", "normal"];
-const toneRiskOptions: ToneRisk[] = ["safe", "bold"];
-const strategyPromptSteps: StrategyPromptStep[] = [
-  "goal",
-  "transformationMode",
-  "postingCadenceCapacity",
-  "replyBudgetPerDay",
-  "contentFocus",
-  "toneCasing",
-  "toneRisk",
 ];
 
 function formatEnumLabel(value: string): string {
@@ -233,30 +192,6 @@ function formatEnumLabel(value: string): string {
 
 function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
-}
-
-function formatPostingCapacityLabel(value: PostingCadenceCapacity): string {
-  if (value === "3_per_week") {
-    return "3 / Week";
-  }
-
-  if (value === "1_per_day") {
-    return "1 / Day";
-  }
-
-  return "2 / Day";
-}
-
-function formatReplyBudgetLabel(value: ReplyBudgetPerDay): string {
-  if (value === "0_5") {
-    return "0-5 Replies";
-  }
-
-  if (value === "5_15") {
-    return "5-15 Replies";
-  }
-
-  return "15-30 Replies";
 }
 
 function formatContentFocusLabel(value: ChatContentFocus): string {
@@ -304,107 +239,6 @@ function inferInitialToneInputs(params: {
     toneCasing: shouldUseLowercase ? "lowercase" : "normal",
     toneRisk: contract.writer.targetRisk,
   };
-}
-
-function buildStrategyPromptState(
-  step: StrategyPromptStep | null,
-  inputs: ChatStrategyInputs,
-  contentFocus: ChatContentFocus,
-  toneInputs: ChatToneInputs,
-): StrategyPromptState | null {
-  if (!step) {
-    return null;
-  }
-
-  const index = strategyPromptSteps.indexOf(step);
-  const base = {
-    step,
-    index: index + 1,
-    total: strategyPromptSteps.length,
-  };
-
-  switch (step) {
-    case "goal":
-      return {
-        ...base,
-        label: "What are you optimizing for first?",
-        helper: "Pick the primary outcome so the agent plans around the right type of growth.",
-        options: goalOptions.map((option) => ({
-          value: option,
-          label: formatEnumLabel(option),
-        })),
-        currentValue: inputs.goal,
-      };
-    case "transformationMode":
-      return {
-        ...base,
-        label: "How should we handle your current positioning?",
-        helper: "Choose whether to preserve what works, optimize it, or pivot into a new lane.",
-        options: transformationModeOptions.map((option) => ({
-          value: option,
-          label: formatEnumLabel(option),
-        })),
-        currentValue: inputs.transformationMode,
-      };
-    case "postingCadenceCapacity":
-      return {
-        ...base,
-        label: "How often can you realistically post?",
-        helper: "This caps the playbook so the plan is something you can actually sustain.",
-        options: postingCapacityOptions.map((option) => ({
-          value: option,
-          label: formatPostingCapacityLabel(option),
-        })),
-        currentValue: inputs.postingCadenceCapacity,
-      };
-    case "replyBudgetPerDay":
-      return {
-        ...base,
-        label: "How much reply bandwidth do you have each day?",
-        helper: "Reply-heavy loops only make sense if you can sustain them.",
-        options: replyBudgetOptions.map((option) => ({
-          value: option,
-          label: formatReplyBudgetLabel(option),
-        })),
-        currentValue: inputs.replyBudgetPerDay,
-      };
-    case "contentFocus":
-      return {
-        ...base,
-        label: "What do you want to focus on posting about next?",
-        helper:
-          "Use this to steer the subject matter. The agent should keep your voice, but help you build clearer, more authentic topic direction.",
-        options: contentFocusOptions.map((option) => ({
-          value: option,
-          label: formatContentFocusLabel(option),
-        })),
-        currentValue: contentFocus,
-      };
-    case "toneCasing":
-      return {
-        ...base,
-        label: "How should the post read on the timeline?",
-        helper:
-          "Choose the default casing and looseness. This should reflect how you naturally type, not how polished you think it should look.",
-        options: toneCasingOptions.map((option) => ({
-          value: option,
-          label: formatToneCasingLabel(option),
-        })),
-        currentValue: toneInputs.toneCasing,
-      };
-    case "toneRisk":
-      return {
-        ...base,
-        label: "How aggressive should the tone be?",
-        helper:
-          "Safe stays more measured. Bold pushes harder on bluntness, stronger claims, and sharper phrasing.",
-        options: toneRiskOptions.map((option) => ({
-          value: option,
-          label: formatToneRiskLabel(option),
-        })),
-        currentValue: toneInputs.toneRisk,
-      };
-  }
 }
 
 function formatNicheSummary(context: CreatorAgentContext): string {
@@ -503,14 +337,10 @@ export default function ChatPage() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [strategyInputs, setStrategyInputs] = useState<ChatStrategyInputs>(
-    DEFAULT_CHAT_STRATEGY_INPUTS,
-  );
+  const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
   );
-  const [contentFocus, setContentFocus] =
-    useState<ChatContentFocus>("project_showcase");
   const [activeContentFocus, setActiveContentFocus] =
     useState<ChatContentFocus | null>(null);
   const [activeStrategyInputs, setActiveStrategyInputs] =
@@ -518,9 +348,6 @@ export default function ChatPage() {
   const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
     null,
   );
-  const [strategyPromptStep, setStrategyPromptStep] =
-    useState<StrategyPromptStep | null>("goal");
-  const [isApplyingStrategyInputs, setIsApplyingStrategyInputs] = useState(false);
   const [activeDraftEditor, setActiveDraftEditor] = useState<{
     messageId: string;
     artifactIndex: number;
@@ -620,7 +447,16 @@ export default function ChatPage() {
       {
         id: "assistant-initial",
         role: "assistant",
-        content: buildInitialAssistantMessage(context, contract),
+        content: `${buildInitialAssistantMessage(
+          context,
+          contract,
+        )}\n\nwhat do you want to focus on posting about next? tell me in your own words, or pick a lane to start.`,
+        excludeFromHistory: true,
+        quickReplies: contentFocusOptions.map((option) => ({
+          kind: "content_focus",
+          value: option,
+          label: formatContentFocusLabel(option),
+        })),
       },
     ]);
   }, [context, contract, messages.length]);
@@ -715,27 +551,34 @@ export default function ChatPage() {
   }, [providerPreference]);
 
   useEffect(() => {
-    if (
-      !context ||
-      !contract ||
-      activeToneInputs ||
-      strategyPromptStep === null ||
-      messages.length > 1
-    ) {
+    if (!context || !contract) {
       return;
     }
 
-    setToneInputs((current) => {
-      if (
-        current.toneCasing !== DEFAULT_CHAT_TONE_INPUTS.toneCasing ||
-        current.toneRisk !== DEFAULT_CHAT_TONE_INPUTS.toneRisk
-      ) {
-        return current;
-      }
+    setActiveStrategyInputs((current) => current ?? strategyInputs);
 
-      return inferInitialToneInputs({ context, contract });
-    });
-  }, [activeToneInputs, context, contract, messages.length, strategyPromptStep]);
+    if (activeToneInputs) {
+      return;
+    }
+
+    const inferredToneInputs =
+      toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
+      toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
+        ? inferInitialToneInputs({ context, contract })
+        : toneInputs;
+
+    setToneInputs(inferredToneInputs);
+    setActiveToneInputs(inferredToneInputs);
+    void loadWorkspace(activeStrategyInputs ?? strategyInputs, inferredToneInputs);
+  }, [
+    activeStrategyInputs,
+    activeToneInputs,
+    context,
+    contract,
+    loadWorkspace,
+    strategyInputs,
+    toneInputs,
+  ]);
 
   const pinnedReferenceCandidates = useMemo(() => {
     if (!context) {
@@ -831,16 +674,6 @@ export default function ChatPage() {
       },
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
-  const currentStrategyPrompt = useMemo(
-    () =>
-      buildStrategyPromptState(
-        strategyPromptStep,
-        strategyInputs,
-        contentFocus,
-        toneInputs,
-      ),
-    [contentFocus, strategyInputs, strategyPromptStep, toneInputs],
-  );
   const selectedDraftArtifact = useMemo(() => {
     if (!activeDraftEditor) {
       return null;
@@ -1010,12 +843,12 @@ export default function ChatPage() {
           },
           body: JSON.stringify({
             runId,
-            message: trimmedPrompt,
+            ...(trimmedPrompt ? { message: trimmedPrompt } : {}),
             history,
             provider: providerPreference,
             stream: true,
             intent: options.intent ?? "draft",
-            contentFocus: resolvedContentFocus,
+            ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
             pinnedReferencePostIds,
             ...resolvedToneInputs,
@@ -1159,13 +992,13 @@ export default function ChatPage() {
 
   const handleAngleSelect = useCallback(
     async (angle: string) => {
-      if (!activeStrategyInputs || !activeToneInputs || strategyPromptStep || isSending) {
+      if (!activeStrategyInputs || !activeToneInputs || isSending) {
         return;
       }
 
       await requestAssistantReply({
         prompt: "",
-        displayUserMessage: `use this angle: ${angle}`,
+        displayUserMessage: angle,
         includeUserMessageInHistory: false,
         selectedAngle: angle,
         appendUserMessage: true,
@@ -1181,104 +1014,35 @@ export default function ChatPage() {
       activeToneInputs,
       isSending,
       requestAssistantReply,
-      strategyPromptStep,
     ],
   );
 
-  const finalizeStrategyPlan = useCallback(
-    async (
-      nextInputs: ChatStrategyInputs,
-      nextContentFocus: ChatContentFocus,
-      nextToneInputs: ChatToneInputs,
-    ) => {
-      setIsApplyingStrategyInputs(true);
-      setErrorMessage(null);
-
-      const loaded = await loadWorkspace(nextInputs, nextToneInputs);
-
-      if (loaded.ok && loaded.contextData && loaded.contractData) {
-        const confirmationMessage: ChatMessage = {
-          id: `assistant-plan-${Date.now()}`,
-          role: "assistant",
-          content: `Plan locked: ${formatEnumLabel(nextInputs.goal)}, ${formatEnumLabel(
-            nextInputs.transformationMode,
-          )}, ${formatPostingCapacityLabel(
-            nextInputs.postingCadenceCapacity,
-          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}, ${formatToneCasingLabel(
-            nextToneInputs.toneCasing,
-          )}, ${formatToneRiskLabel(nextToneInputs.toneRisk)}.`,
-          excludeFromHistory: true,
-        };
-
-        setActiveStrategyInputs(nextInputs);
-        setActiveContentFocus(nextContentFocus);
-        setActiveToneInputs(nextToneInputs);
-        setStrategyPromptStep(null);
-        setMessages((current) => [...current, confirmationMessage]);
-
-        await requestAssistantReply({
-          prompt: "",
-          appendUserMessage: false,
-          historySeed: [...messages, confirmationMessage]
-            .filter((message) => !message.excludeFromHistory)
-            .slice(-6),
-          strategyInputOverride: nextInputs,
-          toneInputOverride: nextToneInputs,
-          contentFocusOverride: nextContentFocus,
-          intent: "ideate",
-          fallbackContext: loaded.contextData,
-          fallbackContract: loaded.contractData,
-        });
+  const handleQuickReplySelect = useCallback(
+    async (quickReply: ChatQuickReply) => {
+      if (
+        quickReply.kind !== "content_focus" ||
+        !activeStrategyInputs ||
+        !activeToneInputs ||
+        isSending
+      ) {
+        return;
       }
 
-      setIsApplyingStrategyInputs(false);
+      setActiveContentFocus(quickReply.value);
+
+      await requestAssistantReply({
+        prompt: "",
+        displayUserMessage: quickReply.label,
+        includeUserMessageInHistory: false,
+        appendUserMessage: true,
+        intent: "ideate",
+        strategyInputOverride: activeStrategyInputs,
+        toneInputOverride: activeToneInputs,
+        contentFocusOverride: quickReply.value,
+      });
     },
-    [loadWorkspace, messages, requestAssistantReply],
+    [activeStrategyInputs, activeToneInputs, isSending, requestAssistantReply],
   );
-
-  async function handleStrategyPromptSelect(
-    step: StrategyPromptStep,
-    selectedValue: string,
-  ) {
-    if (isApplyingStrategyInputs || isSending) {
-      return;
-    }
-
-    const nextInputs: ChatStrategyInputs = { ...strategyInputs };
-    const nextToneInputs: ChatToneInputs = { ...toneInputs };
-    let nextContentFocus = contentFocus;
-
-    if (step === "goal") {
-      nextInputs.goal = selectedValue as UserGoal;
-    } else if (step === "transformationMode") {
-      nextInputs.transformationMode = selectedValue as TransformationMode;
-    } else if (step === "postingCadenceCapacity") {
-      nextInputs.postingCadenceCapacity =
-        selectedValue as PostingCadenceCapacity;
-    } else if (step === "replyBudgetPerDay") {
-      nextInputs.replyBudgetPerDay = selectedValue as ReplyBudgetPerDay;
-    } else if (step === "contentFocus") {
-      nextContentFocus = selectedValue as ChatContentFocus;
-      setContentFocus(nextContentFocus);
-    } else if (step === "toneCasing") {
-      nextToneInputs.toneCasing = selectedValue as ToneCasing;
-    } else if (step === "toneRisk") {
-      nextToneInputs.toneRisk = selectedValue as ToneRisk;
-    }
-
-    setStrategyInputs(nextInputs);
-    setToneInputs(nextToneInputs);
-
-    const currentIndex = strategyPromptSteps.indexOf(step);
-    const nextStep = strategyPromptSteps[currentIndex + 1] ?? null;
-
-    if (nextStep) {
-      setStrategyPromptStep(nextStep);
-      return;
-    }
-
-    await finalizeStrategyPlan(nextInputs, nextContentFocus, nextToneInputs);
-  }
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1288,8 +1052,8 @@ export default function ChatPage() {
       return;
     }
 
-    if (!activeStrategyInputs || strategyPromptStep) {
-      setErrorMessage("Finish the setup prompts before drafting.");
+    if (!activeStrategyInputs || !activeToneInputs) {
+      setErrorMessage("The planning model is still loading.");
       return;
     }
 
@@ -1300,7 +1064,7 @@ export default function ChatPage() {
       appendUserMessage: true,
       intent: "draft",
       strategyInputOverride: activeStrategyInputs,
-      toneInputOverride: activeToneInputs ?? toneInputs,
+      toneInputOverride: activeToneInputs,
       contentFocusOverride: activeContentFocus,
     });
   }
@@ -1500,19 +1264,6 @@ export default function ChatPage() {
                     {chip}
                   </span>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStrategyInputs(activeStrategyInputs ?? strategyInputs);
-                    setToneInputs(activeToneInputs ?? toneInputs);
-                    setContentFocus(activeContentFocus ?? contentFocus);
-                    setStrategyPromptStep("goal");
-                    setErrorMessage(null);
-                  }}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-                >
-                  {strategyPromptStep ? "Planning..." : "Retune Plan"}
-                </button>
               </div>
 
               {backfillNotice ? (
@@ -1525,47 +1276,6 @@ export default function ChatPage() {
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
                 <>
-                  {currentStrategyPrompt ? (
-                    <div className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                        Setup {currentStrategyPrompt.index} / {currentStrategyPrompt.total}
-                      </p>
-                      <p className="mt-3 text-sm font-medium leading-7 text-white">
-                        {currentStrategyPrompt.label}
-                      </p>
-                      <p className="mt-2 text-sm leading-7 text-zinc-400">
-                        {currentStrategyPrompt.helper}
-                      </p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {currentStrategyPrompt.options.map((option) => (
-                          <button
-                            key={`${currentStrategyPrompt.step}-${option.value}`}
-                            type="button"
-                            onClick={() =>
-                              void handleStrategyPromptSelect(
-                                currentStrategyPrompt.step,
-                                option.value,
-                              )
-                            }
-                            disabled={isApplyingStrategyInputs || isSending}
-                            className={`rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                              currentStrategyPrompt.currentValue === option.value
-                                ? "border-white/30 bg-white/[0.08] text-white"
-                                : "border-white/10 text-zinc-500 hover:bg-white/[0.04] hover:text-white"
-                            } disabled:cursor-not-allowed disabled:text-zinc-600`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      {isApplyingStrategyInputs ? (
-                        <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Rebuilding the plan and drafting the first move.
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-
                   {errorMessage ? (
                     <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                       {errorMessage}
@@ -1582,6 +1292,24 @@ export default function ChatPage() {
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
+
+                      {message.role === "assistant" && message.quickReplies?.length ? (
+                        <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                          {message.quickReplies.map((quickReply) => (
+                            <button
+                              key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
+                              type="button"
+                              onClick={() => {
+                                void handleQuickReplySelect(quickReply);
+                              }}
+                              disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                              className="rounded-full border border-white/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                            >
+                              {quickReply.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
 
                       {message.role === "assistant" && message.angles?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
@@ -1601,9 +1329,7 @@ export default function ChatPage() {
                                 onClick={() => {
                                   void handleAngleSelect(angle);
                                 }}
-                                disabled={
-                                  isSending || !!strategyPromptStep || !activeStrategyInputs
-                                }
+                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
                                 className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                               >
                                 Turn Into Drafts
@@ -1742,12 +1468,8 @@ export default function ChatPage() {
                     <textarea
                       value={draftInput}
                       onChange={(event) => setDraftInput(event.target.value)}
-                      placeholder={
-                        activeStrategyInputs && !strategyPromptStep
-                          ? "What are we creating today?"
-                          : "Finish the setup prompts first."
-                      }
-                      disabled={isSending || !activeStrategyInputs || !!strategyPromptStep}
+                      placeholder="What are we creating today?"
+                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
                       className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
                     />
                     <button
@@ -1756,7 +1478,7 @@ export default function ChatPage() {
                         !context ||
                         !contract ||
                         !activeStrategyInputs ||
-                        !!strategyPromptStep ||
+                        !activeToneInputs ||
                         !draftInput.trim() ||
                         isSending
                       }
