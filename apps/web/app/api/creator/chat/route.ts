@@ -18,6 +18,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
   message?: unknown;
   selectedAngle?: unknown;
+  pinnedReferencePostIds?: unknown;
   history?: unknown;
   provider?: unknown;
   intent?: unknown;
@@ -75,6 +76,18 @@ export async function POST(request: Request) {
     typeof body.contentFocus === "string" && body.contentFocus.trim().length > 0
       ? body.contentFocus.trim()
       : null;
+  const pinnedReferencePostIds = Array.isArray(body.pinnedReferencePostIds)
+    ? Array.from(
+        new Set(
+          body.pinnedReferencePostIds
+            .filter(
+              (value): value is string =>
+                typeof value === "string" && value.trim().length > 0,
+            )
+            .map((value) => value.trim()),
+        ),
+      ).slice(0, 2)
+    : [];
   const stream = body.stream === true;
   const effectiveMessage = message || selectedAngle || (intent === "ideate" ? contentFocus ?? "" : "");
 
@@ -167,6 +180,7 @@ export async function POST(request: Request) {
               intent,
               contentFocus,
               selectedAngle,
+              pinnedReferencePostIds,
               onProgress: (phase) => {
                 if (phase === lastPhase) {
                   return;
@@ -217,6 +231,7 @@ export async function POST(request: Request) {
       intent,
       contentFocus,
       selectedAngle,
+      pinnedReferencePostIds,
     });
 
     return NextResponse.json(

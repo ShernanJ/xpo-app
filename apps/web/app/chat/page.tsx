@@ -769,6 +769,7 @@ export default function ChatPage() {
     artifactIndex: number;
   } | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
+  const [pinnedReferencePostIds, setPinnedReferencePostIds] = useState<string[]>([]);
 
   const loadWorkspace = useCallback(
     async (
@@ -979,6 +980,39 @@ export default function ChatPage() {
     });
   }, [activeToneInputs, context, contract, messages.length, strategyPromptStep]);
 
+  const pinnedReferenceCandidates = useMemo(() => {
+    if (!context) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+
+    return [
+      ...context.creatorProfile.examples.voiceAnchors,
+      ...context.creatorProfile.examples.replyVoiceAnchors,
+      ...context.creatorProfile.examples.quoteVoiceAnchors,
+    ].filter((post) => {
+      if (seen.has(post.id)) {
+        return false;
+      }
+
+      seen.add(post.id);
+      return true;
+    }).slice(0, 6);
+  }, [context]);
+
+  useEffect(() => {
+    if (pinnedReferenceCandidates.length === 0) {
+      setPinnedReferencePostIds([]);
+      return;
+    }
+
+    const availableIds = new Set(pinnedReferenceCandidates.map((post) => post.id));
+    setPinnedReferencePostIds((current) =>
+      current.filter((postId) => availableIds.has(postId)),
+    );
+  }, [pinnedReferenceCandidates]);
+
   const summaryChips = useMemo(() => {
     if (!context) {
       return [];
@@ -1071,6 +1105,20 @@ export default function ChatPage() {
 
     setEditorDraftText(selectedDraftArtifact.content);
   }, [selectedDraftArtifact]);
+
+  const togglePinnedReferencePostId = useCallback((postId: string) => {
+    setPinnedReferencePostIds((current) => {
+      if (current.includes(postId)) {
+        return current.filter((value) => value !== postId);
+      }
+
+      if (current.length >= 2) {
+        return [...current.slice(1), postId];
+      }
+
+      return [...current, postId];
+    });
+  }, []);
 
   const openDraftEditor = useCallback((messageId: string, artifactIndex: number) => {
     setActiveDraftEditor({ messageId, artifactIndex });
@@ -1212,6 +1260,7 @@ export default function ChatPage() {
             intent: options.intent ?? "draft",
             contentFocus: resolvedContentFocus,
             selectedAngle: options.selectedAngle ?? null,
+            pinnedReferencePostIds,
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
           }),
@@ -1373,6 +1422,7 @@ export default function ChatPage() {
       isSending,
       messages,
       providerPreference,
+      pinnedReferencePostIds,
       runId,
     ],
   );
@@ -2174,6 +2224,54 @@ export default function ChatPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
+                <div className="border border-white/10 p-5 md:col-span-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                        Pinned Voice References
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-300">
+                        Pin up to 2 posts. The backend will treat them as the highest-priority voice references during generation.
+                      </p>
+                    </div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      {pinnedReferencePostIds.length} / 2 pinned
+                    </p>
+                  </div>
+
+                  <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                    {pinnedReferenceCandidates.map((post) => {
+                      const isPinned = pinnedReferencePostIds.includes(post.id);
+
+                      return (
+                        <li key={post.id} className="border border-white/10 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                                {formatEnumLabel(post.lane)} | {post.selectionReason}
+                              </p>
+                              <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
+                                {post.text}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => togglePinnedReferencePostId(post.id)}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                isPinned
+                                  ? "border-white/20 bg-white/[0.06] text-white"
+                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                              }`}
+                            >
+                              {isPinned ? "Pinned" : "Pin"}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+
                 <div className="border border-white/10 p-5">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                     Positive Anchors

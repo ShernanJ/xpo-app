@@ -891,6 +891,52 @@ function selectLaneVoiceAnchors(
   return context.creatorProfile.examples.voiceAnchors;
 }
 
+function dedupeRepresentativePosts(
+  posts: CreatorRepresentativePost[],
+): CreatorRepresentativePost[] {
+  const seen = new Set<string>();
+
+  return posts.filter((post) => {
+    if (seen.has(post.id)) {
+      return false;
+    }
+
+    seen.add(post.id);
+    return true;
+  });
+}
+
+function selectPinnedVoiceAnchors(
+  context: CreatorAgentContext,
+  pinnedReferencePostIds: string[],
+): CreatorRepresentativePost[] {
+  if (pinnedReferencePostIds.length === 0) {
+    return [];
+  }
+
+  const candidates = dedupeRepresentativePosts([
+    ...context.creatorProfile.examples.voiceAnchors,
+    ...context.creatorProfile.examples.replyVoiceAnchors,
+    ...context.creatorProfile.examples.quoteVoiceAnchors,
+    ...context.creatorProfile.examples.strategyAnchors,
+    ...context.creatorProfile.examples.goalAnchors,
+    ...context.creatorProfile.examples.bestPerforming,
+  ]);
+  const candidateMap = new Map(candidates.map((post) => [post.id, post]));
+
+  return pinnedReferencePostIds
+    .map((id) => candidateMap.get(id) ?? null)
+    .filter((post): post is CreatorRepresentativePost => post !== null);
+}
+
+function mergeVoiceAnchors(
+  primary: CreatorRepresentativePost[],
+  secondary: CreatorRepresentativePost[],
+  limit = 4,
+): CreatorRepresentativePost[] {
+  return dedupeRepresentativePosts([...primary, ...secondary]).slice(0, limit);
+}
+
 function formatExemplar(post: CreatorRepresentativePost | null): string {
   if (!post) {
     return "No strong format exemplar available.";
@@ -1187,6 +1233,7 @@ function buildWriterSystemPrompt(params: {
   concreteSubject: string | null;
   userMessage: string;
   requestAnchors: RequestConditionedAnchors;
+  pinnedVoiceAnchorCount: number;
 }): string {
   const {
     context,
@@ -1198,6 +1245,7 @@ function buildWriterSystemPrompt(params: {
     concreteSubject,
     userMessage,
     requestAnchors,
+    pinnedVoiceAnchorCount,
   } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
   const outputShapeGuidance = buildOutputShapeGuidance(
@@ -1220,6 +1268,9 @@ function buildWriterSystemPrompt(params: {
     "The user's native voice matters more than generic social-media best practices.",
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
+    pinnedVoiceAnchorCount > 0
+      ? "Pinned voice references are the highest-priority tone source. If they conflict with weaker inferred signals, follow the pinned references."
+      : "No pinned voice references were provided.",
     `Target casing: ${contract.writer.targetCasing}.`,
     `Target risk: ${contract.writer.targetRisk}.`,
     `Tone blend: ${contract.writer.toneBlendSummary}`,
@@ -1288,6 +1339,7 @@ function buildCriticSystemPrompt(params: {
   concreteSubject: string | null;
   userMessage: string;
   requestAnchors: RequestConditionedAnchors;
+  pinnedVoiceAnchorCount: number;
 }): string {
   const {
     contract,
@@ -1298,6 +1350,7 @@ function buildCriticSystemPrompt(params: {
     concreteSubject,
     userMessage,
     requestAnchors,
+    pinnedVoiceAnchorCount,
   } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
   const outputShapeGuidance = buildOutputShapeGuidance(
@@ -1318,6 +1371,9 @@ function buildCriticSystemPrompt(params: {
       ? "If the user is still planning, keep the response focused on authentic angles, keep final drafts empty, and make the angles feel like something the user would naturally say."
       : "Keep the draft candidates sharp and usable as actual X posts.",
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
+    pinnedVoiceAnchorCount > 0
+      ? "Pinned voice references are the strongest authority for tone. Reject outputs that drift away from them even if other inferred signals look weaker."
+      : "No pinned voice references were provided.",
     "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
     "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
     buildConcreteTopicGuardrail({
@@ -1965,6 +2021,7 @@ export async function generateCreatorChatReply(params: {
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
   selectedAngle?: string | null;
+  pinnedReferencePostIds?: string[];
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
@@ -2084,6 +2141,15 @@ export async function generateCreatorChatReply(params: {
     context,
     effectivePlanner.targetLane,
   );
+  const pinnedVoiceAnchors = selectPinnedVoiceAnchors(
+    context,
+    params.pinnedReferencePostIds ?? [],
+  );
+  const effectiveVoiceAnchors = mergeVoiceAnchors(
+    pinnedVoiceAnchors,
+    laneVoiceAnchors,
+    4,
+  );
 
   params.onProgress?.("writing");
   const writerResponse = await callProviderJson<WriterOutput>({
@@ -2098,6 +2164,7 @@ export async function generateCreatorChatReply(params: {
       concreteSubject,
       userMessage: params.userMessage,
       requestAnchors,
+      pinnedVoiceAnchorCount: pinnedVoiceAnchors.length,
     }),
     user: [
       `User request: ${params.userMessage}`,
@@ -2124,8 +2191,13 @@ export async function generateCreatorChatReply(params: {
         2,
       ),
       formatAnchorExamples(
+        "Pinned voice references (highest priority)",
+        pinnedVoiceAnchors,
+        2,
+      ),
+      formatAnchorExamples(
         "Voice anchors to imitate for tone and casing",
-        laneVoiceAnchors,
+        effectiveVoiceAnchors,
         3,
       ),
       formatAnchorExamples(
@@ -2207,6 +2279,7 @@ export async function generateCreatorChatReply(params: {
       concreteSubject,
       userMessage: params.userMessage,
       requestAnchors,
+      pinnedVoiceAnchorCount: pinnedVoiceAnchors.length,
     }),
     user: [
       `User request: ${params.userMessage}`,
@@ -2227,8 +2300,13 @@ export async function generateCreatorChatReply(params: {
         2,
       ),
       formatAnchorExamples(
+        "Pinned voice references (highest priority)",
+        pinnedVoiceAnchors,
+        2,
+      ),
+      formatAnchorExamples(
         "Voice anchors to compare against",
-        laneVoiceAnchors,
+        effectiveVoiceAnchors,
         3,
       ),
       `Candidate response package:\n${JSON.stringify(writer)}`,
