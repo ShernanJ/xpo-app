@@ -11,6 +11,7 @@ import type {
   CreatorArchetype,
   CreatorExecutionProfile,
   CreatorProfile,
+  CreatorQuoteProfile,
   CreatorReplyProfile,
   CreatorRepresentativeExamples,
   CreatorRepresentativePost,
@@ -808,9 +809,11 @@ function detectReplyTone(post: XPublicPost): ReplyTone {
 function buildReplyProfile(params: {
   originalPosts: XPublicPost[];
   replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
 }): CreatorReplyProfile {
-  const { originalPosts, replyPosts } = params;
-  const totalCapturedActivity = originalPosts.length + replyPosts.length;
+  const { originalPosts, replyPosts, quotePosts } = params;
+  const totalCapturedActivity =
+    originalPosts.length + replyPosts.length + quotePosts.length;
 
   if (replyPosts.length === 0) {
     return {
@@ -876,6 +879,52 @@ function buildReplyProfile(params: {
     dominantReplyStyle,
     replyStyleMix,
     replyUsageNote,
+  };
+}
+
+function buildQuoteProfile(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
+}): CreatorQuoteProfile {
+  const { originalPosts, replyPosts, quotePosts } = params;
+  const totalCapturedActivity =
+    originalPosts.length + replyPosts.length + quotePosts.length;
+
+  if (quotePosts.length === 0) {
+    return {
+      quoteCount: 0,
+      quoteShareOfCapturedActivity: 0,
+      averageQuoteLengthBand: null,
+      dominantQuotePattern: null,
+      quoteUsageNote:
+        totalCapturedActivity === 0
+          ? "There is not enough captured activity yet to estimate quote behavior."
+          : "No quote posts were captured in the current sample, so quote-driven distribution is currently not a visible habit.",
+    };
+  }
+
+  const quoteShareOfCapturedActivity =
+    totalCapturedActivity > 0 ? toPercent(quotePosts.length / totalCapturedActivity) : 0;
+  const averageQuoteLengthBand = inferAverageLengthBand(quotePosts);
+  const dominantQuotePattern = extractDominantHookPattern(quotePosts);
+
+  let quoteUsageNote =
+    "Quote posts are present as a secondary lane. They can add commentary leverage without replacing original posting.";
+  if (quoteShareOfCapturedActivity >= 30) {
+    quoteUsageNote =
+      "Quote posts are a meaningful part of the current activity mix. The system should treat them as a distribution and positioning lane, not as the main standalone-post lane.";
+  } else if (quoteShareOfCapturedActivity >= 10) {
+    quoteUsageNote =
+      "Quote posts appear often enough to matter. Reuse the strongest quote angles as standalone takes when the underlying idea can travel on its own.";
+  }
+
+  return {
+    quoteCount: quotePosts.length,
+    quoteShareOfCapturedActivity,
+    averageQuoteLengthBand,
+    dominantQuotePattern,
+    quoteUsageNote,
   };
 }
 
@@ -966,6 +1015,7 @@ function buildRecommendedAngles(
   archetype: CreatorArchetype,
   execution: CreatorExecutionProfile,
   replyProfile: CreatorReplyProfile,
+  quoteProfile: CreatorQuoteProfile,
   growthStage: OnboardingResult["growthStage"],
   transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string[] {
@@ -1043,6 +1093,16 @@ function buildRecommendedAngles(
     }
   }
 
+  if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
+    angles.push(
+      "Turn the strongest quote-tweet commentary into standalone posts so the idea can travel without the original post.",
+    );
+  } else if (goal === "followers" && growthStage === "0-1k" && quoteProfile.quoteCount === 0) {
+    angles.push(
+      "Test a few quote posts on relevant high-context tweets, but keep the commentary strong enough to stand on its own later.",
+    );
+  }
+
   if (angles.length === 0) {
     angles.push("Increase consistency around one repeatable content pillar.");
   }
@@ -1088,6 +1148,7 @@ function buildExecutionWeaknesses(
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
   replyProfile: CreatorReplyProfile,
+  quoteProfile: CreatorQuoteProfile,
   goal: UserGoal,
   growthStage: OnboardingResult["growthStage"],
   transformationMode: OnboardingResult["strategyState"]["transformationMode"],
@@ -1132,6 +1193,16 @@ function buildExecutionNextMoves(
         "Reuse one strong reply from this week as the seed for a standalone post built for discovery.",
       );
     }
+  }
+
+  if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
+    actions.push(
+      "Pick one recent quote post and rewrite its core take as a standalone post this week.",
+    );
+  } else if (goal === "followers" && growthStage === "0-1k" && quoteProfile.quoteCount === 0) {
+    actions.push(
+      "Test 1-2 quote posts this week on niche-relevant tweets where your commentary adds a clear angle.",
+    );
   }
 
   return actions;
@@ -1218,6 +1289,7 @@ export function buildCreatorProfile(params: {
 }): CreatorProfile {
   const posts = params.onboarding.recentPosts ?? [];
   const replyPosts = params.onboarding.recentReplyPosts ?? [];
+  const quotePosts = params.onboarding.recentQuotePosts ?? [];
   const performanceModel =
     params.performanceModel ??
     buildPerformanceModel({
@@ -1233,6 +1305,12 @@ export function buildCreatorProfile(params: {
   const replyProfile = buildReplyProfile({
     originalPosts: posts,
     replyPosts,
+    quotePosts,
+  });
+  const quoteProfile = buildQuoteProfile({
+    originalPosts: posts,
+    replyPosts,
+    quotePosts,
   });
   const transformationMode =
     params.onboarding.strategyState.transformationMode ?? "optimize";
@@ -1324,6 +1402,7 @@ export function buildCreatorProfile(params: {
     },
     execution: executionProfile,
     reply: replyProfile,
+    quote: quoteProfile,
     performance: {
       baselineAverageEngagement: params.onboarding.baseline.averageEngagement,
       medianEngagement: params.onboarding.baseline.medianEngagement,
@@ -1367,6 +1446,7 @@ export function buildCreatorProfile(params: {
         archetype,
         executionProfile,
         replyProfile,
+        quoteProfile,
         params.onboarding.growthStage,
         transformationMode,
       ),
@@ -1375,6 +1455,7 @@ export function buildCreatorProfile(params: {
         ...buildExecutionNextMoves(
           executionProfile,
           replyProfile,
+          quoteProfile,
           params.onboarding.strategyState.goal,
           params.onboarding.growthStage,
           transformationMode,

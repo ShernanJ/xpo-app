@@ -85,6 +85,7 @@ export async function importUserTweetsPayload(params: {
     profile: parsed.profile,
     posts: parsed.posts,
     replyPosts: parsed.replyPosts,
+    quotePosts: parsed.quotePosts,
     source: mapPersistSource(params.source ?? "manual_import"),
     userAgent: params.userAgent,
   });
@@ -96,5 +97,6 @@ export async function importUserTweetsPayload(params: {
     profile: parsed.profile,
     postsImported: parsed.posts.length,
     replyPostsImported: parsed.replyPosts.length,
+    quotePostsImported: parsed.quotePosts.length,
   };
 }

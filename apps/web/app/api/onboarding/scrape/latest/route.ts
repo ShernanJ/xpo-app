@@ -48,6 +48,8 @@ export async function GET(request: Request) {
         account: capture.account,
         profile: capture.profile,
         postsImported: capture.posts.length,
+        replyPostsImported: capture.replyPosts?.length ?? 0,
+        quotePostsImported: capture.quotePosts?.length ?? 0,
         recentPosts: capture.posts.slice(0, 5),
       },
     },

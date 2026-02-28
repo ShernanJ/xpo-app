@@ -25,6 +25,7 @@ export async function resolveXApiDataSource(
     profile,
     posts,
     replyPosts: [],
+    quotePosts: [],
     warnings:
       posts.length === 0 ? ["No recent posts found from X API for this account."] : [],
   };

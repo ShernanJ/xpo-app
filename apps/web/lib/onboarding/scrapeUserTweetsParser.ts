@@ -6,6 +6,7 @@ interface ParsedScrapeTimeline {
   profile: XPublicProfile;
   posts: XPublicPost[];
   replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
 }
 
 const MAX_PARSED_SCRAPE_POSTS = 250;
@@ -239,7 +240,11 @@ function extractProfileFromTweetNode(
 function extractPostFromTweetNode(
   tweetNode: Record<string, unknown>,
   accountFilter: string | null,
-  options: { includeRetweets: boolean; includeReplies: boolean },
+  options: {
+    includeRetweets: boolean;
+    includeReplies: boolean;
+    includeQuotes?: boolean;
+  },
 ): XPublicPost | null {
   const legacy = asRecord(tweetNode.legacy);
   if (!legacy) {
@@ -263,6 +268,14 @@ function extractPostFromTweetNode(
     asString(legacy.retweeted_status_id_str) !== null ||
     asRecord(tweetNode.retweeted_status_result) !== null;
   if (!options.includeRetweets && isRetweet) {
+    return null;
+  }
+
+  const isQuote =
+    asBoolean(legacy.is_quote_status) === true ||
+    asString(legacy.quoted_status_id_str) !== null ||
+    asRecord(tweetNode.quoted_status_result) !== null;
+  if (!(options.includeQuotes ?? false) && isQuote) {
     return null;
   }
 
@@ -307,6 +320,19 @@ function isReplyPost(tweetNode: Record<string, unknown>): boolean {
   );
 }
 
+function isQuotePost(tweetNode: Record<string, unknown>): boolean {
+  const legacy = asRecord(tweetNode.legacy);
+  if (!legacy) {
+    return false;
+  }
+
+  return (
+    asBoolean(legacy.is_quote_status) === true ||
+    asString(legacy.quoted_status_id_str) !== null ||
+    asRecord(tweetNode.quoted_status_result) !== null
+  );
+}
+
 function sortAndLimitPosts(postsById: Map<string, XPublicPost>): XPublicPost[] {
   return Array.from(postsById.values())
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -318,17 +344,20 @@ export function parseUserTweetsGraphqlPayload(params: {
   account?: string;
   includeRetweets?: boolean;
   includeReplies?: boolean;
+  includeQuotes?: boolean;
 }): ParsedScrapeTimeline {
   const accountNormalized = params.account
     ? normalizeAccountInput(params.account)
     : null;
   const includeRetweets = params.includeRetweets ?? false;
   const includeReplies = params.includeReplies ?? false;
+  const includeQuotes = params.includeQuotes ?? false;
   const nodes = collectTweetResultNodesFromTimeline(params.payload);
 
   const postsById = new Map<string, XPublicPost>();
   const fallbackPostsById = new Map<string, XPublicPost>();
   const replyPostsById = new Map<string, XPublicPost>();
+  const quotePostsById = new Map<string, XPublicPost>();
   let profileCandidate: XPublicProfile | null = null;
 
   for (const node of nodes) {
@@ -349,6 +378,7 @@ export function parseUserTweetsGraphqlPayload(params: {
     const fallbackPost = extractPostFromTweetNode(node, accountNormalized, {
       includeRetweets: true,
       includeReplies: true,
+      includeQuotes: true,
     });
     if (fallbackPost && !fallbackPostsById.has(fallbackPost.id)) {
       fallbackPostsById.set(fallbackPost.id, fallbackPost);
@@ -358,15 +388,28 @@ export function parseUserTweetsGraphqlPayload(params: {
       const replyPost = extractPostFromTweetNode(node, accountNormalized, {
         includeRetweets: false,
         includeReplies: true,
+        includeQuotes: false,
       });
       if (replyPost && !replyPostsById.has(replyPost.id)) {
         replyPostsById.set(replyPost.id, replyPost);
       }
     }
 
+    if (isQuotePost(node)) {
+      const quotePost = extractPostFromTweetNode(node, accountNormalized, {
+        includeRetweets: false,
+        includeReplies: false,
+        includeQuotes: true,
+      });
+      if (quotePost && !quotePostsById.has(quotePost.id)) {
+        quotePostsById.set(quotePost.id, quotePost);
+      }
+    }
+
     const post = extractPostFromTweetNode(node, accountNormalized, {
       includeRetweets,
       includeReplies,
+      includeQuotes,
     });
     if (!post) {
       continue;
@@ -411,6 +454,7 @@ export function parseUserTweetsGraphqlPayload(params: {
     },
     posts,
     replyPosts: sortAndLimitPosts(replyPostsById),
+    quotePosts: sortAndLimitPosts(quotePostsById),
   };
 }
 

@@ -1201,6 +1201,55 @@ export default function OnboardingPage() {
                         </p>
                       </article>
 
+                      <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">
+                          Quote Behavior
+                        </p>
+                        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Quotes Captured
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.quoteCount}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Activity Share
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.quoteShareOfCapturedActivity}%
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Dominant Opener
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.dominantQuotePattern
+                                ? formatEnumLabel(creatorProfile.quote.dominantQuotePattern)
+                                : "Unknown"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Length
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.averageQuoteLengthBand
+                                ? formatEnumLabel(creatorProfile.quote.averageQuoteLengthBand)
+                                : "Unknown"}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="mt-4 text-sm leading-6 text-zinc-300">
+                          {creatorProfile.quote.quoteUsageNote}
+                        </p>
+                      </article>
+
                       <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Recommended Angles
@@ -1256,7 +1305,7 @@ export default function OnboardingPage() {
                 ) : null}
               </section>
 
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
                   <p className="mt-1 text-sm font-semibold text-white">
@@ -1273,6 +1322,12 @@ export default function OnboardingPage() {
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Replies Captured</p>
                   <p className="mt-1 text-lg font-semibold text-white">
                     {result.data.replyPostSampleCount}
+                  </p>
+                </article>
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Quotes Captured</p>
+                  <p className="mt-1 text-lg font-semibold text-white">
+                    {result.data.quotePostSampleCount}
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">

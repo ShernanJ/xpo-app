@@ -123,8 +123,10 @@ export interface OnboardingResult {
   profile: XPublicProfile;
   recentPosts: XPublicPost[];
   recentReplyPosts: XPublicPost[];
+  recentQuotePosts: XPublicPost[];
   recentPostSampleCount: number;
   replyPostSampleCount: number;
+  quotePostSampleCount: number;
   analysisConfidence: AnalysisConfidence;
   baseline: EngagementBaseline;
   growthStage: GrowthStage;
@@ -292,6 +294,14 @@ export interface CreatorReplyProfile {
   replyUsageNote: string;
 }
 
+export interface CreatorQuoteProfile {
+  quoteCount: number;
+  quoteShareOfCapturedActivity: number;
+  averageQuoteLengthBand: LengthBand | null;
+  dominantQuotePattern: HookPattern | null;
+  quoteUsageNote: string;
+}
+
 export interface CreatorCurrentStateProfile {
   followerBand: GrowthStage;
   primaryArchetype: CreatorArchetype;
@@ -363,6 +373,7 @@ export interface CreatorProfile {
   performance: CreatorPerformanceProfile;
   execution: CreatorExecutionProfile;
   reply: CreatorReplyProfile;
+  quote: CreatorQuoteProfile;
   archetype: CreatorArchetype;
   secondaryArchetype: CreatorArchetype | null;
   archetypeConfidence: number;

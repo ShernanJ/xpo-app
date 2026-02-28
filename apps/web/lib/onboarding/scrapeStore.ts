@@ -11,6 +11,7 @@ export interface StoredScrapeCapture {
   profile: XPublicProfile;
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
+  quotePosts?: XPublicPost[];
   metadata: {
     source: "manual_import" | "agent";
     userAgent: string | null;
@@ -62,6 +63,7 @@ export async function persistScrapeCapture(params: {
   profile: XPublicProfile;
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
+  quotePosts?: XPublicPost[];
   source?: "manual_import" | "agent";
   userAgent: string | null;
 }): Promise<{ captureId: string; capturedAt: string }> {
@@ -80,6 +82,7 @@ export async function persistScrapeCapture(params: {
     },
     posts: params.posts,
     replyPosts: params.replyPosts ?? [],
+    quotePosts: params.quotePosts ?? [],
     metadata: {
       source: params.source ?? "manual_import",
       userAgent: params.userAgent,
