@@ -675,6 +675,37 @@ This matters because the system should know whether:
 - quotes are actually working as a commentary lever
 - the user should double down on those lanes or convert the best examples back into standalone posts
 
+### 14. Conversation Conversion Layer
+
+This layer should measure whether the account is actually converting original posts into conversations.
+
+This is different from simply counting replies.
+
+The system should capture:
+
+- average replies per original post
+- share of original posts that earn replies
+- conversation-starter rate
+- an author reply follow-through proxy
+- a conversation conversion score
+- readiness (`low`, `moderate`, `high`)
+- rationale
+
+This exists because the strongest X-native growth loops are conversation-driven, not just impression-driven.
+
+The product should be able to distinguish between:
+
+- posts that get passive engagement
+- posts that generate replies
+- posts that start threads the author can continue compounding
+
+That conversation-conversion read should directly influence:
+
+- strategy angles
+- next moves
+- distribution-loop trust
+- later planner/writer behavior
+
 ## Input Sources
 
 The creator profile should be built from two categories of inputs.
