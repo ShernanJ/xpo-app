@@ -971,6 +971,8 @@ export default function ChatPage() {
           `Use this exact angle as the basis for 2-3 real X post drafts: "${angle}"`,
           "Keep the subject concrete and preserve my real voice.",
           "Write in a casual, lowercase, natural way unless the angle clearly needs otherwise.",
+          'A good shape is something blunt like: "been building this project to help people draft x posts easier, thoughts?"',
+          "Prefer one short first-person thought over a polished multi-sentence explanation.",
           "Do not turn this into corporate advice, generic startup bait, or fake engagement farming.",
           'If a simple ending like "thoughts?" fits naturally, prefer that over a formal CTA.',
           "Recommend the best asset to pair with the post.",

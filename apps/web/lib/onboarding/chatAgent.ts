@@ -401,6 +401,7 @@ function buildPlannerSystemPrompt(params: {
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
     `Primary angle: ${contract.planner.primaryAngle}.`,
+    "If the user wants ideas, plan in concrete post premises, not content-marketing category labels.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -508,6 +509,7 @@ function buildWriterSystemPrompt(params: {
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
     "If the anchors are casual, lowercase, clipped, or slangy, keep that character in the drafts.",
+    "When the current user message is explicit about the topic, use the anchors for syntax and tone only, not for changing the subject.",
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
     "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
@@ -518,6 +520,13 @@ function buildWriterSystemPrompt(params: {
     intent === "ideate"
       ? "Each angle should feel like a believable post direction the user could actually say, not a generic instruction like 'share a recent win'."
       : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
+    intent === "ideate"
+      ? "Angles should read like rough post premises or one-liners. Do not output category labels or gerund openers like 'sharing...', 'discussing...', 'highlighting...', or 'talking about...'."
+      : "At least one draft should feel blunt and native to X, like something the user would text to the timeline, not a polished content exercise.",
+    "A strong target shape for this user is a clipped lowercase line like: 'been building this project to help people draft x posts easier, thoughts?'",
+    "Prefer that kind of sentence rhythm when it fits: first-person, concrete, casual, one thought, then a simple ending.",
+    "Avoid bland filler phrases like 'major milestone', 'currently working on', 'excited to share', 'for a while now', 'valuable insights', 'connect with your audience', or 'establish authority'.",
+    "Avoid vague motivational framing unless the user explicitly asked for it.",
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
     `Objective: ${planner.objective}.`,
@@ -548,6 +557,9 @@ function buildCriticSystemPrompt(params: {
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
     "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
     "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
+    "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
+    "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
+    "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
     "The final drafts should feel like the user's own tone with stronger strategy, not a different person.",
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
