@@ -286,6 +286,48 @@ This should directly shape:
 - next moves
 - later planner/writer behavior
 
+### Playbook Layer
+
+This is the executable style card the product should derive from the creator model before any LLM writes a post.
+
+It should capture:
+
+- the content contract
+- tone guidelines
+- preferred content types
+- preferred hook patterns
+- CTA policy
+- cadence
+- conversation tactic
+- experiment focus
+
+This layer turns the creator model from:
+
+- descriptive
+
+into:
+
+- operational
+
+The playbook should be derived deterministically from:
+
+- archetype
+- goal
+- distribution loop
+- transformation mode
+- current interaction behavior
+
+It should answer:
+
+- what should this person reliably post
+- how should it sound
+- what hooks should be tested first
+- how often should they post and reply
+- how should they create conversations
+- what should they experiment with next
+
+This is the layer the future planner/writer model should follow most directly.
+
 ### 7. Strategy Layer
 
 This is where the scraped behavior and user goal meet.
