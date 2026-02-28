@@ -2,6 +2,7 @@ import { buildCreatorAgentContext, type CreatorAgentContext } from "./agentConte
 import {
   buildCreatorGenerationContract,
   type CreatorGenerationContract,
+  type CreatorGenerationOutputShape,
 } from "./generationContract";
 import type { OnboardingResult } from "./types";
 
@@ -51,6 +52,7 @@ export interface CreatorChatReplyResult {
   angles: string[];
   drafts: string[];
   supportAsset: string | null;
+  outputShape: CreatorGenerationOutputShape | "ideation_angles";
   whyThisWorks: string[];
   watchOutFor: string[];
   source: ChatModelProvider | "deterministic";
@@ -78,6 +80,7 @@ function buildDeterministicFallback(params: {
   userMessage: string;
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
+  selectedAngle?: string | null;
 }): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
   const { context, contract } = params;
 
@@ -87,6 +90,7 @@ function buildDeterministicFallback(params: {
       angles: [],
       drafts: [],
       supportAsset: null,
+      outputShape: contract.planner.outputShape,
       whyThisWorks: [],
       watchOutFor: [
         "Wait for the sample to deepen before relying on generated drafts.",
@@ -107,6 +111,7 @@ function buildDeterministicFallback(params: {
       drafts: [],
       supportAsset:
         "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
+      outputShape: "ideation_angles",
       whyThisWorks: [
         "It separates planning from final post writing.",
         "It keeps the next move anchored to a specific content focus instead of generic posting advice.",
@@ -131,11 +136,14 @@ function buildDeterministicFallback(params: {
     )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
     angles: [],
     drafts: [
-      `${topHook}: ${contract.planner.primaryAngle}`,
-      `${topType} version: ${params.userMessage}. ${contract.planner.primaryAngle}`,
+      params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+      `${topType} version: ${
+        params.selectedAngle?.trim() || params.userMessage
+      }`,
     ],
     supportAsset:
       "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+    outputShape: contract.planner.outputShape,
     whyThisWorks: [
       "It stays inside the deterministic lane, hook, and angle constraints.",
       "It keeps the draft aligned to the strongest current strategy signal.",
@@ -401,6 +409,7 @@ function buildPlannerSystemPrompt(params: {
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
     `Primary angle: ${contract.planner.primaryAngle}.`,
+    `Required output shape: ${contract.planner.outputShape}.`,
     "If the user wants ideas, plan in concrete post premises, not content-marketing category labels.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
@@ -489,14 +498,100 @@ function inferUserMessageVoiceHints(userMessage: string): string {
   ].join("\n");
 }
 
+function buildFormFactorGuidance(
+  context: CreatorAgentContext,
+  intent: CreatorChatIntent,
+): string[] {
+  const isLongFormAuthority =
+    context.creatorProfile.identity.isVerified ||
+    context.creatorProfile.voice.averageLengthBand === "long" ||
+    context.creatorProfile.playbook.cadence.threadBias === "high";
+
+  if (isLongFormAuthority) {
+    return [
+      "This creator can support longer-form, thesis-led X posts.",
+      "Prefer strong point-of-view, specific claims, concrete numbers, and multi-line structure when useful.",
+      "Do not default to shallow reply-bait or generic questions at the end. A confident closing statement is often stronger.",
+      intent === "ideate"
+        ? "Angles should read like concrete theses, founder lessons, or sharp stances, not beginner prompts."
+        : "At least one draft can be longer and more structured if that better matches the creator's actual style.",
+    ];
+  }
+
+  if (
+    context.creatorProfile.voice.primaryCasing === "lowercase" ||
+    context.creatorProfile.voice.lowercaseSharePercent >= 60
+  ) {
+    return [
+      "Prefer clipped lowercase wording, loose syntax, and casual internet-native phrasing.",
+      "Short blunt lines are better than polished explanatory copy.",
+      context.creatorProfile.voice.questionPostRate <= 20
+        ? "Only use a closer like 'thoughts?' if it fits naturally. Do not force a question ending."
+        : "A simple closer like 'thoughts?' can work if it sounds natural.",
+    ];
+  }
+
+  return [
+    "Match the creator's observed sentence length and structure instead of forcing a default platform style.",
+    "Do not force a question ending if the creator does not naturally write that way.",
+  ];
+}
+
+function buildOutputShapeGuidance(
+  outputShape: CreatorGenerationOutputShape,
+  intent: CreatorChatIntent,
+): string[] {
+  if (intent === "ideate") {
+    return [
+      "For ideation, return angles only. Do not return finished drafts.",
+      "Angles should still reflect the preferred output shape the creator is best suited for.",
+    ];
+  }
+
+  switch (outputShape) {
+    case "reply_candidate":
+      return [
+        "Return compact reply-sized drafts only.",
+        "Each draft should feel conversational and naturally continue someone else's thread.",
+      ];
+    case "quote_candidate":
+      return [
+        "Return quote-friendly drafts that still stand on their own as a clear take.",
+        "The draft should be concise enough to work as commentary on another post.",
+      ];
+    case "thread_seed":
+      return [
+        "Return stronger thesis-led drafts that can expand into a thread.",
+        "Multi-line structure is allowed when it helps clarity and matches the creator.",
+      ];
+    case "long_form_post":
+      return [
+        "Return longer-form drafts with a clear thesis, proof, and stronger point of view.",
+        "Do not force a shallow question ending when a confident close is stronger.",
+      ];
+    case "short_form_post":
+    default:
+      return [
+        "Return short, punchy standalone drafts.",
+        "One concrete thought is better than a polished mini-essay.",
+      ];
+  }
+}
+
 function buildWriterSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
   planner: PlannerOutput;
   intent: CreatorChatIntent;
   contentFocus: string | null;
+  selectedAngle: string | null;
 }): string {
-  const { context, contract, planner, intent, contentFocus } = params;
+  const { context, contract, planner, intent, contentFocus, selectedAngle } = params;
+  const formFactorGuidance = buildFormFactorGuidance(context, intent);
+  const outputShapeGuidance = buildOutputShapeGuidance(
+    contract.planner.outputShape,
+    intent,
+  );
 
   return [
     "You are the writer for an X growth assistant.",
@@ -513,6 +608,9 @@ function buildWriterSystemPrompt(params: {
     "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
     "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
     "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
+    selectedAngle
+      ? `A structured angle was explicitly selected by the user. Preserve it as the central premise: ${selectedAngle}`
+      : "No structured angle was explicitly selected.",
     "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
     intent === "ideate"
       ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize 2-4 concrete, X-native angles written in the user's voice, and leave drafts empty."
@@ -527,13 +625,18 @@ function buildWriterSystemPrompt(params: {
     "Prefer that kind of sentence rhythm when it fits: first-person, concrete, casual, one thought, then a simple ending.",
     "Avoid bland filler phrases like 'major milestone', 'currently working on', 'excited to share', 'for a while now', 'valuable insights', 'connect with your audience', or 'establish authority'.",
     "Avoid vague motivational framing unless the user explicitly asked for it.",
+    ...formFactorGuidance,
+    ...outputShapeGuidance,
     `Generation mode: ${contract.mode}.`,
     `Target lane: ${planner.targetLane}.`,
+    `Required output shape: ${contract.planner.outputShape}.`,
     `Objective: ${planner.objective}.`,
     `Primary angle: ${planner.angle}.`,
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
+    "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
+    "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
@@ -544,8 +647,14 @@ function buildCriticSystemPrompt(params: {
   context: CreatorAgentContext;
   intent: CreatorChatIntent;
   contentFocus: string | null;
+  selectedAngle: string | null;
 }): string {
-  const { contract, context, intent, contentFocus } = params;
+  const { contract, context, intent, contentFocus, selectedAngle } = params;
+  const formFactorGuidance = buildFormFactorGuidance(context, intent);
+  const outputShapeGuidance = buildOutputShapeGuidance(
+    contract.planner.outputShape,
+    intent,
+  );
 
   return [
     "You are the critic for an X growth assistant.",
@@ -560,9 +669,17 @@ function buildCriticSystemPrompt(params: {
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
     "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
+    ...formFactorGuidance,
+    "Reject generic 'why this works' bullets like 'connects with the audience' or 'establishes authority' when they are not specific to the actual content.",
+    "Reject generic 'watch out for' bullets like 'keep it concise' unless they are specifically justified by the draft.",
+    selectedAngle
+      ? `The final result must preserve the user's selected angle as the central premise: ${selectedAngle}`
+      : "No structured angle was explicitly selected.",
     "The final drafts should feel like the user's own tone with stronger strategy, not a different person.",
+    ...outputShapeGuidance,
     `Generation mode: ${contract.mode}.`,
     `Checklist: ${contract.critic.checklist.join(" | ")}`,
+    `Required output shape: ${contract.planner.outputShape}.`,
     `Readiness status: ${context.readiness.status}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
     "Return only valid JSON that follows the provided schema.",
@@ -577,6 +694,7 @@ export async function generateCreatorChatReply(params: {
   provider?: ChatModelProvider;
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
+  selectedAngle?: string | null;
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
@@ -594,6 +712,7 @@ export async function generateCreatorChatReply(params: {
     userMessage: params.userMessage,
     intent: params.intent,
     contentFocus: params.contentFocus,
+    selectedAngle: params.selectedAngle ?? null,
   });
 
   if (contract.mode === "analysis_only") {
@@ -632,6 +751,7 @@ export async function generateCreatorChatReply(params: {
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${
         extractConcreteSubject(params.userMessage) ?? "none"
       }`,
@@ -666,6 +786,16 @@ export async function generateCreatorChatReply(params: {
       required: ["objective", "angle", "targetLane", "mustInclude", "mustAvoid"],
     },
   });
+  const effectivePlanner: PlannerOutput = {
+    ...planner,
+    angle: params.selectedAngle?.trim() || planner.angle,
+    mustInclude: params.selectedAngle?.trim()
+      ? [
+          `Preserve selected angle: ${params.selectedAngle.trim()}`,
+          ...planner.mustInclude,
+        ].slice(0, 4)
+      : planner.mustInclude,
+  };
 
   params.onProgress?.("writing");
   const writer = await callProviderJson<WriterOutput>({
@@ -673,14 +803,16 @@ export async function generateCreatorChatReply(params: {
     system: buildWriterSystemPrompt({
       context,
       contract,
-      planner,
+      planner: effectivePlanner,
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
+      selectedAngle: params.selectedAngle?.trim() || null,
     }),
     user: [
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${
         extractConcreteSubject(params.userMessage) ?? "none"
       }`,
@@ -709,11 +841,11 @@ export async function generateCreatorChatReply(params: {
       `Voice guidelines: ${contract.writer.voiceGuidelines.join(" | ")}`,
       `Must include: ${[
         ...contract.writer.mustInclude,
-        ...planner.mustInclude,
+        ...effectivePlanner.mustInclude,
       ].join(" | ")}`,
       `Must avoid: ${[
         ...contract.writer.mustAvoid,
-        ...planner.mustAvoid,
+        ...effectivePlanner.mustAvoid,
       ].join(" | ")}`,
     ].join("\n\n"),
     schemaName: "creator_writer_output",
@@ -765,11 +897,13 @@ export async function generateCreatorChatReply(params: {
       context,
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
+      selectedAngle: params.selectedAngle?.trim() || null,
     }),
     user: [
       `User request: ${params.userMessage}`,
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${
         extractConcreteSubject(params.userMessage) ?? "none"
       }`,
@@ -848,6 +982,8 @@ export async function generateCreatorChatReply(params: {
         : sanitizeStringList(critic.finalDrafts, 3, writer.drafts),
     supportAsset:
       (critic.finalSupportAsset || writer.supportAsset).trim() || null,
+    outputShape:
+      intent === "ideate" ? "ideation_angles" : contract.planner.outputShape,
     whyThisWorks: sanitizeStringList(
       critic.finalWhyThisWorks,
       3,

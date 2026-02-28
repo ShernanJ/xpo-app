@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
@@ -59,6 +60,13 @@ interface CreatorChatSuccess {
     angles: string[];
     drafts: string[];
     supportAsset: string | null;
+    outputShape:
+      | "ideation_angles"
+      | "short_form_post"
+      | "long_form_post"
+      | "thread_seed"
+      | "reply_candidate"
+      | "quote_candidate";
     whyThisWorks: string[];
     watchOutFor: string[];
     source: "openai" | "groq" | "deterministic";
@@ -373,6 +381,7 @@ function buildDeterministicReply(
   options?: {
     intent?: ChatIntent;
     contentFocus?: ChatContentFocus | null;
+    selectedAngle?: string | null;
   },
 ): Omit<ChatMessage, "id" | "role"> {
   const topHook = contract.planner.suggestedHookPatterns[0]
@@ -430,8 +439,10 @@ function buildDeterministicReply(
     content: `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`,
     angles: [],
     drafts: [
-      `${topHook}: ${contract.planner.primaryAngle}`,
-      `${topType} angle: ${contract.planner.primaryAngle}`,
+      options?.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+      `${topType} angle: ${
+        options?.selectedAngle?.trim() || contract.planner.primaryAngle
+      }`,
     ],
     supportAsset:
       "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
@@ -744,6 +755,7 @@ export default function ChatPage() {
       prompt: string;
       appendUserMessage: boolean;
       displayUserMessage?: string;
+      selectedAngle?: string | null;
       intent?: ChatIntent;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
@@ -804,6 +816,7 @@ export default function ChatPage() {
             stream: true,
             intent: options.intent ?? "draft",
             contentFocus: resolvedContentFocus,
+            selectedAngle: options.selectedAngle ?? null,
             ...resolvedStrategyInputs,
           }),
         });
@@ -822,6 +835,7 @@ export default function ChatPage() {
                     angles: [],
                     drafts: [],
                     supportAsset: null,
+                    outputShape: "short_form_post" as const,
                     whyThisWorks: [],
                     watchOutFor: [],
                     source: "deterministic" as const,
@@ -929,6 +943,7 @@ export default function ChatPage() {
         const fallback = buildDeterministicReply(resolvedContext, resolvedContract, {
           intent: options.intent,
           contentFocus: resolvedContentFocus,
+          selectedAngle: options.selectedAngle ?? null,
         });
         setMessages((current) => [
           ...current,
@@ -967,17 +982,9 @@ export default function ChatPage() {
       }
 
       await requestAssistantReply({
-        prompt: [
-          `Use this exact angle as the basis for 2-3 real X post drafts: "${angle}"`,
-          "Keep the subject concrete and preserve my real voice.",
-          "Write in a casual, lowercase, natural way unless the angle clearly needs otherwise.",
-          'A good shape is something blunt like: "been building this project to help people draft x posts easier, thoughts?"',
-          "Prefer one short first-person thought over a polished multi-sentence explanation.",
-          "Do not turn this into corporate advice, generic startup bait, or fake engagement farming.",
-          'If a simple ending like "thoughts?" fits naturally, prefer that over a formal CTA.',
-          "Recommend the best asset to pair with the post.",
-        ].join(" "),
+        prompt: "Turn this angle into real X drafts.",
         displayUserMessage: `use this angle: ${angle}`,
+        selectedAngle: angle,
         appendUserMessage: true,
         intent: "draft",
         strategyInputOverride: activeStrategyInputs,
@@ -1130,6 +1137,24 @@ export default function ChatPage() {
             sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
           }`}
         >
+          <div className="px-3 pt-3">
+            <Link
+              href="/"
+              className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition hover:bg-white/[0.04] ${
+                sidebarOpen ? "justify-start" : "justify-center"
+              }`}
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-sm font-semibold tracking-[0.18em] text-white">
+                X
+              </span>
+              {sidebarOpen ? (
+                <span className="text-sm font-semibold tracking-[0.18em] text-white">
+                  Xpo
+                </span>
+              ) : null}
+            </Link>
+          </div>
+
           <div className="flex items-center justify-between px-4 py-4">
             <button
               type="button"

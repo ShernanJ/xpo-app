@@ -1,7 +1,7 @@
 import { buildCreatorAgentContext } from "./agentContext";
 import type { CreatorRepresentativePost, OnboardingResult } from "./types";
 
-export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v2";
+export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v3";
 
 export type CreatorGenerationStageMode =
   | "full_generation"
@@ -10,11 +10,19 @@ export type CreatorGenerationStageMode =
 
 export type CreatorGenerationTargetLane = "original" | "reply" | "quote";
 
+export type CreatorGenerationOutputShape =
+  | "short_form_post"
+  | "long_form_post"
+  | "thread_seed"
+  | "reply_candidate"
+  | "quote_candidate";
+
 export interface CreatorPlannerContract {
   mode: CreatorGenerationStageMode;
   objective: string;
   primaryAngle: string;
   targetLane: CreatorGenerationTargetLane;
+  outputShape: CreatorGenerationOutputShape;
   suggestedContentTypes: string[];
   suggestedHookPatterns: string[];
   strategyDeltaSummary: string;
@@ -63,6 +71,32 @@ function pickTargetLane(
   return "original";
 }
 
+function pickOutputShape(
+  creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
+  targetLane: CreatorGenerationTargetLane,
+): CreatorGenerationOutputShape {
+  if (targetLane === "reply") {
+    return "reply_candidate";
+  }
+
+  if (targetLane === "quote") {
+    return "quote_candidate";
+  }
+
+  if (creatorProfile.playbook.cadence.threadBias === "high") {
+    return "thread_seed";
+  }
+
+  if (
+    creatorProfile.identity.isVerified ||
+    creatorProfile.voice.averageLengthBand === "long"
+  ) {
+    return "long_form_post";
+  }
+
+  return "short_form_post";
+}
+
 function summarizeAdjustments(
   adjustments: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"]["strategy"]["delta"]["adjustments"],
 ): string {
@@ -97,6 +131,7 @@ export function buildCreatorGenerationContract(params: {
   });
   const { creatorProfile } = context;
   const targetLane = pickTargetLane(creatorProfile.distribution.primaryLoop);
+  const outputShape = pickOutputShape(creatorProfile, targetLane);
   const mode = context.readiness.recommendedMode;
   const blockedReasons =
     mode === "analysis_only" ? context.readiness.reasons.slice(0, 3) : [];
@@ -194,6 +229,7 @@ export function buildCreatorGenerationContract(params: {
             : `Plan one ${targetLane} draft that advances ${creatorProfile.strategy.primaryGoal}.`,
       primaryAngle,
       targetLane,
+      outputShape,
       suggestedContentTypes: creatorProfile.playbook.preferredContentTypes,
       suggestedHookPatterns: creatorProfile.playbook.preferredHookPatterns,
       strategyDeltaSummary: summarizeAdjustments(creatorProfile.strategy.delta.adjustments),

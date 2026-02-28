@@ -15,6 +15,7 @@ interface CreatorChatMessageInput {
 interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
   message?: unknown;
+  selectedAngle?: unknown;
   history?: unknown;
   provider?: unknown;
   intent?: unknown;
@@ -56,6 +57,10 @@ export async function POST(request: Request) {
 
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  const selectedAngle =
+    typeof body.selectedAngle === "string" && body.selectedAngle.trim().length > 0
+      ? body.selectedAngle.trim()
+      : null;
   const provider =
     body.provider === "openai" || body.provider === "groq"
       ? body.provider
@@ -80,11 +85,16 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!message) {
+  if (!message && !selectedAngle) {
     return NextResponse.json(
       {
         ok: false,
-        errors: [{ field: "message", message: "message is required." }],
+        errors: [
+          {
+            field: "message",
+            message: "Either message or selectedAngle is required.",
+          },
+        ],
       },
       { status: 400 },
     );
@@ -147,6 +157,7 @@ export async function POST(request: Request) {
               provider,
               intent,
               contentFocus,
+              selectedAngle,
               onProgress: (phase) => {
                 if (phase === lastPhase) {
                   return;
@@ -195,6 +206,7 @@ export async function POST(request: Request) {
       provider,
       intent,
       contentFocus,
+      selectedAngle,
     });
 
     return NextResponse.json(
