@@ -1,0 +1,576 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
+import { XShell } from "@/components/x-shell";
+import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
+
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+interface CreatorAgentContextSuccess {
+  ok: true;
+  data: CreatorAgentContext;
+}
+
+interface CreatorAgentContextFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type CreatorAgentContextResponse = CreatorAgentContextSuccess | CreatorAgentContextFailure;
+
+interface CreatorGenerationContractSuccess {
+  ok: true;
+  data: CreatorGenerationContract;
+}
+
+interface CreatorGenerationContractFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type CreatorGenerationContractResponse =
+  | CreatorGenerationContractSuccess
+  | CreatorGenerationContractFailure;
+
+interface BackfillJobStatusResponse {
+  ok: true;
+  job: {
+    jobId: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    lastError: string | null;
+  } | null;
+}
+
+interface ChatMessage {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+}
+
+const compactNumberFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function formatCompactNumber(value: number): string {
+  return compactNumberFormatter.format(value);
+}
+
+function formatEnumLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function buildInitialAssistantMessage(
+  context: CreatorAgentContext,
+  contract: CreatorGenerationContract,
+): string {
+  const angle = contract.planner.primaryAngle;
+  const loop = formatEnumLabel(context.creatorProfile.distribution.primaryLoop);
+  const niche = formatEnumLabel(context.creatorProfile.niche.primaryNiche);
+
+  if (contract.mode === "analysis_only") {
+    return `I analyzed @${context.account}. Your current model is not strong enough for reliable drafting yet. You're trending ${formatEnumLabel(
+      context.creatorProfile.archetype,
+    )} in ${niche}, but we should stay in analysis mode until the sample deepens.`;
+  }
+
+  return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
+    context.creatorProfile.archetype,
+  )} in ${niche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
+}
+
+function buildDeterministicReply(
+  context: CreatorAgentContext,
+  contract: CreatorGenerationContract,
+): string {
+  const topHook = contract.planner.suggestedHookPatterns[0]
+    ? formatEnumLabel(contract.planner.suggestedHookPatterns[0])
+    : "Statement Open";
+  const topType = contract.planner.suggestedContentTypes[0]
+    ? formatEnumLabel(contract.planner.suggestedContentTypes[0])
+    : "Single Line";
+
+  if (contract.mode === "analysis_only") {
+    return `Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.`;
+  }
+
+  return `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`;
+}
+
+export default function ChatPage() {
+  const searchParams = useSearchParams();
+  const runId = searchParams.get("runId")?.trim() ?? "";
+  const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
+
+  const [context, setContext] = useState<CreatorAgentContext | null>(null);
+  const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draftInput, setDraftInput] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
+
+  const loadWorkspace = useCallback(async () => {
+    if (!runId) {
+      setErrorMessage("Missing runId. Start from the landing page.");
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const [contextResponse, contractResponse] = await Promise.all([
+        fetch("/api/creator/context", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId }),
+        }),
+        fetch("/api/creator/generation-contract", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId }),
+        }),
+      ]);
+
+      const contextData: CreatorAgentContextResponse = await contextResponse.json();
+      const contractData: CreatorGenerationContractResponse = await contractResponse.json();
+
+      if (!contextResponse.ok || !contextData.ok) {
+        setErrorMessage(
+          contextData.ok
+            ? "Failed to load the creator context."
+            : (contextData.errors[0]?.message ?? "Failed to load the creator context."),
+        );
+        return;
+      }
+
+      if (!contractResponse.ok || !contractData.ok) {
+        setErrorMessage(
+          contractData.ok
+            ? "Failed to load the generation contract."
+            : (contractData.errors[0]?.message ?? "Failed to load the generation contract."),
+        );
+        return;
+      }
+
+      setContext(contextData.data);
+      setContract(contractData.data);
+    } catch {
+      setErrorMessage("Network error while loading the chat workspace.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    void loadWorkspace();
+  }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (!context || !contract || messages.length > 0) {
+      return;
+    }
+
+    setMessages([
+      {
+        id: "assistant-initial",
+        role: "assistant",
+        content: buildInitialAssistantMessage(context, contract),
+      },
+    ]);
+  }, [context, contract, messages.length]);
+
+  useEffect(() => {
+    if (!backfillJobId) {
+      return;
+    }
+
+    let cancelled = false;
+    let finished = false;
+
+    async function pollBackfillJob() {
+      if (finished) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/onboarding/backfill/jobs?jobId=${encodeURIComponent(backfillJobId)}`,
+          { method: "GET" },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data: BackfillJobStatusResponse = await response.json();
+        const job = data.job;
+        if (!job || cancelled) {
+          return;
+        }
+
+        if (job.status === "pending") {
+          setBackfillNotice("Background backfill is queued.");
+          return;
+        }
+
+        if (job.status === "processing") {
+          setBackfillNotice("Background backfill is deepening the model.");
+          return;
+        }
+
+        if (job.status === "failed") {
+          setBackfillNotice(
+            job.lastError
+              ? `Background backfill failed: ${job.lastError}`
+              : "Background backfill failed.",
+          );
+          finished = true;
+          return;
+        }
+
+        if (job.status === "completed") {
+          setBackfillNotice("Background backfill completed. Context refreshed.");
+          await loadWorkspace();
+          finished = true;
+        }
+      } catch {
+        // Keep polling on transient failures.
+      }
+    }
+
+    void pollBackfillJob();
+    const interval = window.setInterval(() => {
+      void pollBackfillJob();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [backfillJobId, loadWorkspace]);
+
+  const summaryChips = useMemo(() => {
+    if (!context) {
+      return [];
+    }
+
+    return [
+      `Archetype: ${formatEnumLabel(context.creatorProfile.archetype)}`,
+      `Niche: ${formatEnumLabel(context.creatorProfile.niche.primaryNiche)}`,
+      `Loop: ${formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}`,
+      `Readiness: ${formatEnumLabel(context.readiness.status)}`,
+    ];
+  }, [context]);
+
+  function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedInput = draftInput.trim();
+    if (!trimmedInput || !context || !contract) {
+      return;
+    }
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: trimmedInput,
+      },
+      {
+        id: `assistant-${Date.now() + 1}`,
+        role: "assistant",
+        content: buildDeterministicReply(context, contract),
+      },
+    ]);
+    setDraftInput("");
+  }
+
+  return (
+    <XShell>
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-6 px-6 py-8 sm:py-10">
+        <header className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-500">
+                X Strategy Chat
+              </p>
+              <h1 className="font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                Keep the analysis. Shift the surface to action.
+              </h1>
+              <p className="max-w-2xl text-sm leading-7 text-zinc-400">
+                The agent uses the scrape-backed model as context. The full breakdown stays behind
+                the analysis drawer, not the main flow.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {summaryChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400"
+                >
+                  {chip}
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={() => setAnalysisOpen(true)}
+                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.08]"
+              >
+                View Analysis
+              </button>
+            </div>
+          </div>
+
+          {backfillNotice ? (
+            <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.2em] text-emerald-400">
+              {backfillNotice}
+            </p>
+          ) : null}
+        </header>
+
+        <section className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-h-[560px] flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.03] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+            <div className="border-b border-white/10 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
+                Workspace
+              </p>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+              {isLoading ? (
+                <div className="rounded-3xl border border-white/10 bg-black/30 p-5 text-sm text-zinc-400">
+                  Loading the agent context...
+                </div>
+              ) : errorMessage ? (
+                <div className="rounded-3xl border border-rose-400/30 bg-rose-400/10 p-5 text-sm text-rose-200">
+                  {errorMessage}
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`max-w-[85%] rounded-3xl px-4 py-3 text-sm leading-7 ${
+                      message.role === "assistant"
+                        ? "border border-white/10 bg-white/[0.04] text-zinc-100"
+                        : "ml-auto border border-white/10 bg-white text-black"
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form
+              onSubmit={handleComposerSubmit}
+              className="border-t border-white/10 px-5 py-4"
+            >
+              <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/30 p-3">
+                <textarea
+                  value={draftInput}
+                  onChange={(event) => setDraftInput(event.target.value)}
+                  placeholder="Ask for a draft, a reply angle, or a tighter growth plan..."
+                  className="min-h-[110px] w-full resize-none bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+                    LLM wiring is next. This route already uses the deterministic contract.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={!context || !contract || !draftInput.trim()}
+                    className="rounded-full border border-white/10 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-black disabled:cursor-not-allowed disabled:bg-zinc-500"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <aside className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
+              Working Model
+            </p>
+
+            {context ? (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Context Readiness
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-white">
+                    {context.readiness.score}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
+                    {formatEnumLabel(context.readiness.recommendedMode)}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Total Captured
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-white">
+                    {formatCompactNumber(context.confidence.sampleSize)}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
+                    {formatEnumLabel(context.confidence.sampleBand)}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Primary Angle
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-zinc-200">
+                    {contract?.planner.primaryAngle ?? "Waiting for the generation contract."}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-3xl border border-white/10 bg-black/30 p-4 text-sm text-zinc-500">
+                Load a run to see the working model.
+              </div>
+            )}
+          </aside>
+        </section>
+      </div>
+
+      {analysisOpen && context ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 px-4 py-8">
+          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#070707] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.6)]">
+            <button
+              type="button"
+              onClick={() => setAnalysisOpen(false)}
+              className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white"
+            >
+              Close
+            </button>
+
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
+                  Analysis Drawer
+                </p>
+                <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
+                  The full model stays here.
+                </h2>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {formatEnumLabel(context.creatorProfile.archetype)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {formatEnumLabel(context.creatorProfile.niche.primaryNiche)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {context.readiness.score}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                    Strategy Delta
+                  </p>
+                  <p className="mt-3 text-sm font-medium text-white">
+                    {context.strategyDelta.primaryGap}
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
+                      <li key={`${item.area}-${item.direction}`}>
+                        {formatEnumLabel(item.direction)} {formatEnumLabel(item.area)} ({formatEnumLabel(item.priority)})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                    Confidence
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    <li>Sample: {context.confidence.sampleSize} posts</li>
+                    <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
+                    <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
+                    <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                    Positive Anchors
+                  </p>
+                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                    {context.positiveAnchors.slice(0, 4).map((post) => (
+                      <li key={post.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                        </p>
+                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                    Negative Anchors
+                  </p>
+                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                    {context.negativeAnchors.slice(0, 4).map((post) => (
+                      <li key={post.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                        </p>
+                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </XShell>
+  );
+}
