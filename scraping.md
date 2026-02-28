@@ -222,6 +222,34 @@ This is the local persistence layer used by the current MVP.
 
 ## 5. Planned Async Enrichment Scrape
 
+## 5. Background Onboarding Backfill
+
+Onboarding should stay fast.
+Deeper history should be filled in asynchronously.
+
+Current behavior:
+
+- after onboarding completes, if the sample is still below the recommended depth, the app can queue a backfill job
+- that backfill job is persisted separately from the onboarding run
+- a separate worker should process those jobs outside the user-facing request path
+
+The current MVP implementation is queue-ready:
+
+- onboarding enqueues the job
+- a dedicated processor endpoint can claim and run the next job
+
+Worker entrypoint:
+
+- `POST /api/onboarding/backfill/process`
+
+This is intentionally separate from the main onboarding request.
+In production, this should be driven by a real background worker or scheduler, not by the main web request thread.
+
+Backfill uses the same HTTP scraper and parser stack as onboarding.
+It only increases scrape depth; it does not introduce a second scraping implementation.
+
+## 6. Planned Async Enrichment Scrape
+
 There is a second scrape lane planned beyond onboarding.
 
 Purpose:
