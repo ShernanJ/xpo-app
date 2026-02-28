@@ -117,6 +117,42 @@ function getPostEngagementTotal(metrics: XPublicPost["metrics"]): number {
   return metrics.likeCount + metrics.replyCount + metrics.repostCount + metrics.quoteCount;
 }
 
+function getTransformationOverviewTitle(
+  strategyState: OnboardingResult["strategyState"],
+): string {
+  if (strategyState.transformationMode === "preserve") {
+    return "High-ROI signals to protect what already works.";
+  }
+
+  if (strategyState.transformationMode === "pivot_soft") {
+    return "High-ROI signals to guide a gradual pivot.";
+  }
+
+  if (strategyState.transformationMode === "pivot_hard") {
+    return "High-ROI signals to support a cleaner repositioning.";
+  }
+
+  return "High-ROI signals from your recent posts.";
+}
+
+function getTransformationNextMoveLabel(
+  strategyState: OnboardingResult["strategyState"],
+): string {
+  if (strategyState.transformationMode === "preserve") {
+    return "Protect What Works";
+  }
+
+  if (strategyState.transformationMode === "pivot_soft") {
+    return "Soft Pivot";
+  }
+
+  if (strategyState.transformationMode === "pivot_hard") {
+    return "Hard Pivot";
+  }
+
+  return "Next Move";
+}
+
 function getProfileInitials(name: string, username: string): string {
   const parts = name
     .trim()
@@ -443,6 +479,12 @@ export default function OnboardingPage() {
   const bestFormat = successResult?.data.bestFormats[0] ?? null;
   const weakestFormat = successResult?.data.underperformingFormats[0] ?? null;
   const strongestHook = successResult?.data.hookPatterns[0] ?? null;
+  const overviewTitle = successResult
+    ? getTransformationOverviewTitle(successResult.data.strategyState)
+    : "High-ROI signals from your recent posts.";
+  const nextMoveLabel = successResult
+    ? getTransformationNextMoveLabel(successResult.data.strategyState)
+    : "Next Move";
 
   if (isLoading) {
     return (
@@ -780,7 +822,7 @@ export default function OnboardingPage() {
                     Quick Overview
                   </p>
                   <h2 className="text-2xl font-semibold tracking-tight text-white">
-                    High-ROI signals from your recent posts.
+                    {overviewTitle}
                   </h2>
                 </div>
 
@@ -831,7 +873,9 @@ export default function OnboardingPage() {
                     </p>
                   </article>
                   <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">Next Move</p>
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">
+                      {nextMoveLabel}
+                    </p>
                     <p className="mt-2 text-sm font-medium text-zinc-100">
                       {result.data.strategyState.rationale}
                     </p>
