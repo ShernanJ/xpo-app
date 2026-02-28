@@ -227,7 +227,48 @@ It should expose:
 
 That allows downstream systems to treat weak classifications more cautiously.
 
-### 6. Execution Layer
+### 6. Niche Overlay Layer
+
+This is the domain the account operates in.
+
+It should be distinct from archetype.
+
+- archetype = how the account behaves
+- niche overlay = what domain the account serves
+
+This layer should be domain-coded, not behavior-coded.
+
+Examples:
+
+- artificial intelligence
+- software and product
+- startups and growth
+- career and hiring
+- finance and investing
+- fitness and health
+- design and creative
+- policy and society
+- media and creators
+
+The niche layer should expose:
+
+- primary niche
+- secondary niche
+- niche confidence
+- likely offer
+- offer signals
+- audience intent
+- rationale
+
+This exists so the system can distinguish between:
+
+- a founder archetype in B2B SaaS
+- a founder archetype in creator media
+- an educator archetype in fitness
+
+Those accounts may share behavior patterns, but the content, examples, and conversion surfaces should still differ.
+
+### 7. Execution Layer
 
 This is how the account currently distributes attention:
 
@@ -258,7 +299,7 @@ These are not just analytics details. They should directly influence:
 - next moves
 - later draft strategy
 
-### Distribution Loop Layer
+### 8. Distribution Loop Layer
 
 This is the explicit growth loop the account is currently best positioned to use on X.
 
@@ -294,7 +335,7 @@ This should directly shape:
 - next moves
 - later planner/writer behavior
 
-### Playbook Layer
+### 9. Playbook Layer
 
 This is the executable style card the product should derive from the creator model before any LLM writes a post.
 
@@ -343,7 +384,7 @@ This prevents the system from recommending a reply-led growth loop to a user who
 
 This is the layer the future planner/writer model should follow most directly.
 
-### 7. Strategy Layer
+### 10. Strategy Layer
 
 This is where the scraped behavior and user goal meet.
 
@@ -416,7 +457,7 @@ The preferred product behavior is to capture transformation mode explicitly duri
 
 That should be a real user input, not a hidden inference.
 
-### 8. Example Layer
+### 11. Example Layer
 
 This is the concrete post context the future drafting agent should use.
 
@@ -537,7 +578,7 @@ This object should be stable and versioned.
 
 The future LLM should consume this context pack directly rather than assembling context ad hoc from multiple endpoints.
 
-### 9. Reply Layer
+### 12. Reply Layer
 
 Replies should be modeled as a separate lane, not mixed into the main original-post lane.
 
@@ -576,7 +617,7 @@ This is especially important for:
 
 The system should analyze replies, but it should not let reply-heavy behavior distort the main standalone-post strategy model.
 
-### 10. Quote Layer
+### 13. Quote Layer
 
 Quote posts should be modeled as a separate lane from both originals and replies.
 
