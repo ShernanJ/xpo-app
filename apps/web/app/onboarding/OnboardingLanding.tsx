@@ -48,6 +48,10 @@ const LOADING_STEPS = [
   "Building your growth snapshot",
 ] as const;
 
+function normalizeHandle(value: string): string {
+  return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
 export default function OnboardingLanding() {
   const router = useRouter();
   const [account, setAccount] = useState("");
@@ -56,6 +60,9 @@ export default function OnboardingLanding() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const normalizedAccount = normalizeHandle(account);
+  const hasValidPreview =
+    Boolean(preview) && normalizeHandle(preview?.username ?? "") === normalizedAccount;
 
   useEffect(() => {
     if (!isLoading) {
@@ -131,9 +138,19 @@ export default function OnboardingLanding() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedAccount = account.trim();
+    const trimmedAccount = normalizedAccount;
     if (!trimmedAccount) {
       setErrorMessage("Enter an X username first.");
+      return;
+    }
+
+    if (isPreviewLoading) {
+      setErrorMessage("Wait for the account preview to finish loading.");
+      return;
+    }
+
+    if (!hasValidPreview) {
+      setErrorMessage("Enter an active X account that resolves in preview first.");
       return;
     }
 
@@ -301,7 +318,10 @@ export default function OnboardingLanding() {
                 <input
                   id="account"
                   value={account}
-                  onChange={(event) => setAccount(event.target.value)}
+                  onChange={(event) => {
+                    setAccount(event.target.value);
+                    setErrorMessage(null);
+                  }}
                   placeholder="username"
                   className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600"
                   aria-label="X username"
@@ -310,6 +330,7 @@ export default function OnboardingLanding() {
 
               <button
                 type="submit"
+                disabled={!hasValidPreview || isPreviewLoading || !normalizedAccount}
                 className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.24em] text-black transition hover:bg-zinc-200"
               >
                 Analyze My X
@@ -369,6 +390,15 @@ export default function OnboardingLanding() {
                   </p>
                 </div>
               </div>
+            </div>
+          ) : normalizedAccount && !isPreviewLoading ? (
+            <div className="rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 px-5 py-4 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-rose-300">
+                Account Not Available
+              </p>
+              <p className="mt-2 text-sm text-rose-100">
+                Only active X accounts that resolve in preview can be analyzed.
+              </p>
             </div>
           ) : null}
         </section>
