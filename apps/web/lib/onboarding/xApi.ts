@@ -9,6 +9,7 @@ interface XApiUserResponse {
     name: string;
     created_at?: string;
     description?: string;
+    profile_image_url?: string;
     public_metrics?: {
       followers_count?: number;
       following_count?: number;
@@ -83,6 +84,7 @@ export async function fetchXPublicProfile(
       username: result.data.username,
       name: result.data.name,
       bio: result.data.description ?? "",
+      avatarUrl: result.data.profile_image_url ?? null,
       followersCount: result.data.public_metrics?.followers_count ?? 0,
       followingCount: result.data.public_metrics?.following_count ?? 0,
       createdAt: result.data.created_at ?? new Date(0).toISOString(),

@@ -39,6 +39,29 @@ interface PerformanceModelFailure {
 
 type PerformanceModelResponse = PerformanceModelSuccess | PerformanceModelFailure;
 
+const compactNumberFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function formatCompactNumber(value: number): string {
+  return compactNumberFormatter.format(value);
+}
+
+function getProfileInitials(name: string, username: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length > 0) {
+    return parts.map((part) => part.charAt(0).toUpperCase()).join("");
+  }
+
+  return username.slice(0, 2).toUpperCase();
+}
+
 export default function OnboardingPage() {
   const [account, setAccount] = useState("@");
   const [goal, setGoal] = useState<OnboardingInput["goal"]>("followers");
@@ -263,20 +286,71 @@ export default function OnboardingPage() {
                 </div>
               ) : null}
 
-              <div className="grid gap-3 sm:grid-cols-5">
+              <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                <div className="h-24 bg-gradient-to-r from-zinc-950 via-zinc-800 to-zinc-600" />
+                <div className="px-5 pb-5">
+                  <div className="-mt-10 flex items-end justify-between gap-4">
+                    <div className="flex min-w-0 items-end gap-4">
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-zinc-200 text-lg font-semibold text-zinc-700 shadow-sm">
+                        {result.data.profile.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${result.data.profile.avatarUrl})`,
+                            }}
+                            role="img"
+                            aria-label={`${result.data.profile.name} profile photo`}
+                          />
+                        ) : (
+                          getProfileInitials(
+                            result.data.profile.name,
+                            result.data.profile.username,
+                          )
+                        )}
+                      </div>
+
+                      <div className="min-w-0 pb-1">
+                        <p className="truncate text-xl font-semibold text-zinc-950">
+                          {result.data.profile.name}
+                        </p>
+                        <p className="truncate text-sm text-zinc-500">
+                          @{result.data.profile.username}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+                      {result.data.source}
+                    </div>
+                  </div>
+
+                  {result.data.profile.bio ? (
+                    <p className="mt-4 text-sm leading-6 text-zinc-700">
+                      {result.data.profile.bio}
+                    </p>
+                  ) : null}
+
+                  <div className="mt-4 flex flex-wrap gap-5 text-sm">
+                    <p className="text-zinc-500">
+                      <span className="font-semibold text-zinc-950">
+                        {formatCompactNumber(result.data.profile.followingCount)}
+                      </span>{" "}
+                      Following
+                    </p>
+                    <p className="text-zinc-500">
+                      <span className="font-semibold text-zinc-950">
+                        {formatCompactNumber(result.data.profile.followersCount)}
+                      </span>{" "}
+                      Followers
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid gap-3 sm:grid-cols-3">
                 <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
                   <p className="mt-1 text-sm font-semibold">{result.data.source}</p>
-                </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">Account</p>
-                  <p className="mt-1 text-sm font-semibold">@{result.data.profile.username}</p>
-                </article>
-                <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">Followers</p>
-                  <p className="mt-1 text-lg font-semibold">
-                    {result.data.profile.followersCount}
-                  </p>
                 </article>
                 <article className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Posts Analyzed</p>

@@ -38,6 +38,7 @@ export interface XPublicProfile {
   username: string;
   name: string;
   bio: string;
+  avatarUrl?: string | null;
   followersCount: number;
   followingCount: number;
   createdAt: string;

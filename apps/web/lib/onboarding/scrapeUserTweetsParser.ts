@@ -190,6 +190,7 @@ function extractProfileFromTweetNode(
   const userCore = asRecord(userNode.core);
   const userLegacy = asRecord(userNode.legacy);
   const profileBio = asRecord(userNode.profile_bio);
+  const avatar = asRecord(userNode.avatar);
 
   const username = asString(userCore?.screen_name) ?? asString(userLegacy?.screen_name);
   if (!username) {
@@ -203,6 +204,11 @@ function extractProfileFromTweetNode(
       asString(userLegacy?.description) ??
       asString(profileBio?.description) ??
       "",
+    avatarUrl:
+      asString(avatar?.image_url) ??
+      asString(userLegacy?.profile_image_url_https) ??
+      asString(userLegacy?.profile_image_url) ??
+      null,
     followersCount: asNumber(
       userLegacy?.followers_count ?? userLegacy?.normal_followers_count,
     ),
@@ -338,6 +344,7 @@ export function parseUserTweetsGraphqlPayload(params: {
       username: inferredUsername,
       name: inferredUsername,
       bio: "",
+      avatarUrl: null,
       followersCount: 0,
       followingCount: 0,
       createdAt: new Date(0).toISOString(),
