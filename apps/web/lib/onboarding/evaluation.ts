@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v2";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v3";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -17,6 +17,7 @@ export interface CreatorEvaluationCheck {
     | "archetype_confidence"
     | "strategy_specificity"
     | "interaction_signal_quality"
+    | "distribution_loop_quality"
     | "anchor_quality";
   label: string;
   score: number;
@@ -31,6 +32,7 @@ export interface CreatorEvaluationSnapshot {
   growthStage: OnboardingResult["growthStage"];
   archetype: CreatorProfile["archetype"];
   secondaryArchetype: CreatorProfile["secondaryArchetype"];
+  distributionLoop: CreatorProfile["distribution"]["primaryLoop"];
   topTopic: string | null;
 }
 
@@ -189,6 +191,88 @@ function evaluateInteractionSignalQuality(profile: CreatorProfile): CreatorEvalu
   );
 }
 
+function evaluateDistributionLoopQuality(
+  onboarding: OnboardingResult,
+  profile: CreatorProfile,
+): CreatorEvaluationCheck {
+  let coherenceScore = 0;
+
+  if (profile.distribution.primaryLoop === "reply_driven") {
+    coherenceScore += profile.execution.deliveryStyle === "reply_led" ? 18 : 4;
+    coherenceScore += profile.reply.isReliable ? 14 : profile.reply.replyCount > 0 ? 6 : 0;
+    coherenceScore +=
+      profile.reply.replyEngagementDeltaVsOriginalPercent !== null &&
+      profile.reply.replyEngagementDeltaVsOriginalPercent >= 0
+        ? 10
+        : 0;
+  }
+
+  if (profile.distribution.primaryLoop === "standalone_discovery") {
+    coherenceScore += profile.execution.deliveryStyle === "standalone" ? 18 : 8;
+    coherenceScore += profile.execution.linkDependence === "low" ? 10 : 0;
+    coherenceScore += profile.execution.mentionDependence === "low" ? 8 : 0;
+    coherenceScore += profile.topics.audienceBreadth !== "narrow" ? 6 : 0;
+  }
+
+  if (profile.distribution.primaryLoop === "quote_commentary") {
+    coherenceScore += profile.quote.quoteCount > 0 ? 10 : 0;
+    coherenceScore += profile.quote.isReliable ? 14 : profile.quote.quoteCount > 0 ? 6 : 0;
+    coherenceScore +=
+      profile.quote.quoteEngagementDeltaVsOriginalPercent !== null &&
+      profile.quote.quoteEngagementDeltaVsOriginalPercent >= 0
+        ? 10
+        : 0;
+  }
+
+  if (profile.distribution.primaryLoop === "profile_conversion") {
+    coherenceScore += profile.execution.ctaIntensity !== "low" ? 14 : 0;
+    coherenceScore += profile.execution.linkDependence !== "low" ? 8 : 0;
+    coherenceScore += profile.execution.mentionDependence !== "low" ? 6 : 0;
+    coherenceScore += onboarding.strategyState.goal === "leads" ? 8 : 0;
+  }
+
+  if (profile.distribution.primaryLoop === "authority_building") {
+    coherenceScore +=
+      profile.voice.averageLengthBand === "long"
+        ? 12
+        : profile.voice.averageLengthBand === "medium"
+          ? 8
+          : 0;
+    coherenceScore +=
+      profile.voice.dominantHookPattern === "how_to_open" ||
+      profile.voice.dominantHookPattern === "numeric_open" ||
+      profile.voice.dominantHookPattern === "statement_open"
+        ? 8
+        : 0;
+    coherenceScore += profile.execution.linkDependence === "low" ? 8 : 0;
+    coherenceScore += profile.quote.isReliable ? 4 : 0;
+  }
+
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      Number(
+        (profile.distribution.confidence * 0.65 +
+          coherenceScore +
+          Math.min(8, profile.distribution.signals.length * 2) -
+          (profile.distribution.secondaryLoop ? 4 : 0)).toFixed(2),
+      ),
+    ),
+  );
+
+  const secondary = profile.distribution.secondaryLoop
+    ? ` Secondary loop is ${profile.distribution.secondaryLoop.replace(/_/g, " ")}.`
+    : "";
+
+  return createCheck(
+    "distribution_loop_quality",
+    "Distribution Loop Quality",
+    score,
+    `Primary loop is ${profile.distribution.primaryLoop.replace(/_/g, " ")} at ${profile.distribution.confidence}% confidence.${secondary} ${profile.distribution.rationale}`,
+  );
+}
+
 function evaluateAnchorQuality(profile: CreatorProfile): CreatorEvaluationCheck {
   const positiveGroups = [
     profile.examples.bestPerforming,
@@ -257,6 +341,14 @@ function buildBlockers(
     blockers.push("Archetype signal is still mixed.");
   }
 
+  if (
+    checks.some(
+      (check) => check.key === "distribution_loop_quality" && check.status === "weak",
+    )
+  ) {
+    blockers.push("Distribution loop inference is still too weak to drive aggressive growth planning.");
+  }
+
   if (checks.some((check) => check.key === "anchor_quality" && check.status === "weak")) {
     blockers.push("Retrieval anchors are still too shallow for reliable planning context.");
   }
@@ -315,6 +407,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("distribution_loop_quality")) {
+    improvements.push(
+      "Keep distribution-loop guidance advisory until the inferred growth loop aligns more clearly with observed behavior.",
+    );
+  }
+
   if (weakKeys.has("strategy_specificity")) {
     improvements.push(
       "Strengthen the strategy delta so recommendations become more specific than generic pattern advice.",
@@ -354,6 +452,7 @@ export function evaluateCreatorProfile(params: {
     evaluateArchetypeConfidence(profile),
     evaluateStrategySpecificity(profile),
     evaluateInteractionSignalQuality(profile),
+    evaluateDistributionLoopQuality(params.onboarding, profile),
     evaluateAnchorQuality(profile),
   ];
 
@@ -381,6 +480,7 @@ export function evaluateCreatorProfile(params: {
       growthStage: params.onboarding.growthStage,
       archetype: profile.archetype,
       secondaryArchetype: profile.secondaryArchetype,
+      distributionLoop: profile.distribution.primaryLoop,
       topTopic: profile.topics.dominantTopics[0]?.label ?? null,
     },
   };
