@@ -749,6 +749,30 @@ function buildExecutionProfile(posts: XPublicPost[]): CreatorExecutionProfile {
   };
 }
 
+function buildInteractionSignalConfidence(params: {
+  laneCount: number;
+  activityShare: number;
+  hasOriginalBaseline: boolean;
+}): { confidence: number; isReliable: boolean } {
+  if (params.laneCount <= 0 || !params.hasOriginalBaseline) {
+    return {
+      confidence: 0,
+      isReliable: false,
+    };
+  }
+
+  const countScore = Math.min(1, params.laneCount / 8);
+  const shareScore = Math.min(1, params.activityShare / 25);
+  const confidence = Number(
+    Math.max(20, Math.min(100, 15 + countScore * 55 + shareScore * 30)).toFixed(2),
+  );
+
+  return {
+    confidence,
+    isReliable: params.laneCount >= 5 && params.activityShare >= 8,
+  };
+}
+
 function classifyReplyStyle(post: XPublicPost): ReplyStyle {
   const features = analyzePostFeatures(post);
   const lower = post.text.toLowerCase();
@@ -822,6 +846,8 @@ function buildReplyProfile(params: {
     return {
       replyCount: 0,
       replyShareOfCapturedActivity: 0,
+      signalConfidence: 0,
+      isReliable: false,
       averageReplyEngagement: 0,
       replyEngagementDeltaVsOriginalPercent: null,
       averageReplyLengthBand: null,
@@ -859,6 +885,11 @@ function buildReplyProfile(params: {
     .slice(0, 4);
   const replyShareOfCapturedActivity =
     totalCapturedActivity > 0 ? toPercent(replyPosts.length / totalCapturedActivity) : 0;
+  const replySignal = buildInteractionSignalConfidence({
+    laneCount: replyPosts.length,
+    activityShare: replyShareOfCapturedActivity,
+    hasOriginalBaseline: originalPosts.length > 0,
+  });
   const averageReplyLengthBand = inferAverageLengthBand(replyPosts);
   const averageReplyEngagement = Number(
     average(replyPosts.map((post) => computePostEngagement(post))).toFixed(2),
@@ -883,17 +914,21 @@ function buildReplyProfile(params: {
     replyUsageNote += " The dominant reply tone adds analysis, which is a stronger base for authority-building replies.";
   }
 
-  if (replyEngagementDeltaVsOriginalPercent !== null) {
+  if (replySignal.isReliable && replyEngagementDeltaVsOriginalPercent !== null) {
     if (replyEngagementDeltaVsOriginalPercent >= 20) {
       replyUsageNote += " In the current sample, replies outperform your original-post baseline.";
     } else if (replyEngagementDeltaVsOriginalPercent <= -20) {
       replyUsageNote += " In the current sample, replies underperform your original-post baseline.";
     }
+  } else if (!replySignal.isReliable) {
+    replyUsageNote += " The current reply sample is still thin, so reply-specific performance conclusions should stay cautious.";
   }
 
   return {
     replyCount: replyPosts.length,
     replyShareOfCapturedActivity,
+    signalConfidence: replySignal.confidence,
+    isReliable: replySignal.isReliable,
     averageReplyEngagement,
     replyEngagementDeltaVsOriginalPercent,
     averageReplyLengthBand,
@@ -920,6 +955,8 @@ function buildQuoteProfile(params: {
     return {
       quoteCount: 0,
       quoteShareOfCapturedActivity: 0,
+      signalConfidence: 0,
+      isReliable: false,
       averageQuoteEngagement: 0,
       quoteEngagementDeltaVsOriginalPercent: null,
       averageQuoteLengthBand: null,
@@ -933,6 +970,11 @@ function buildQuoteProfile(params: {
 
   const quoteShareOfCapturedActivity =
     totalCapturedActivity > 0 ? toPercent(quotePosts.length / totalCapturedActivity) : 0;
+  const quoteSignal = buildInteractionSignalConfidence({
+    laneCount: quotePosts.length,
+    activityShare: quoteShareOfCapturedActivity,
+    hasOriginalBaseline: originalPosts.length > 0,
+  });
   const averageQuoteLengthBand = inferAverageLengthBand(quotePosts);
   const dominantQuotePattern = extractDominantHookPattern(quotePosts);
   const averageQuoteEngagement = Number(
@@ -953,17 +995,21 @@ function buildQuoteProfile(params: {
       "Quote posts appear often enough to matter. Reuse the strongest quote angles as standalone takes when the underlying idea can travel on its own.";
   }
 
-  if (quoteEngagementDeltaVsOriginalPercent !== null) {
+  if (quoteSignal.isReliable && quoteEngagementDeltaVsOriginalPercent !== null) {
     if (quoteEngagementDeltaVsOriginalPercent >= 20) {
       quoteUsageNote += " In the current sample, quote posts outperform your original-post baseline.";
     } else if (quoteEngagementDeltaVsOriginalPercent <= -20) {
       quoteUsageNote += " In the current sample, quote posts underperform your original-post baseline.";
     }
+  } else if (!quoteSignal.isReliable) {
+    quoteUsageNote += " The current quote sample is still thin, so quote-specific performance conclusions should stay cautious.";
   }
 
   return {
     quoteCount: quotePosts.length,
     quoteShareOfCapturedActivity,
+    signalConfidence: quoteSignal.confidence,
+    isReliable: quoteSignal.isReliable,
     averageQuoteEngagement,
     quoteEngagementDeltaVsOriginalPercent,
     averageQuoteLengthBand,
@@ -1131,6 +1177,7 @@ function buildRecommendedAngles(
         "Use strategic replies as a second growth lane on niche-relevant posts with existing momentum.",
       );
     } else if (
+      replyProfile.isReliable &&
       replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
       replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
     ) {
@@ -1145,6 +1192,7 @@ function buildRecommendedAngles(
   }
 
   if (
+    quoteProfile.isReliable &&
     quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
     quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
   ) {
@@ -1189,6 +1237,7 @@ function buildInteractionStrengths(params: {
   const strengths: string[] = [];
 
   if (
+    params.replyProfile.isReliable &&
     params.replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
     params.replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
   ) {
@@ -1198,6 +1247,7 @@ function buildInteractionStrengths(params: {
   }
 
   if (
+    params.quoteProfile.isReliable &&
     params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
     params.quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
   ) {
@@ -1241,6 +1291,7 @@ function buildInteractionWeaknesses(params: {
   if (
     params.goal === "followers" &&
     params.growthStage === "0-1k" &&
+    params.replyProfile.isReliable &&
     params.replyProfile.replyCount > 0 &&
     params.replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
     params.replyProfile.replyEngagementDeltaVsOriginalPercent <= -20
@@ -1251,6 +1302,7 @@ function buildInteractionWeaknesses(params: {
   }
 
   if (
+    params.quoteProfile.isReliable &&
     params.quoteProfile.quoteCount > 0 &&
     params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
     params.quoteProfile.quoteEngagementDeltaVsOriginalPercent <= -20
@@ -1307,6 +1359,7 @@ function buildExecutionNextMoves(
         "Test 3-5 thoughtful replies this week on niche-adjacent posts that already have attention.",
       );
     } else if (
+      replyProfile.isReliable &&
       replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
       replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
     ) {
@@ -1321,6 +1374,7 @@ function buildExecutionNextMoves(
   }
 
   if (
+    quoteProfile.isReliable &&
     quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
     quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
   ) {

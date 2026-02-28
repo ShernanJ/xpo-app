@@ -287,6 +287,8 @@ export interface ReplyStyleMixItem {
 export interface CreatorReplyProfile {
   replyCount: number;
   replyShareOfCapturedActivity: number;
+  signalConfidence: number;
+  isReliable: boolean;
   averageReplyEngagement: number;
   replyEngagementDeltaVsOriginalPercent: number | null;
   averageReplyLengthBand: LengthBand | null;
@@ -299,6 +301,8 @@ export interface CreatorReplyProfile {
 export interface CreatorQuoteProfile {
   quoteCount: number;
   quoteShareOfCapturedActivity: number;
+  signalConfidence: number;
+  isReliable: boolean;
   averageQuoteEngagement: number;
   quoteEngagementDeltaVsOriginalPercent: number | null;
   averageQuoteLengthBand: LengthBand | null;

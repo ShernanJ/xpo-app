@@ -1187,6 +1187,24 @@ export default function OnboardingPage() {
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div>
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Confidence
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.signalConfidence}%
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Reliability
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.isReliable ? "Reliable" : "Low sample"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
                               Avg Engagement
                             </p>
                             <p className="mt-1 text-sm font-medium text-zinc-100">
@@ -1262,6 +1280,24 @@ export default function OnboardingPage() {
                               {creatorProfile.quote.averageQuoteLengthBand
                                 ? formatEnumLabel(creatorProfile.quote.averageQuoteLengthBand)
                                 : "Unknown"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Confidence
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.signalConfidence}%
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Reliability
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.isReliable ? "Reliable" : "Low sample"}
                             </p>
                           </div>
                         </div>
