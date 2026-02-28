@@ -188,11 +188,11 @@ Likely files:
 
 ### 8. Better Pinning: Voice Pins vs Evidence Pins
 
-- [ ] Split pinned references into two explicit types:
+- [x] Split pinned references into two explicit types:
   - voice reference
   - evidence/content reference
-- [ ] Allow users to pin a post because they want its facts, not only its voice
-- [ ] Keep pinning structured and backend-owned
+- [x] Allow users to pin a post because they want its facts, not only its voice
+- [x] Keep pinning structured and backend-owned
 
 Definition of done:
 - a user can explicitly force a specific post to act as a grounding anchor
@@ -252,10 +252,9 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Better Pinning: Voice Pins vs Evidence Pins
-2. Prompt Compaction / Salience Ordering
-3. Better Debugging For Grounding
-4. Offline Grounding Regression Checks
+1. Prompt Compaction / Salience Ordering
+2. Better Debugging For Grounding
+3. Offline Grounding Regression Checks
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
