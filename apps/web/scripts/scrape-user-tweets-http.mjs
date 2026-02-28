@@ -64,7 +64,7 @@ function printUsage() {
       "Options:",
       "  --account <value>         X username (or @username or x.com/username).",
       "  --count <number>          Number of tweets to request (default: 40).",
-      "  --pages <number>          Number of UserTweets pages to fetch (default: 3).",
+      "  --pages <number>          Number of UserTweets pages to fetch (default: 3, max: 12).",
       "  --query-id <value>        UserTweets queryId (optional; auto-discovered when omitted).",
       "  --user-id <value>         X rest id (optional; resolved via users/show when omitted).",
       "  --session <value>         Force a specific session id from the session pool file.",
@@ -236,8 +236,8 @@ function parseArgs(argv) {
 
     if (token === "--pages") {
       const pages = Number(value);
-      if (!Number.isFinite(pages) || pages < 1 || pages > 5) {
-        throw new Error("--pages must be an integer between 1 and 5.");
+      if (!Number.isFinite(pages) || pages < 1 || pages > 12) {
+        throw new Error("--pages must be an integer between 1 and 12.");
       }
       parsed.pages = Math.floor(pages);
       continue;

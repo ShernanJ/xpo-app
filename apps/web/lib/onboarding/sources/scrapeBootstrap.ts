@@ -34,7 +34,7 @@ export async function bootstrapScrapeCapture(account: string) {
   const pages = Math.max(
     1,
     Math.min(
-      8,
+      12,
       Number.isFinite(Number(process.env.ONBOARDING_SCRAPE_PAGES))
         ? Math.floor(Number(process.env.ONBOARDING_SCRAPE_PAGES))
         : 5,
