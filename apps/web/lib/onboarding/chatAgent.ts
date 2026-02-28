@@ -152,6 +152,14 @@ interface RequestConditionedAnchors {
   formatExemplar: CreatorRepresentativePost | null;
 }
 
+interface FormatBlueprintProfile {
+  minimumWords: number;
+  minimumSections: number;
+  prefersBulletCore: boolean;
+  minimumProofSignals: number;
+  preferConfidentClose: boolean;
+}
+
 interface ModelProviderConfig {
   provider: ChatModelProvider;
   apiKey: string;
@@ -891,6 +899,80 @@ function formatExemplar(post: CreatorRepresentativePost | null): string {
   return `${post.id} (${post.selectionReason}) -> ${post.text}`;
 }
 
+function countProofSignals(text: string): number {
+  return text.match(/\b\d[\d,.%$kKmMbByY<>+/:-]*\b/g)?.length ?? 0;
+}
+
+function countStructuralSections(text: string): number {
+  const sections = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (sections.length > 0) {
+    return sections.length;
+  }
+
+  const paragraphs = text
+    .split(/(?:\.\s+|\?\s+|!\s+)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return paragraphs.length;
+}
+
+function buildFormatBlueprintProfile(params: {
+  post: CreatorRepresentativePost | null;
+  outputShape: CreatorGenerationOutputShape;
+}): FormatBlueprintProfile {
+  const { post, outputShape } = params;
+
+  if (outputShape !== "long_form_post" && outputShape !== "thread_seed") {
+    return {
+      minimumWords: 18,
+      minimumSections: 1,
+      prefersBulletCore: false,
+      minimumProofSignals: 0,
+      preferConfidentClose: false,
+    };
+  }
+
+  if (!post) {
+    return {
+      minimumWords: outputShape === "long_form_post" ? 90 : 45,
+      minimumSections: outputShape === "long_form_post" ? 4 : 3,
+      prefersBulletCore: false,
+      minimumProofSignals: 1,
+      preferConfidentClose: true,
+    };
+  }
+
+  const lines = post.text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const wordCount = post.text.split(/\s+/).filter(Boolean).length;
+  const bulletLines = lines.filter((line) => /^[-*•]\s|^\d+\./.test(line)).length;
+  const proofSignals = countProofSignals(post.text);
+
+  const minimumWords =
+    outputShape === "long_form_post"
+      ? Math.max(90, Math.min(260, Math.floor(wordCount * 0.55)))
+      : Math.max(40, Math.min(140, Math.floor(wordCount * 0.45)));
+  const minimumSections =
+    outputShape === "long_form_post"
+      ? Math.max(4, Math.min(10, lines.length > 0 ? lines.length - 1 : 4))
+      : Math.max(3, Math.min(8, lines.length > 0 ? Math.max(3, lines.length - 1) : 3));
+
+  return {
+    minimumWords,
+    minimumSections,
+    prefersBulletCore: bulletLines >= 2,
+    minimumProofSignals: Math.max(1, Math.min(4, proofSignals > 0 ? proofSignals : 1)),
+    preferConfidentClose: !/\?\s*$/.test(post.text.trim()),
+  };
+}
+
 function buildFormatBlueprint(params: {
   post: CreatorRepresentativePost | null;
   outputShape: CreatorGenerationOutputShape;
@@ -900,6 +982,11 @@ function buildFormatBlueprint(params: {
   if (!post) {
     return "No strong structural blueprint available.";
   }
+
+  const blueprintProfile = buildFormatBlueprintProfile({
+    post,
+    outputShape,
+  });
 
   const lines = post.text
     .split(/\n+/)
@@ -931,6 +1018,7 @@ function buildFormatBlueprint(params: {
     outputShape === "long_form_post" || outputShape === "thread_seed"
       ? "Use a developed long-form authority shape, not a tweet-sized answer."
       : "Keep the structure compact and direct.",
+    `Exemplar-derived minimums: at least ${blueprintProfile.minimumWords} words and ${blueprintProfile.minimumSections} clear sections.`,
     hasIdentityIntro
       ? "Open by grounding the reader in who the creator is or what they do."
       : "Open with a clear thesis, not a question.",
@@ -940,7 +1028,7 @@ function buildFormatBlueprint(params: {
         ? `Use multiple short sections (${Math.max(lines.length, 3)} beats), not one flat paragraph.`
         : "Use at least 3 clear beats if you are writing long form.",
     numberedFacts > 0
-      ? `Carry concrete proof. The exemplar uses ${numberedFacts} numeric or metric signals.`
+      ? `Carry concrete proof. The exemplar uses ${numberedFacts} numeric or metric signals; target at least ${blueprintProfile.minimumProofSignals}.`
       : "Include at least one concrete proof point, artifact, or operating detail.",
     hasContrarianFrame
       ? "Include one strong contrarian belief or anti-best-practice statement."
@@ -954,6 +1042,9 @@ function buildFormatBlueprint(params: {
     hasConfidentClose
       ? "Prefer a confident closing statement over a forced question ending."
       : "If you end with a question, only do it after a fully developed thesis.",
+    blueprintProfile.prefersBulletCore
+      ? "The core should include a bullet-led section, not just flat paragraphs."
+      : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1531,12 +1622,48 @@ function isClearlyLongFormDraft(draft: string): boolean {
   );
 }
 
+function matchesLongFormBlueprint(
+  draft: string,
+  blueprint: FormatBlueprintProfile,
+): boolean {
+  const wordCount = draft.trim().split(/\s+/).filter(Boolean).length;
+  const sectionCount = countStructuralSections(draft);
+  const bulletLines = draft
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /^[-*•]\s|^\d+\./.test(line)).length;
+
+  if (wordCount < blueprint.minimumWords) {
+    return false;
+  }
+
+  if (sectionCount < blueprint.minimumSections) {
+    return false;
+  }
+
+  if (blueprint.prefersBulletCore && bulletLines === 0) {
+    return false;
+  }
+
+  if (countProofSignals(draft) < blueprint.minimumProofSignals) {
+    return false;
+  }
+
+  if (blueprint.preferConfidentClose && /\?\s*$/.test(draft.trim())) {
+    return false;
+  }
+
+  return true;
+}
+
 function scoreDraftCandidate(params: {
   draft: string;
   contract: CreatorGenerationContract;
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  blueprintProfile?: FormatBlueprintProfile;
 }): number {
   const draft = params.draft.trim();
   if (!draft) {
@@ -1546,6 +1673,8 @@ function scoreDraftCandidate(params: {
   const lowered = draft.toLowerCase();
   const words = lowered.match(/[a-z0-9']+/g) ?? [];
   const lowercaseShare = computeLowercaseShare(draft);
+  const sectionCount = countStructuralSections(draft);
+  const proofSignalCount = countProofSignals(draft);
   const focusTerms = Array.from(
     new Set([
       ...collectSignalTerms(params.selectedAngle),
@@ -1586,6 +1715,12 @@ function scoreDraftCandidate(params: {
     score += words.length <= 24 ? 2 : words.length <= 36 ? 0.5 : -2;
   } else if (params.contract.planner.outputShape === "long_form_post") {
     score += hasStructuredLongFormShape(draft) ? 6 : 0;
+    if (
+      params.blueprintProfile &&
+      matchesLongFormBlueprint(draft, params.blueprintProfile)
+    ) {
+      score += 8;
+    }
     if (words.length >= 90) {
       score += 4;
     } else if (words.length >= 60) {
@@ -1598,10 +1733,47 @@ function scoreDraftCandidate(params: {
     if (/\?$/.test(draft)) {
       score -= 5;
     }
+    if (params.blueprintProfile) {
+      if (words.length < params.blueprintProfile.minimumWords) {
+        score -= 8;
+      }
+      if (sectionCount < params.blueprintProfile.minimumSections) {
+        score -= 6;
+      }
+      if (proofSignalCount < params.blueprintProfile.minimumProofSignals) {
+        score -= 5;
+      }
+      if (
+        params.blueprintProfile.prefersBulletCore &&
+        !/^[-*•]\s|^\d+\./m.test(draft)
+      ) {
+        score -= 4;
+      }
+      if (
+        params.blueprintProfile.preferConfidentClose &&
+        /\?\s*$/.test(draft)
+      ) {
+        score -= 4;
+      }
+    }
   } else if (params.contract.planner.outputShape === "thread_seed") {
     score += hasStructuredLongFormShape(draft) ? 4 : words.length >= 22 ? 1 : -4;
     if (/\?$/.test(draft)) {
       score -= 3;
+    }
+    if (params.blueprintProfile) {
+      if (words.length < params.blueprintProfile.minimumWords) {
+        score -= 4;
+      }
+      if (sectionCount < params.blueprintProfile.minimumSections) {
+        score -= 3;
+      }
+      if (
+        params.blueprintProfile.prefersBulletCore &&
+        !/^[-*•]\s|^\d+\./m.test(draft)
+      ) {
+        score -= 2;
+      }
     }
   }
 
@@ -1631,6 +1803,7 @@ function rerankDrafts(params: {
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  blueprintProfile?: FormatBlueprintProfile;
 }): string[] {
   const seen = new Set<string>();
   const candidates = params.drafts
@@ -1651,6 +1824,7 @@ function rerankDrafts(params: {
         selectedAngle: params.selectedAngle,
         concreteSubject: params.concreteSubject,
         userMessage: params.userMessage,
+        blueprintProfile: params.blueprintProfile,
       }),
     }))
     .sort((left, right) => right.score - left.score);
@@ -1665,6 +1839,10 @@ function buildLongFormExpansionSystemPrompt(params: {
   requestAnchors: RequestConditionedAnchors;
 }): string {
   const formatExemplarLine = formatExemplar(params.requestAnchors.formatExemplar);
+  const blueprintProfile = buildFormatBlueprintProfile({
+    post: params.requestAnchors.formatExemplar,
+    outputShape: params.contract.planner.outputShape,
+  });
   const formatBlueprint = buildFormatBlueprint({
     post: params.requestAnchors.formatExemplar,
     outputShape: params.contract.planner.outputShape,
@@ -1677,8 +1855,16 @@ function buildLongFormExpansionSystemPrompt(params: {
     "Do not change the topic or turn it into generic advice.",
     "Keep the user's voice and casing. Preserve casualness when appropriate.",
     "For long-form on X, the post should be substantially developed and usually exceed normal tweet length.",
+    `Exemplar-derived minimums: at least ${blueprintProfile.minimumWords} words and ${blueprintProfile.minimumSections} clear sections.`,
     "Use a clear thesis, supporting proof, and stronger structure.",
+    `Include at least ${blueprintProfile.minimumProofSignals} concrete proof signal(s): metrics, counts, constraints, artifacts, or specific operating details.`,
     "A paragraph + bullets or multiple short paragraphs is good if it fits.",
+    blueprintProfile.prefersBulletCore
+      ? "The expanded draft should include a bullet-led core section."
+      : "If bullets are not natural, use multiple short sections instead of one flat paragraph.",
+    blueprintProfile.preferConfidentClose
+      ? "Prefer a confident close, not a trailing question."
+      : "A question close is only acceptable after a fully developed thesis.",
     "Do not pad with filler. Add specifics, examples, constraints, or stronger framing.",
     params.selectedAngle
       ? `The selected angle must remain the central premise: ${params.selectedAngle}`
@@ -1761,6 +1947,10 @@ export async function generateCreatorChatReply(params: {
     history.length > 0
       ? history.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n")
       : "No prior chat history.";
+  const formatBlueprintProfile = buildFormatBlueprintProfile({
+    post: requestAnchors.formatExemplar,
+    outputShape: contract.planner.outputShape,
+  });
 
   params.onProgress?.("planning");
   const plannerResponse = await callProviderJson<PlannerOutput>({
@@ -2038,6 +2228,7 @@ export async function generateCreatorChatReply(params: {
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
+          blueprintProfile: formatBlueprintProfile,
         });
   const finalWatchOutFor = sanitizeStringList(
     critic.finalWatchOutFor,
@@ -2049,7 +2240,11 @@ export async function generateCreatorChatReply(params: {
     intent !== "ideate" &&
     contract.planner.outputShape === "long_form_post" &&
     finalDrafts.length > 0 &&
-    !finalDrafts.some((draft) => isClearlyLongFormDraft(draft))
+    !finalDrafts.some(
+      (draft) =>
+        isClearlyLongFormDraft(draft) &&
+        matchesLongFormBlueprint(draft, formatBlueprintProfile),
+    )
   ) {
     try {
       const expansion = await callProviderJson<{ expandedDraft: string }>({
@@ -2090,6 +2285,7 @@ export async function generateCreatorChatReply(params: {
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
+          blueprintProfile: formatBlueprintProfile,
         });
       }
     } catch {
