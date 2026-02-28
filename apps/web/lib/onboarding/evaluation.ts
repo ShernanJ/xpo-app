@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v4";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v5";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -16,6 +16,7 @@ export interface CreatorEvaluationCheck {
     | "topic_quality"
     | "niche_overlay_quality"
     | "archetype_confidence"
+    | "playbook_quality"
     | "strategy_specificity"
     | "interaction_signal_quality"
     | "distribution_loop_quality"
@@ -196,6 +197,71 @@ function evaluateArchetypeConfidence(profile: CreatorProfile): CreatorEvaluation
     "Archetype Confidence",
     profile.archetypeConfidence,
     `Primary archetype is ${profile.archetype} at ${profile.archetypeConfidence}% confidence.${secondary}`,
+  );
+}
+
+function evaluatePlaybookQuality(profile: CreatorProfile): CreatorEvaluationCheck {
+  const nicheLabel = profile.niche.primaryNiche.replace(/_/g, " ");
+  const hasNicheSpecialization =
+    profile.niche.primaryNiche !== "generalist" &&
+    (profile.playbook.toneGuidelines.some((line) =>
+      line.toLowerCase().includes(nicheLabel),
+    ) ||
+      profile.playbook.experimentFocus.some((line) =>
+        line.toLowerCase().includes(nicheLabel),
+      ));
+
+  const loopTerms: Record<CreatorProfile["distribution"]["primaryLoop"], string[]> = {
+    reply_driven: ["reply", "conversation"],
+    standalone_discovery: ["standalone", "native"],
+    quote_commentary: ["quote", "commentary"],
+    profile_conversion: ["profile", "conversion", "offer"],
+    authority_building: ["point-of-view", "authority", "thoughtful"],
+  };
+  const loopText = [
+    profile.playbook.conversationTactic,
+    ...profile.playbook.experimentFocus,
+    ...profile.playbook.toneGuidelines,
+  ]
+    .join(" ")
+    .toLowerCase();
+  const hasLoopSpecialization = loopTerms[profile.distribution.primaryLoop].some((term) =>
+    loopText.includes(term),
+  );
+
+  const hasCapacitySignals =
+    /per week|per day|reply budget|reply block|reply window/.test(
+      `${profile.playbook.cadence.posting} ${profile.playbook.cadence.replies}`.toLowerCase(),
+    );
+
+  const score =
+    20 +
+    Math.min(16, profile.playbook.toneGuidelines.length * 4) +
+    Math.min(12, profile.playbook.preferredContentTypes.length * 4) +
+    Math.min(12, profile.playbook.preferredHookPatterns.length * 4) +
+    Math.min(16, profile.playbook.experimentFocus.length * 4) +
+    (hasNicheSpecialization ? 12 : profile.niche.primaryNiche === "generalist" ? 6 : 0) +
+    (hasLoopSpecialization ? 10 : 0) +
+    (hasCapacitySignals ? 8 : 0);
+
+  const nicheNote =
+    profile.niche.primaryNiche === "generalist"
+      ? "Niche specialization is intentionally lighter because the account still reads as generalist."
+      : hasNicheSpecialization
+        ? `Playbook explicitly references the ${nicheLabel} niche.`
+        : "Playbook still reads too generic for the inferred niche.";
+
+  const loopNote = hasLoopSpecialization
+    ? `The ${profile.distribution.primaryLoop.replace(/_/g, " ")} loop is reflected in the playbook.`
+    : "The playbook does not yet clearly operationalize the inferred distribution loop.";
+
+  return createCheck(
+    "playbook_quality",
+    "Playbook Quality",
+    score,
+    `${nicheNote} ${loopNote} Capacity-aware cadence is ${
+      hasCapacitySignals ? "present" : "not clearly expressed"
+    }.`,
   );
 }
 
@@ -408,6 +474,10 @@ function buildBlockers(
     blockers.push("Archetype signal is still mixed.");
   }
 
+  if (checks.some((check) => check.key === "playbook_quality" && check.status === "weak")) {
+    blockers.push("Playbook is still too generic to guide generation confidently.");
+  }
+
   if (
     checks.some(
       (check) => check.key === "distribution_loop_quality" && check.status === "weak",
@@ -474,6 +544,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("playbook_quality")) {
+    improvements.push(
+      "Make the playbook more operational so it reflects niche, distribution loop, and user capacity more explicitly.",
+    );
+  }
+
   if (weakKeys.has("interaction_signal_quality")) {
     improvements.push(
       "Keep reply and quote lanes advisory-only until their samples become more reliable.",
@@ -524,6 +600,7 @@ export function evaluateCreatorProfile(params: {
     evaluateTopicQuality(profile),
     evaluateNicheOverlayQuality(params.onboarding, profile),
     evaluateArchetypeConfidence(profile),
+    evaluatePlaybookQuality(profile),
     evaluateStrategySpecificity(profile),
     evaluateInteractionSignalQuality(profile),
     evaluateDistributionLoopQuality(params.onboarding, profile),
