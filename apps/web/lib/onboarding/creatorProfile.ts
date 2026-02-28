@@ -12,6 +12,7 @@ import type {
   CreatorArchetype,
   CreatorContentLane,
   CreatorDistributionLoopProfile,
+  CreatorPlaybookProfile,
   CreatorExecutionProfile,
   CreatorProfile,
   CreatorQuoteProfile,
@@ -1831,6 +1832,219 @@ function buildDistributionStrengths(
   return strengths;
 }
 
+function buildPlaybookProfile(params: {
+  goal: UserGoal;
+  archetype: CreatorArchetype;
+  distribution: CreatorDistributionLoopProfile;
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"];
+  growthStage: OnboardingResult["growthStage"];
+  execution: CreatorExecutionProfile;
+  replyProfile: CreatorReplyProfile;
+  quoteProfile: CreatorQuoteProfile;
+}): CreatorPlaybookProfile {
+  const archetypeContracts: Record<
+    CreatorArchetype,
+    {
+      contentContract: string;
+      toneGuidelines: string[];
+      preferredContentTypes: ContentType[];
+      preferredHookPatterns: HookPattern[];
+      cadence: CreatorPlaybookProfile["cadence"];
+    }
+  > = {
+    builder: {
+      contentContract:
+        "Ship proof-of-work, decisions, and lessons learned in public so progress becomes the recurring story.",
+      toneGuidelines: [
+        "Stay candid and readable, even when the topic is technical.",
+        "Use concise build updates and concrete tradeoffs instead of vague hype.",
+      ],
+      preferredContentTypes: ["multi_line", "single_line", "question_post"],
+      preferredHookPatterns: ["statement_open", "story_open", "question_open"],
+      cadence: {
+        posting: "Aim for 1-2 proof-first posts per day or 5-8 per week.",
+        replies: "Reserve 10-20 thoughtful replies per day, especially around build or product threads.",
+        threadBias: "medium",
+      },
+    },
+    founder_operator: {
+      contentContract:
+        "Turn operating decisions, customer patterns, and market lessons into repeatable, opinionated takes.",
+      toneGuidelines: [
+        "Sound decisive and pragmatic, not abstract.",
+        "Invite disagreement without sounding hostile.",
+      ],
+      preferredContentTypes: ["single_line", "multi_line", "list_post"],
+      preferredHookPatterns: ["statement_open", "numeric_open", "hot_take_open"],
+      cadence: {
+        posting: "Aim for 1-3 sharp operator posts per day or 6-10 per week.",
+        replies: "Run 2 short reply windows after posting to engage early substantive responses.",
+        threadBias: "medium",
+      },
+    },
+    job_seeker: {
+      contentContract:
+        "Publish useful proof-of-work, career lessons, and hiring-adjacent help that makes competence easy to infer.",
+      toneGuidelines: [
+        "Stay supportive, specific, and non-snarky.",
+        "Use concrete examples and clear outcomes instead of generic motivation.",
+      ],
+      preferredContentTypes: ["list_post", "multi_line", "question_post"],
+      preferredHookPatterns: ["numeric_open", "how_to_open", "question_open"],
+      cadence: {
+        posting: "Aim for 3-5 useful career posts per week with one stronger proof-first post.",
+        replies: "Use reply clinics on hiring, recruiting, or role-specific threads a few times per week.",
+        threadBias: "medium",
+      },
+    },
+    educator: {
+      contentContract:
+        "Package repeatable frameworks, lessons, and mini-guides that make the audience feel smarter immediately.",
+      toneGuidelines: [
+        "Use a generous teacher voice with clear structure.",
+        "Favor clarity and frameworks over performative cleverness.",
+      ],
+      preferredContentTypes: ["list_post", "multi_line", "question_post"],
+      preferredHookPatterns: ["how_to_open", "numeric_open", "statement_open"],
+      cadence: {
+        posting: "Aim for 3-5 framework-heavy posts per week plus 1-2 shorter supporting posts.",
+        replies: "Reply quickly to questions in the first hour to deepen conversation.",
+        threadBias: "high",
+      },
+    },
+    curator: {
+      contentContract:
+        "Compress attention by curating what matters, then add enough original synthesis that the audience learns your lens.",
+      toneGuidelines: [
+        "Lead with clarity and context, then add a measured take.",
+        "Avoid dumping links without framing why they matter.",
+      ],
+      preferredContentTypes: ["link_post", "multi_line", "list_post"],
+      preferredHookPatterns: ["statement_open", "numeric_open", "question_open"],
+      cadence: {
+        posting: "Aim for 1 digest-style post per day or 4-7 per week.",
+        replies: "Use replies to extend context and collect what you missed.",
+        threadBias: "medium",
+      },
+    },
+    social_operator: {
+      contentContract:
+        "Host conversations with prompts, challenges, and high-reply posts that make participation feel easy.",
+      toneGuidelines: [
+        "Stay warm, playful, and high-energy without becoming noisy.",
+        "Write to invite participation, not just passive reactions.",
+      ],
+      preferredContentTypes: ["question_post", "single_line", "multi_line"],
+      preferredHookPatterns: ["question_open", "hot_take_open", "statement_open"],
+      cadence: {
+        posting: "Aim for 2-4 prompt-led posts per week plus steady short-form conversation starters.",
+        replies: "Keep a daily reply habit so conversations keep compounding.",
+        threadBias: "low",
+      },
+    },
+    hybrid: {
+      contentContract:
+        "Use the clearest current strengths as a base, then simplify into one repeatable lane at a time.",
+      toneGuidelines: [
+        "Stay consistent across posts so the audience can quickly learn what to expect.",
+        "Prefer simpler, clearer formats until the strongest lane is obvious.",
+      ],
+      preferredContentTypes: ["multi_line", "single_line", "question_post"],
+      preferredHookPatterns: ["statement_open", "question_open", "story_open"],
+      cadence: {
+        posting: "Aim for 4-6 posts per week in one repeatable structure before broadening.",
+        replies: "Use a steady reply habit, but keep the main focus on clarifying the top-level lane.",
+        threadBias: "medium",
+      },
+    },
+  };
+
+  const base = archetypeContracts[params.archetype];
+  const toneGuidelines = [...base.toneGuidelines];
+  const experimentFocus = [
+    `Test 2-3 variations of the strongest ${params.distribution.primaryLoop.replace(/_/g, " ")} loop.`,
+  ];
+
+  if (params.transformationMode === "preserve") {
+    toneGuidelines.push("Keep the existing audience expectation stable; optimize execution, not identity.");
+  } else if (params.transformationMode === "pivot_soft") {
+    toneGuidelines.push("Introduce adjacent positioning gradually so the audience can follow the shift.");
+  } else if (params.transformationMode === "pivot_hard") {
+    toneGuidelines.push("Favor clarity over comfort so the new positioning is unmistakable.");
+  }
+
+  if (params.distribution.primaryLoop === "reply_driven") {
+    toneGuidelines.push("Use posts and replies that invite follow-up, not just passive agreement.");
+    experimentFocus.push(
+      "Track which reply patterns turn into the strongest standalone follow-up posts.",
+    );
+  }
+
+  if (params.distribution.primaryLoop === "standalone_discovery") {
+    toneGuidelines.push("Favor native standalone posts that make sense without prior context.");
+    experimentFocus.push("A/B test first lines while keeping the body constant.");
+  }
+
+  if (params.distribution.primaryLoop === "quote_commentary") {
+    toneGuidelines.push("Use quoted context as a wedge, but make the commentary clear enough to stand on its own.");
+    experimentFocus.push("Rewrite the best quote take as a standalone post within 24 hours.");
+  }
+
+  if (params.distribution.primaryLoop === "profile_conversion") {
+    toneGuidelines.push("Use cleaner calls-to-action so attention flows into a clear next step.");
+    experimentFocus.push("Test one soft conversion CTA versus one reply-first CTA this week.");
+  }
+
+  if (params.distribution.primaryLoop === "authority_building") {
+    toneGuidelines.push("Publish stronger point-of-view and proof-backed posts that invite thoughtful replies.");
+    experimentFocus.push("Test one more opinionated take versus one neutral explainer on the same theme.");
+  }
+
+  if (
+    params.goal === "followers" &&
+    params.growthStage === "0-1k" &&
+    (params.replyProfile.replyCount === 0 || params.replyProfile.replyShareOfCapturedActivity < 10)
+  ) {
+    experimentFocus.push("Add a deliberate reply block each day to create a second discovery lane.");
+  }
+
+  if (
+    params.quoteProfile.isReliable &&
+    (params.quoteProfile.quoteEngagementDeltaVsOriginalPercent ?? -100) >= 0
+  ) {
+    experimentFocus.push("Promote one high-performing quote angle into a top-level post every week.");
+  }
+
+  const ctaPolicy =
+    params.goal === "followers"
+      ? "Use one clear reply-first CTA at a time. Prefer questions, prompts, or lightweight participation asks over hard asks."
+      : params.goal === "leads"
+        ? "Use one clear proof-linked CTA. Tie the ask to a specific outcome, and avoid stacking multiple asks in one post."
+        : "Use CTAs to invite substantive responses, examples, or counterarguments. Avoid generic 'thoughts?' asks.";
+
+  const conversationTactic =
+    params.distribution.primaryLoop === "reply_driven"
+      ? "Prioritize posts that earn replies, then actively answer the strongest replies so the conversation compounds."
+      : params.distribution.primaryLoop === "standalone_discovery"
+        ? "Lead with one clear top-level idea, then use replies to extend the idea instead of introducing it."
+        : params.distribution.primaryLoop === "quote_commentary"
+          ? "Use live conversations as entry points, then restate the best thesis in your own standalone framing."
+          : params.distribution.primaryLoop === "profile_conversion"
+            ? "Use the post to earn attention, then make the profile and next step do the conversion work."
+            : "Use stronger point-of-view posts to attract thoughtful peers, then deepen the thread with follow-up replies.";
+
+  return {
+    contentContract: base.contentContract,
+    toneGuidelines: toneGuidelines.slice(0, 4),
+    preferredContentTypes: base.preferredContentTypes,
+    preferredHookPatterns: base.preferredHookPatterns,
+    ctaPolicy,
+    cadence: base.cadence,
+    conversationTactic,
+    experimentFocus: experimentFocus.slice(0, 4),
+  };
+}
+
 function buildInteractionStrengths(params: {
   replyProfile: CreatorReplyProfile;
   quoteProfile: CreatorQuoteProfile;
@@ -2320,6 +2534,16 @@ export function buildCreatorProfile(params: {
     replyProfile,
     quoteProfile,
   });
+  const playbookProfile = buildPlaybookProfile({
+    goal: params.onboarding.strategyState.goal,
+    archetype,
+    distribution: distributionProfile,
+    transformationMode,
+    growthStage: params.onboarding.growthStage,
+    execution: executionProfile,
+    replyProfile,
+    quoteProfile,
+  });
   const representativeExamples = buildRepresentativeExamples({
     posts,
     replyPosts,
@@ -2382,6 +2606,7 @@ export function buildCreatorProfile(params: {
     },
     execution: executionProfile,
     distribution: distributionProfile,
+    playbook: playbookProfile,
     reply: replyProfile,
     quote: quoteProfile,
     performance: {

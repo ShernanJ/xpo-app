@@ -305,6 +305,25 @@ export interface CreatorDistributionLoopProfile {
   rationale: string;
 }
 
+export type CreatorPlaybookThreadBias = "low" | "medium" | "high";
+
+export interface CreatorPlaybookCadenceProfile {
+  posting: string;
+  replies: string;
+  threadBias: CreatorPlaybookThreadBias;
+}
+
+export interface CreatorPlaybookProfile {
+  contentContract: string;
+  toneGuidelines: string[];
+  preferredContentTypes: ContentType[];
+  preferredHookPatterns: HookPattern[];
+  ctaPolicy: string;
+  cadence: CreatorPlaybookCadenceProfile;
+  conversationTactic: string;
+  experimentFocus: string[];
+}
+
 export interface ReplyStyleMixItem {
   style: ReplyStyle;
   count: number;
@@ -446,6 +465,7 @@ export interface CreatorProfile {
   performance: CreatorPerformanceProfile;
   execution: CreatorExecutionProfile;
   distribution: CreatorDistributionLoopProfile;
+  playbook: CreatorPlaybookProfile;
   reply: CreatorReplyProfile;
   quote: CreatorQuoteProfile;
   archetype: CreatorArchetype;
