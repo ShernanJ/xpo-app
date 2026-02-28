@@ -110,6 +110,16 @@ const LOW_SIGNAL_ENTITY_WORDS = new Set([
   "years",
 ]);
 
+const ENTITY_ALIAS_MAP = new Map<string, string>([
+  ["ai", "artificial intelligence"],
+  ["artificial intelligence", "artificial intelligence"],
+  ["sf", "san francisco"],
+  ["san fran", "san francisco"],
+  ["bay area", "san francisco"],
+  ["nyc", "new york"],
+  ["new york city", "new york"],
+]);
+
 function getPostEngagement(post: XPublicPost): number {
   const { likeCount, replyCount, repostCount, quoteCount } = post.metrics;
   return likeCount + replyCount + repostCount + quoteCount;
@@ -203,8 +213,12 @@ export function detectHookPattern(text: string): HookPattern {
 }
 
 export function isLowSignalEntityCandidate(candidate: string): boolean {
-  const parts = candidate
-    .toLowerCase()
+  const normalized = normalizeEntityCandidate(candidate);
+  if (!normalized) {
+    return true;
+  }
+
+  const parts = normalized
     .split(/\s+/)
     .map((part) => part.trim())
     .filter(Boolean);
@@ -216,13 +230,40 @@ export function isLowSignalEntityCandidate(candidate: string): boolean {
   return parts.every((part) => LOW_SIGNAL_ENTITY_WORDS.has(part));
 }
 
+export function normalizeEntityCandidate(candidate: string): string | null {
+  const collapsed = candidate
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!collapsed) {
+    return null;
+  }
+
+  const alias = ENTITY_ALIAS_MAP.get(collapsed) ?? collapsed;
+  const parts = alias
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    const [single] = parts;
+    if (single.length < 2 || ENTITY_STOPWORDS.has(single)) {
+      return null;
+    }
+  }
+
+  return parts.join(" ");
+}
+
 export function extractEntityCandidates(text: string): string[] {
   const withoutUrls = text.replace(/https?:\/\/\S+/gi, " ");
   const hashtagMatches = withoutUrls.match(/#([\p{L}\p{N}_]+)/gu) ?? [];
-  const hashtagCandidates = hashtagMatches
-    .map((tag) => tag.replace(/^#/, "").toLowerCase())
-    .filter((tag) => tag.length >= 3)
-    .filter((tag) => !ENTITY_STOPWORDS.has(tag));
 
   const normalized = withoutUrls
     .replace(/@\w+/g, " ")
@@ -232,13 +273,24 @@ export function extractEntityCandidates(text: string): string[] {
   const tokens = normalized
     .split(/\s+/)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 3)
-    .filter((token) => !ENTITY_STOPWORDS.has(token));
+    .filter((token) => token.length >= 2);
 
-  const candidates = new Set<string>(hashtagCandidates);
+  const candidates = new Set<string>();
+  const addCandidate = (raw: string) => {
+    const candidate = normalizeEntityCandidate(raw);
+    if (!candidate) {
+      return;
+    }
+
+    candidates.add(candidate);
+  };
+
+  for (const hashtag of hashtagMatches) {
+    addCandidate(hashtag.replace(/^#/, ""));
+  }
 
   for (const token of tokens) {
-    candidates.add(token);
+    addCandidate(token);
   }
 
   for (let index = 0; index < tokens.length - 1; index += 1) {
@@ -256,8 +308,8 @@ export function extractEntityCandidates(text: string): string[] {
     }
 
     const phrase = `${first} ${second}`;
-    if (phrase.length >= 7) {
-      candidates.add(phrase);
+    if (phrase.length >= 5) {
+      addCandidate(phrase);
     }
   }
 
