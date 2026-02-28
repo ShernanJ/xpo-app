@@ -257,6 +257,24 @@ It only increases scrape depth; it does not introduce a second scraping implemen
 The UI refresh path should read from cache only after backfill completes.
 It should not trigger another fresh scrape just to display the deeper result.
 
+Terminal backfill jobs should be cleaned up automatically so the local queue store does not grow forever.
+
+Current cleanup policy:
+
+- keep `pending` and `processing` jobs indefinitely
+- prune `completed` and `failed` jobs older than the retention window
+- cap the number of retained terminal jobs even inside the retention window
+
+Default retention:
+
+- 72 hours
+- 200 terminal jobs
+
+Environment overrides:
+
+- `ONBOARDING_BACKFILL_RETENTION_HOURS`
+- `ONBOARDING_BACKFILL_MAX_TERMINAL_JOBS`
+
 ## 6. Planned Async Enrichment Scrape
 
 There is a second scrape lane planned beyond onboarding.
