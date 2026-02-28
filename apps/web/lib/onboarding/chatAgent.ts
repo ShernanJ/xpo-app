@@ -39,6 +39,72 @@ interface CriticOutput {
   issues: string[];
 }
 
+function coerceString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function coerceStringArray(value: unknown, maxItems: number): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, maxItems);
+}
+
+function normalizePlannerOutput(
+  value: PlannerOutput,
+  fallback: CreatorGenerationContract,
+): PlannerOutput {
+  const targetLane =
+    value?.targetLane === "original" ||
+    value?.targetLane === "reply" ||
+    value?.targetLane === "quote"
+      ? value.targetLane
+      : fallback.planner.targetLane;
+
+  return {
+    objective: coerceString(value?.objective, fallback.planner.objective),
+    angle: coerceString(value?.angle, fallback.planner.primaryAngle),
+    targetLane,
+    mustInclude: coerceStringArray(value?.mustInclude, 4),
+    mustAvoid: coerceStringArray(value?.mustAvoid, 4),
+  };
+}
+
+function normalizeWriterOutput(value: WriterOutput): WriterOutput {
+  return {
+    response: coerceString(value?.response),
+    angles: coerceStringArray(value?.angles, 4),
+    drafts: coerceStringArray(value?.drafts, 6),
+    supportAsset: coerceString(value?.supportAsset),
+    whyThisWorks: coerceStringArray(value?.whyThisWorks, 3),
+    watchOutFor: coerceStringArray(value?.watchOutFor, 3),
+  };
+}
+
+function normalizeCriticOutput(
+  value: CriticOutput,
+  writerFallback: WriterOutput,
+): CriticOutput {
+  return {
+    approved: typeof value?.approved === "boolean" ? value.approved : true,
+    finalResponse: coerceString(value?.finalResponse, writerFallback.response),
+    finalAngles: coerceStringArray(value?.finalAngles, 4),
+    finalDrafts: coerceStringArray(value?.finalDrafts, 6),
+    finalSupportAsset: coerceString(
+      value?.finalSupportAsset,
+      writerFallback.supportAsset,
+    ),
+    finalWhyThisWorks: coerceStringArray(value?.finalWhyThisWorks, 3),
+    finalWatchOutFor: coerceStringArray(value?.finalWatchOutFor, 3),
+    issues: coerceStringArray(value?.issues, 5),
+  };
+}
+
 export type ChatModelProvider = "openai" | "groq";
 export type CreatorChatIntent = "ideate" | "draft" | "review";
 export type CreatorChatProgressPhase =
@@ -611,8 +677,8 @@ function buildWriterSystemPrompt(params: {
     "You are the writer for an X growth assistant.",
     "Write one high-quality assistant response package for the user.",
     intent === "ideate"
-      ? "Return a short strategic response, 0-3 draft candidates, why the direction fits, and what to watch out for."
-      : "Return a short strategic response, 1-3 concrete draft candidates, why they fit, and what to watch out for.",
+      ? "Return a short strategic response, 0-4 angle candidates, why the direction fits, and what to watch out for."
+      : "Return a short strategic response, 4-6 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
     "The user's native voice matters more than generic social-media best practices.",
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
@@ -771,6 +837,212 @@ function hasProofSignal(text: string): boolean {
   );
 }
 
+const LOW_SIGNAL_DRAFT_TERMS = new Set([
+  "a",
+  "an",
+  "and",
+  "about",
+  "all",
+  "are",
+  "as",
+  "be",
+  "been",
+  "build",
+  "building",
+  "for",
+  "from",
+  "help",
+  "how",
+  "i",
+  "i'm",
+  "im",
+  "in",
+  "is",
+  "it",
+  "just",
+  "my",
+  "of",
+  "on",
+  "people",
+  "post",
+  "posting",
+  "project",
+  "that",
+  "the",
+  "this",
+  "to",
+  "users",
+  "what",
+  "with",
+  "x",
+]);
+
+const GENERIC_DRAFT_PHRASES = [
+  "major milestone",
+  "currently working on",
+  "excited to share",
+  "valuable insights",
+  "connect with your audience",
+  "establish authority",
+  "what's your take",
+  "what are your top lessons",
+  "what's the one thing",
+  "share your story",
+];
+
+function collectSignalTerms(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .toLowerCase()
+        .match(/[a-z0-9]+/g)
+        ?.filter(
+          (term) => term.length >= 3 && !LOW_SIGNAL_DRAFT_TERMS.has(term),
+        ) ?? [],
+    ),
+  );
+}
+
+function computeLowercaseShare(text: string): number {
+  const letters = text.match(/[A-Za-z]/g) ?? [];
+  if (letters.length === 0) {
+    return 0;
+  }
+
+  const lowercaseLetters = text.match(/[a-z]/g) ?? [];
+  return (lowercaseLetters.length / letters.length) * 100;
+}
+
+function looksLikeGenericQuestion(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  return (
+    trimmed.endsWith("?") &&
+    /^(what|how|why|when|where|who)\b/.test(trimmed) &&
+    !hasProofSignal(trimmed)
+  );
+}
+
+function countPhraseMatches(text: string, phrases: string[]): number {
+  const lowered = text.toLowerCase();
+  return phrases.filter((phrase) => lowered.includes(phrase)).length;
+}
+
+function scoreDraftCandidate(params: {
+  draft: string;
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+}): number {
+  const draft = params.draft.trim();
+  if (!draft) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const lowered = draft.toLowerCase();
+  const words = lowered.match(/[a-z0-9']+/g) ?? [];
+  const lowercaseShare = computeLowercaseShare(draft);
+  const focusTerms = Array.from(
+    new Set([
+      ...collectSignalTerms(params.selectedAngle),
+      ...collectSignalTerms(params.concreteSubject),
+      ...collectSignalTerms(params.userMessage).slice(0, 4),
+    ]),
+  );
+  const matchingTerms = focusTerms.filter((term) =>
+    new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+      draft,
+    ),
+  );
+  let score = 0;
+
+  if (params.contract.writer.targetCasing === "lowercase") {
+    score += lowercaseShare >= 72 ? 3 : lowercaseShare >= 55 ? 1 : -3;
+  } else {
+    score += lowercaseShare <= 55 ? 1 : -1;
+  }
+
+  if (params.contract.planner.authorityBudget === "low") {
+    score += hasProofSignal(draft) ? 4 : -5;
+  } else if (params.contract.planner.authorityBudget === "medium") {
+    score += hasProofSignal(draft) ? 2 : -1;
+  } else if (hasProofSignal(draft)) {
+    score += 1;
+  }
+
+  if (focusTerms.length > 0) {
+    score += Math.min(matchingTerms.length, 4) * 1.25;
+
+    if ((params.selectedAngle || params.concreteSubject) && matchingTerms.length === 0) {
+      score -= 4;
+    }
+  }
+
+  if (params.contract.planner.outputShape === "short_form_post") {
+    score += words.length <= 24 ? 2 : words.length <= 36 ? 0.5 : -2;
+  } else if (params.contract.planner.outputShape === "long_form_post") {
+    score += words.length >= 26 ? 2 : -1;
+  } else if (params.contract.planner.outputShape === "thread_seed") {
+    score += words.length >= 18 ? 1 : -1;
+  }
+
+  if (looksLikeGenericQuestion(draft)) {
+    score -= 4;
+  }
+
+  if (
+    params.contract.planner.outputShape === "short_form_post" &&
+    /(thoughts\?|curious if|anyone else)/i.test(lowered)
+  ) {
+    score += 1.5;
+  }
+
+  score -= countPhraseMatches(draft, GENERIC_DRAFT_PHRASES) * 3;
+
+  if (/^(sharing|discussing|highlighting|talking)\b/i.test(draft)) {
+    score -= 2;
+  }
+
+  return score;
+}
+
+function rerankDrafts(params: {
+  drafts: string[];
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+}): string[] {
+  const seen = new Set<string>();
+  const candidates = params.drafts
+    .map((draft) => loosenDraftText(draft, params.contract))
+    .filter((draft) => {
+      const normalized = draft.trim().toLowerCase();
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    })
+    .map((draft) => ({
+      draft,
+      score: scoreDraftCandidate({
+        draft,
+        contract: params.contract,
+        selectedAngle: params.selectedAngle,
+        concreteSubject: params.concreteSubject,
+        userMessage: params.userMessage,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  return candidates.slice(0, 3).map((candidate) => candidate.draft);
+}
+
 export async function generateCreatorChatReply(params: {
   runId: string;
   onboarding: OnboardingResult;
@@ -824,6 +1096,7 @@ export async function generateCreatorChatReply(params: {
     };
   }
 
+  const concreteSubject = extractConcreteSubject(params.userMessage);
   const history = normalizeHistory(params.history ?? []);
   const historyText =
     history.length > 0
@@ -831,7 +1104,7 @@ export async function generateCreatorChatReply(params: {
       : "No prior chat history.";
 
   params.onProgress?.("planning");
-  const planner = await callProviderJson<PlannerOutput>({
+  const plannerResponse = await callProviderJson<PlannerOutput>({
     provider,
     system: buildPlannerSystemPrompt({ context, contract }),
     user: [
@@ -839,9 +1112,7 @@ export async function generateCreatorChatReply(params: {
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
-      `Concrete subject from user request: ${
-        extractConcreteSubject(params.userMessage) ?? "none"
-      }`,
+      `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
       `Blocked reasons: ${contract.planner.blockedReasons.join(" | ") || "none"}`,
@@ -873,6 +1144,7 @@ export async function generateCreatorChatReply(params: {
       required: ["objective", "angle", "targetLane", "mustInclude", "mustAvoid"],
     },
   });
+  const planner = normalizePlannerOutput(plannerResponse, contract);
   const effectivePlanner: PlannerOutput = {
     ...planner,
     angle: params.selectedAngle?.trim() || planner.angle,
@@ -882,10 +1154,11 @@ export async function generateCreatorChatReply(params: {
           ...planner.mustInclude,
         ].slice(0, 4)
       : planner.mustInclude,
+    mustAvoid: planner.mustAvoid,
   };
 
   params.onProgress?.("writing");
-  const writer = await callProviderJson<WriterOutput>({
+  const writerResponse = await callProviderJson<WriterOutput>({
     provider,
     system: buildWriterSystemPrompt({
       context,
@@ -900,9 +1173,7 @@ export async function generateCreatorChatReply(params: {
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
-      `Concrete subject from user request: ${
-        extractConcreteSubject(params.userMessage) ?? "none"
-      }`,
+      `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Recent chat history:\n${historyText}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
@@ -951,7 +1222,7 @@ export async function generateCreatorChatReply(params: {
           type: "array",
           items: { type: "string" },
           minItems: 0,
-          maxItems: 3,
+          maxItems: 6,
         },
         supportAsset: { type: "string" },
         whyThisWorks: {
@@ -976,8 +1247,10 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
+  const writer = normalizeWriterOutput(writerResponse);
+
   params.onProgress?.("critic");
-  const critic = await callProviderJson<CriticOutput>({
+  const criticResponse = await callProviderJson<CriticOutput>({
     provider,
     system: buildCriticSystemPrompt({
       contract,
@@ -991,9 +1264,7 @@ export async function generateCreatorChatReply(params: {
       `Task intent: ${params.intent ?? "draft"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
-      `Concrete subject from user request: ${
-        extractConcreteSubject(params.userMessage) ?? "none"
-      }`,
+      `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
@@ -1022,7 +1293,7 @@ export async function generateCreatorChatReply(params: {
           type: "array",
           items: { type: "string" },
           minItems: 0,
-          maxItems: 3,
+          maxItems: 6,
         },
         finalSupportAsset: { type: "string" },
         finalWhyThisWorks: {
@@ -1054,6 +1325,8 @@ export async function generateCreatorChatReply(params: {
     },
   });
 
+  const critic = normalizeCriticOutput(criticResponse, writer);
+
   params.onProgress?.("finalizing");
   const intent = params.intent ?? "draft";
   const finalAngles =
@@ -1065,9 +1338,13 @@ export async function generateCreatorChatReply(params: {
   const finalDrafts =
     intent === "ideate"
       ? []
-      : sanitizeStringList(critic.finalDrafts, 3, writer.drafts).map((draft) =>
-          loosenDraftText(draft, contract),
-        );
+      : rerankDrafts({
+          drafts: sanitizeStringList(critic.finalDrafts, 6, writer.drafts),
+          contract,
+          selectedAngle: params.selectedAngle?.trim() || null,
+          concreteSubject,
+          userMessage: params.userMessage,
+        });
   const finalWatchOutFor = sanitizeStringList(
     critic.finalWatchOutFor,
     3,
