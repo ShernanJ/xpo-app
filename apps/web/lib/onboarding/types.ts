@@ -397,8 +397,11 @@ export interface PostFeatureSnapshot {
   entityCandidates: string[];
 }
 
+export type CreatorContentLane = "original" | "reply" | "quote";
+
 export interface CreatorRepresentativePost {
   id: string;
+  lane: CreatorContentLane;
   text: string;
   createdAt: string;
   engagementTotal: number;
@@ -412,6 +415,7 @@ export interface CreatorRepresentativePost {
 export interface CreatorRepresentativeExamples {
   bestPerforming: CreatorRepresentativePost[];
   voiceAnchors: CreatorRepresentativePost[];
+  strategyAnchors: CreatorRepresentativePost[];
   cautionExamples: CreatorRepresentativePost[];
 }
 

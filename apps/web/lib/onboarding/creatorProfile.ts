@@ -10,6 +10,7 @@ import type {
   AudienceBreadth,
   ContentType,
   CreatorArchetype,
+  CreatorContentLane,
   CreatorExecutionProfile,
   CreatorProfile,
   CreatorQuoteProfile,
@@ -456,6 +457,7 @@ function toDeltaVsBaselinePercent(engagement: number, baseline: number): number 
 
 function buildRepresentativePost(
   post: XPublicPost,
+  lane: CreatorContentLane,
   baselineEngagement: number,
   selectionReason: string,
 ): CreatorRepresentativePost {
@@ -464,6 +466,7 @@ function buildRepresentativePost(
 
   return {
     id: post.id,
+    lane,
     text: post.text,
     createdAt: post.createdAt,
     engagementTotal,
@@ -477,11 +480,14 @@ function buildRepresentativePost(
 
 function buildRepresentativeExamples(params: {
   posts: XPublicPost[];
+  replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
   baselineEngagement: number;
   dominantContentType: ContentType | null;
   dominantHookPattern: HookPattern | null;
   primaryCasing: ToneCasing;
   averageLengthBand: LengthBand | null;
+  strategyDelta: CreatorStrategyProfile["delta"];
 }): CreatorRepresentativeExamples {
   const { posts, baselineEngagement } = params;
 
@@ -489,6 +495,7 @@ function buildRepresentativeExamples(params: {
     return {
       bestPerforming: [],
       voiceAnchors: [],
+      strategyAnchors: [],
       cautionExamples: [],
     };
   }
@@ -507,6 +514,7 @@ function buildRepresentativeExamples(params: {
     excluded.add(post.id);
     return buildRepresentativePost(
       post,
+      "original",
       baselineEngagement,
       "Top engagement in the current sample. Use this as proof of what already earns attention.",
     );
@@ -565,10 +573,19 @@ function buildRepresentativeExamples(params: {
       excluded.add(post.id);
       return buildRepresentativePost(
         post,
+        "original",
         baselineEngagement,
         "Strong match for the account's current voice and structure. Use this as a style anchor.",
       );
     });
+
+  const strategyAnchors = buildStrategyAnchors({
+    originalPosts: posts,
+    replyPosts: params.replyPosts,
+    quotePosts: params.quotePosts,
+    baselineEngagement,
+    strategyDelta: params.strategyDelta,
+  });
 
   const byEngagementAsc = [...posts].sort((a, b) => {
     const engagementDelta = computePostEngagement(a) - computePostEngagement(b);
@@ -584,6 +601,7 @@ function buildRepresentativeExamples(params: {
   const cautionExamples = cautionSource.slice(0, Math.min(2, cautionSource.length)).map((post) =>
     buildRepresentativePost(
       post,
+      "original",
       baselineEngagement,
       "Lower-performing relative to the current sample. Use this as a caution example before repeating the pattern.",
     ),
@@ -592,8 +610,105 @@ function buildRepresentativeExamples(params: {
   return {
     bestPerforming,
     voiceAnchors,
+    strategyAnchors,
     cautionExamples,
   };
+}
+
+function buildStrategyAnchors(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
+  baselineEngagement: number;
+  strategyDelta: CreatorStrategyProfile["delta"];
+}): CreatorRepresentativePost[] {
+  const priorities: Record<CreatorStrategyProfile["delta"]["adjustments"][number]["priority"], number> = {
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
+
+  const primaryAdjustment = params.strategyDelta.adjustments[0] ?? null;
+  const candidates: Array<{ post: XPublicPost; lane: CreatorContentLane }> = [
+    ...params.originalPosts.map((post) => ({ post, lane: "original" as const })),
+    ...params.replyPosts.map((post) => ({ post, lane: "reply" as const })),
+    ...params.quotePosts.map((post) => ({ post, lane: "quote" as const })),
+  ];
+
+  const scored = candidates
+    .map(({ post, lane }) => {
+      const features = analyzePostFeatures(post);
+      let score = Math.min(
+        2,
+        features.engagementTotal / Math.max(1, params.baselineEngagement || 1),
+      );
+
+      for (const adjustment of params.strategyDelta.adjustments) {
+        const weight = priorities[adjustment.priority];
+
+        if (adjustment.area === "standalone_posts" && lane === "original") {
+          score += 1.5 * weight;
+        }
+
+        if (adjustment.area === "reply_activity" && lane === "reply") {
+          score += 1.5 * weight;
+        }
+
+        if (adjustment.area === "quote_activity" && lane === "quote") {
+          score += 1.5 * weight;
+        }
+
+        if (adjustment.area === "link_dependence" && !features.hasLinks) {
+          score += 0.8 * weight;
+        }
+
+        if (adjustment.area === "mention_dependence" && !features.hasMentions) {
+          score += 0.8 * weight;
+        }
+
+        if (
+          (adjustment.area === "audience_breadth" ||
+            adjustment.area === "topic_specificity") &&
+          lane === "original"
+        ) {
+          if (features.entityCandidates.length <= 1) {
+            score += 0.75 * weight;
+          }
+          if (!features.hasLinks) {
+            score += 0.4 * weight;
+          }
+          if (!features.hasMentions) {
+            score += 0.4 * weight;
+          }
+        }
+      }
+
+      return {
+        post,
+        lane,
+        score,
+        engagementTotal: features.engagementTotal,
+      };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return b.engagementTotal - a.engagementTotal;
+    });
+
+  return scored.slice(0, 3).map(({ post, lane }) =>
+    buildRepresentativePost(
+      post,
+      lane,
+      params.baselineEngagement,
+      primaryAdjustment
+        ? `Best example for the current strategy gap (${primaryAdjustment.area}). Use this as a retrieval anchor when planning the next move.`
+        : "Representative example for the current strategy gap. Use this as a planning anchor.",
+    ),
+  );
 }
 
 function getDependenceLevel(rate: number): DependenceLevel {
@@ -1632,11 +1747,14 @@ export function buildCreatorProfile(params: {
     extractDominantHookPattern(posts) ?? performanceModel.bestHookPattern;
   const representativeExamples = buildRepresentativeExamples({
     posts,
+    replyPosts,
+    quotePosts,
     baselineEngagement: params.onboarding.baseline.averageEngagement,
     dominantContentType,
     dominantHookPattern,
     primaryCasing,
     averageLengthBand,
+    strategyDelta,
   });
   const createdAt = new Date(params.onboarding.profile.createdAt);
   const accountAgeDays = Number.isFinite(createdAt.getTime())
