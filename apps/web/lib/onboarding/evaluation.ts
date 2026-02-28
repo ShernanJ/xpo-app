@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v5";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v6";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -19,6 +19,7 @@ export interface CreatorEvaluationCheck {
     | "playbook_quality"
     | "strategy_specificity"
     | "interaction_signal_quality"
+    | "conversation_conversion_quality"
     | "distribution_loop_quality"
     | "anchor_quality";
   label: string;
@@ -36,6 +37,7 @@ export interface CreatorEvaluationSnapshot {
   secondaryNiche: CreatorProfile["niche"]["secondaryNiche"];
   archetype: CreatorProfile["archetype"];
   secondaryArchetype: CreatorProfile["secondaryArchetype"];
+  conversationReadiness: CreatorProfile["conversation"]["readiness"];
   distributionLoop: CreatorProfile["distribution"]["primaryLoop"];
   topTopic: string | null;
 }
@@ -320,6 +322,47 @@ function evaluateInteractionSignalQuality(profile: CreatorProfile): CreatorEvalu
   );
 }
 
+function evaluateConversationConversionQuality(
+  onboarding: OnboardingResult,
+  profile: CreatorProfile,
+): CreatorEvaluationCheck {
+  let score = profile.conversation.conversationConversionScore * 0.75;
+
+  if (profile.reply.isReliable) {
+    score += 10;
+  } else if (profile.reply.replyCount > 0) {
+    score += 4;
+  }
+
+  if (profile.conversation.authorReplyFollowThroughProxy !== null) {
+    score += Math.min(
+      12,
+      profile.conversation.authorReplyFollowThroughProxy * 0.2,
+    );
+  }
+
+  if (
+    onboarding.strategyState.goal === "followers" &&
+    profile.conversation.readiness === "high"
+  ) {
+    score += 8;
+  }
+
+  if (
+    onboarding.strategyState.goal === "followers" &&
+    profile.conversation.readiness === "low"
+  ) {
+    score -= 8;
+  }
+
+  return createCheck(
+    "conversation_conversion_quality",
+    "Conversation Conversion Quality",
+    score,
+    `Conversation readiness is ${profile.conversation.readiness}. Average replies per original post is ${profile.conversation.averageRepliesPerOriginalPost}, and ${profile.conversation.postsWithRepliesRate}% of original posts currently earn replies. ${profile.conversation.rationale}`,
+  );
+}
+
 function evaluateDistributionLoopQuality(
   onboarding: OnboardingResult,
   profile: CreatorProfile,
@@ -480,6 +523,17 @@ function buildBlockers(
 
   if (
     checks.some(
+      (check) =>
+        check.key === "conversation_conversion_quality" && check.status === "weak",
+    )
+  ) {
+    blockers.push(
+      "Conversation conversion is still too weak to rely on reply-led growth planning.",
+    );
+  }
+
+  if (
+    checks.some(
       (check) => check.key === "distribution_loop_quality" && check.status === "weak",
     )
   ) {
@@ -556,6 +610,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("conversation_conversion_quality")) {
+    improvements.push(
+      "Improve conversation conversion before leaning on reply-led growth loops too heavily.",
+    );
+  }
+
   if (weakKeys.has("distribution_loop_quality")) {
     improvements.push(
       "Keep distribution-loop guidance advisory until the inferred growth loop aligns more clearly with observed behavior.",
@@ -603,6 +663,7 @@ export function evaluateCreatorProfile(params: {
     evaluatePlaybookQuality(profile),
     evaluateStrategySpecificity(profile),
     evaluateInteractionSignalQuality(profile),
+    evaluateConversationConversionQuality(params.onboarding, profile),
     evaluateDistributionLoopQuality(params.onboarding, profile),
     evaluateAnchorQuality(profile),
   ];
@@ -633,6 +694,7 @@ export function evaluateCreatorProfile(params: {
       secondaryNiche: profile.niche.secondaryNiche,
       archetype: profile.archetype,
       secondaryArchetype: profile.secondaryArchetype,
+      conversationReadiness: profile.conversation.readiness,
       distributionLoop: profile.distribution.primaryLoop,
       topTopic: profile.topics.dominantTopics[0]?.label ?? null,
     },
