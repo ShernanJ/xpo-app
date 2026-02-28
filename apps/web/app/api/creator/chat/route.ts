@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { generateCreatorChatReply } from "@/lib/onboarding/chatAgent";
+import {
+  buildDeterministicCreatorChatReply,
+  generateCreatorChatReply,
+} from "@/lib/onboarding/chatAgent";
 import {
   applyCreatorToneOverrides,
   applyCreatorStrategyOverrides,
@@ -198,13 +201,24 @@ export async function POST(request: Request) {
               type: "result",
               data: result,
             });
-          } catch (error) {
+          } catch {
+            const fallback = buildDeterministicCreatorChatReply({
+              runId,
+              onboarding,
+              tonePreference,
+              userMessage: effectiveMessage,
+              intent,
+              contentFocus,
+              selectedAngle,
+            });
             push({
-              type: "error",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to generate a chat reply.",
+              type: "status",
+              phase: "finalizing",
+              message: formatProgressMessage("finalizing"),
+            });
+            push({
+              type: "result",
+              data: fallback,
             });
           } finally {
             controller.close();
@@ -241,21 +255,23 @@ export async function POST(request: Request) {
       },
       { status: 200 },
     );
-  } catch (error) {
+  } catch {
+    const fallback = buildDeterministicCreatorChatReply({
+      runId,
+      onboarding,
+      tonePreference,
+      userMessage: effectiveMessage,
+      intent,
+      contentFocus,
+      selectedAngle,
+    });
+
     return NextResponse.json(
       {
-        ok: false,
-        errors: [
-          {
-            field: "message",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Failed to generate a chat reply.",
-          },
-        ],
+        ok: true,
+        data: fallback,
       },
-      { status: 500 },
+      { status: 200 },
     );
   }
 }

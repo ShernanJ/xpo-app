@@ -5,6 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import {
+  buildDraftArtifact,
+  computeXWeightedCharacterCount,
+  type DraftArtifactDetails,
+} from "@/lib/onboarding/draftArtifacts";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   PostingCadenceCapacity,
@@ -106,24 +111,7 @@ type CreatorChatStreamEvent =
   | CreatorChatStreamResultEvent
   | CreatorChatStreamErrorEvent;
 
-interface DraftArtifact {
-  id: string;
-  title: string;
-  kind:
-    | "short_form_post"
-    | "long_form_post"
-    | "thread_seed"
-    | "reply_candidate"
-    | "quote_candidate";
-  content: string;
-  characterCount: number;
-  weightedCharacterCount: number;
-  maxCharacterLimit: number;
-  isWithinXLimit: boolean;
-  supportAsset: string | null;
-  betterClosers: string[];
-  replyPlan: string[];
-}
+type DraftArtifact = DraftArtifactDetails;
 
 interface ChatMessage {
   id: string;
@@ -194,7 +182,6 @@ interface StrategyPromptState {
 
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
-const LONG_FORM_X_LIMIT = 25_000;
 const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
   goal: "followers",
   postingCadenceCapacity: "1_per_day",
@@ -471,236 +458,6 @@ function buildInitialAssistantMessage(
   return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
     context.creatorProfile.archetype,
   )} in ${observedNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
-}
-
-function buildDeterministicReply(
-  context: CreatorAgentContext,
-  contract: CreatorGenerationContract,
-  options?: {
-    intent?: ChatIntent;
-    contentFocus?: ChatContentFocus | null;
-    selectedAngle?: string | null;
-  },
-): Omit<ChatMessage, "id" | "role"> {
-  const topHook = contract.planner.suggestedHookPatterns[0]
-    ? formatEnumLabel(contract.planner.suggestedHookPatterns[0])
-    : "Statement Open";
-  const topType = contract.planner.suggestedContentTypes[0]
-    ? formatEnumLabel(contract.planner.suggestedContentTypes[0])
-    : "Single Line";
-
-  if (contract.mode === "analysis_only") {
-    return {
-      content:
-        "Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.",
-      angles: [],
-      drafts: [],
-      draftArtifacts: [],
-      supportAsset: null,
-      whyThisWorks: [],
-      watchOutFor: [
-        "Wait for a deeper sample before treating drafts as reliable.",
-      ],
-      source: "deterministic",
-      model: null,
-      outputShape: contract.planner.outputShape,
-    };
-  }
-
-  if (options?.intent === "ideate") {
-    const focusLabel = options.contentFocus
-      ? formatContentFocusLabel(options.contentFocus)
-      : "the next content lane";
-
-    return {
-      content: `Start with ${focusLabel.toLowerCase()}. Keep the tone natural, lowercase, and specific to what you actually did or noticed. The first move is to pick 2-3 honest angles in that lane before writing final post copy.`,
-      angles: [
-        `the real thing you're learning while building it`,
-        `one concrete pain point the product fixes + "thoughts?"`,
-        `what building it changed about how you think about x growth`,
-      ],
-      drafts: [],
-      draftArtifacts: [],
-      supportAsset:
-        "Use a screenshot, quick demo clip, or a link only if it helps prove the point.",
-      whyThisWorks: [
-        "It separates subject-matter planning from final copywriting.",
-        "It keeps the next move anchored to a specific content lane instead of broad generic posting.",
-      ],
-      watchOutFor: [
-        "Do not jump straight into polished generic startup takes.",
-        "Use a real observation, project, or technical detail instead of abstract advice.",
-      ],
-      source: "deterministic",
-      model: null,
-      outputShape: "ideation_angles",
-    };
-  }
-
-  const drafts = [
-    options?.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-    `${topType} angle: ${
-      options?.selectedAngle?.trim() || contract.planner.primaryAngle
-    }`,
-  ];
-
-  return {
-    content: `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`,
-    angles: [],
-    drafts,
-    draftArtifacts: buildClientDraftArtifacts(
-      drafts,
-      contract.planner.outputShape,
-      "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
-    ),
-    supportAsset:
-      "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
-    whyThisWorks: [
-      "It stays aligned to the current lane and angle.",
-      "It keeps the draft inside the strongest deterministic constraints.",
-    ],
-    watchOutFor: ["Avoid broad generic phrasing."],
-    source: "deterministic",
-    model: null,
-    outputShape: contract.planner.outputShape,
-  };
-}
-
-function buildClientDraftArtifacts(
-  drafts: string[],
-  outputShape: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
-  supportAsset: string | null,
-): DraftArtifact[] {
-  return drafts.map((draft, index) =>
-    buildClientDraftArtifact({
-      id: `${outputShape}-${index + 1}`,
-      title: buildArtifactTitle(outputShape, index),
-      kind: outputShape,
-      content: draft,
-      supportAsset,
-    }),
-  );
-}
-
-function buildArtifactTitle(
-  outputShape: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
-  index: number,
-): string {
-  switch (outputShape) {
-    case "thread_seed":
-      return `Thread Seed ${index + 1}`;
-    case "long_form_post":
-      return `Long Form ${index + 1}`;
-    case "reply_candidate":
-      return `Reply ${index + 1}`;
-    case "quote_candidate":
-      return `Quote ${index + 1}`;
-    case "short_form_post":
-    default:
-      return `Draft ${index + 1}`;
-  }
-}
-
-function buildClientDraftArtifact(params: {
-  id: string;
-  title: string;
-  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">;
-  content: string;
-  supportAsset: string | null;
-}): DraftArtifact {
-  const weightedCharacterCount = computeClientXWeightedCharacterCount(params.content);
-  const maxCharacterLimit =
-    params.kind === "long_form_post" ? LONG_FORM_X_LIMIT : 280;
-
-  return {
-    id: params.id,
-    title: params.title,
-    kind: params.kind,
-    content: params.content,
-    characterCount: params.content.length,
-    weightedCharacterCount,
-    maxCharacterLimit,
-    isWithinXLimit: weightedCharacterCount <= maxCharacterLimit,
-    supportAsset: params.supportAsset,
-    betterClosers: buildClientBetterClosers(params.content, params.kind),
-    replyPlan: buildClientReplyPlan(params.content, params.kind),
-  };
-}
-
-function computeClientXWeightedCharacterCount(text: string): number {
-  const urlRegex = /https?:\/\/\S+/gi;
-  let weighted = 0;
-  let lastIndex = 0;
-
-  for (const match of text.matchAll(urlRegex)) {
-    const start = match.index ?? 0;
-    weighted += countClientWeightedSegment(text.slice(lastIndex, start));
-    weighted += 23;
-    lastIndex = start + match[0].length;
-  }
-
-  weighted += countClientWeightedSegment(text.slice(lastIndex));
-  return weighted;
-}
-
-function countClientWeightedSegment(value: string): number {
-  let total = 0;
-
-  for (const char of Array.from(value)) {
-    total += /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
-      char,
-    )
-      ? 2
-      : 1;
-  }
-
-  return total;
-}
-
-function buildClientBetterClosers(
-  draft: string,
-  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
-): string[] {
-  const lower = draft.toLowerCase();
-  const suggestions = new Set<string>();
-
-  if (lower.includes("build") || lower.includes("project") || lower.includes("app")) {
-    suggestions.add("thoughts?");
-    suggestions.add("would you use this?");
-    suggestions.add("what would you add?");
-  } else if (kind === "reply_candidate" || kind === "quote_candidate") {
-    suggestions.add("fair take or am i off?");
-    suggestions.add("curious if you see it the same way");
-  } else {
-    suggestions.add("agree or am i off?");
-    suggestions.add("curious if anyone else has felt this");
-    suggestions.add("thoughts?");
-  }
-
-  return Array.from(suggestions).slice(0, 3);
-}
-
-function buildClientReplyPlan(
-  draft: string,
-  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
-): string[] {
-  const plan: string[] = [];
-
-  if (kind === "reply_candidate") {
-    plan.push("If they engage, ask one tighter follow-up instead of dropping a second argument.");
-    plan.push("If they push back, reply with one concrete example instead of broadening the claim.");
-    return plan;
-  }
-
-  if (draft.trim().endsWith("?")) {
-    plan.push("Reply to the first useful answer quickly and ask one deeper follow-up.");
-  } else {
-    plan.push("When someone asks for details, reply with the concrete step, metric, or build constraint you left out.");
-  }
-
-  plan.push("If someone disagrees, answer with one specific example before defending the whole thesis.");
-  plan.push("If the thread gets traction, pin one short follow-up that adds the missing proof.");
-  return plan.slice(0, 3);
 }
 
 function AssistantTypingBubble(props: { status?: string | null }) {
@@ -1142,7 +899,7 @@ export default function ChatPage() {
 
         const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
           index === activeDraftEditor.artifactIndex
-            ? buildClientDraftArtifact({
+            ? buildDraftArtifact({
                 id: artifact.id,
                 title: artifact.title,
                 kind: artifact.kind,
@@ -1271,44 +1028,30 @@ export default function ChatPage() {
         if (contentType.includes("application/json")) {
           const data: CreatorChatResponse = await response.json();
 
-          const reply =
-            response.ok && data.ok
-              ? data.data
-              : data.ok
-                ? {
-                    reply: "The chat route failed to return a reply.",
-                    angles: [],
-                    drafts: [],
-                    draftArtifacts: [],
-                    supportAsset: null,
-                    outputShape: "short_form_post" as const,
-                    whyThisWorks: [],
-                    watchOutFor: [],
-                    source: "deterministic" as const,
-                    model: null,
-                    mode: resolvedContract.mode,
-                  }
-                : null;
+          if (!response.ok || !data.ok) {
+            setErrorMessage(
+              data.ok
+                ? "The chat route failed to return a reply."
+                : (data.errors[0]?.message ?? "Failed to generate a reply."),
+            );
+            return;
+          }
 
           setMessages((current) => [
             ...current,
             {
               id: `assistant-${Date.now() + 1}`,
               role: "assistant",
-              content:
-                reply?.reply ??
-                (data.ok
-                  ? "The chat route failed to return a reply."
-                  : (data.errors[0]?.message ?? "Failed to generate a reply.")),
-              angles: reply?.angles ?? [],
-              drafts: reply?.drafts ?? [],
-              draftArtifacts: reply?.draftArtifacts ?? [],
-              supportAsset: reply?.supportAsset ?? null,
-              outputShape: reply?.outputShape,
-              whyThisWorks: reply?.whyThisWorks ?? [],
-              watchOutFor: reply?.watchOutFor ?? [],
-              source: reply?.source,
-              model: reply?.model ?? null,
+              content: data.data.reply,
+              angles: data.data.angles,
+              drafts: data.data.drafts,
+              draftArtifacts: data.data.draftArtifacts,
+              supportAsset: data.data.supportAsset,
+              outputShape: data.data.outputShape,
+              whyThisWorks: data.data.whyThisWorks,
+              watchOutFor: data.data.watchOutFor,
+              source: data.data.source,
+              model: data.data.model ?? null,
             },
           ]);
           return;
@@ -1390,23 +1133,10 @@ export default function ChatPage() {
           },
         ]);
       } catch (error) {
-        const fallback = buildDeterministicReply(resolvedContext, resolvedContract, {
-          intent: options.intent,
-          contentFocus: resolvedContentFocus,
-          selectedAngle: options.selectedAngle ?? null,
-        });
-        setMessages((current) => [
-          ...current,
-          {
-            id: `assistant-${Date.now() + 1}`,
-            role: "assistant",
-            ...fallback,
-          },
-        ]);
         setErrorMessage(
           error instanceof Error
-            ? `${error.message} The deterministic fallback was used.`
-            : "The live model failed, so the deterministic fallback was used.",
+            ? error.message
+            : "The live model failed before the backend could return a response.",
         );
       } finally {
         setIsSending(false);
@@ -2052,9 +1782,9 @@ export default function ChatPage() {
                   {selectedDraftArtifact.title}
                 </p>
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  {formatAreaLabel(selectedDraftArtifact.kind)} · {computeClientXWeightedCharacterCount(
+                  {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
                     editorDraftText,
-                  )}/{selectedDraftArtifact.maxCharacterLimit} · {computeClientXWeightedCharacterCount(
+                  )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
                     editorDraftText,
                   ) <= selectedDraftArtifact.maxCharacterLimit
                     ? "Within Limit"
