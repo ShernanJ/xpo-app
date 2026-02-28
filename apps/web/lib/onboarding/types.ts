@@ -292,6 +292,15 @@ export interface CreatorVoiceProfile {
   styleNotes: string[];
 }
 
+export interface CreatorStyleCard {
+  preferredOpeners: string[];
+  preferredClosers: string[];
+  signaturePhrases: string[];
+  punctuationGuidelines: string[];
+  emojiPolicy: string;
+  forbiddenPhrases: string[];
+}
+
 export interface CreatorTopicProfile {
   dominantTopics: TopicSignal[];
   contentPillars: string[];
@@ -526,6 +535,7 @@ export interface CreatorProfile {
   sourceRunId: string;
   identity: CreatorIdentityProfile;
   voice: CreatorVoiceProfile;
+  styleCard: CreatorStyleCard;
   topics: CreatorTopicProfile;
   niche: CreatorNicheOverlayProfile;
   performance: CreatorPerformanceProfile;

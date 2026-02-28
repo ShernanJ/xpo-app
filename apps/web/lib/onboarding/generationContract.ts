@@ -7,7 +7,7 @@ import type {
   ToneRisk,
 } from "./types";
 
-export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v3";
+export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v4";
 
 export type CreatorGenerationStageMode =
   | "full_generation"
@@ -45,6 +45,12 @@ export interface CreatorWriterContract {
   toneBlendSummary: string;
   proofRequirement: string;
   voiceGuidelines: string[];
+  preferredOpeners: string[];
+  preferredClosers: string[];
+  signaturePhrases: string[];
+  punctuationGuidelines: string[];
+  emojiPolicy: string;
+  forbiddenPhrases: string[];
   mustInclude: string[];
   mustAvoid: string[];
   positiveAnchorIds: string[];
@@ -338,6 +344,12 @@ export function buildCreatorGenerationContract(params: {
         ...creatorProfile.playbook.toneGuidelines,
         ...creatorProfile.voice.styleNotes,
       ].slice(0, 6),
+      preferredOpeners: creatorProfile.styleCard.preferredOpeners.slice(0, 3),
+      preferredClosers: creatorProfile.styleCard.preferredClosers.slice(0, 3),
+      signaturePhrases: creatorProfile.styleCard.signaturePhrases.slice(0, 4),
+      punctuationGuidelines: creatorProfile.styleCard.punctuationGuidelines.slice(0, 3),
+      emojiPolicy: creatorProfile.styleCard.emojiPolicy,
+      forbiddenPhrases: creatorProfile.styleCard.forbiddenPhrases.slice(0, 4),
       mustInclude: mustInclude.slice(0, 7),
       mustAvoid: mustAvoid.slice(0, 5),
       positiveAnchorIds: selectAnchorIds(context.positiveAnchors, 5),

@@ -24,6 +24,7 @@ import type {
   CreatorReplyProfile,
   CreatorRepresentativeExamples,
   CreatorRepresentativePost,
+  CreatorStyleCard,
   CreatorStrategyProfile,
   DeliveryStyle,
   DependenceLevel,
@@ -47,6 +48,37 @@ import type {
 
 const LOCATION_CONTEXT_PATTERN =
   /\b(toronto|ontario|canada|burlington|montreal|vancouver|new york|nyc|sf|san francisco|la|los angeles|london)\b/i;
+
+const STYLE_CARD_STOPWORDS = new Set([
+  "about",
+  "after",
+  "also",
+  "because",
+  "been",
+  "from",
+  "here",
+  "into",
+  "just",
+  "like",
+  "more",
+  "only",
+  "that",
+  "this",
+  "they",
+  "what",
+  "when",
+  "with",
+  "your",
+]);
+
+const STYLE_CARD_FORBIDDEN_PHRASES = [
+  "major milestone",
+  "currently working on",
+  "excited to share",
+  "valuable insights",
+  "connect with your audience",
+  "establish authority",
+];
 
 const NICHE_DEFINITIONS: Array<{
   label: CreatorNicheLabel;
@@ -1196,6 +1228,181 @@ function buildStyleNotes(params: {
   }
 
   return notes.slice(0, 4);
+}
+
+function buildPreferredOpeners(posts: XPublicPost[]): string[] {
+  const counts = new Map<string, { phrase: string; count: number }>();
+
+  for (const post of posts) {
+    const firstLine = post.text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean);
+
+    if (!firstLine) {
+      continue;
+    }
+
+    const words = firstLine.match(/[A-Za-z0-9']+/g) ?? [];
+    if (words.length < 2) {
+      continue;
+    }
+
+    const phrase = words.slice(0, Math.min(words.length, 6)).join(" ");
+    const key = phrase.toLowerCase();
+    const current = counts.get(key);
+    counts.set(key, {
+      phrase,
+      count: (current?.count ?? 0) + 1,
+    });
+  }
+
+  return Array.from(counts.values())
+    .sort((left, right) => right.count - left.count || left.phrase.length - right.phrase.length)
+    .slice(0, 3)
+    .map((item) => item.phrase);
+}
+
+function buildPreferredClosers(posts: XPublicPost[]): string[] {
+  const counts = new Map<string, { phrase: string; count: number }>();
+
+  for (const post of posts) {
+    const closingLine = post.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1);
+
+    if (!closingLine) {
+      continue;
+    }
+
+    const words = closingLine.match(/[A-Za-z0-9']+/g) ?? [];
+    if (words.length < 2 || words.length > 16) {
+      continue;
+    }
+
+    const phrase = closingLine.replace(/\s+/g, " ").trim();
+    const key = phrase.toLowerCase();
+    const current = counts.get(key);
+    counts.set(key, {
+      phrase,
+      count: (current?.count ?? 0) + 1,
+    });
+  }
+
+  return Array.from(counts.values())
+    .sort((left, right) => right.count - left.count || left.phrase.length - right.phrase.length)
+    .slice(0, 3)
+    .map((item) => item.phrase);
+}
+
+function buildSignaturePhrases(posts: XPublicPost[]): string[] {
+  const phraseCounts = new Map<string, { phrase: string; count: number }>();
+
+  for (const post of posts) {
+    const words = (post.text.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter(
+      (word) => word.length >= 3 && !STYLE_CARD_STOPWORDS.has(word),
+    );
+    const seenInPost = new Set<string>();
+
+    for (let size = 2; size <= 3; size += 1) {
+      for (let index = 0; index <= words.length - size; index += 1) {
+        const phraseWords = words.slice(index, index + size);
+        if (phraseWords.some((word) => STYLE_CARD_STOPWORDS.has(word))) {
+          continue;
+        }
+
+        const key = phraseWords.join(" ");
+        if (seenInPost.has(key)) {
+          continue;
+        }
+
+        seenInPost.add(key);
+        const current = phraseCounts.get(key);
+        phraseCounts.set(key, {
+          phrase: key,
+          count: (current?.count ?? 0) + 1,
+        });
+      }
+    }
+  }
+
+  return Array.from(phraseCounts.values())
+    .filter((item) => item.count >= 2)
+    .sort((left, right) => right.count - left.count || left.phrase.length - right.phrase.length)
+    .slice(0, 4)
+    .map((item) => item.phrase);
+}
+
+function buildPunctuationGuidelines(posts: XPublicPost[]): string[] {
+  if (posts.length === 0) {
+    return [];
+  }
+
+  const colonRate = toPercent(
+    posts.filter((post) => post.text.includes(":")).length / posts.length,
+  );
+  const dashRate = toPercent(
+    posts.filter((post) => /—|--|- /.test(post.text)).length / posts.length,
+  );
+  const openEndingRate = toPercent(
+    posts.filter((post) => !/[.!?]["')\]]?\s*$/.test(post.text.trim())).length / posts.length,
+  );
+  const multiLineRate = toPercent(
+    posts.filter((post) => post.text.includes("\n")).length / posts.length,
+  );
+
+  const guidelines: string[] = [];
+
+  if (colonRate >= 20) {
+    guidelines.push("Colon-led setup lines are part of the pacing.");
+  }
+
+  if (dashRate >= 20) {
+    guidelines.push("Dashes and interrupted beats are part of the rhythm.");
+  }
+
+  if (openEndingRate >= 35) {
+    guidelines.push("A lot of posts end without a polished period.");
+  }
+
+  if (multiLineRate >= 30) {
+    guidelines.push("Line breaks do part of the storytelling work.");
+  }
+
+  return guidelines.slice(0, 3);
+}
+
+function buildStyleCard(params: {
+  posts: XPublicPost[];
+  emojiPostRate: number;
+}): CreatorStyleCard {
+  const preferredOpeners = buildPreferredOpeners(params.posts);
+  const preferredClosers = buildPreferredClosers(params.posts);
+  const signaturePhrases = buildSignaturePhrases(params.posts);
+  const punctuationGuidelines = buildPunctuationGuidelines(params.posts);
+
+  const observedText = params.posts.map((post) => post.text.toLowerCase()).join("\n");
+  const forbiddenPhrases = STYLE_CARD_FORBIDDEN_PHRASES.filter(
+    (phrase) => !observedText.includes(phrase),
+  ).slice(0, 4);
+
+  const emojiPolicy =
+    params.emojiPostRate >= 25
+      ? "Emoji can be used lightly if they support the tone."
+      : params.emojiPostRate >= 10
+        ? "Emoji are occasional, not core to the voice."
+        : "Default to no emoji unless the moment really calls for it.";
+
+  return {
+    preferredOpeners,
+    preferredClosers,
+    signaturePhrases,
+    punctuationGuidelines,
+    emojiPolicy,
+    forbiddenPhrases,
+  };
 }
 
 function inferLengthBandForPost(text: string): LengthBand {
@@ -3579,6 +3786,10 @@ export function buildCreatorProfile(params: {
     replyProfile,
     quoteProfile,
   });
+  const styleCard = buildStyleCard({
+    posts,
+    emojiPostRate,
+  });
   const representativeExamples = buildRepresentativeExamples({
     posts,
     replyPosts,
@@ -3629,6 +3840,7 @@ export function buildCreatorProfile(params: {
         dominantContentType,
       }),
     },
+    styleCard,
     topics: {
       dominantTopics,
       contentPillars: buildContentPillars(dominantTopics),
