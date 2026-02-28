@@ -638,7 +638,7 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+    <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
@@ -658,9 +658,9 @@ export default function ChatPage() {
         </div>
       ) : null}
 
-      <div className="relative flex min-h-screen">
+      <div className="relative flex h-full min-h-0">
         <aside
-          className={`sticky top-0 hidden h-screen shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${
+          className={`sticky top-0 hidden h-full min-h-0 shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${
             sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
           }`}
         >
@@ -771,8 +771,8 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        <div className="flex min-h-screen flex-1 flex-col">
-          <header className="border-b border-white/10 px-4 py-3 sm:px-6">
+        <div className="flex h-full min-h-0 flex-1 flex-col">
+          <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
             <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
               <button
                 type="button"
@@ -801,8 +801,8 @@ export default function ChatPage() {
             </div>
           </header>
 
-          <section className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 pb-40 pt-8 sm:px-6">
+          <section className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
               <div className="flex flex-wrap items-center gap-2">
                 {summaryChips.map((chip) => (
                   <span
@@ -906,7 +906,7 @@ export default function ChatPage() {
             </div>
           </section>
 
-          <div className="sticky bottom-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
+          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
             <div className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
               <form onSubmit={handleComposerSubmit}>
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3">
@@ -932,21 +932,6 @@ export default function ChatPage() {
                     >
                       {isSending ? "…" : "↑"}
                     </button>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
-                      Live model replies now sit on top of the deterministic contract.
-                    </p>
-                    <div className="hidden items-center gap-2 md:flex">
-                      {showDevTools ? (
-                        <span className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          {providerPreference === "openai" ? "OpenAI" : "Groq"}
-                        </span>
-                      ) : null}
-                      <span className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        {contract ? formatEnumLabel(contract.mode) : "Loading"}
-                      </span>
-                    </div>
                   </div>
                 </div>
               </form>
