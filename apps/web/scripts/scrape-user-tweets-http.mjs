@@ -3,6 +3,13 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 
+import {
+  createSessionBroker,
+  DEFAULT_STATE_FILE,
+  ensureCookieContainsCt0,
+  getCookieValue,
+} from "./lib/x-scrape-session-broker.mjs";
+
 const DEFAULT_FEATURES = {
   rweb_video_screen_enabled: false,
   tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
@@ -31,11 +38,6 @@ const DEFAULT_FIELD_TOGGLES = {
   withArticlePlainText: false,
 };
 
-const DEFAULT_STATE_FILE = path.resolve(
-  process.cwd(),
-  "tmp",
-  "x-http-scrape-state.json",
-);
 const DEFAULT_MAX_REQUESTS_PER_HOUR = 45;
 const DEFAULT_MIN_INTERVAL_MS = 5000;
 const DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -62,6 +64,8 @@ function printUsage() {
       "  --count <number>          Number of tweets to request (default: 40).",
       "  --query-id <value>        UserTweets queryId (optional; auto-discovered when omitted).",
       "  --user-id <value>         X rest id (optional; resolved via users/show when omitted).",
+      "  --session <value>         Force a specific session id from the session pool file.",
+      "  --session-file <path>     JSON file containing reusable authenticated sessions.",
       "  --cookie <value>          Cookie header string (or env X_WEB_COOKIE).",
       "  --csrf <value>            CSRF token / ct0 (or env X_WEB_CSRF_TOKEN).",
       "  --bearer <value>          Web bearer token (or env X_WEB_BEARER_TOKEN).",
@@ -82,6 +86,7 @@ function printUsage() {
       "  X_WEB_USER_TWEETS_QUERY_ID=<queryId>",
       "  X_WEB_USER_ID=<rest_id>",
       "  X_WEB_USER_AGENT=<ua string>",
+      "  X_WEB_SESSION_FILE=<session-pool-json-path>",
       "  X_WEB_SCRAPE_STATE_PATH=<state-json-path>",
       "  X_WEB_MAX_REQUESTS_PER_HOUR=<number>",
       "  X_WEB_MIN_INTERVAL_MS=<number>",
@@ -150,6 +155,8 @@ function parseArgs(argv) {
     count: 40,
     queryId: null,
     userId: null,
+    sessionId: null,
+    sessionFile: null,
     cookie: null,
     csrf: null,
     bearer: null,
@@ -223,6 +230,16 @@ function parseArgs(argv) {
 
     if (token === "--user-id") {
       parsed.userId = value;
+      continue;
+    }
+
+    if (token === "--session") {
+      parsed.sessionId = value;
+      continue;
+    }
+
+    if (token === "--session-file") {
+      parsed.sessionFile = value;
       continue;
     }
 
@@ -335,219 +352,13 @@ function asString(value) {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function getCookieValue(cookieString, key) {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = cookieString.match(new RegExp(`(?:^|;\\s*)${escapedKey}=([^;]+)`));
-  return match ? match[1] : null;
-}
-
-function ensureCookieContainsCt0(cookie, csrfToken) {
-  if (!cookie) {
-    return cookie;
-  }
-
-  if (!csrfToken || getCookieValue(cookie, "ct0")) {
-    return cookie;
-  }
-
-  const separator = cookie.trim().endsWith(";") ? " " : "; ";
-  return `${cookie}${separator}ct0=${csrfToken}`;
-}
-
 function buildDefaultOutputPath(account) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return path.resolve(process.cwd(), "tmp", `user-tweets-http-${account}-${stamp}.json`);
 }
 
-function createEmptyScrapeState() {
-  return {
-    recentRequests: [],
-    lastRequestAt: null,
-    cooldownUntil: null,
-    cache: {
-      bearerToken: null,
-      queryId: null,
-      userIds: {},
-    },
-  };
-}
-
-function normalizeScrapeState(raw) {
-  const state = createEmptyScrapeState();
-  const root = asRecord(raw);
-  if (!root) {
-    return state;
-  }
-
-  if (Array.isArray(root.recentRequests)) {
-    state.recentRequests = root.recentRequests
-      .map((value) => Number(value))
-      .filter((value) => Number.isFinite(value));
-  }
-
-  if (Number.isFinite(Number(root.lastRequestAt))) {
-    state.lastRequestAt = Number(root.lastRequestAt);
-  }
-
-  if (Number.isFinite(Number(root.cooldownUntil))) {
-    state.cooldownUntil = Number(root.cooldownUntil);
-  }
-
-  const cache = asRecord(root.cache);
-  if (!cache) {
-    return state;
-  }
-
-  const bearerToken = asRecord(cache.bearerToken);
-  const queryId = asRecord(cache.queryId);
-  const userIds = asRecord(cache.userIds);
-
-  if (bearerToken && typeof bearerToken.value === "string") {
-    state.cache.bearerToken = {
-      value: bearerToken.value,
-      updatedAt: Number(bearerToken.updatedAt) || Date.now(),
-    };
-  }
-
-  if (queryId && typeof queryId.value === "string") {
-    state.cache.queryId = {
-      value: queryId.value,
-      updatedAt: Number(queryId.updatedAt) || Date.now(),
-    };
-  }
-
-  if (userIds) {
-    for (const [key, value] of Object.entries(userIds)) {
-      const entry = asRecord(value);
-      if (!entry || typeof entry.value !== "string") {
-        continue;
-      }
-
-      state.cache.userIds[key] = {
-        value: entry.value,
-        updatedAt: Number(entry.updatedAt) || Date.now(),
-      };
-    }
-  }
-
-  return state;
-}
-
-async function readScrapeState(statePath) {
-  try {
-    const raw = await readFile(statePath, "utf8");
-    return normalizeScrapeState(JSON.parse(raw));
-  } catch {
-    return createEmptyScrapeState();
-  }
-}
-
-async function writeScrapeState(statePath, state) {
-  await mkdir(path.dirname(statePath), { recursive: true });
-  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-}
-
-function pruneOldRequests(state, nowMs) {
-  state.recentRequests = state.recentRequests.filter(
-    (timestampMs) => nowMs - timestampMs < 60 * 60 * 1000,
-  );
-}
-
-async function enforceRateLimit(state, options) {
-  const nowMs = Date.now();
-  pruneOldRequests(state, nowMs);
-
-  if (
-    Number.isFinite(state.cooldownUntil) &&
-    state.cooldownUntil !== null &&
-    nowMs < state.cooldownUntil
-  ) {
-    const waitSeconds = Math.ceil((state.cooldownUntil - nowMs) / 1000);
-    throw new Error(
-      `Scrape cooldown active for ${waitSeconds}s. Reduce traffic or wait before retrying.`,
-    );
-  }
-
-  if (
-    Number.isFinite(state.lastRequestAt) &&
-    state.lastRequestAt !== null &&
-    options.minIntervalMs > 0
-  ) {
-    const elapsedMs = nowMs - state.lastRequestAt;
-    if (elapsedMs < options.minIntervalMs) {
-      const sleepMs = options.minIntervalMs - elapsedMs;
-      console.log(`[rate-limit] Sleeping ${sleepMs}ms to respect min interval.`);
-      await sleep(sleepMs);
-    }
-  }
-
-  const nowAfterSleepMs = Date.now();
-  pruneOldRequests(state, nowAfterSleepMs);
-  if (state.recentRequests.length >= options.maxRequestsPerHour) {
-    const oldest = state.recentRequests[0];
-    const waitMs = Math.max(1, oldest + 60 * 60 * 1000 - nowAfterSleepMs);
-    const waitSeconds = Math.ceil(waitMs / 1000);
-    throw new Error(
-      `Scrape hourly budget exceeded (${options.maxRequestsPerHour}/hour). Retry in ~${waitSeconds}s.`,
-    );
-  }
-}
-
-function markRequestStart(state) {
-  const nowMs = Date.now();
-  state.lastRequestAt = nowMs;
-  state.recentRequests.push(nowMs);
-}
-
-function maybeSetCooldownFromError(state, error, cooldownMs) {
-  if (!(error instanceof HttpStatusError) || cooldownMs <= 0) {
-    return;
-  }
-
-  if (error.status === 429 || error.status === 403) {
-    state.cooldownUntil = Date.now() + cooldownMs;
-  }
-}
-
-function getCachedGlobal(state, key, ttlMs) {
-  const entry = state.cache[key];
-  if (!entry) {
-    return null;
-  }
-
-  if (!Number.isFinite(entry.updatedAt) || Date.now() - entry.updatedAt > ttlMs) {
-    return null;
-  }
-
-  return entry.value;
-}
-
-function setCachedGlobal(state, key, value) {
-  state.cache[key] = {
-    value,
-    updatedAt: Date.now(),
-  };
-}
-
-function getCachedUserId(state, account) {
-  const key = account.toLowerCase();
-  const entry = state.cache.userIds[key];
-  if (!entry) {
-    return null;
-  }
-
-  if (!Number.isFinite(entry.updatedAt) || Date.now() - entry.updatedAt > USER_ID_CACHE_TTL_MS) {
-    return null;
-  }
-
-  return entry.value;
-}
-
-function setCachedUserId(state, account, userId) {
-  state.cache.userIds[account.toLowerCase()] = {
-    value: userId,
-    updatedAt: Date.now(),
-  };
+function shouldCooldownSession(error) {
+  return error instanceof HttpStatusError && (error.status === 403 || error.status === 429);
 }
 
 function buildRequestHeaders(params) {
@@ -864,8 +675,8 @@ function extractUserRestIdFromGraphqlUserPayload(payload) {
 }
 
 async function resolveUserRestIdFromGraphqlUserByScreenName(params) {
-  const { account, userAgent, headers } = params;
-  const queryId = await discoverUserByScreenNameQueryId(userAgent);
+  const { account, userAgent, headers, queryId: providedQueryId } = params;
+  const queryId = providedQueryId ?? (await discoverUserByScreenNameQueryId(userAgent));
 
   const variables = {
     screen_name: account,
@@ -913,8 +724,8 @@ async function resolveUserRestIdFromProfilePage(params) {
   const accountEscaped = account.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [
     new RegExp(`"screen_name":"${accountEscaped}"[^}]{0,400}?"rest_id":"(\\d+)"`),
-    /"rest_id":"(\d{8,})","is_blue_verified"/,
-    /"rest_id":"(\d{8,})","legacy":\{"created_at"/,
+    new RegExp(`"rest_id":"(\\d+)"[^}]{0,600}?"screen_name":"${accountEscaped}"`),
+    new RegExp(`"screen_name":"${accountEscaped}"[^]{0,1200}?"rest_id":"(\\d+)"`),
   ];
 
   for (const pattern of patterns) {
@@ -925,6 +736,86 @@ async function resolveUserRestIdFromProfilePage(params) {
   }
 
   throw new Error("Could not resolve user id from profile HTML.");
+}
+
+function extractPayloadUsername(payload) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const user = asRecord(data?.user);
+  const userResult = asRecord(user?.result);
+  if (!userResult) {
+    return null;
+  }
+
+  const core = asRecord(userResult.core);
+  const userCore = asRecord(core?.core);
+  if (typeof userCore?.screen_name === "string") {
+    return userCore.screen_name;
+  }
+
+  const legacy = asRecord(userResult.legacy);
+  if (typeof legacy?.screen_name === "string") {
+    return legacy.screen_name;
+  }
+
+  return null;
+}
+
+async function resolveUserRestIdWithFallbacks(params) {
+  const {
+    account,
+    userId,
+    userAgent,
+    headers,
+    cookie,
+    broker,
+  } = params;
+
+  if (userId) {
+    return userId;
+  }
+
+  const cachedUserByScreenNameQueryId = broker.getCachedGlobal(
+    "userByScreenNameQueryId",
+    GLOBAL_CACHE_TTL_MS,
+  );
+  let userByScreenNameQueryId = cachedUserByScreenNameQueryId;
+  if (!userByScreenNameQueryId) {
+    userByScreenNameQueryId = await discoverUserByScreenNameQueryId(userAgent);
+    broker.setCachedGlobal("userByScreenNameQueryId", userByScreenNameQueryId);
+  }
+
+  try {
+    return await resolveUserRestIdFromGraphqlUserByScreenName({
+      account,
+      userAgent,
+      headers,
+      queryId: userByScreenNameQueryId,
+    });
+  } catch (graphqlError) {
+    const gqlMessage =
+      graphqlError instanceof Error ? graphqlError.message : "unknown graphql user lookup error";
+    console.warn(`[http] UserByScreenName lookup failed: ${gqlMessage}`);
+  }
+
+  try {
+    return await resolveUserRestId({
+      account,
+      userId: null,
+      headers,
+    });
+  } catch (usersShowError) {
+    const usersShowMessage =
+      usersShowError instanceof Error ? usersShowError.message : "unknown users/show error";
+    console.warn(`[http] users/show lookup failed: ${usersShowMessage}`);
+  }
+
+  console.warn("[http] Falling back to profile HTML rest_id extraction.");
+  return resolveUserRestIdFromProfilePage({
+    account,
+    userAgent,
+    cookie,
+  });
 }
 
 async function fetchUserTweetsPayload(params) {
@@ -1044,51 +935,70 @@ async function main() {
       ? Math.floor(envCooldown)
       : options.cooldownMs;
 
-  const statePath = path.resolve(
-    process.env.X_WEB_SCRAPE_STATE_PATH ?? options.stateFile,
-  );
-  const state = await readScrapeState(statePath);
-  await enforceRateLimit(state, {
+  const sessionFilePath = options.sessionFile ?? process.env.X_WEB_SESSION_FILE ?? null;
+  const broker = await createSessionBroker({
+    statePath: process.env.X_WEB_SCRAPE_STATE_PATH ?? options.stateFile,
+    sessionFilePath,
     maxRequestsPerHour,
     minIntervalMs,
   });
-  markRequestStart(state);
-  await writeScrapeState(statePath, state);
 
+  let sessionHandle = null;
   try {
-    const cookieRaw = options.cookie ?? process.env.X_WEB_COOKIE ?? null;
+    sessionHandle = await broker.acquire({
+      forcedSessionId: options.sessionId,
+    });
+
+    const sessionCookie = sessionHandle.cookie ?? null;
+    const sessionCsrfToken = sessionHandle.csrfToken ?? null;
+    const sessionUserAgent = sessionHandle.userAgent ?? null;
+    const sessionBearerToken = sessionHandle.bearerToken ?? null;
+
+    const cookieRaw = options.cookie ?? sessionCookie ?? process.env.X_WEB_COOKIE ?? null;
     const csrfFromCookie = cookieRaw ? getCookieValue(cookieRaw, "ct0") : null;
-    const csrfToken = options.csrf ?? process.env.X_WEB_CSRF_TOKEN ?? csrfFromCookie ?? null;
+    const csrfToken =
+      options.csrf ??
+      sessionCsrfToken ??
+      process.env.X_WEB_CSRF_TOKEN ??
+      csrfFromCookie ??
+      null;
     const cookie = ensureCookieContainsCt0(cookieRaw, csrfToken);
     const userAgent =
+      sessionUserAgent ??
       process.env.X_WEB_USER_AGENT ??
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
     const bearerFromArgsOrEnv =
-      options.bearer ?? process.env.X_WEB_BEARER_TOKEN ?? null;
+      options.bearer ??
+      sessionBearerToken ??
+      process.env.X_WEB_BEARER_TOKEN ??
+      null;
     const cachedBearer = bearerFromArgsOrEnv
       ? null
-      : getCachedGlobal(state, "bearerToken", GLOBAL_CACHE_TTL_MS);
+      : broker.getCachedGlobal("bearerToken", GLOBAL_CACHE_TTL_MS);
     let bearerToken = bearerFromArgsOrEnv ?? cachedBearer;
     if (!bearerToken) {
       bearerToken = await discoverWebBearerToken(userAgent);
-      setCachedGlobal(state, "bearerToken", bearerToken);
+      broker.setCachedGlobal("bearerToken", bearerToken);
     }
 
     const queryIdFromArgsOrEnv =
       options.queryId ?? process.env.X_WEB_USER_TWEETS_QUERY_ID ?? null;
     const cachedQueryId = queryIdFromArgsOrEnv
       ? null
-      : getCachedGlobal(state, "queryId", GLOBAL_CACHE_TTL_MS);
+      : broker.getCachedGlobal("queryId", GLOBAL_CACHE_TTL_MS);
     const resolvedQueryId =
       queryIdFromArgsOrEnv ?? cachedQueryId ?? (await discoverUserTweetsQueryId(userAgent));
     if (!queryIdFromArgsOrEnv && !cachedQueryId) {
-      setCachedGlobal(state, "queryId", resolvedQueryId);
+      broker.setCachedGlobal("queryId", resolvedQueryId);
     }
     console.log(`[http] UserTweets queryId: ${resolvedQueryId}`);
 
     const userIdFromEnv = process.env.X_WEB_USER_ID ?? null;
-    const userIdInput = options.userId ?? userIdFromEnv ?? getCachedUserId(state, account);
+    const userIdInput =
+      options.userId ??
+      userIdFromEnv ??
+      broker.getCachedUserId(account, USER_ID_CACHE_TTL_MS);
 
     const useCookieAuth = Boolean(cookie && csrfToken && !options.forceGuest);
     let guestToken = null;
@@ -1096,6 +1006,8 @@ async function main() {
     if (!useCookieAuth) {
       console.log("[http] Using guest-token flow (no auth cookie supplied).");
       guestToken = await resolveGuestToken(bearerToken, userAgent);
+    } else if (sessionHandle.kind === "pooled") {
+      console.log(`[http] Using authenticated cookie flow via session ${sessionHandle.label}.`);
     } else {
       console.log("[http] Using authenticated cookie flow.");
     }
@@ -1110,36 +1022,15 @@ async function main() {
       useCookieAuth,
     });
 
-    let userId = null;
-    try {
-      userId = await resolveUserRestId({
-        account,
-        userId: userIdInput,
-        headers,
-      });
-    } catch (error) {
-      const primaryMessage = error instanceof Error ? error.message : "unknown users/show error";
-      console.warn(`[http] users/show lookup failed: ${primaryMessage}`);
-      console.warn("[http] Falling back to UserByScreenName GraphQL.");
-      try {
-        userId = await resolveUserRestIdFromGraphqlUserByScreenName({
-          account,
-          userAgent,
-          headers,
-        });
-      } catch (graphqlError) {
-        const gqlMessage =
-          graphqlError instanceof Error ? graphqlError.message : "unknown graphql user lookup error";
-        console.warn(`[http] UserByScreenName lookup failed: ${gqlMessage}`);
-        console.warn("[http] Falling back to profile HTML rest_id extraction.");
-        userId = await resolveUserRestIdFromProfilePage({
-          account,
-          userAgent,
-          cookie,
-        });
-      }
-    }
-    setCachedUserId(state, account, userId);
+    const userId = await resolveUserRestIdWithFallbacks({
+      account,
+      userId: userIdInput,
+      userAgent,
+      headers,
+      cookie,
+      broker,
+    });
+    broker.setCachedUserId(account, userId);
     console.log(`[http] Resolved user id: ${userId}`);
 
     const payload = await fetchUserTweetsPayload({
@@ -1153,6 +1044,16 @@ async function main() {
     if (!looksLikeUserTweetsPayload(payload)) {
       throw new Error(
         "Response does not match UserTweets payload shape. This can happen when headers/queryId/features drift.",
+      );
+    }
+
+    const payloadAccount = extractPayloadUsername(payload);
+    if (
+      payloadAccount &&
+      payloadAccount.toLowerCase() !== account.toLowerCase()
+    ) {
+      throw new Error(
+        `Resolved timeline belongs to @${payloadAccount}, not @${account}. User id resolution is stale or incorrect.`,
       );
     }
 
@@ -1172,11 +1073,14 @@ async function main() {
       console.log(`[import] Success:\n${JSON.stringify(importResult, null, 2)}`);
     }
 
-    state.cooldownUntil = null;
-    await writeScrapeState(statePath, state);
+    await broker.markSuccess(sessionHandle);
   } catch (error) {
-    maybeSetCooldownFromError(state, error, cooldownMs);
-    await writeScrapeState(statePath, state);
+    if (sessionHandle) {
+      await broker.markFailure(sessionHandle, {
+        cooldownMs,
+        shouldCooldown: shouldCooldownSession(error),
+      });
+    }
     throw error;
   }
 }
