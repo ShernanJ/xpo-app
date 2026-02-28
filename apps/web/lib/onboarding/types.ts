@@ -201,6 +201,13 @@ export type DependenceLevel = "low" | "moderate" | "high";
 
 export type DeliveryStyle = "standalone" | "mixed" | "reply_led";
 
+export type DistributionLoopType =
+  | "reply_driven"
+  | "standalone_discovery"
+  | "quote_commentary"
+  | "profile_conversion"
+  | "authority_building";
+
 export type ReplyTone =
   | "supportive"
   | "playful"
@@ -288,6 +295,14 @@ export interface CreatorExecutionProfile {
   ctaIntensity: DependenceLevel;
   deliveryStyle: DeliveryStyle;
   distributionNotes: string[];
+}
+
+export interface CreatorDistributionLoopProfile {
+  primaryLoop: DistributionLoopType;
+  secondaryLoop: DistributionLoopType | null;
+  confidence: number;
+  signals: string[];
+  rationale: string;
 }
 
 export interface ReplyStyleMixItem {
@@ -406,6 +421,7 @@ export interface CreatorRepresentativePost {
   createdAt: string;
   engagementTotal: number;
   deltaVsBaselinePercent: number;
+  goalFitScore: number;
   contentType: ContentType;
   hookPattern: HookPattern;
   features: PostFeatureSnapshot;
@@ -429,6 +445,7 @@ export interface CreatorProfile {
   topics: CreatorTopicProfile;
   performance: CreatorPerformanceProfile;
   execution: CreatorExecutionProfile;
+  distribution: CreatorDistributionLoopProfile;
   reply: CreatorReplyProfile;
   quote: CreatorQuoteProfile;
   archetype: CreatorArchetype;

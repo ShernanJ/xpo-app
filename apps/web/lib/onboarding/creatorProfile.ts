@@ -11,6 +11,7 @@ import type {
   ContentType,
   CreatorArchetype,
   CreatorContentLane,
+  CreatorDistributionLoopProfile,
   CreatorExecutionProfile,
   CreatorProfile,
   CreatorQuoteProfile,
@@ -20,6 +21,7 @@ import type {
   CreatorStrategyProfile,
   DeliveryStyle,
   DependenceLevel,
+  DistributionLoopType,
   HookPattern,
   LengthBand,
   OnboardingResult,
@@ -455,11 +457,90 @@ function toDeltaVsBaselinePercent(engagement: number, baseline: number): number 
   return Number((((engagement - baseline) / baseline) * 100).toFixed(2));
 }
 
+function computeGoalFitScore(params: {
+  goal: UserGoal;
+  lane: CreatorContentLane;
+  baselineEngagement: number;
+  features: ReturnType<typeof analyzePostFeatures>;
+}): number {
+  const baseline = Math.max(1, params.baselineEngagement || 1);
+  const engagementRatio = params.features.engagementTotal / baseline;
+  let score = 20 + Math.min(18, Math.max(0, (engagementRatio - 0.5) * 14));
+
+  if (params.goal === "followers") {
+    if (params.lane === "original") {
+      score += 22;
+    } else if (params.lane === "reply" || params.lane === "quote") {
+      score += 8;
+    }
+    if (!params.features.hasLinks) {
+      score += 14;
+    }
+    if (!params.features.hasMentions) {
+      score += 10;
+    }
+    if (
+      params.features.hookPattern === "statement_open" ||
+      params.features.hookPattern === "question_open"
+    ) {
+      score += 8;
+    }
+    if (params.features.entityCandidates.length <= 1) {
+      score += 6;
+    }
+  }
+
+  if (params.goal === "leads") {
+    if (params.lane === "original") {
+      score += 18;
+    }
+    if (params.features.hasCta) {
+      score += 18;
+    }
+    if (params.features.hasNumbers) {
+      score += 12;
+    }
+    if (params.features.hasLinks) {
+      score += 8;
+    }
+    if (params.features.wordCount >= 20) {
+      score += 8;
+    }
+    if (params.features.lineCount > 1) {
+      score += 4;
+    }
+  }
+
+  if (params.goal === "authority") {
+    if (params.lane === "original") {
+      score += 18;
+    }
+    if (params.lane === "quote") {
+      score += 8;
+    }
+    if (params.features.wordCount >= 18) {
+      score += 14;
+    }
+    if (params.features.lineCount > 1) {
+      score += 8;
+    }
+    if (params.features.hasNumbers) {
+      score += 6;
+    }
+    if (!params.features.hasLinks) {
+      score += 6;
+    }
+  }
+
+  return Number(Math.max(0, Math.min(100, score)).toFixed(2));
+}
+
 function buildRepresentativePost(
   post: XPublicPost,
   lane: CreatorContentLane,
   baselineEngagement: number,
   selectionReason: string,
+  goal: UserGoal,
 ): CreatorRepresentativePost {
   const features = analyzePostFeatures(post);
   const engagementTotal = features.engagementTotal;
@@ -471,6 +552,12 @@ function buildRepresentativePost(
     createdAt: post.createdAt,
     engagementTotal,
     deltaVsBaselinePercent: toDeltaVsBaselinePercent(engagementTotal, baselineEngagement),
+    goalFitScore: computeGoalFitScore({
+      goal,
+      lane,
+      baselineEngagement,
+      features,
+    }),
     contentType: features.contentType,
     hookPattern: features.hookPattern,
     features,
@@ -520,6 +607,7 @@ function buildRepresentativeExamples(params: {
       "original",
       baselineEngagement,
       "Top engagement in the current sample. Use this as proof of what already earns attention.",
+      params.goal,
     );
   });
 
@@ -579,6 +667,7 @@ function buildRepresentativeExamples(params: {
         "original",
         baselineEngagement,
         "Strong match for the account's current voice and structure. Use this as a style anchor.",
+        params.goal,
       );
     });
 
@@ -588,6 +677,7 @@ function buildRepresentativeExamples(params: {
     quotePosts: params.quotePosts,
     baselineEngagement,
     strategyDelta: params.strategyDelta,
+    goal: params.goal,
   });
   const goalAnchors = buildGoalAnchors({
     originalPosts: posts,
@@ -622,6 +712,7 @@ function buildRepresentativeExamples(params: {
       "original",
       baselineEngagement,
       "Lower-performing relative to the current sample. Use this as a caution example before repeating the pattern.",
+      params.goal,
     ),
   );
 
@@ -641,6 +732,7 @@ function buildStrategyAnchors(params: {
   quotePosts: XPublicPost[];
   baselineEngagement: number;
   strategyDelta: CreatorStrategyProfile["delta"];
+  goal: UserGoal;
 }): CreatorRepresentativePost[] {
   const priorities: Record<CreatorStrategyProfile["delta"]["adjustments"][number]["priority"], number> = {
     high: 3,
@@ -658,10 +750,17 @@ function buildStrategyAnchors(params: {
   const scored = candidates
     .map(({ post, lane }) => {
       const features = analyzePostFeatures(post);
+      const goalFitScore = computeGoalFitScore({
+        goal: params.goal,
+        lane,
+        baselineEngagement: params.baselineEngagement,
+        features,
+      });
       let score = Math.min(
         2,
         features.engagementTotal / Math.max(1, params.baselineEngagement || 1),
       );
+      score += goalFitScore / 28;
 
       for (const adjustment of params.strategyDelta.adjustments) {
         const weight = priorities[adjustment.priority];
@@ -727,6 +826,7 @@ function buildStrategyAnchors(params: {
       primaryAdjustment
         ? `Best example for the current strategy gap (${primaryAdjustment.area}). Use this as a retrieval anchor when planning the next move.`
         : "Representative example for the current strategy gap. Use this as a planning anchor.",
+      params.goal,
     ),
   );
 }
@@ -747,67 +847,19 @@ function buildGoalAnchors(params: {
   const scored = candidates
     .map(({ post, lane }) => {
       const features = analyzePostFeatures(post);
-      let score = Math.min(
-        2,
-        features.engagementTotal / Math.max(1, params.baselineEngagement || 1),
-      );
-
-      if (params.goal === "followers") {
-        if (lane === "original") {
-          score += 1.6;
-        }
-        if (!features.hasLinks) {
-          score += 1;
-        }
-        if (!features.hasMentions) {
-          score += 0.75;
-        }
-        if (features.hookPattern === "statement_open" || features.hookPattern === "question_open") {
-          score += 0.6;
-        }
-        if (lane === "reply" || lane === "quote") {
-          score += 0.3;
-        }
-      }
-
-      if (params.goal === "leads") {
-        if (lane === "original") {
-          score += 1.25;
-        }
-        if (features.hasCta) {
-          score += 1.2;
-        }
-        if (features.hasNumbers) {
-          score += 0.8;
-        }
-        if (features.hasLinks) {
-          score += 0.6;
-        }
-        if (features.wordCount >= 20) {
-          score += 0.45;
-        }
-      }
-
-      if (params.goal === "authority") {
-        if (lane === "original") {
-          score += 1.5;
-        }
-        if (lane === "quote") {
-          score += 0.5;
-        }
-        if (features.wordCount >= 18) {
-          score += 0.9;
-        }
-        if (features.lineCount > 1) {
-          score += 0.5;
-        }
-        if (features.hasNumbers) {
-          score += 0.5;
-        }
-        if (!features.hasLinks) {
-          score += 0.4;
-        }
-      }
+      const goalFitScore = computeGoalFitScore({
+        goal: params.goal,
+        lane,
+        baselineEngagement: params.baselineEngagement,
+        features,
+      });
+      const score =
+        goalFitScore +
+        Math.min(
+          12,
+          (features.engagementTotal / Math.max(1, params.baselineEngagement || 1)) *
+            4,
+        );
 
       return {
         post,
@@ -831,6 +883,7 @@ function buildGoalAnchors(params: {
       lane,
       params.baselineEngagement,
       `Best example for the current goal (${params.goal}). Use this as a goal-specific drafting anchor.`,
+      params.goal,
     ),
   );
 }
@@ -858,11 +911,18 @@ function buildGoalConflictExamples(params: {
   const scored = candidates
     .map(({ post, lane }) => {
       const features = analyzePostFeatures(post);
+      const goalFitScore = computeGoalFitScore({
+        goal: params.goal,
+        lane,
+        baselineEngagement: params.baselineEngagement,
+        features,
+      });
       let score = Math.max(
         0,
         (params.baselineEngagement - features.engagementTotal) /
           Math.max(1, params.baselineEngagement || 1),
       );
+      score += (100 - goalFitScore) / 25;
 
       if (params.goal === "followers") {
         if (features.hasLinks) {
@@ -955,6 +1015,7 @@ function buildGoalConflictExamples(params: {
       lane,
       params.baselineEngagement,
       `High-conflict example for the current goal (${params.goal}). Avoid repeating this pattern while pursuing the current target state.`,
+      params.goal,
     ),
   );
 }
@@ -1063,6 +1124,184 @@ function buildExecutionProfile(posts: XPublicPost[]): CreatorExecutionProfile {
     ctaIntensity,
     deliveryStyle,
     distributionNotes: distributionNotes.slice(0, 4),
+  };
+}
+
+function buildDistributionLoopProfile(params: {
+  growthStage: OnboardingResult["growthStage"];
+  audienceBreadth: AudienceBreadth;
+  voice: {
+    averageLengthBand: LengthBand | null;
+    dominantHookPattern: HookPattern | null;
+  };
+  execution: CreatorExecutionProfile;
+  replyProfile: CreatorReplyProfile;
+  quoteProfile: CreatorQuoteProfile;
+}): CreatorDistributionLoopProfile {
+  const scores: Record<DistributionLoopType, number> = {
+    reply_driven: 0,
+    standalone_discovery: 0,
+    quote_commentary: 0,
+    profile_conversion: 0,
+    authority_building: 0,
+  };
+
+  scores.reply_driven += params.execution.deliveryStyle === "reply_led" ? 28 : 0;
+  scores.reply_driven += params.growthStage === "0-1k" ? 14 : 4;
+  scores.reply_driven += params.replyProfile.replyCount > 0 ? 10 : 0;
+  scores.reply_driven += params.replyProfile.isReliable ? 18 : 0;
+  scores.reply_driven +=
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent >= 0
+      ? 16
+      : 0;
+
+  scores.standalone_discovery +=
+    params.execution.deliveryStyle === "standalone"
+      ? 26
+      : params.execution.deliveryStyle === "mixed"
+        ? 14
+        : 0;
+  scores.standalone_discovery += params.execution.standaloneStyleRate / 6;
+  scores.standalone_discovery += params.execution.linkDependence === "low" ? 14 : 0;
+  scores.standalone_discovery += params.execution.mentionDependence === "low" ? 10 : 0;
+  scores.standalone_discovery += params.audienceBreadth !== "narrow" ? 10 : 0;
+
+  scores.quote_commentary += params.quoteProfile.quoteCount > 0 ? 10 : 0;
+  scores.quote_commentary += params.quoteProfile.isReliable ? 20 : 0;
+  scores.quote_commentary +=
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 0
+      ? 18
+      : 0;
+  scores.quote_commentary += params.quoteProfile.quoteShareOfCapturedActivity / 3;
+  scores.quote_commentary +=
+    params.quoteProfile.dominantQuotePattern === "statement_open" ? 6 : 0;
+
+  scores.profile_conversion += params.execution.ctaIntensity === "high" ? 22 : 0;
+  scores.profile_conversion +=
+    params.execution.ctaIntensity === "moderate" ? 12 : 0;
+  scores.profile_conversion +=
+    params.execution.mentionDependence === "high"
+      ? 14
+      : params.execution.mentionDependence === "moderate"
+        ? 8
+        : 0;
+  scores.profile_conversion +=
+    params.execution.linkDependence === "high"
+      ? 12
+      : params.execution.linkDependence === "moderate"
+        ? 6
+        : 0;
+
+  scores.authority_building +=
+    params.voice.averageLengthBand === "long"
+      ? 20
+      : params.voice.averageLengthBand === "medium"
+        ? 12
+        : 0;
+  scores.authority_building +=
+    params.voice.dominantHookPattern === "how_to_open" ||
+    params.voice.dominantHookPattern === "numeric_open" ||
+    params.voice.dominantHookPattern === "statement_open"
+      ? 12
+      : 0;
+  scores.authority_building += params.execution.linkDependence === "low" ? 8 : 0;
+  scores.authority_building +=
+    params.quoteProfile.isReliable &&
+    (params.quoteProfile.quoteEngagementDeltaVsOriginalPercent ?? -100) >= 0
+      ? 8
+      : 0;
+  scores.authority_building += params.audienceBreadth === "narrow" ? 6 : 0;
+
+  const ranked = Object.entries(scores)
+    .map(([loop, score]) => ({
+      loop: loop as DistributionLoopType,
+      score: Number(score.toFixed(2)),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const primaryLoop = ranked[0]?.loop ?? "standalone_discovery";
+  const secondaryLoop =
+    ranked[1] && ranked[1].score >= ranked[0].score * 0.72 ? ranked[1].loop : null;
+  const totalScore = ranked.reduce((sum, item) => sum + item.score, 0);
+  const confidence = Number(
+    Math.max(
+      35,
+      Math.min(
+        100,
+        (((ranked[0]?.score ?? 0) / Math.max(1, totalScore)) * 70 +
+          (((ranked[0]?.score ?? 0) - (ranked[1]?.score ?? 0)) /
+            Math.max(1, ranked[0]?.score ?? 1)) *
+            30),
+      ),
+    ).toFixed(2),
+  );
+
+  const signals: string[] = [];
+
+  if (primaryLoop === "reply_driven") {
+    signals.push("Reply behavior is strong enough to act as a primary distribution wedge.");
+    if (params.replyProfile.isReliable) {
+      signals.push(
+        `Reply lane is reliable at ${params.replyProfile.signalConfidence}% confidence.`,
+      );
+    }
+  }
+
+  if (primaryLoop === "standalone_discovery") {
+    signals.push("The account already has a workable standalone discovery base.");
+    if (params.execution.linkDependence === "low") {
+      signals.push("Low link dependence keeps more posts natively legible in-feed.");
+    }
+  }
+
+  if (primaryLoop === "quote_commentary") {
+    signals.push("Quote posts are a meaningful commentary/distribution lane.");
+    if (params.quoteProfile.isReliable) {
+      signals.push(
+        `Quote lane is reliable at ${params.quoteProfile.signalConfidence}% confidence.`,
+      );
+    }
+  }
+
+  if (primaryLoop === "profile_conversion") {
+    signals.push("The current posting mix is conversion-oriented rather than purely discovery-oriented.");
+    if (params.execution.ctaIntensity !== "low") {
+      signals.push("CTA usage is high enough to treat profile conversion as a real loop.");
+    }
+  }
+
+  if (primaryLoop === "authority_building") {
+    signals.push("The current style supports authority-building through stronger standalone takes.");
+    if (params.voice.averageLengthBand) {
+      signals.push(`Average post length skews ${params.voice.averageLengthBand}.`);
+    }
+  }
+
+  const rationaleMap: Record<DistributionLoopType, string> = {
+    reply_driven:
+      "The fastest current growth lever is structured conversation: prompt replies, then actively engage the best responses.",
+    standalone_discovery:
+      "The strongest growth path is broad in-feed discovery through native standalone posts that travel without extra context.",
+    quote_commentary:
+      "The account is well-positioned to grow by attaching sharper commentary to existing conversations, then converting the best takes into originals.",
+    profile_conversion:
+      "The current mix looks more conversion-oriented, so growth should come from stronger profile and offer clarity after attention is captured.",
+    authority_building:
+      "The best current loop is earned authority: structured, clear point-of-view posts that invite discussion from peers.",
+  };
+
+  if (secondaryLoop) {
+    signals.push(`Secondary loop: ${secondaryLoop.replace(/_/g, " ")}.`);
+  }
+
+  return {
+    primaryLoop,
+    secondaryLoop,
+    confidence,
+    signals: signals.slice(0, 4),
+    rationale: rationaleMap[primaryLoop],
   };
 }
 
@@ -1421,6 +1660,7 @@ function buildRecommendedAngles(
   goal: UserGoal,
   archetype: CreatorArchetype,
   execution: CreatorExecutionProfile,
+  distribution: CreatorDistributionLoopProfile,
   replyProfile: CreatorReplyProfile,
   quoteProfile: CreatorQuoteProfile,
   growthStage: OnboardingResult["growthStage"],
@@ -1470,6 +1710,36 @@ function buildRecommendedAngles(
 
   if (archetype === "curator") {
     angles.push("Add stronger original commentary so curation builds authority.");
+  }
+
+  if (distribution.primaryLoop === "reply_driven") {
+    angles.push(
+      "Treat replies as a deliberate distribution loop: add real perspective, then compound the best angles into standalone posts.",
+    );
+  }
+
+  if (distribution.primaryLoop === "standalone_discovery") {
+    angles.push(
+      "Use standalone native posts as the main growth surface, then let replies support distribution instead of replacing it.",
+    );
+  }
+
+  if (distribution.primaryLoop === "quote_commentary") {
+    angles.push(
+      "Use quote posts to enter live conversations, but rewrite the strongest commentary into standalone posts that travel further.",
+    );
+  }
+
+  if (distribution.primaryLoop === "profile_conversion") {
+    angles.push(
+      "Tighten the profile-to-offer path so attention converts after discovery instead of relying on heavier in-post asks.",
+    );
+  }
+
+  if (distribution.primaryLoop === "authority_building") {
+    angles.push(
+      "Bias toward stronger standalone takes that earn replies from peers, not just passive agreement.",
+    );
   }
 
   if (execution.linkDependence === "high") {
@@ -1542,6 +1812,20 @@ function buildExecutionStrengths(execution: CreatorExecutionProfile): string[] {
 
   if (execution.deliveryStyle === "standalone") {
     strengths.push("Most posts already stand alone, which gives the account a better discovery base.");
+  }
+
+  return strengths;
+}
+
+function buildDistributionStrengths(
+  distribution: CreatorDistributionLoopProfile,
+): string[] {
+  const strengths: string[] = [];
+
+  if (distribution.confidence >= 70) {
+    strengths.push(
+      `A clear ${distribution.primaryLoop.replace(/_/g, " ")} loop is already visible, which makes the next growth step more operational.`,
+    );
   }
 
   return strengths;
@@ -1634,6 +1918,7 @@ function buildInteractionWeaknesses(params: {
 
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
+  distribution: CreatorDistributionLoopProfile,
   replyProfile: CreatorReplyProfile,
   quoteProfile: CreatorQuoteProfile,
   goal: UserGoal,
@@ -1708,6 +1993,36 @@ function buildExecutionNextMoves(
     );
   }
 
+  if (distribution.primaryLoop === "reply_driven") {
+    actions.push(
+      "Block one focused reply session this week, then convert the strongest reply angle into a top-level post within 24 hours.",
+    );
+  }
+
+  if (distribution.primaryLoop === "standalone_discovery") {
+    actions.push(
+      "Publish one extra standalone native post this week that can travel without prior context or links.",
+    );
+  }
+
+  if (distribution.primaryLoop === "quote_commentary") {
+    actions.push(
+      "Take one recent quote-tweet idea and rewrite it as a standalone opinion post this week.",
+    );
+  }
+
+  if (distribution.primaryLoop === "profile_conversion") {
+    actions.push(
+      "Audit your next post-to-profile path this week so the profile explains the offer clearly after the click.",
+    );
+  }
+
+  if (distribution.primaryLoop === "authority_building") {
+    actions.push(
+      "Publish one clear point-of-view post this week that asks for a considered response, not just agreement.",
+    );
+  }
+
   return actions;
 }
 
@@ -1760,29 +2075,30 @@ function buildTargetState(params: {
 function buildStrategyRationale(
   goal: UserGoal,
   archetype: CreatorArchetype,
+  distribution: CreatorDistributionLoopProfile,
   transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string {
   if (transformationMode === "preserve") {
-    return `Protect the current ${archetype} lane and improve execution without disrupting audience expectations.`;
+    return `Protect the current ${archetype} lane and improve execution without disrupting audience expectations. Keep the ${distribution.primaryLoop.replace(/_/g, " ")} loop intact while tightening it.`;
   }
 
   if (transformationMode === "pivot_soft") {
-    return `Use the current ${archetype} base as cover for a gradual repositioning into adjacent territory.`;
+    return `Use the current ${archetype} base as cover for a gradual repositioning into adjacent territory while repointing the ${distribution.primaryLoop.replace(/_/g, " ")} loop.`;
   }
 
   if (transformationMode === "pivot_hard") {
-    return `Treat the current ${archetype} pattern as a starting point, but accept near-term volatility while building a clearer new position.`;
+    return `Treat the current ${archetype} pattern as a starting point, but accept near-term volatility while rebuilding the ${distribution.primaryLoop.replace(/_/g, " ")} loop around a clearer new position.`;
   }
 
   if (goal === "followers") {
-    return `Optimize for discovery first. ${archetype} accounts grow faster when they package repeatable patterns into clearer hooks.`;
+    return `Optimize for discovery first. ${archetype} accounts grow faster when they package repeatable patterns into clearer hooks and reinforce the ${distribution.primaryLoop.replace(/_/g, " ")} loop.`;
   }
 
   if (goal === "leads") {
-    return `Shift from pure visibility to trust plus specificity. ${archetype} accounts need clear proof and audience pain alignment.`;
+    return `Shift from pure visibility to trust plus specificity. ${archetype} accounts need clear proof, audience pain alignment, and a tighter ${distribution.primaryLoop.replace(/_/g, " ")} path to conversion.`;
   }
 
-  return `Authority compounds when voice, proof, and consistency line up. The current ${archetype} pattern should become more opinionated and structured.`;
+  return `Authority compounds when voice, proof, and consistency line up. The current ${archetype} pattern should become more opinionated and structured while strengthening the ${distribution.primaryLoop.replace(/_/g, " ")} loop.`;
 }
 
 function buildStrategyDelta(params: {
@@ -1993,6 +2309,17 @@ export function buildCreatorProfile(params: {
     extractDominantContentType(posts) ?? performanceModel.bestContentType;
   const dominantHookPattern =
     extractDominantHookPattern(posts) ?? performanceModel.bestHookPattern;
+  const distributionProfile = buildDistributionLoopProfile({
+    growthStage: params.onboarding.growthStage,
+    audienceBreadth,
+    voice: {
+      averageLengthBand,
+      dominantHookPattern,
+    },
+    execution: executionProfile,
+    replyProfile,
+    quoteProfile,
+  });
   const representativeExamples = buildRepresentativeExamples({
     posts,
     replyPosts,
@@ -2054,6 +2381,7 @@ export function buildCreatorProfile(params: {
       ),
     },
     execution: executionProfile,
+    distribution: distributionProfile,
     reply: replyProfile,
     quote: quoteProfile,
     performance: {
@@ -2087,6 +2415,7 @@ export function buildCreatorProfile(params: {
       currentStrengths: [
         ...performanceModel.strengths,
         ...buildExecutionStrengths(executionProfile),
+        ...buildDistributionStrengths(distributionProfile),
         ...buildInteractionStrengths({
           replyProfile,
           quoteProfile,
@@ -2109,6 +2438,7 @@ export function buildCreatorProfile(params: {
         params.onboarding.strategyState.goal,
         archetype,
         executionProfile,
+        distributionProfile,
         replyProfile,
         quoteProfile,
         params.onboarding.growthStage,
@@ -2118,6 +2448,7 @@ export function buildCreatorProfile(params: {
         ...performanceModel.nextActions,
         ...buildExecutionNextMoves(
           executionProfile,
+          distributionProfile,
           replyProfile,
           quoteProfile,
           params.onboarding.strategyState.goal,
@@ -2128,6 +2459,7 @@ export function buildCreatorProfile(params: {
       rationale: buildStrategyRationale(
         params.onboarding.strategyState.goal,
         archetype,
+        distributionProfile,
         transformationMode,
       ),
     },
