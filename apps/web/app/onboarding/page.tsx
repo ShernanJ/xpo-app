@@ -1184,6 +1184,26 @@ export default function OnboardingPage() {
                             </p>
                           </div>
                         </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Avg Engagement
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.averageReplyEngagement}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Vs Originals
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.replyEngagementDeltaVsOriginalPercent === null
+                                ? "n/a"
+                                : `${creatorProfile.reply.replyEngagementDeltaVsOriginalPercent > 0 ? "+" : ""}${creatorProfile.reply.replyEngagementDeltaVsOriginalPercent}%`}
+                            </p>
+                          </div>
+                        </div>
                         {creatorProfile.reply.replyStyleMix.length ? (
                           <div className="mt-3 flex flex-wrap gap-2">
                             {creatorProfile.reply.replyStyleMix.map((item) => (
@@ -1242,6 +1262,26 @@ export default function OnboardingPage() {
                               {creatorProfile.quote.averageQuoteLengthBand
                                 ? formatEnumLabel(creatorProfile.quote.averageQuoteLengthBand)
                                 : "Unknown"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Avg Engagement
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.averageQuoteEngagement}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Vs Originals
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.quote.quoteEngagementDeltaVsOriginalPercent === null
+                                ? "n/a"
+                                : `${creatorProfile.quote.quoteEngagementDeltaVsOriginalPercent > 0 ? "+" : ""}${creatorProfile.quote.quoteEngagementDeltaVsOriginalPercent}%`}
                             </p>
                           </div>
                         </div>

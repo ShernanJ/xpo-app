@@ -814,11 +814,16 @@ function buildReplyProfile(params: {
   const { originalPosts, replyPosts, quotePosts } = params;
   const totalCapturedActivity =
     originalPosts.length + replyPosts.length + quotePosts.length;
+  const originalBaselineEngagement = average(
+    originalPosts.map((post) => computePostEngagement(post)),
+  );
 
   if (replyPosts.length === 0) {
     return {
       replyCount: 0,
       replyShareOfCapturedActivity: 0,
+      averageReplyEngagement: 0,
+      replyEngagementDeltaVsOriginalPercent: null,
       averageReplyLengthBand: null,
       dominantReplyTone: null,
       dominantReplyStyle: null,
@@ -855,6 +860,13 @@ function buildReplyProfile(params: {
   const replyShareOfCapturedActivity =
     totalCapturedActivity > 0 ? toPercent(replyPosts.length / totalCapturedActivity) : 0;
   const averageReplyLengthBand = inferAverageLengthBand(replyPosts);
+  const averageReplyEngagement = Number(
+    average(replyPosts.map((post) => computePostEngagement(post))).toFixed(2),
+  );
+  const replyEngagementDeltaVsOriginalPercent =
+    originalPosts.length > 0
+      ? toDeltaVsBaselinePercent(averageReplyEngagement, originalBaselineEngagement)
+      : null;
 
   let replyUsageNote = "Replies are present, but not yet a dominant part of the current captured activity.";
   if (replyShareOfCapturedActivity >= 50) {
@@ -871,9 +883,19 @@ function buildReplyProfile(params: {
     replyUsageNote += " The dominant reply tone adds analysis, which is a stronger base for authority-building replies.";
   }
 
+  if (replyEngagementDeltaVsOriginalPercent !== null) {
+    if (replyEngagementDeltaVsOriginalPercent >= 20) {
+      replyUsageNote += " In the current sample, replies outperform your original-post baseline.";
+    } else if (replyEngagementDeltaVsOriginalPercent <= -20) {
+      replyUsageNote += " In the current sample, replies underperform your original-post baseline.";
+    }
+  }
+
   return {
     replyCount: replyPosts.length,
     replyShareOfCapturedActivity,
+    averageReplyEngagement,
+    replyEngagementDeltaVsOriginalPercent,
     averageReplyLengthBand,
     dominantReplyTone,
     dominantReplyStyle,
@@ -890,11 +912,16 @@ function buildQuoteProfile(params: {
   const { originalPosts, replyPosts, quotePosts } = params;
   const totalCapturedActivity =
     originalPosts.length + replyPosts.length + quotePosts.length;
+  const originalBaselineEngagement = average(
+    originalPosts.map((post) => computePostEngagement(post)),
+  );
 
   if (quotePosts.length === 0) {
     return {
       quoteCount: 0,
       quoteShareOfCapturedActivity: 0,
+      averageQuoteEngagement: 0,
+      quoteEngagementDeltaVsOriginalPercent: null,
       averageQuoteLengthBand: null,
       dominantQuotePattern: null,
       quoteUsageNote:
@@ -908,6 +935,13 @@ function buildQuoteProfile(params: {
     totalCapturedActivity > 0 ? toPercent(quotePosts.length / totalCapturedActivity) : 0;
   const averageQuoteLengthBand = inferAverageLengthBand(quotePosts);
   const dominantQuotePattern = extractDominantHookPattern(quotePosts);
+  const averageQuoteEngagement = Number(
+    average(quotePosts.map((post) => computePostEngagement(post))).toFixed(2),
+  );
+  const quoteEngagementDeltaVsOriginalPercent =
+    originalPosts.length > 0
+      ? toDeltaVsBaselinePercent(averageQuoteEngagement, originalBaselineEngagement)
+      : null;
 
   let quoteUsageNote =
     "Quote posts are present as a secondary lane. They can add commentary leverage without replacing original posting.";
@@ -919,9 +953,19 @@ function buildQuoteProfile(params: {
       "Quote posts appear often enough to matter. Reuse the strongest quote angles as standalone takes when the underlying idea can travel on its own.";
   }
 
+  if (quoteEngagementDeltaVsOriginalPercent !== null) {
+    if (quoteEngagementDeltaVsOriginalPercent >= 20) {
+      quoteUsageNote += " In the current sample, quote posts outperform your original-post baseline.";
+    } else if (quoteEngagementDeltaVsOriginalPercent <= -20) {
+      quoteUsageNote += " In the current sample, quote posts underperform your original-post baseline.";
+    }
+  }
+
   return {
     quoteCount: quotePosts.length,
     quoteShareOfCapturedActivity,
+    averageQuoteEngagement,
+    quoteEngagementDeltaVsOriginalPercent,
     averageQuoteLengthBand,
     dominantQuotePattern,
     quoteUsageNote,
@@ -1086,6 +1130,13 @@ function buildRecommendedAngles(
       angles.push(
         "Use strategic replies as a second growth lane on niche-relevant posts with existing momentum.",
       );
+    } else if (
+      replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
+      replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
+    ) {
+      angles.push(
+        "Double down on thoughtful replies where you can add a distinct angle, then turn the strongest ones into standalone posts.",
+      );
     } else if (replyProfile.replyShareOfCapturedActivity >= 35) {
       angles.push(
         "Keep the reply habit, but turn your strongest reply ideas into standalone posts so distribution compounds beyond one thread.",
@@ -1093,7 +1144,14 @@ function buildRecommendedAngles(
     }
   }
 
-  if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
+  if (
+    quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
+  ) {
+    angles.push(
+      "Use quote posts as a commentary wedge when they already outperform, then extract the strongest take into a standalone post.",
+    );
+  } else if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
     angles.push(
       "Turn the strongest quote-tweet commentary into standalone posts so the idea can travel without the original post.",
     );
@@ -1124,6 +1182,33 @@ function buildExecutionStrengths(execution: CreatorExecutionProfile): string[] {
   return strengths;
 }
 
+function buildInteractionStrengths(params: {
+  replyProfile: CreatorReplyProfile;
+  quoteProfile: CreatorQuoteProfile;
+}): string[] {
+  const strengths: string[] = [];
+
+  if (
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
+  ) {
+    strengths.push(
+      "Replies are outperforming the original-post baseline, so conversation is already a real distribution lever here.",
+    );
+  }
+
+  if (
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
+  ) {
+    strengths.push(
+      "Quote posts are outperforming the original-post baseline, so commentary on existing momentum is working.",
+    );
+  }
+
+  return strengths;
+}
+
 function buildExecutionWeaknesses(
   execution: CreatorExecutionProfile,
   goal: UserGoal,
@@ -1140,6 +1225,39 @@ function buildExecutionWeaknesses(
 
   if (goal === "followers" && execution.deliveryStyle === "reply_led") {
     weaknesses.push("Reply-led posting supports relationships, but broad follower growth needs more standalone posts.");
+  }
+
+  return weaknesses;
+}
+
+function buildInteractionWeaknesses(params: {
+  replyProfile: CreatorReplyProfile;
+  quoteProfile: CreatorQuoteProfile;
+  goal: UserGoal;
+  growthStage: OnboardingResult["growthStage"];
+}): string[] {
+  const weaknesses: string[] = [];
+
+  if (
+    params.goal === "followers" &&
+    params.growthStage === "0-1k" &&
+    params.replyProfile.replyCount > 0 &&
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
+    params.replyProfile.replyEngagementDeltaVsOriginalPercent <= -20
+  ) {
+    weaknesses.push(
+      "Replies are underperforming the original-post baseline, so the conversation lane may need better targets or stronger substance.",
+    );
+  }
+
+  if (
+    params.quoteProfile.quoteCount > 0 &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    params.quoteProfile.quoteEngagementDeltaVsOriginalPercent <= -20
+  ) {
+    weaknesses.push(
+      "Quote posts are underperforming the original-post baseline, so the commentary may be leaning too hard on the source post's context.",
+    );
   }
 
   return weaknesses;
@@ -1188,6 +1306,13 @@ function buildExecutionNextMoves(
       actions.push(
         "Test 3-5 thoughtful replies this week on niche-adjacent posts that already have attention.",
       );
+    } else if (
+      replyProfile.replyEngagementDeltaVsOriginalPercent !== null &&
+      replyProfile.replyEngagementDeltaVsOriginalPercent >= 20
+    ) {
+      actions.push(
+        "Convert one high-performing reply this week into a standalone post while keeping the core angle intact.",
+      );
     } else if (replyProfile.replyShareOfCapturedActivity >= 35) {
       actions.push(
         "Reuse one strong reply from this week as the seed for a standalone post built for discovery.",
@@ -1195,7 +1320,14 @@ function buildExecutionNextMoves(
     }
   }
 
-  if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
+  if (
+    quoteProfile.quoteEngagementDeltaVsOriginalPercent !== null &&
+    quoteProfile.quoteEngagementDeltaVsOriginalPercent >= 20
+  ) {
+    actions.push(
+      "Take one high-performing quote post and publish the same thesis as a standalone post this week.",
+    );
+  } else if (quoteProfile.quoteShareOfCapturedActivity >= 25) {
     actions.push(
       "Pick one recent quote post and rewrite its core take as a standalone post this week.",
     );
@@ -1433,6 +1565,10 @@ export function buildCreatorProfile(params: {
       currentStrengths: [
         ...performanceModel.strengths,
         ...buildExecutionStrengths(executionProfile),
+        ...buildInteractionStrengths({
+          replyProfile,
+          quoteProfile,
+        }),
       ].slice(0, 4),
       currentWeaknesses: [
         ...performanceModel.weaknesses,
@@ -1440,6 +1576,12 @@ export function buildCreatorProfile(params: {
           executionProfile,
           params.onboarding.strategyState.goal,
         ),
+        ...buildInteractionWeaknesses({
+          replyProfile,
+          quoteProfile,
+          goal: params.onboarding.strategyState.goal,
+          growthStage: params.onboarding.growthStage,
+        }),
       ].slice(0, 4),
       recommendedAngles: buildRecommendedAngles(
         params.onboarding.strategyState.goal,
