@@ -5,7 +5,7 @@ import type {
   OnboardingResult,
 } from "./types";
 
-export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v7";
+export const CREATOR_EVALUATION_RUBRIC_VERSION = "creator_eval_v8";
 export const CREATOR_PROFILE_MODEL_VERSION = "deterministic_v1";
 
 export type CreatorEvaluationStatus = "strong" | "usable" | "weak";
@@ -22,7 +22,8 @@ export interface CreatorEvaluationCheck {
     | "interaction_signal_quality"
     | "conversation_conversion_quality"
     | "distribution_loop_quality"
-    | "anchor_quality";
+    | "anchor_quality"
+    | "voice_match_quality";
   label: string;
   score: number;
   status: CreatorEvaluationStatus;
@@ -41,6 +42,7 @@ export interface CreatorEvaluationSnapshot {
   secondaryArchetype: CreatorProfile["secondaryArchetype"];
   conversationReadiness: CreatorProfile["conversation"]["readiness"];
   distributionLoop: CreatorProfile["distribution"]["primaryLoop"];
+  voiceCasing: CreatorProfile["voice"]["primaryCasing"];
   topTopic: string | null;
 }
 
@@ -552,6 +554,79 @@ function evaluateAnchorQuality(profile: CreatorProfile): CreatorEvaluationCheck 
   );
 }
 
+function evaluateVoiceMatchQuality(profile: CreatorProfile): CreatorEvaluationCheck {
+  const styleCard = profile.styleCard;
+  const primaryVoiceAnchors = profile.examples.voiceAnchors;
+  const replyVoiceAnchors = profile.examples.replyVoiceAnchors;
+  const quoteVoiceAnchors = profile.examples.quoteVoiceAnchors;
+
+  const styleRichness =
+    styleCard.preferredOpeners.length +
+    styleCard.preferredClosers.length +
+    styleCard.signaturePhrases.length +
+    styleCard.punctuationGuidelines.length;
+  const laneCoverage =
+    (primaryVoiceAnchors.length > 0 ? 1 : 0) +
+    (replyVoiceAnchors.length > 0 ? 1 : 0) +
+    (quoteVoiceAnchors.length > 0 ? 1 : 0);
+  const hasExplicitLowercaseSignal =
+    profile.voice.primaryCasing === "lowercase" &&
+    profile.voice.lowercaseSharePercent >= 55;
+  const hasForbiddenPhraseGuard =
+    styleCard.forbiddenPhrases.length > 0;
+  const hasSignaturePhrases = styleCard.signaturePhrases.length > 0;
+  const hasReusableOpenClosePatterns =
+    styleCard.preferredOpeners.length > 0 || styleCard.preferredClosers.length > 0;
+
+  let score =
+    22 +
+    Math.min(20, styleRichness * 4) +
+    Math.min(18, primaryVoiceAnchors.length * 6) +
+    Math.min(12, laneCoverage * 4) +
+    (hasSignaturePhrases ? 10 : 0) +
+    (hasReusableOpenClosePatterns ? 8 : 0) +
+    (hasForbiddenPhraseGuard ? 8 : 0);
+
+  if (profile.voice.primaryCasing === "lowercase") {
+    score += hasExplicitLowercaseSignal ? 10 : 2;
+  } else {
+    score += profile.voice.lowercaseSharePercent <= 60 ? 6 : 0;
+  }
+
+  if (primaryVoiceAnchors.length === 0) {
+    score -= 15;
+  }
+
+  if (styleRichness <= 2) {
+    score -= 12;
+  }
+
+  if (!hasForbiddenPhraseGuard) {
+    score -= 6;
+  }
+
+  const laneNote =
+    laneCoverage >= 3
+      ? "Voice anchors now cover originals, replies, and quotes."
+      : laneCoverage === 2
+        ? "Voice anchors cover multiple lanes, but one lane is still sparse."
+        : "Voice anchors are still concentrated in one lane.";
+
+  const casingNote =
+    profile.voice.primaryCasing === "lowercase"
+      ? `Observed casing is lowercase with ${profile.voice.lowercaseSharePercent}% lowercase share.`
+      : `Observed casing is ${profile.voice.primaryCasing} with ${profile.voice.lowercaseSharePercent}% lowercase share.`;
+
+  return createCheck(
+    "voice_match_quality",
+    "Voice Match Quality",
+    score,
+    `${casingNote} Style card richness is ${styleRichness}. ${laneNote} Forbidden-phrase guard is ${
+      hasForbiddenPhraseGuard ? "present" : "missing"
+    }.`,
+  );
+}
+
 function buildBlockers(
   onboarding: OnboardingResult,
   profile: CreatorProfile,
@@ -605,6 +680,12 @@ function buildBlockers(
 
   if (checks.some((check) => check.key === "anchor_quality" && check.status === "weak")) {
     blockers.push("Retrieval anchors are still too shallow for reliable planning context.");
+  }
+
+  if (
+    checks.some((check) => check.key === "voice_match_quality" && check.status === "weak")
+  ) {
+    blockers.push("Voice fidelity is still too weak to trust creator-matching generation.");
   }
 
   if (
@@ -703,6 +784,12 @@ function buildNextImprovements(
     );
   }
 
+  if (weakKeys.has("voice_match_quality")) {
+    improvements.push(
+      "Strengthen style-card richness and lane-specific voice anchors so generation can match the creator's real phrasing more reliably.",
+    );
+  }
+
   if (improvements.length === 0) {
     improvements.push(
       "The current deterministic layer is in a usable place. The next gains should come from deeper data and retrieval, not broad rewrites.",
@@ -736,6 +823,7 @@ export function evaluateCreatorProfile(params: {
     evaluateConversationConversionQuality(params.onboarding, profile),
     evaluateDistributionLoopQuality(params.onboarding, profile),
     evaluateAnchorQuality(profile),
+    evaluateVoiceMatchQuality(profile),
   ];
 
   const overallScore = Number(
@@ -767,6 +855,7 @@ export function evaluateCreatorProfile(params: {
       secondaryArchetype: profile.secondaryArchetype,
       conversationReadiness: profile.conversation.readiness,
       distributionLoop: profile.distribution.primaryLoop,
+      voiceCasing: profile.voice.primaryCasing,
       topTopic: profile.topics.dominantTopics[0]?.label ?? null,
     },
   };
