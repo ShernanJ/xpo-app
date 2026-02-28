@@ -1,5 +1,6 @@
 import type {
   OnboardingInput,
+  ScrapeFreshnessMode,
   ToneCasing,
   ToneRisk,
   TransformationMode,
@@ -13,6 +14,7 @@ type OnboardingField =
   | "timeBudgetMinutes"
   | "transformationMode"
   | "transformationModeSource"
+  | "scrapeFreshness"
   | "tone.casing"
   | "tone.risk"
   | "forceMock"
@@ -37,6 +39,11 @@ const TRANSFORMATION_MODES: ReadonlySet<TransformationMode> = new Set([
 const TRANSFORMATION_MODE_SOURCES: ReadonlySet<TransformationModeSource> = new Set([
   "default",
   "user_selected",
+]);
+const SCRAPE_FRESHNESS_MODES: ReadonlySet<ScrapeFreshnessMode> = new Set([
+  "always",
+  "if_stale",
+  "cache_only",
 ]);
 const TONE_CASINGS: ReadonlySet<ToneCasing> = new Set(["lowercase", "normal"]);
 const TONE_RISKS: ReadonlySet<ToneRisk> = new Set(["safe", "bold"]);
@@ -172,6 +179,21 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
     });
   }
 
+  let scrapeFreshness: ScrapeFreshnessMode | undefined;
+  if (body.scrapeFreshness !== undefined) {
+    if (
+      typeof body.scrapeFreshness !== "string" ||
+      !SCRAPE_FRESHNESS_MODES.has(body.scrapeFreshness as ScrapeFreshnessMode)
+    ) {
+      errors.push({
+        field: "scrapeFreshness",
+        message: "scrapeFreshness must be one of: always, if_stale, cache_only.",
+      });
+    } else {
+      scrapeFreshness = body.scrapeFreshness as ScrapeFreshnessMode;
+    }
+  }
+
   const toneRecord = asRecord(body.tone);
   const toneCasingRaw = toneRecord?.casing;
   const toneRiskRaw = toneRecord?.risk;
@@ -229,6 +251,7 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
       timeBudgetMinutes,
       transformationMode,
       transformationModeSource,
+      scrapeFreshness,
       tone: {
         casing,
         risk,

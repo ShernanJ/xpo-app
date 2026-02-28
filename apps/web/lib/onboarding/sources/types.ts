@@ -6,6 +6,9 @@ export interface OnboardingDataSource {
   posts: OnboardingResult["recentPosts"];
   replyPosts: OnboardingResult["recentReplyPosts"];
   quotePosts: OnboardingResult["recentQuotePosts"];
+  capturedPostCount: number;
+  capturedReplyPostCount: number;
+  capturedQuotePostCount: number;
   warnings: string[];
 }
 

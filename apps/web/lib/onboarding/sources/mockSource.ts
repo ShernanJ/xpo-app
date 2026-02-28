@@ -14,6 +14,9 @@ export function buildMockDataSource(
     posts: fallback.posts,
     replyPosts: [],
     quotePosts: [],
+    capturedPostCount: fallback.posts.length,
+    capturedReplyPostCount: 0,
+    capturedQuotePostCount: 0,
     warnings: [warning],
   };
 }

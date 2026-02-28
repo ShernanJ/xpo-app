@@ -170,7 +170,17 @@ function buildStrategyState(
 
 export async function runOnboarding(input: OnboardingInput): Promise<OnboardingResult> {
   const dataSource = await resolveOnboardingDataSource(input);
-  const { source, profile, posts, replyPosts, quotePosts, warnings } = dataSource;
+  const {
+    source,
+    profile,
+    posts,
+    replyPosts,
+    quotePosts,
+    capturedPostCount,
+    capturedReplyPostCount,
+    capturedQuotePostCount,
+    warnings,
+  } = dataSource;
   const analysisConfidence = buildAnalysisConfidence(posts.length);
 
   const baseline = computeEngagementBaseline(posts, profile.followersCount);
@@ -212,6 +222,11 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     recentPostSampleCount: posts.length,
     replyPostSampleCount: replyPosts.length,
     quotePostSampleCount: quotePosts.length,
+    capturedPostCount,
+    capturedReplyPostCount,
+    capturedQuotePostCount,
+    totalCapturedActivityCount:
+      capturedPostCount + capturedReplyPostCount + capturedQuotePostCount,
     analysisConfidence,
     baseline,
     growthStage,

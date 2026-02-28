@@ -33,6 +33,7 @@ export interface OnboardingInput {
   tone: TonePreference;
   transformationMode?: TransformationMode;
   transformationModeSource?: TransformationModeSource;
+  scrapeFreshness?: ScrapeFreshnessMode;
   forceMock?: boolean;
   forceFreshScrape?: boolean;
 }
@@ -128,6 +129,10 @@ export interface OnboardingResult {
   recentPostSampleCount: number;
   replyPostSampleCount: number;
   quotePostSampleCount: number;
+  capturedPostCount: number;
+  capturedReplyPostCount: number;
+  capturedQuotePostCount: number;
+  totalCapturedActivityCount: number;
   analysisConfidence: AnalysisConfidence;
   baseline: EngagementBaseline;
   growthStage: GrowthStage;
@@ -216,6 +221,8 @@ export type TransformationMode =
   | "pivot_hard";
 
 export type TransformationModeSource = "default" | "user_selected";
+
+export type ScrapeFreshnessMode = "always" | "if_stale" | "cache_only";
 
 export interface TopicSignal {
   label: string;

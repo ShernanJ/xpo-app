@@ -276,8 +276,8 @@ export default function OnboardingPage() {
       transformationModeSource: hasTouchedTransformationMode
         ? ("user_selected" as const)
         : ("default" as const),
+      scrapeFreshness: "always" as const,
       forceMock,
-      forceFreshScrape: true,
     }),
     [account, forceMock, hasTouchedTransformationMode, transformationMode],
   );
@@ -1382,7 +1382,7 @@ export default function OnboardingPage() {
                 ) : null}
               </section>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
                   <p className="mt-1 text-sm font-semibold text-white">
@@ -1390,21 +1390,29 @@ export default function OnboardingPage() {
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">Original Posts</p>
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Total Captured</p>
                   <p className="mt-1 text-lg font-semibold text-white">
-                    {result.data.recentPostSampleCount}
+                    {result.data.totalCapturedActivityCount}
+                  </p>
+                </article>
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">
+                    Originals Captured
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-white">
+                    {result.data.capturedPostCount}
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Replies Captured</p>
                   <p className="mt-1 text-lg font-semibold text-white">
-                    {result.data.replyPostSampleCount}
+                    {result.data.capturedReplyPostCount}
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Quotes Captured</p>
                   <p className="mt-1 text-lg font-semibold text-white">
-                    {result.data.quotePostSampleCount}
+                    {result.data.capturedQuotePostCount}
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
