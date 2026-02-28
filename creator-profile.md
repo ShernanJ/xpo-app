@@ -43,6 +43,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - sample quality
 - topic quality
 - niche overlay quality
+- target niche quality
 - archetype confidence
 - playbook quality
 - strategy specificity
