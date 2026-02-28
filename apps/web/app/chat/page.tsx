@@ -85,6 +85,20 @@ interface CreatorChatSuccess {
         selectionReason: string;
         goalFitScore: number;
       } | null;
+      pinnedVoiceReferences: Array<{
+        id: string;
+        lane: "original" | "reply" | "quote";
+        text: string;
+        selectionReason: string;
+        goalFitScore: number;
+      }>;
+      pinnedEvidenceReferences: Array<{
+        id: string;
+        lane: "original" | "reply" | "quote";
+        text: string;
+        selectionReason: string;
+        goalFitScore: number;
+      }>;
       formatBlueprint: string;
       outputShapeRationale: string;
     };
@@ -372,7 +386,10 @@ export default function ChatPage() {
     artifactIndex: number;
   } | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
-  const [pinnedReferencePostIds, setPinnedReferencePostIds] = useState<string[]>([]);
+  const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
+  const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
+    [],
+  );
 
   const loadWorkspace = useCallback(
     async (
@@ -610,6 +627,9 @@ export default function ChatPage() {
       ...context.creatorProfile.examples.voiceAnchors,
       ...context.creatorProfile.examples.replyVoiceAnchors,
       ...context.creatorProfile.examples.quoteVoiceAnchors,
+      ...context.creatorProfile.examples.bestPerforming,
+      ...context.creatorProfile.examples.strategyAnchors,
+      ...context.creatorProfile.examples.goalAnchors,
     ].filter((post) => {
       if (seen.has(post.id)) {
         return false;
@@ -622,12 +642,16 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (pinnedReferenceCandidates.length === 0) {
-      setPinnedReferencePostIds([]);
+      setPinnedVoicePostIds([]);
+      setPinnedEvidencePostIds([]);
       return;
     }
 
     const availableIds = new Set(pinnedReferenceCandidates.map((post) => post.id));
-    setPinnedReferencePostIds((current) =>
+    setPinnedVoicePostIds((current) =>
+      current.filter((postId) => availableIds.has(postId)),
+    );
+    setPinnedEvidencePostIds((current) =>
       current.filter((postId) => availableIds.has(postId)),
     );
   }, [pinnedReferenceCandidates]);
@@ -715,19 +739,25 @@ export default function ChatPage() {
     setEditorDraftText(selectedDraftArtifact.content);
   }, [selectedDraftArtifact]);
 
-  const togglePinnedReferencePostId = useCallback((postId: string) => {
-    setPinnedReferencePostIds((current) => {
-      if (current.includes(postId)) {
-        return current.filter((value) => value !== postId);
-      }
+  const togglePinnedPostId = useCallback(
+    (postId: string, kind: "voice" | "evidence") => {
+      const setPins =
+        kind === "voice" ? setPinnedVoicePostIds : setPinnedEvidencePostIds;
 
-      if (current.length >= 2) {
-        return [...current.slice(1), postId];
-      }
+      setPins((current) => {
+        if (current.includes(postId)) {
+          return current.filter((value) => value !== postId);
+        }
 
-      return [...current, postId];
-    });
-  }, []);
+        if (current.length >= 2) {
+          return [...current.slice(1), postId];
+        }
+
+        return [...current, postId];
+      });
+    },
+    [],
+  );
 
   const openDraftEditor = useCallback((messageId: string, artifactIndex: number) => {
     setActiveDraftEditor({ messageId, artifactIndex });
@@ -869,7 +899,8 @@ export default function ChatPage() {
             intent: options.intent ?? "draft",
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
-            pinnedReferencePostIds,
+            pinnedVoicePostIds,
+            pinnedEvidencePostIds,
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
           }),
@@ -1006,7 +1037,8 @@ export default function ChatPage() {
       isSending,
       messages,
       providerPreference,
-      pinnedReferencePostIds,
+      pinnedEvidencePostIds,
+      pinnedVoicePostIds,
       runId,
     ],
   );
@@ -1478,6 +1510,36 @@ export default function ChatPage() {
                               <p className="text-xs leading-6 text-zinc-400">
                                 {message.debug.formatBlueprint}
                               </p>
+                              {message.debug.pinnedVoiceReferences.length > 0 ? (
+                                <>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    Pinned Voice References
+                                  </p>
+                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
+                                    {message.debug.pinnedVoiceReferences.map((post) => (
+                                      <li key={`${message.id}-voice-pin-${post.id}`}>
+                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
+                                        {post.selectionReason}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </>
+                              ) : null}
+                              {message.debug.pinnedEvidenceReferences.length > 0 ? (
+                                <>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    Pinned Evidence References
+                                  </p>
+                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
+                                    {message.debug.pinnedEvidenceReferences.map((post) => (
+                                      <li key={`${message.id}-evidence-pin-${post.id}`}>
+                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
+                                        {post.selectionReason}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </>
+                              ) : null}
                               {message.debug.formatExemplar ? (
                                 <>
                                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
@@ -1739,20 +1801,22 @@ export default function ChatPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                        Pinned Voice References
+                        Pinned References
                       </p>
                       <p className="mt-2 text-sm text-zinc-300">
-                        Pin up to 2 posts. The backend will treat them as the highest-priority voice references during generation.
+                        Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
                       </p>
                     </div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      {pinnedReferencePostIds.length} / 2 pinned
-                    </p>
+                    <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      <p>{pinnedVoicePostIds.length} / 2 voice</p>
+                      <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
+                    </div>
                   </div>
 
                   <ul className="mt-4 grid gap-3 md:grid-cols-2">
                     {pinnedReferenceCandidates.map((post) => {
-                      const isPinned = pinnedReferencePostIds.includes(post.id);
+                      const isVoicePinned = pinnedVoicePostIds.includes(post.id);
+                      const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
 
                       return (
                         <li key={post.id} className="border border-white/10 p-3">
@@ -1765,17 +1829,30 @@ export default function ChatPage() {
                                 {post.text}
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => togglePinnedReferencePostId(post.id)}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                isPinned
-                                  ? "border-white/20 bg-white/[0.06] text-white"
-                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                              }`}
-                            >
-                              {isPinned ? "Pinned" : "Pin"}
-                            </button>
+                            <div className="flex shrink-0 flex-col gap-2">
+                              <button
+                                type="button"
+                                onClick={() => togglePinnedPostId(post.id, "voice")}
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                  isVoicePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                }`}
+                              >
+                                {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => togglePinnedPostId(post.id, "evidence")}
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                  isEvidencePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                }`}
+                              >
+                                {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
+                              </button>
+                            </div>
                           </div>
                         </li>
                       );

@@ -21,7 +21,8 @@ interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
   message?: unknown;
   selectedAngle?: unknown;
-  pinnedReferencePostIds?: unknown;
+  pinnedVoicePostIds?: unknown;
+  pinnedEvidencePostIds?: unknown;
   history?: unknown;
   provider?: unknown;
   intent?: unknown;
@@ -79,10 +80,22 @@ export async function POST(request: Request) {
     typeof body.contentFocus === "string" && body.contentFocus.trim().length > 0
       ? body.contentFocus.trim()
       : null;
-  const pinnedReferencePostIds = Array.isArray(body.pinnedReferencePostIds)
+  const pinnedVoicePostIds = Array.isArray(body.pinnedVoicePostIds)
     ? Array.from(
         new Set(
-          body.pinnedReferencePostIds
+          body.pinnedVoicePostIds
+            .filter(
+              (value): value is string =>
+                typeof value === "string" && value.trim().length > 0,
+            )
+            .map((value) => value.trim()),
+        ),
+      ).slice(0, 2)
+    : [];
+  const pinnedEvidencePostIds = Array.isArray(body.pinnedEvidencePostIds)
+    ? Array.from(
+        new Set(
+          body.pinnedEvidencePostIds
             .filter(
               (value): value is string =>
                 typeof value === "string" && value.trim().length > 0,
@@ -183,7 +196,8 @@ export async function POST(request: Request) {
               intent,
               contentFocus,
               selectedAngle,
-              pinnedReferencePostIds,
+              pinnedVoicePostIds,
+              pinnedEvidencePostIds,
               onProgress: (phase) => {
                 if (phase === lastPhase) {
                   return;
@@ -210,6 +224,8 @@ export async function POST(request: Request) {
               intent,
               contentFocus,
               selectedAngle,
+              pinnedVoicePostIds,
+              pinnedEvidencePostIds,
             });
             push({
               type: "status",
@@ -245,7 +261,8 @@ export async function POST(request: Request) {
       intent,
       contentFocus,
       selectedAngle,
-      pinnedReferencePostIds,
+      pinnedVoicePostIds,
+      pinnedEvidencePostIds,
     });
 
     return NextResponse.json(
@@ -264,6 +281,8 @@ export async function POST(request: Request) {
       intent,
       contentFocus,
       selectedAngle,
+      pinnedVoicePostIds,
+      pinnedEvidencePostIds,
     });
 
     return NextResponse.json(

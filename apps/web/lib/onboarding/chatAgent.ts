@@ -145,6 +145,8 @@ export interface CreatorChatDebugEvidencePack {
 
 export interface CreatorChatDebugInfo {
   formatExemplar: CreatorChatDebugFormatExemplar | null;
+  pinnedVoiceReferences: CreatorChatDebugFormatExemplar[];
+  pinnedEvidenceReferences: CreatorChatDebugFormatExemplar[];
   evidencePack: CreatorChatDebugEvidencePack;
   formatBlueprint: string;
   formatSkeleton: string;
@@ -226,15 +228,28 @@ function buildDeterministicFallback(params: {
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
   selectedAngle?: string | null;
+  pinnedVoicePostIds?: string[];
+  pinnedEvidencePostIds?: string[];
 }): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
   const { context, contract } = params;
-  const fallbackFormatExemplar = pickFormatExemplar({
+  const pinnedVoiceAnchors = selectPinnedReferencePosts(
     context,
-    contract,
-  });
+    params.pinnedVoicePostIds ?? [],
+  );
+  const pinnedEvidenceAnchors = selectPinnedReferencePosts(
+    context,
+    params.pinnedEvidencePostIds ?? [],
+  );
+  const fallbackFormatExemplar =
+    pinnedVoiceAnchors[0] ??
+    pickFormatExemplar({
+      context,
+      contract,
+    });
   const fallbackEvidencePack = buildEvidencePack({
     formatExemplar: fallbackFormatExemplar,
     topicAnchors: context.positiveAnchors.slice(0, 2),
+    evidenceAnchors: pinnedEvidenceAnchors,
   });
   const fallbackFormatBlueprint = buildFormatBlueprint({
     post: fallbackFormatExemplar,
@@ -245,6 +260,12 @@ function buildDeterministicFallback(params: {
   );
   const debugInfo: CreatorChatDebugInfo = {
     formatExemplar: buildFormatExemplarDebug(fallbackFormatExemplar),
+    pinnedVoiceReferences: pinnedVoiceAnchors.map(buildFormatExemplarDebug).filter(
+      (post): post is CreatorChatDebugFormatExemplar => post !== null,
+    ),
+    pinnedEvidenceReferences: pinnedEvidenceAnchors
+      .map(buildFormatExemplarDebug)
+      .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
     evidencePack: fallbackEvidencePack,
     formatBlueprint: fallbackFormatBlueprint,
     formatSkeleton: fallbackFormatSkeleton,
@@ -413,6 +434,8 @@ export function buildDeterministicCreatorChatReply(params: {
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
   selectedAngle?: string | null;
+  pinnedVoicePostIds?: string[];
+  pinnedEvidencePostIds?: string[];
 }): CreatorChatReplyResult {
   const context = buildCreatorAgentContext({
     runId: params.runId,
@@ -430,6 +453,8 @@ export function buildDeterministicCreatorChatReply(params: {
     intent: params.intent,
     contentFocus: params.contentFocus,
     selectedAngle: params.selectedAngle ?? null,
+    pinnedVoicePostIds: params.pinnedVoicePostIds ?? [],
+    pinnedEvidencePostIds: params.pinnedEvidencePostIds ?? [],
   });
 
   return {
@@ -846,6 +871,7 @@ function selectRequestConditionedAnchors(params: {
   concreteSubject: string | null;
   selectedAngle: string | null;
   contentFocus: string | null;
+  pinnedEvidenceAnchors: CreatorRepresentativePost[];
 }): RequestConditionedAnchors {
   const pool = params.context.positiveAnchors;
 
@@ -858,6 +884,7 @@ function selectRequestConditionedAnchors(params: {
       evidencePack: buildEvidencePack({
         formatExemplar: null,
         topicAnchors: [],
+        evidenceAnchors: params.pinnedEvidenceAnchors,
       }),
     };
   }
@@ -910,6 +937,7 @@ function selectRequestConditionedAnchors(params: {
     evidencePack: buildEvidencePack({
       formatExemplar,
       topicAnchors,
+      evidenceAnchors: params.pinnedEvidenceAnchors,
     }),
   };
 }
@@ -989,15 +1017,10 @@ function dedupeRepresentativePosts(
   });
 }
 
-function selectPinnedVoiceAnchors(
+function buildPinnedReferenceCandidatePool(
   context: CreatorAgentContext,
-  pinnedReferencePostIds: string[],
 ): CreatorRepresentativePost[] {
-  if (pinnedReferencePostIds.length === 0) {
-    return [];
-  }
-
-  const candidates = dedupeRepresentativePosts([
+  return dedupeRepresentativePosts([
     ...context.creatorProfile.examples.voiceAnchors,
     ...context.creatorProfile.examples.replyVoiceAnchors,
     ...context.creatorProfile.examples.quoteVoiceAnchors,
@@ -1005,9 +1028,20 @@ function selectPinnedVoiceAnchors(
     ...context.creatorProfile.examples.goalAnchors,
     ...context.creatorProfile.examples.bestPerforming,
   ]);
+}
+
+function selectPinnedReferencePosts(
+  context: CreatorAgentContext,
+  pinnedPostIds: string[],
+): CreatorRepresentativePost[] {
+  if (pinnedPostIds.length === 0) {
+    return [];
+  }
+
+  const candidates = buildPinnedReferenceCandidatePool(context);
   const candidateMap = new Map(candidates.map((post) => [post.id, post]));
 
-  return pinnedReferencePostIds
+  return pinnedPostIds
     .map((id) => candidateMap.get(id) ?? null)
     .filter((post): post is CreatorRepresentativePost => post !== null);
 }
@@ -1069,9 +1103,11 @@ function extractEvidenceEntities(text: string): string[] {
 function buildEvidencePack(params: {
   formatExemplar: CreatorRepresentativePost | null;
   topicAnchors: CreatorRepresentativePost[];
+  evidenceAnchors?: CreatorRepresentativePost[];
 }): CreatorChatDebugEvidencePack {
   const sourcePosts = dedupeRepresentativePosts(
     [
+      ...(params.evidenceAnchors ?? []).slice(0, 2),
       params.formatExemplar,
       ...params.topicAnchors.slice(0, 2),
     ].filter((post): post is CreatorRepresentativePost => post !== null),
@@ -2495,7 +2531,8 @@ export async function generateCreatorChatReply(params: {
   intent?: CreatorChatIntent;
   contentFocus?: string | null;
   selectedAngle?: string | null;
-  pinnedReferencePostIds?: string[];
+  pinnedVoicePostIds?: string[];
+  pinnedEvidencePostIds?: string[];
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const context = buildCreatorAgentContext({
@@ -2515,6 +2552,8 @@ export async function generateCreatorChatReply(params: {
     intent: params.intent,
     contentFocus: params.contentFocus,
     selectedAngle: params.selectedAngle ?? null,
+    pinnedVoicePostIds: params.pinnedVoicePostIds ?? [],
+    pinnedEvidencePostIds: params.pinnedEvidencePostIds ?? [],
   });
 
   if (contract.mode === "analysis_only") {
@@ -2541,6 +2580,14 @@ export async function generateCreatorChatReply(params: {
     };
   }
 
+  const pinnedVoiceAnchors = selectPinnedReferencePosts(
+    context,
+    params.pinnedVoicePostIds ?? [],
+  );
+  const pinnedEvidenceAnchors = selectPinnedReferencePosts(
+    context,
+    params.pinnedEvidencePostIds ?? [],
+  );
   const concreteSubject = extractConcreteSubject(params.userMessage);
   const requestAnchors = selectRequestConditionedAnchors({
     context,
@@ -2549,6 +2596,7 @@ export async function generateCreatorChatReply(params: {
     concreteSubject,
     selectedAngle: params.selectedAngle ?? null,
     contentFocus: params.contentFocus ?? null,
+    pinnedEvidenceAnchors,
   });
   const history = normalizeHistory(params.history ?? []);
   const historyText =
@@ -2621,10 +2669,6 @@ export async function generateCreatorChatReply(params: {
     context,
     effectivePlanner.targetLane,
   );
-  const pinnedVoiceAnchors = selectPinnedVoiceAnchors(
-    context,
-    params.pinnedReferencePostIds ?? [],
-  );
   const effectiveVoiceAnchors = mergeVoiceAnchors(
     pinnedVoiceAnchors,
     laneVoiceAnchors,
@@ -2674,6 +2718,11 @@ export async function generateCreatorChatReply(params: {
       formatAnchorExamples(
         "Pinned voice references (highest priority)",
         pinnedVoiceAnchors,
+        2,
+      ),
+      formatAnchorExamples(
+        "Pinned evidence references (highest priority for facts and proof)",
+        pinnedEvidenceAnchors,
         2,
       ),
       formatAnchorExamples(
@@ -2784,6 +2833,11 @@ export async function generateCreatorChatReply(params: {
       formatAnchorExamples(
         "Pinned voice references (highest priority)",
         pinnedVoiceAnchors,
+        2,
+      ),
+      formatAnchorExamples(
+        "Pinned evidence references (highest priority for facts and proof)",
+        pinnedEvidenceAnchors,
         2,
       ),
       formatAnchorExamples(
@@ -2971,6 +3025,12 @@ export async function generateCreatorChatReply(params: {
     watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
     debug: {
       formatExemplar: buildFormatExemplarDebug(requestAnchors.formatExemplar),
+      pinnedVoiceReferences: pinnedVoiceAnchors
+        .map(buildFormatExemplarDebug)
+        .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
+      pinnedEvidenceReferences: pinnedEvidenceAnchors
+        .map(buildFormatExemplarDebug)
+        .filter((post): post is CreatorChatDebugFormatExemplar => post !== null),
       evidencePack: requestAnchors.evidencePack,
       formatBlueprint: buildFormatBlueprint({
         post: requestAnchors.formatExemplar,
