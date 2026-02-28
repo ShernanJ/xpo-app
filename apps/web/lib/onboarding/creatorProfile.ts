@@ -12,6 +12,9 @@ import type {
   CreatorArchetype,
   CreatorContentLane,
   CreatorDistributionLoopProfile,
+  CreatorNicheLabel,
+  CreatorNicheOverlayProfile,
+  CreatorOfferType,
   CreatorPlaybookProfile,
   CreatorExecutionProfile,
   CreatorProfile,
@@ -42,6 +45,323 @@ import type {
 
 const LOCATION_CONTEXT_PATTERN =
   /\b(toronto|ontario|canada|burlington|montreal|vancouver|new york|nyc|sf|san francisco|la|los angeles|london)\b/i;
+
+const NICHE_DEFINITIONS: Array<{
+  label: CreatorNicheLabel;
+  bioSignals: string[];
+  contentSignals: string[];
+  audienceIntent: string;
+  rationale: string;
+}> = [
+  {
+    label: "artificial_intelligence",
+    bioSignals: [
+      "ai",
+      "artificial intelligence",
+      "llm",
+      "ml",
+      "machine learning",
+      "gpt",
+      "agent",
+      "agents",
+      "inference",
+      "model",
+    ],
+    contentSignals: [
+      "ai",
+      "artificial intelligence",
+      "llm",
+      "ml",
+      "machine learning",
+      "gpt",
+      "agent",
+      "agents",
+      "prompt",
+      "model",
+      "inference",
+      "rag",
+      "openai",
+    ],
+    audienceIntent:
+      "People interested in AI tools, models, automation, and applied intelligence workflows.",
+    rationale:
+      "The strongest repeated signals are AI-coded terms, so the account reads as operating in an AI and automation niche.",
+  },
+  {
+    label: "software_and_product",
+    bioSignals: [
+      "engineer",
+      "engineering",
+      "developer",
+      "dev",
+      "code",
+      "coding",
+      "build",
+      "building",
+      "software",
+      "product",
+      "tech",
+    ],
+    contentSignals: [
+      "engineer",
+      "engineering",
+      "developer",
+      "dev",
+      "code",
+      "coding",
+      "build",
+      "building",
+      "ship",
+      "shipping",
+      "software",
+      "product",
+      "app",
+      "feature",
+      "proof of work",
+    ],
+    audienceIntent:
+      "Builders, engineers, and product-minded peers looking for implementation details and shipping lessons.",
+    rationale:
+      "The recurring signals point toward software, product, and shipping rather than a broader business or social niche.",
+  },
+  {
+    label: "startups_and_growth",
+    bioSignals: [
+      "founder",
+      "startup",
+      "product",
+      "growth",
+      "sales",
+      "gtm",
+      "revenue",
+      "company",
+    ],
+    contentSignals: [
+      "founder",
+      "startup",
+      "customer",
+      "users",
+      "product",
+      "growth",
+      "sales",
+      "gtm",
+      "revenue",
+      "company",
+      "market",
+      "distribution",
+    ],
+    audienceIntent:
+      "Founders, operators, and business-minded builders looking for customer, product, or distribution insight.",
+    rationale:
+      "The strongest recurring signals point toward startup, product, and operating themes rather than purely social posting.",
+  },
+  {
+    label: "career_and_hiring",
+    bioSignals: ["job", "career", "resume", "hiring", "interview", "intern"],
+    contentSignals: [
+      "job",
+      "career",
+      "resume",
+      "hiring",
+      "interview",
+      "intern",
+      "offer",
+      "recruiter",
+    ],
+    audienceIntent:
+      "People navigating hiring, roles, and career progress who respond to proof-of-work and credibility signals.",
+    rationale:
+      "The account is anchored around hiring, role progression, and career proof rather than broad entertainment or commentary.",
+  },
+  {
+    label: "finance_and_investing",
+    bioSignals: [
+      "investor",
+      "investing",
+      "vc",
+      "vcs",
+      "fund",
+      "angel",
+      "pre-seed",
+      "seed",
+      "finance",
+      "capital",
+    ],
+    contentSignals: [
+      "investor",
+      "investing",
+      "vc",
+      "vcs",
+      "fund",
+      "fundraise",
+      "fundraising",
+      "angel",
+      "pre-seed",
+      "seed",
+      "round",
+      "finance",
+      "capital",
+      "macro",
+      "market",
+    ],
+    audienceIntent:
+      "Founders, investors, and finance-minded audiences looking for fundraising, market, or capital-allocation signal.",
+    rationale:
+      "The recurring signals point toward finance, investing, and fundraising language rather than general business commentary.",
+  },
+  {
+    label: "fitness_and_health",
+    bioSignals: [
+      "fitness",
+      "health",
+      "nutrition",
+      "coach",
+      "trainer",
+      "wellness",
+      "gym",
+      "sleep",
+    ],
+    contentSignals: [
+      "fitness",
+      "health",
+      "nutrition",
+      "coach",
+      "training",
+      "workout",
+      "gym",
+      "sleep",
+      "wellness",
+      "body",
+    ],
+    audienceIntent:
+      "People trying to improve physical performance, health habits, or wellness routines.",
+    rationale:
+      "The dominant cues point to health and fitness outcomes, which is a distinct niche from business or career content.",
+  },
+  {
+    label: "design_and_creative",
+    bioSignals: [
+      "design",
+      "designer",
+      "creative",
+      "brand",
+      "ux",
+      "ui",
+      "visual",
+      "artist",
+    ],
+    contentSignals: [
+      "design",
+      "designer",
+      "creative",
+      "brand",
+      "ux",
+      "ui",
+      "visual",
+      "aesthetic",
+      "copy",
+      "storytelling",
+    ],
+    audienceIntent:
+      "Designers, creatives, and brand-focused builders looking for taste, communication, and creative leverage.",
+    rationale:
+      "The signal mix points toward design and creative craft, not just generic creator content.",
+  },
+  {
+    label: "policy_and_society",
+    bioSignals: [
+      "policy",
+      "politics",
+      "government",
+      "public policy",
+      "law",
+      "civic",
+    ],
+    contentSignals: [
+      "policy",
+      "politics",
+      "government",
+      "law",
+      "regulation",
+      "society",
+      "public",
+      "institution",
+    ],
+    audienceIntent:
+      "People interested in policy, systems, institutional decisions, and broader social implications.",
+    rationale:
+      "The strongest cues are policy- and society-coded, which should be handled separately from business or creator niches.",
+  },
+  {
+    label: "media_and_creators",
+    bioSignals: [
+      "creator",
+      "writer",
+      "writing",
+      "newsletter",
+      "media",
+      "content",
+      "audience",
+      "brand",
+    ],
+    contentSignals: [
+      "creator",
+      "writing",
+      "writer",
+      "newsletter",
+      "content",
+      "audience",
+      "media",
+      "brand",
+      "distribution",
+      "posts",
+    ],
+    audienceIntent:
+      "Creators and audience-builders looking for packaging, positioning, and distribution ideas.",
+    rationale:
+      "The account looks like it is operating in creator-media territory, where packaging and audience mechanics matter directly.",
+  },
+];
+
+const OFFER_DEFINITIONS: Array<{
+  type: CreatorOfferType;
+  signals: string[];
+}> = [
+  {
+    type: "job_market",
+    signals: ["open to work", "job", "career", "resume", "hiring", "interview", "intern"],
+  },
+  {
+    type: "service_or_consulting",
+    signals: [
+      "consult",
+      "consulting",
+      "agency",
+      "freelance",
+      "clients",
+      "book a call",
+      "dm me",
+      "helping",
+    ],
+  },
+  {
+    type: "product_or_company",
+    signals: [
+      "startup",
+      "company",
+      "product",
+      "customer",
+      "users",
+      "app",
+      "founder",
+      "building @",
+    ],
+  },
+  {
+    type: "community_or_event",
+    signals: ["community", "event", "meetup", "party", "club", "host"],
+  },
+];
 
 interface TopicAccumulator {
   count: number;
@@ -319,6 +639,135 @@ function buildSpecificityTradeoff(
   }
 
   return `${stabilityPrefix}The current mix balances broad discovery with some niche-specific resonance.`;
+}
+
+function countSignalMatches(haystack: string, signals: string[]): number {
+  return signals.reduce((count, signal) => {
+    if (!signal) {
+      return count;
+    }
+
+    return haystack.includes(signal.toLowerCase()) ? count + 1 : count;
+  }, 0);
+}
+
+function formatNicheLabel(label: CreatorNicheLabel): string {
+  switch (label) {
+    case "artificial_intelligence":
+      return "artificial intelligence";
+    case "software_and_product":
+      return "software and product";
+    case "startups_and_growth":
+      return "startups and growth";
+    case "career_and_hiring":
+      return "career and hiring";
+    case "finance_and_investing":
+      return "finance and investing";
+    case "fitness_and_health":
+      return "fitness and health";
+    case "design_and_creative":
+      return "design and creative";
+    case "policy_and_society":
+      return "policy and society";
+    case "media_and_creators":
+      return "media and creators";
+    case "generalist":
+      return "generalist";
+  }
+}
+
+function buildNicheOverlayProfile(params: {
+  profileBio: string;
+  posts: XPublicPost[];
+  topics: TopicSignal[];
+}): CreatorNicheOverlayProfile {
+  const bio = params.profileBio.toLowerCase();
+  const fullText = params.posts.map((post) => post.text.toLowerCase()).join("\n");
+  const topicLabels = params.topics.map((topic) => topic.label).join("\n");
+
+  const ranked = NICHE_DEFINITIONS.map((definition) => {
+    const bioMatches = countSignalMatches(bio, definition.bioSignals);
+    const topicMatches = countSignalMatches(topicLabels, definition.contentSignals);
+    const contentMatches = countSignalMatches(fullText, definition.contentSignals);
+    const score = Number(
+      (bioMatches * 3 + topicMatches * 2 + Math.min(6, contentMatches)).toFixed(2),
+    );
+
+    return {
+      ...definition,
+      score,
+    };
+  })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  const primary = ranked[0] ?? null;
+  const secondary =
+    ranked[1] && primary && ranked[1].score >= primary.score * 0.65
+      ? ranked[1]
+      : null;
+  const totalScore = ranked.reduce((sum, entry) => sum + entry.score, 0);
+
+  if (!primary) {
+    return {
+      primaryNiche: "generalist",
+      secondaryNiche: null,
+      confidence: 20,
+      domainSignals: [],
+      likelyOffer: "audience_only",
+      offerSignals: [],
+      audienceIntent:
+        "The current signal is too mixed or too thin to confidently assign a domain-specific niche yet.",
+      rationale:
+        "No single domain niche is clearly dominant yet, so the account should be treated as generalist until stronger repeated topic signals emerge.",
+    };
+  }
+
+  const confidence = Number(
+    Math.max(
+      30,
+      Math.min(
+        100,
+        (((primary.score / Math.max(1, totalScore)) * 70) +
+          (((primary.score - (secondary?.score ?? 0)) /
+            Math.max(1, primary.score)) *
+            30)),
+      ),
+    ).toFixed(2),
+  );
+
+  const combinedText = `${bio}\n${fullText}`;
+  const offerRanked = OFFER_DEFINITIONS.map((definition) => ({
+    type: definition.type,
+    matches: definition.signals.filter((signal) =>
+      combinedText.includes(signal.toLowerCase()),
+    ),
+  }))
+    .filter((entry) => entry.matches.length > 0)
+    .sort((left, right) => right.matches.length - left.matches.length);
+
+  const likelyOffer = offerRanked[0]?.type ?? "audience_only";
+  const offerSignals = offerRanked[0]?.matches.slice(0, 3) ?? [];
+
+  return {
+    primaryNiche: primary.label,
+    secondaryNiche: secondary?.label ?? null,
+    confidence,
+    domainSignals: ranked.slice(0, 3).map((entry) => ({
+      label: entry.label,
+      score: entry.score,
+    })),
+    likelyOffer,
+    offerSignals,
+    audienceIntent: primary.audienceIntent,
+    rationale:
+      primary.rationale +
+      (secondary
+        ? ` Secondary niche pressure also exists around ${formatNicheLabel(
+            secondary.label,
+          )}.`
+        : ""),
+  };
 }
 
 function inferPrimaryCasing(posts: XPublicPost[]): ToneCasing {
@@ -1662,6 +2111,7 @@ function inferArchetypeProfile(
 function buildRecommendedAngles(
   goal: UserGoal,
   archetype: CreatorArchetype,
+  niche: CreatorNicheOverlayProfile,
   execution: CreatorExecutionProfile,
   distribution: CreatorDistributionLoopProfile,
   replyBudgetPerDay: ReplyBudgetPerDay,
@@ -1714,6 +2164,12 @@ function buildRecommendedAngles(
 
   if (archetype === "curator") {
     angles.push("Add stronger original commentary so curation builds authority.");
+  }
+
+  if (niche.primaryNiche !== "generalist") {
+    angles.push(
+      `Turn your strongest ${formatNicheLabel(niche.primaryNiche)} signal into a repeatable series instead of isolated one-off posts.`,
+    );
   }
 
   if (distribution.primaryLoop === "reply_driven") {
@@ -1847,6 +2303,7 @@ function buildDistributionStrengths(
 function buildPlaybookProfile(params: {
   goal: UserGoal;
   archetype: CreatorArchetype;
+  niche: CreatorNicheOverlayProfile;
   distribution: CreatorDistributionLoopProfile;
   postingCadenceCapacity: PostingCadenceCapacity;
   replyBudgetPerDay: ReplyBudgetPerDay;
@@ -1993,6 +2450,19 @@ function buildPlaybookProfile(params: {
           ? "Reply budget supports one deliberate conversation block per day (5-15 replies)."
           : "Reply budget is strong enough for an aggressive conversation routine (15-30 replies/day).",
   };
+
+  if (params.niche.primaryNiche !== "generalist") {
+    toneGuidelines.push(
+      `Keep examples, references, and claims anchored in ${formatNicheLabel(
+        params.niche.primaryNiche,
+      )} so the account reads domain-native, not generic.`,
+    );
+    experimentFocus.push(
+      `Build one repeatable weekly series around ${formatNicheLabel(
+        params.niche.primaryNiche,
+      )} that the audience can recognize quickly.`,
+    );
+  }
 
   if (params.transformationMode === "preserve") {
     toneGuidelines.push("Keep the existing audience expectation stable; optimize execution, not identity.");
@@ -2516,6 +2986,11 @@ export function buildCreatorProfile(params: {
     });
 
   const dominantTopics = extractTopicSignals(posts);
+  const nicheProfile = buildNicheOverlayProfile({
+    profileBio: params.onboarding.profile.bio,
+    posts,
+    topics: dominantTopics,
+  });
   const archetypeProfile = inferArchetypeProfile(posts, dominantTopics);
   const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
@@ -2587,6 +3062,7 @@ export function buildCreatorProfile(params: {
   const playbookProfile = buildPlaybookProfile({
     goal: params.onboarding.strategyState.goal,
     archetype,
+    niche: nicheProfile,
     distribution: distributionProfile,
     postingCadenceCapacity: params.onboarding.strategyState.postingCadenceCapacity,
     replyBudgetPerDay: params.onboarding.strategyState.replyBudgetPerDay,
@@ -2656,6 +3132,7 @@ export function buildCreatorProfile(params: {
         audienceBreadth,
       ),
     },
+    niche: nicheProfile,
     execution: executionProfile,
     distribution: distributionProfile,
     playbook: playbookProfile,
@@ -2714,6 +3191,7 @@ export function buildCreatorProfile(params: {
       recommendedAngles: buildRecommendedAngles(
         params.onboarding.strategyState.goal,
         archetype,
+        nicheProfile,
         executionProfile,
         distributionProfile,
         params.onboarding.strategyState.replyBudgetPerDay,

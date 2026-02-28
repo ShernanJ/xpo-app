@@ -205,6 +205,25 @@ export type TopicStability = "emerging" | "steady" | "fading";
 
 export type AudienceBreadth = "broad" | "mixed" | "narrow";
 
+export type CreatorNicheLabel =
+  | "artificial_intelligence"
+  | "software_and_product"
+  | "startups_and_growth"
+  | "career_and_hiring"
+  | "finance_and_investing"
+  | "fitness_and_health"
+  | "design_and_creative"
+  | "policy_and_society"
+  | "media_and_creators"
+  | "generalist";
+
+export type CreatorOfferType =
+  | "audience_only"
+  | "job_market"
+  | "product_or_company"
+  | "service_or_consulting"
+  | "community_or_event";
+
 export type DependenceLevel = "low" | "moderate" | "high";
 
 export type DeliveryStyle = "standalone" | "mixed" | "reply_led";
@@ -278,6 +297,22 @@ export interface CreatorTopicProfile {
   audienceSignals: string[];
   audienceBreadth: AudienceBreadth;
   specificityTradeoff: string;
+}
+
+export interface CreatorNicheSignal {
+  label: CreatorNicheLabel;
+  score: number;
+}
+
+export interface CreatorNicheOverlayProfile {
+  primaryNiche: CreatorNicheLabel;
+  secondaryNiche: CreatorNicheLabel | null;
+  confidence: number;
+  domainSignals: CreatorNicheSignal[];
+  likelyOffer: CreatorOfferType;
+  offerSignals: string[];
+  audienceIntent: string;
+  rationale: string;
 }
 
 export interface CreatorPerformanceProfile {
@@ -470,6 +505,7 @@ export interface CreatorProfile {
   identity: CreatorIdentityProfile;
   voice: CreatorVoiceProfile;
   topics: CreatorTopicProfile;
+  niche: CreatorNicheOverlayProfile;
   performance: CreatorPerformanceProfile;
   execution: CreatorExecutionProfile;
   distribution: CreatorDistributionLoopProfile;
