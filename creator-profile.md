@@ -169,6 +169,26 @@ That means the strategy layer should separate:
 
 The system should not assume every user wants the same kind of growth.
 
+### 7. Example Layer
+
+This is the concrete post context the future drafting agent should use.
+
+It should include:
+
+- best-performing examples
+- voice-anchor examples
+- caution examples to avoid repeating weak patterns
+
+This layer exists so the agent does not draft from abstract summaries alone.
+
+The product should be able to hand the writer real post references that show:
+
+- what the user's audience already responds to
+- what most closely matches the user's natural voice
+- what kinds of structures currently underperform
+
+These examples should be selected deterministically first, not manually curated.
+
 ## Input Sources
 
 The creator profile should be built from two categories of inputs.
@@ -422,4 +442,3 @@ The immediate implementation path is:
 3. use it as the future context object for the chat/drafting agent
 
 That is the minimum viable path to move from “scraped analytics” to “agent that can write like the user and for the user.”
-
