@@ -643,6 +643,16 @@ The generation contract should make these things explicit:
   - thread seed
   - reply candidate
   - quote candidate
+- the target tone blend:
+  - observed voice
+  - stored tone preference
+  - whether lowercase/casual styling should be preserved even if the stored preference is still default
+- the effective target casing and risk level for generated drafts
+- the authority budget:
+  - low
+  - medium
+  - high
+- the proof requirement implied by that authority budget
 - the primary angle to push
 - whether the draft should reinforce the current niche or deliberately build toward a target niche
 - which formats and hooks are preferred
@@ -669,6 +679,8 @@ The backend should then use the creator profile + generation contract to decide:
 
 - output shape
 - tone form
+- casing and looseness
+- proof density
 - CTA style
 - whether a question ending is natural
 - which asset would best support the post
