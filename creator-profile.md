@@ -250,6 +250,42 @@ These are not just analytics details. They should directly influence:
 - next moves
 - later draft strategy
 
+### Distribution Loop Layer
+
+This is the explicit growth loop the account is currently best positioned to use on X.
+
+It should capture:
+
+- primary distribution loop
+- secondary distribution loop (when signals are mixed)
+- confidence
+- concrete signals
+- rationale
+
+Current loop types:
+
+- reply-driven
+- standalone discovery
+- quote commentary
+- profile conversion
+- authority building
+
+This layer exists so the product can optimize for how X actually distributes attention.
+
+The system should be able to say:
+
+- this account should grow through structured replies
+- this account should rely on native standalone discovery
+- this account can use quote commentary as a wedge
+- this account needs a tighter profile-conversion path after attention
+- this account should compound authority through stronger point-of-view posts
+
+This should directly shape:
+
+- strategy angles
+- next moves
+- later planner/writer behavior
+
 ### 7. Strategy Layer
 
 This is where the scraped behavior and user goal meet.
