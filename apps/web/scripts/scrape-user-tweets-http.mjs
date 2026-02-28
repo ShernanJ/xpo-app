@@ -62,6 +62,7 @@ function printUsage() {
       "Options:",
       "  --account <value>         X username (or @username or x.com/username).",
       "  --count <number>          Number of tweets to request (default: 40).",
+      "  --pages <number>          Number of UserTweets pages to fetch (default: 3).",
       "  --query-id <value>        UserTweets queryId (optional; auto-discovered when omitted).",
       "  --user-id <value>         X rest id (optional; resolved via users/show when omitted).",
       "  --session <value>         Force a specific session id from the session pool file.",
@@ -84,6 +85,7 @@ function printUsage() {
       "  X_WEB_CSRF_TOKEN=<ct0>",
       "  X_WEB_BEARER_TOKEN=<token>",
       "  X_WEB_USER_TWEETS_QUERY_ID=<queryId>",
+      "  X_WEB_PAGES=<number>",
       "  X_WEB_USER_ID=<rest_id>",
       "  X_WEB_USER_AGENT=<ua string>",
       "  X_WEB_SESSION_FILE=<session-pool-json-path>",
@@ -153,6 +155,7 @@ function parseArgs(argv) {
   const parsed = {
     account: null,
     count: 40,
+    pages: 3,
     queryId: null,
     userId: null,
     sessionId: null,
@@ -220,6 +223,15 @@ function parseArgs(argv) {
         throw new Error("--count must be an integer between 1 and 100.");
       }
       parsed.count = Math.floor(count);
+      continue;
+    }
+
+    if (token === "--pages") {
+      const pages = Number(value);
+      if (!Number.isFinite(pages) || pages < 1 || pages > 5) {
+        throw new Error("--pages must be an integer between 1 and 5.");
+      }
+      parsed.pages = Math.floor(pages);
       continue;
     }
 
@@ -822,6 +834,7 @@ async function fetchUserTweetsPayload(params) {
   const variables = {
     userId: params.userId,
     count: params.count,
+    ...(params.cursor ? { cursor: params.cursor } : {}),
     includePromotedContent: true,
     withQuickPromoteEligibilityTweetFields: true,
     withVoice: true,
@@ -856,6 +869,117 @@ function looksLikeUserTweetsPayload(payload) {
   const timelineV2 = asRecord(asRecord(userResult.timeline_v2)?.timeline);
 
   return Boolean(timeline || timelineV2);
+}
+
+function getTimelineContainer(payload) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const user = asRecord(data?.user);
+  const userResult = asRecord(user?.result);
+  if (!userResult) {
+    return null;
+  }
+
+  const timeline = asRecord(asRecord(userResult.timeline)?.timeline);
+  if (timeline) {
+    return timeline;
+  }
+
+  const timelineV2 = asRecord(asRecord(userResult.timeline_v2)?.timeline);
+  if (timelineV2) {
+    return timelineV2;
+  }
+
+  return null;
+}
+
+function extractBottomCursor(payload) {
+  const timeline = getTimelineContainer(payload);
+  if (!timeline) {
+    return null;
+  }
+
+  const instructions = Array.isArray(timeline.instructions) ? timeline.instructions : [];
+  for (const instructionValue of instructions) {
+    const instruction = asRecord(instructionValue);
+    if (!instruction) {
+      continue;
+    }
+
+    const entries = Array.isArray(instruction.entries) ? instruction.entries : [];
+    for (const entryValue of entries) {
+      const entry = asRecord(entryValue);
+      const content = asRecord(entry?.content);
+      if (
+        content?.entryType === "TimelineTimelineCursor" &&
+        content?.cursorType === "Bottom"
+      ) {
+        return asString(content.value);
+      }
+    }
+  }
+
+  return null;
+}
+
+function appendTimelineInstructions(targetPayload, nextPayload) {
+  const targetTimeline = getTimelineContainer(targetPayload);
+  const nextTimeline = getTimelineContainer(nextPayload);
+  if (!targetTimeline || !nextTimeline) {
+    return;
+  }
+
+  const targetInstructions = Array.isArray(targetTimeline.instructions)
+    ? targetTimeline.instructions
+    : [];
+  const nextInstructions = Array.isArray(nextTimeline.instructions)
+    ? nextTimeline.instructions
+    : [];
+
+  targetTimeline.instructions = [...targetInstructions, ...nextInstructions];
+}
+
+async function fetchPaginatedUserTweetsPayload(params) {
+  const mergedPayload = await fetchUserTweetsPayload({
+    userId: params.userId,
+    count: params.count,
+    queryId: params.queryId,
+    headers: params.headers,
+  });
+
+  let cursor = extractBottomCursor(mergedPayload);
+  const seenCursors = new Set(cursor ? [cursor] : []);
+
+  for (let page = 2; page <= params.pages; page += 1) {
+    if (!cursor) {
+      break;
+    }
+
+    console.log(`[http] Fetching page ${page} with cursor.`);
+    const nextPayload = await fetchUserTweetsPayload({
+      userId: params.userId,
+      count: params.count,
+      queryId: params.queryId,
+      headers: params.headers,
+      cursor,
+    });
+
+    if (!looksLikeUserTweetsPayload(nextPayload)) {
+      throw new Error(`Paginated response for page ${page} did not match UserTweets payload shape.`);
+    }
+
+    appendTimelineInstructions(mergedPayload, nextPayload);
+    const nextCursor = extractBottomCursor(nextPayload);
+    if (!nextCursor || seenCursors.has(nextCursor)) {
+      break;
+    }
+
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+    await sleep(350);
+  }
+
+  return mergedPayload;
 }
 
 async function maybeImportCapture(params) {
@@ -922,6 +1046,7 @@ async function main() {
   const envMaxRequests = Number(process.env.X_WEB_MAX_REQUESTS_PER_HOUR ?? NaN);
   const envMinInterval = Number(process.env.X_WEB_MIN_INTERVAL_MS ?? NaN);
   const envCooldown = Number(process.env.X_WEB_COOLDOWN_MS ?? NaN);
+  const envPages = Number(process.env.X_WEB_PAGES ?? NaN);
   const maxRequestsPerHour =
     Number.isFinite(envMaxRequests) && envMaxRequests > 0
       ? Math.floor(envMaxRequests)
@@ -934,6 +1059,10 @@ async function main() {
     Number.isFinite(envCooldown) && envCooldown >= 0
       ? Math.floor(envCooldown)
       : options.cooldownMs;
+  const pages =
+    Number.isFinite(envPages) && envPages >= 1
+      ? Math.min(5, Math.floor(envPages))
+      : options.pages;
 
   const sessionFilePath = options.sessionFile ?? process.env.X_WEB_SESSION_FILE ?? null;
   const broker = await createSessionBroker({
@@ -1033,10 +1162,10 @@ async function main() {
     broker.setCachedUserId(account, userId);
     console.log(`[http] Resolved user id: ${userId}`);
 
-    const payload = await fetchUserTweetsPayload({
-      account,
+    const payload = await fetchPaginatedUserTweetsPayload({
       userId,
       count: options.count,
+      pages,
       queryId: resolvedQueryId,
       headers,
     });
