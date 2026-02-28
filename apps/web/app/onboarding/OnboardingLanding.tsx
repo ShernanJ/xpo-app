@@ -64,6 +64,20 @@ export default function OnboardingLanding() {
   const normalizedAccount = normalizeHandle(account);
   const hasValidPreview =
     Boolean(preview) && normalizeHandle(preview?.username ?? "") === normalizedAccount;
+  const autofillStyles = (
+    <style jsx>{`
+      .landingAccountInput:-webkit-autofill,
+      .landingAccountInput:-webkit-autofill:hover,
+      .landingAccountInput:-webkit-autofill:focus {
+        -webkit-text-fill-color: #ffffff !important;
+        -webkit-box-shadow: 0 0 0 1000px #050505 inset !important;
+        box-shadow: 0 0 0 1000px #050505 inset !important;
+        transition: background-color 9999s ease-in-out 0s;
+        caret-color: #ffffff;
+        border-radius: 9999px;
+      }
+    `}</style>
+  );
 
   useEffect(() => {
     if (!isLoading) {
@@ -128,7 +142,7 @@ export default function OnboardingLanding() {
           setIsPreviewLoading(false);
         }
       }
-    }, 450);
+    }, 850);
 
     return () => {
       controller.abort();
@@ -288,6 +302,7 @@ export default function OnboardingLanding() {
             </ol>
           </div>
         </section>
+        {autofillStyles}
       </XShell>
     );
   }
@@ -324,7 +339,10 @@ export default function OnboardingLanding() {
                     setErrorMessage(null);
                   }}
                   placeholder="username"
-                  className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  className="landingAccountInput w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600"
                   aria-label="X username"
                 />
               </div>
@@ -397,16 +415,17 @@ export default function OnboardingLanding() {
               </div>
             </div>
           ) : normalizedAccount && !isPreviewLoading ? (
-            <div className="rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 px-5 py-4 text-left">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-rose-300">
-                Account Not Available
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                No Account Found
               </p>
-              <p className="mt-2 text-sm text-rose-100">
+              <p className="mt-2 text-sm text-zinc-400">
                 Only active X accounts that resolve in preview can be analyzed.
               </p>
             </div>
           ) : null}
         </section>
+        {autofillStyles}
       </div>
     </XShell>
   );
