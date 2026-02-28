@@ -212,3 +212,10 @@ export async function readOnboardingBackfillJobSummary(): Promise<OnboardingBack
     },
   );
 }
+
+export async function readOnboardingBackfillJobById(
+  jobId: string,
+): Promise<StoredOnboardingBackfillJob | null> {
+  const jobs = await readAllBackfillJobs();
+  return jobs.find((job) => job.jobId === jobId) ?? null;
+}

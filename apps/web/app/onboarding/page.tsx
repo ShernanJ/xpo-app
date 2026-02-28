@@ -17,10 +17,17 @@ interface ValidationError {
   message: string;
 }
 
+interface OnboardingBackfillState {
+  queued: boolean;
+  jobId: string | null;
+  deduped: boolean;
+}
+
 interface OnboardingRunSuccess {
   ok: true;
   runId: string;
   persistedAt: string;
+  backfill?: OnboardingBackfillState;
   data: OnboardingResult;
 }
 
@@ -74,6 +81,15 @@ interface OnboardingPreviewFailure {
 }
 
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+
+interface BackfillJobStatusResponse {
+  ok: true;
+  job: {
+    jobId: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    lastError: string | null;
+  } | null;
+}
 
 const compactNumberFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -262,6 +278,8 @@ export default function OnboardingPage() {
   const [creatorProfileError, setCreatorProfileError] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [activeBackfillJobId, setActiveBackfillJobId] = useState<string | null>(null);
+  const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
 
   const payload = useMemo(
     () => ({
@@ -414,6 +432,105 @@ export default function OnboardingPage() {
     };
   }, [result]);
 
+  useEffect(() => {
+    if (!result || !result.ok || !result.backfill?.queued || !result.backfill.jobId) {
+      setActiveBackfillJobId(null);
+      return;
+    }
+
+    setActiveBackfillJobId(result.backfill.jobId);
+    setBackfillNotice(
+      result.backfill.deduped
+        ? "A background backfill is already in progress."
+        : "Queued a deeper background backfill.",
+    );
+  }, [result]);
+
+  useEffect(() => {
+    if (!activeBackfillJobId) {
+      return;
+    }
+
+    const jobId = activeBackfillJobId;
+    let cancelled = false;
+
+    async function pollBackfillJob() {
+      try {
+        const response = await fetch(
+          `/api/onboarding/backfill/jobs?jobId=${encodeURIComponent(jobId)}`,
+          { method: "GET" },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data: BackfillJobStatusResponse = await response.json();
+        const job = data.job;
+        if (!job || cancelled) {
+          return;
+        }
+
+        if (job.status === "pending") {
+          setBackfillNotice("Background backfill is queued.");
+          return;
+        }
+
+        if (job.status === "processing") {
+          setBackfillNotice("Background backfill is processing.");
+          return;
+        }
+
+        if (job.status === "failed") {
+          setBackfillNotice(
+            job.lastError
+              ? `Background backfill failed: ${job.lastError}`
+              : "Background backfill failed.",
+          );
+          setActiveBackfillJobId(null);
+          return;
+        }
+
+        if (job.status === "completed") {
+          const refreshResponse = await fetch("/api/onboarding/run", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ...payload,
+              scrapeFreshness: "cache_only",
+            }),
+          });
+
+          const refreshed: OnboardingRunResponse = await refreshResponse.json();
+          if (!cancelled && refreshResponse.ok && refreshed.ok) {
+            setResult(refreshed);
+            setPerformanceModel(null);
+            setModelError(null);
+            setBackfillNotice("Background backfill completed. Snapshot refreshed.");
+          } else if (!cancelled) {
+            setBackfillNotice("Background backfill completed, but the snapshot refresh failed.");
+          }
+
+          setActiveBackfillJobId(null);
+        }
+      } catch {
+        // Keep polling on transient failures.
+      }
+    }
+
+    void pollBackfillJob();
+    const interval = window.setInterval(() => {
+      void pollBackfillJob();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeBackfillJobId, payload]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
@@ -423,6 +540,8 @@ export default function OnboardingPage() {
     setShowCreatorProfileJson(false);
     setNetworkError(null);
     setModelError(null);
+    setBackfillNotice(null);
+    setActiveBackfillJobId(null);
     setResult(null);
     setPerformanceModel(null);
 
@@ -762,6 +881,12 @@ export default function OnboardingPage() {
               {successResult?.data.warnings.length ? (
                 <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-100">
                   {successResult.data.warnings[0]}
+                </div>
+              ) : null}
+
+              {backfillNotice ? (
+                <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 p-3 text-sky-100">
+                  {backfillNotice}
                 </div>
               ) : null}
 

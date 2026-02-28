@@ -31,6 +31,10 @@ export async function maybeEnqueueOnboardingBackfillJob(params: {
   input: OnboardingInput;
   result: OnboardingResult;
 }): Promise<{ queued: boolean; jobId: string | null; deduped: boolean }> {
+  if (params.input.scrapeFreshness === "cache_only") {
+    return { queued: false, jobId: null, deduped: false };
+  }
+
   if (params.result.source !== "scrape") {
     return { queued: false, jobId: null, deduped: false };
   }

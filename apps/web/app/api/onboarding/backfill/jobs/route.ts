@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  readOnboardingBackfillJobById,
   readOnboardingBackfillJobSummary,
   readRecentOnboardingBackfillJobs,
 } from "@/lib/onboarding/backfillStore";
@@ -16,6 +17,20 @@ function parseLimit(value: string | null): number {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get("jobId")?.trim() ?? "";
+
+  if (jobId) {
+    const job = await readOnboardingBackfillJobById(jobId);
+
+    return NextResponse.json(
+      {
+        ok: true,
+        job,
+      },
+      { status: 200 },
+    );
+  }
+
   const limit = parseLimit(searchParams.get("limit"));
 
   const [summary, jobs] = await Promise.all([
