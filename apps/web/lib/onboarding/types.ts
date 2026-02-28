@@ -399,6 +399,18 @@ export interface CreatorQuoteProfile {
   quoteUsageNote: string;
 }
 
+export type CreatorConversationReadiness = "low" | "moderate" | "high";
+
+export interface CreatorConversationProfile {
+  averageRepliesPerOriginalPost: number;
+  postsWithRepliesRate: number;
+  conversationStarterRate: number;
+  authorReplyFollowThroughProxy: number | null;
+  conversationConversionScore: number;
+  readiness: CreatorConversationReadiness;
+  rationale: string;
+}
+
 export interface CreatorCurrentStateProfile {
   followerBand: GrowthStage;
   primaryArchetype: CreatorArchetype;
@@ -512,6 +524,7 @@ export interface CreatorProfile {
   playbook: CreatorPlaybookProfile;
   reply: CreatorReplyProfile;
   quote: CreatorQuoteProfile;
+  conversation: CreatorConversationProfile;
   archetype: CreatorArchetype;
   secondaryArchetype: CreatorArchetype | null;
   archetypeConfidence: number;

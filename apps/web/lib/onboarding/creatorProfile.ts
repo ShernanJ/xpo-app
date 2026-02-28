@@ -11,6 +11,7 @@ import type {
   ContentType,
   CreatorArchetype,
   CreatorContentLane,
+  CreatorConversationProfile,
   CreatorDistributionLoopProfile,
   CreatorNicheLabel,
   CreatorNicheOverlayProfile,
@@ -2026,6 +2027,120 @@ function buildQuoteProfile(params: {
   };
 }
 
+function classifyConversationReadiness(
+  score: number,
+): CreatorConversationProfile["readiness"] {
+  if (score >= 70) {
+    return "high";
+  }
+
+  if (score >= 45) {
+    return "moderate";
+  }
+
+  return "low";
+}
+
+function buildConversationProfile(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+}): CreatorConversationProfile {
+  const { originalPosts, replyPosts } = params;
+
+  if (originalPosts.length === 0) {
+    return {
+      averageRepliesPerOriginalPost: 0,
+      postsWithRepliesRate: 0,
+      conversationStarterRate: 0,
+      authorReplyFollowThroughProxy: null,
+      conversationConversionScore: 0,
+      readiness: "low",
+      rationale:
+        "There are not enough original posts in the current sample to evaluate conversation conversion yet.",
+    };
+  }
+
+  const analyzedOriginals = originalPosts.map((post) => {
+    const features = analyzePostFeatures(post);
+    const isConversationStarter =
+      features.hasQuestion ||
+      features.hasCta ||
+      features.hookPattern === "question_open" ||
+      features.contentType === "question_post";
+
+    return {
+      post,
+      features,
+      replyCount: post.metrics.replyCount,
+      hasReplies: post.metrics.replyCount > 0,
+      isConversationStarter,
+    };
+  });
+
+  const totalRepliesReceived = analyzedOriginals.reduce(
+    (sum, item) => sum + item.replyCount,
+    0,
+  );
+  const postsWithReplies = analyzedOriginals.filter((item) => item.hasReplies).length;
+  const starters = analyzedOriginals.filter((item) => item.isConversationStarter).length;
+  const postsWithRepliesRate = toPercent(postsWithReplies / analyzedOriginals.length);
+  const conversationStarterRate = toPercent(starters / analyzedOriginals.length);
+  const averageRepliesPerOriginalPost = Number(
+    (totalRepliesReceived / analyzedOriginals.length).toFixed(2),
+  );
+  const authorReplyFollowThroughProxy =
+    totalRepliesReceived > 0
+      ? Number(
+          Math.min(100, (replyPosts.length / Math.max(1, totalRepliesReceived)) * 100).toFixed(
+            2,
+          ),
+        )
+      : null;
+
+  const score = Number(
+    Math.max(
+      15,
+      Math.min(
+        100,
+        postsWithRepliesRate * 0.4 +
+          conversationStarterRate * 0.25 +
+          Math.min(20, averageRepliesPerOriginalPost * 8) +
+          Math.min(20, (authorReplyFollowThroughProxy ?? 0) * 0.2),
+      ),
+    ).toFixed(2),
+  );
+  const readiness = classifyConversationReadiness(score);
+
+  let rationale =
+    "Conversation conversion is still weak: the account is not yet reliably turning original posts into reply-driven discussions.";
+
+  if (readiness === "high") {
+    rationale =
+      "The account already converts a meaningful share of original posts into replies, and the current behavior supports sustained conversation loops.";
+  } else if (readiness === "moderate") {
+    rationale =
+      "The account shows some conversation pull, but the reply loop is not strong enough yet to rely on as the only growth lever.";
+  }
+
+  if (authorReplyFollowThroughProxy !== null) {
+    if (authorReplyFollowThroughProxy >= 40) {
+      rationale += " The current reply behavior suggests the user often stays in the thread once conversation starts.";
+    } else if (authorReplyFollowThroughProxy <= 15) {
+      rationale += " The current reply follow-through proxy is low, so the account may be earning replies without compounding them yet.";
+    }
+  }
+
+  return {
+    averageRepliesPerOriginalPost,
+    postsWithRepliesRate,
+    conversationStarterRate,
+    authorReplyFollowThroughProxy,
+    conversationConversionScore: score,
+    readiness,
+    rationale,
+  };
+}
+
 function inferArchetypeProfile(
   posts: XPublicPost[],
   topics: TopicSignal[],
@@ -2112,6 +2227,7 @@ function buildRecommendedAngles(
   goal: UserGoal,
   archetype: CreatorArchetype,
   niche: CreatorNicheOverlayProfile,
+  conversation: CreatorConversationProfile,
   execution: CreatorExecutionProfile,
   distribution: CreatorDistributionLoopProfile,
   replyBudgetPerDay: ReplyBudgetPerDay,
@@ -2169,6 +2285,16 @@ function buildRecommendedAngles(
   if (niche.primaryNiche !== "generalist") {
     angles.push(
       `Turn your strongest ${formatNicheLabel(niche.primaryNiche)} signal into a repeatable series instead of isolated one-off posts.`,
+    );
+  }
+
+  if (goal === "followers" && conversation.readiness === "low") {
+    angles.push(
+      "Use more reply-generating structures: sharper prompts, clearer questions, and posts that are easier for others to answer quickly.",
+    );
+  } else if (goal === "followers" && conversation.readiness === "high") {
+    angles.push(
+      "You already have conversation pull. Treat strong reply-generating posts as a repeatable growth surface, then stay active in the best threads.",
     );
   }
 
@@ -2556,10 +2682,17 @@ function buildPlaybookProfile(params: {
 }
 
 function buildInteractionStrengths(params: {
+  conversation: CreatorConversationProfile;
   replyProfile: CreatorReplyProfile;
   quoteProfile: CreatorQuoteProfile;
 }): string[] {
   const strengths: string[] = [];
+
+  if (params.conversation.readiness === "high") {
+    strengths.push(
+      "Original posts are already converting into meaningful reply activity, which is a strong X-native growth signal.",
+    );
+  }
 
   if (
     params.replyProfile.isReliable &&
@@ -2606,12 +2739,19 @@ function buildExecutionWeaknesses(
 }
 
 function buildInteractionWeaknesses(params: {
+  conversation: CreatorConversationProfile;
   replyProfile: CreatorReplyProfile;
   quoteProfile: CreatorQuoteProfile;
   goal: UserGoal;
   growthStage: OnboardingResult["growthStage"];
 }): string[] {
   const weaknesses: string[] = [];
+
+  if (params.goal === "followers" && params.conversation.readiness === "low") {
+    weaknesses.push(
+      "The current post mix is not reliably turning posts into conversations yet, which limits X-native distribution compounding.",
+    );
+  }
 
   if (
     params.goal === "followers" &&
@@ -2642,6 +2782,7 @@ function buildInteractionWeaknesses(params: {
 
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
+  conversation: CreatorConversationProfile,
   distribution: CreatorDistributionLoopProfile,
   replyBudgetPerDay: ReplyBudgetPerDay,
   replyProfile: CreatorReplyProfile,
@@ -2678,6 +2819,16 @@ function buildExecutionNextMoves(
 
   if ((goal === "followers" || goal === "leads") && execution.ctaIntensity === "low") {
     actions.push("Add one explicit call-to-action in the next batch to test higher response behavior.");
+  }
+
+  if (goal === "followers" && conversation.readiness === "low") {
+    actions.push(
+      "Publish one post this week built purely for replies: one concrete question, one clear prompt, and no extra asks.",
+    );
+  } else if (goal === "followers" && conversation.readiness === "high") {
+    actions.push(
+      "Pick one post this week to treat as a conversation engine, then stay in the thread and respond quickly to the strongest replies.",
+    );
   }
 
   if (goal === "followers" && growthStage === "0-1k") {
@@ -3005,6 +3156,10 @@ export function buildCreatorProfile(params: {
     replyPosts,
     quotePosts,
   });
+  const conversationProfile = buildConversationProfile({
+    originalPosts: posts,
+    replyPosts,
+  });
   const transformationMode =
     params.onboarding.strategyState.transformationMode ?? "optimize";
   const transformationModeSource =
@@ -3138,6 +3293,7 @@ export function buildCreatorProfile(params: {
     playbook: playbookProfile,
     reply: replyProfile,
     quote: quoteProfile,
+    conversation: conversationProfile,
     performance: {
       baselineAverageEngagement: params.onboarding.baseline.averageEngagement,
       medianEngagement: params.onboarding.baseline.medianEngagement,
@@ -3171,6 +3327,7 @@ export function buildCreatorProfile(params: {
         ...buildExecutionStrengths(executionProfile),
         ...buildDistributionStrengths(distributionProfile),
         ...buildInteractionStrengths({
+          conversation: conversationProfile,
           replyProfile,
           quoteProfile,
         }),
@@ -3182,6 +3339,7 @@ export function buildCreatorProfile(params: {
           params.onboarding.strategyState.goal,
         ),
         ...buildInteractionWeaknesses({
+          conversation: conversationProfile,
           replyProfile,
           quoteProfile,
           goal: params.onboarding.strategyState.goal,
@@ -3192,6 +3350,7 @@ export function buildCreatorProfile(params: {
         params.onboarding.strategyState.goal,
         archetype,
         nicheProfile,
+        conversationProfile,
         executionProfile,
         distributionProfile,
         params.onboarding.strategyState.replyBudgetPerDay,
@@ -3204,6 +3363,7 @@ export function buildCreatorProfile(params: {
         ...performanceModel.nextActions,
         ...buildExecutionNextMoves(
           executionProfile,
+          conversationProfile,
           distributionProfile,
           params.onboarding.strategyState.replyBudgetPerDay,
           replyProfile,
