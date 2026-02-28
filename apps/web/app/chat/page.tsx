@@ -69,6 +69,10 @@ function formatEnumLabel(value: string): string {
     .join(" ");
 }
 
+function formatAreaLabel(value: string): string {
+  return formatEnumLabel(value);
+}
+
 function buildInitialAssistantMessage(
   context: CreatorAgentContext,
   contract: CreatorGenerationContract,
@@ -119,6 +123,7 @@ export default function ChatPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const loadWorkspace = useCallback(async () => {
     if (!runId) {
@@ -279,6 +284,45 @@ export default function ChatPage() {
     ];
   }, [context]);
 
+  const sidebarThreads = useMemo(() => {
+    if (!context || !contract) {
+      return [];
+    }
+
+    const strategyItems = context.strategyDelta.adjustments.slice(0, 3).map((item) => ({
+      id: `${item.area}-${item.direction}`,
+      label: `${formatEnumLabel(item.direction)} ${formatAreaLabel(item.area)}`,
+      meta: formatEnumLabel(item.priority),
+    }));
+
+    const anchorItems = context.positiveAnchors.slice(0, 3).map((post) => ({
+      id: post.id,
+      label: post.text.length > 50 ? `${post.text.slice(0, 50)}...` : post.text,
+      meta: `${formatEnumLabel(post.lane)} · ${post.goalFitScore}`,
+    }));
+
+    return [
+      {
+        section: "Active",
+        items: [
+          {
+            id: "current-workspace",
+            label: contract.planner.primaryAngle,
+            meta: formatEnumLabel(contract.planner.targetLane),
+          },
+        ],
+      },
+      {
+        section: "Strategy",
+        items: strategyItems,
+      },
+      {
+        section: "Anchors",
+        items: anchorItems,
+      },
+    ].filter((section) => section.items.length > 0);
+  }, [context, contract]);
+
   function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -305,23 +349,138 @@ export default function ChatPage() {
 
   return (
     <XShell>
-      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-6 px-6 py-8 sm:py-10">
-        <header className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-500">
-                X Strategy Chat
-              </p>
-              <h1 className="font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Keep the analysis. Shift the surface to action.
-              </h1>
-              <p className="max-w-2xl text-sm leading-7 text-zinc-400">
-                The agent uses the scrape-backed model as context. The full breakdown stays behind
-                the analysis drawer, not the main flow.
-              </p>
+      <div className="mx-auto flex min-h-full w-full max-w-[96rem] gap-4 px-2 py-2 sm:px-4 sm:py-4">
+        <aside
+          className={`sticky top-4 hidden h-[calc(100vh-7rem)] shrink-0 overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.03] shadow-[0_20px_80px_rgba(0,0,0,0.45)] transition-all duration-300 lg:flex lg:flex-col ${
+            sidebarOpen ? "w-[20rem]" : "w-[5.5rem]"
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((current) => !current)}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              {sidebarOpen ? "×" : "≡"}
+            </button>
+            {sidebarOpen ? (
+              <button
+                type="button"
+                onClick={loadWorkspace}
+                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.08]"
+              >
+                Refresh
+              </button>
+            ) : null}
+          </div>
+
+          <div className="px-3 pt-3">
+            <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-3 py-2.5">
+              <span className="text-sm text-zinc-500">⌕</span>
+              {sidebarOpen ? (
+                <>
+                  <span className="text-sm text-zinc-400">Search</span>
+                  <span className="ml-auto text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                    ⌘K
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="px-3 pt-3">
+            <button
+              type="button"
+              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.08] ${
+                sidebarOpen ? "justify-start" : "justify-center"
+              }`}
+            >
+              <span className="text-sm text-white">✎</span>
+              {sidebarOpen ? (
+                <span className="text-sm font-medium text-white">New Chat</span>
+              ) : null}
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 py-4">
+            {sidebarOpen ? (
+              <div className="space-y-5">
+                {sidebarThreads.map((section) => (
+                  <div key={section.section} className="space-y-2">
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                      {section.section}
+                    </p>
+                    {section.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="flex w-full flex-col items-start gap-1 rounded-2xl border border-transparent px-3 py-2.5 text-left transition hover:border-white/10 hover:bg-white/[0.04]"
+                      >
+                        <span className="line-clamp-2 text-sm font-medium leading-5 text-zinc-200">
+                          {item.label}
+                        </span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                          {item.meta}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center gap-3 pt-2">
+                {sidebarThreads.flatMap((section) => section.items).slice(0, 6).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                    title={item.label}
+                  >
+                    {item.label.slice(0, 2)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-white/10 px-3 py-3">
+            {sidebarOpen && context ? (
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                <p className="text-sm font-semibold text-white">@{context.account}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/30 text-sm font-semibold text-white">
+                  {context?.account.slice(0, 2).toUpperCase() ?? "X"}
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <div className="relative flex min-h-[calc(100vh-7rem)] flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.02] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+          <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-6">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setSidebarOpen((current) => !current)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white lg:hidden"
+                aria-label="Toggle sidebar"
+              >
+                ≡
+              </button>
+              <div className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2">
+                <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
+                  X Strategy Chat
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="hidden flex-wrap items-center gap-2 md:flex">
               {summaryChips.map((chip) => (
                 <span
                   key={chip}
@@ -338,122 +497,130 @@ export default function ChatPage() {
                 View Analysis
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setAnalysisOpen(true)}
+              className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.08] md:hidden"
+            >
+              Model
+            </button>
           </div>
 
-          {backfillNotice ? (
-            <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.2em] text-emerald-400">
-              {backfillNotice}
-            </p>
-          ) : null}
-        </header>
+          <div className="flex-1 overflow-y-auto px-4 pb-36 pt-6 sm:px-6">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+              {backfillNotice ? (
+                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
+                  {backfillNotice}
+                </div>
+              ) : null}
 
-        <section className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-h-[560px] flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.03] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-            <div className="border-b border-white/10 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
-                Workspace
-              </p>
-            </div>
-
-            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
               {isLoading ? (
                 <div className="rounded-3xl border border-white/10 bg-black/30 p-5 text-sm text-zinc-400">
                   Loading the agent context...
                 </div>
               ) : errorMessage ? (
-                <div className="rounded-3xl border border-rose-400/30 bg-rose-400/10 p-5 text-sm text-rose-200">
+                <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 p-5 text-sm text-rose-100">
                   {errorMessage}
                 </div>
               ) : (
-                messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`max-w-[85%] rounded-3xl px-4 py-3 text-sm leading-7 ${
-                      message.role === "assistant"
-                        ? "border border-white/10 bg-white/[0.04] text-zinc-100"
-                        : "ml-auto border border-white/10 bg-white text-black"
-                    }`}
-                  >
-                    {message.content}
-                  </div>
-                ))
+                <>
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`max-w-[88%] rounded-[1.75rem] px-4 py-3 text-sm leading-7 ${
+                        message.role === "assistant"
+                          ? "border border-white/10 bg-white/[0.04] text-zinc-100"
+                          : "ml-auto border border-white/10 bg-white text-black"
+                      }`}
+                    >
+                      {message.content}
+                    </div>
+                  ))}
+
+                  {context ? (
+                    <div className="rounded-3xl border border-white/10 bg-black/30 p-5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                        Current Working Model
+                      </p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            Context Readiness
+                          </p>
+                          <p className="mt-2 text-2xl font-semibold text-white">
+                            {context.readiness.score}
+                          </p>
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(context.readiness.recommendedMode)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            Total Captured
+                          </p>
+                          <p className="mt-2 text-2xl font-semibold text-white">
+                            {formatCompactNumber(context.confidence.sampleSize)}
+                          </p>
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(context.confidence.sampleBand)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            Primary Angle
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-zinc-200">
+                            {contract?.planner.primaryAngle ?? "Waiting for the generation contract."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
+          </div>
 
-            <form
-              onSubmit={handleComposerSubmit}
-              className="border-t border-white/10 px-5 py-4"
-            >
-              <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/30 p-3">
-                <textarea
-                  value={draftInput}
-                  onChange={(event) => setDraftInput(event.target.value)}
-                  placeholder="Ask for a draft, a reply angle, or a tighter growth plan..."
-                  className="min-h-[110px] w-full resize-none bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
-                />
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
-                    LLM wiring is next. This route already uses the deterministic contract.
-                  </p>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4 sm:px-6 sm:pb-6">
+            <div className="pointer-events-auto w-full max-w-3xl rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-md">
+              <form onSubmit={handleComposerSubmit}>
+                <div className="flex items-end gap-3">
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/30 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                  >
+                    +
+                  </button>
+                  <textarea
+                    value={draftInput}
+                    onChange={(event) => setDraftInput(event.target.value)}
+                    placeholder="What are we creating today?"
+                    className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
+                  />
                   <button
                     type="submit"
                     disabled={!context || !contract || !draftInput.trim()}
-                    className="rounded-full border border-white/10 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-black disabled:cursor-not-allowed disabled:bg-zinc-500"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
+                    aria-label="Send message"
                   >
-                    Send
+                    ↑
                   </button>
                 </div>
-              </div>
-            </form>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+                    LLM wiring is next. This route already uses the deterministic contract.
+                  </p>
+                  <div className="hidden items-center gap-2 md:flex">
+                    <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      {contract ? formatEnumLabel(contract.mode) : "Loading"}
+                    </span>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
-
-          <aside className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
-              Working Model
-            </p>
-
-            {context ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Context Readiness
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold text-white">
-                    {context.readiness.score}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
-                    {formatEnumLabel(context.readiness.recommendedMode)}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Total Captured
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold text-white">
-                    {formatCompactNumber(context.confidence.sampleSize)}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
-                    {formatEnumLabel(context.confidence.sampleBand)}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Primary Angle
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-200">
-                    {contract?.planner.primaryAngle ?? "Waiting for the generation contract."}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-3xl border border-white/10 bg-black/30 p-4 text-sm text-zinc-500">
-                Load a run to see the working model.
-              </div>
-            )}
-          </aside>
-        </section>
+        </div>
       </div>
 
       {analysisOpen && context ? (
