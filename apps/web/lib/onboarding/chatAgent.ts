@@ -133,8 +133,19 @@ export interface CreatorChatDebugFormatExemplar {
   goalFitScore: number;
 }
 
+export interface CreatorChatDebugEvidencePack {
+  sourcePostIds: string[];
+  entities: string[];
+  metrics: string[];
+  proofPoints: string[];
+  storyBeats: string[];
+  constraints: string[];
+  requiredEvidenceCount: number;
+}
+
 export interface CreatorChatDebugInfo {
   formatExemplar: CreatorChatDebugFormatExemplar | null;
+  evidencePack: CreatorChatDebugEvidencePack;
   formatBlueprint: string;
   outputShapeRationale: string;
 }
@@ -159,6 +170,7 @@ interface RequestConditionedAnchors {
   laneAnchors: CreatorRepresentativePost[];
   formatAnchors: CreatorRepresentativePost[];
   formatExemplar: CreatorRepresentativePost | null;
+  evidencePack: CreatorChatDebugEvidencePack;
 }
 
 interface FormatBlueprintProfile {
@@ -210,12 +222,17 @@ function buildDeterministicFallback(params: {
     context,
     contract,
   });
+  const fallbackEvidencePack = buildEvidencePack({
+    formatExemplar: fallbackFormatExemplar,
+    topicAnchors: context.positiveAnchors.slice(0, 2),
+  });
   const fallbackFormatBlueprint = buildFormatBlueprint({
     post: fallbackFormatExemplar,
     outputShape: contract.planner.outputShape,
   });
   const debugInfo: CreatorChatDebugInfo = {
     formatExemplar: buildFormatExemplarDebug(fallbackFormatExemplar),
+    evidencePack: fallbackEvidencePack,
     formatBlueprint: fallbackFormatBlueprint,
     outputShapeRationale: contract.planner.outputShapeRationale,
   };
@@ -238,22 +255,52 @@ function buildDeterministicFallback(params: {
 
   if (params.intent === "ideate") {
     const focus = params.contentFocus?.trim() || "the next content lane";
+    const proofSeed =
+      fallbackEvidencePack.proofPoints[0] ||
+      fallbackEvidencePack.metrics[0] ||
+      fallbackEvidencePack.storyBeats[0] ||
+      null;
+    const secondarySeed =
+      fallbackEvidencePack.proofPoints[1] ||
+      fallbackEvidencePack.constraints[0] ||
+      fallbackEvidencePack.entities[0] ||
+      null;
 
     return {
-      reply: `Focus on ${focus} first. Do not force a polished post yet. Pick 2-3 specific angles you could talk about naturally, then choose the one that best proves something real about you.`,
-      angles: [
-        `the real build problem or insight behind ${focus}`,
-        `what you're seeing while building ${focus} that other people miss`,
-        `one concrete lesson from ${focus} + "thoughts?"`,
-      ].map((angle) => loosenDraftText(angle, contract)),
+      reply:
+        fallbackEvidencePack.requiredEvidenceCount > 0
+          ? `Focus on ${focus}, but keep it anchored to something real you've already proven. Start from the strongest concrete proof point, then choose the angle that makes that evidence impossible to ignore.`
+          : `Focus on ${focus} first. Do not force a polished post yet. Pick 2-3 specific angles you could talk about naturally, then choose the one that best proves something real about you.`,
+      angles: uniqueEvidenceStrings(
+        [
+          proofSeed
+            ? `the operator lesson hidden inside: ${proofSeed}`
+            : "",
+          secondarySeed
+            ? `why ${secondarySeed} matters more than generic ${focus} advice`
+            : "",
+          fallbackEvidencePack.storyBeats[0]
+            ? `${fallbackEvidencePack.storyBeats[0]} -> the lesson most people would miss`
+            : "",
+          fallbackEvidencePack.entities[0] && fallbackEvidencePack.metrics[0]
+            ? `${fallbackEvidencePack.entities[0]} + ${fallbackEvidencePack.metrics[0]} is the proof. build the post around that.`
+            : "",
+          `what is the concrete proof behind ${focus}? use that instead of generic advice.`,
+        ],
+        4,
+      ).map((angle) => loosenDraftText(angle, contract)),
       drafts: [],
       draftArtifacts: [],
       supportAsset:
-        "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
+        fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
+          ? "Use the exact screenshot, metric, or artifact that proves the strongest evidence point."
+          : "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
       outputShape: "ideation_angles",
       whyThisWorks: [
         "It separates planning from final post writing.",
-        "It keeps the next move anchored to a specific content focus instead of generic posting advice.",
+        fallbackEvidencePack.requiredEvidenceCount > 0
+          ? "It keeps ideation anchored to real proof from the creator's existing posts instead of generic advice."
+          : "It keeps the next move anchored to a specific content focus instead of generic posting advice.",
       ],
       watchOutFor: [
         "Avoid placeholder hooks and generic engagement bait.",
@@ -270,33 +317,70 @@ function buildDeterministicFallback(params: {
     ? formatEnumLabel(contract.planner.suggestedContentTypes[0])
     : "Single Line";
 
+  const fallbackDrafts = uniqueEvidenceStrings(
+    [
+      [
+        params.selectedAngle?.trim() || params.userMessage,
+        fallbackEvidencePack.proofPoints[0],
+        fallbackEvidencePack.metrics[0],
+        fallbackEvidencePack.constraints[0],
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      [
+        fallbackEvidencePack.storyBeats[0],
+        fallbackEvidencePack.proofPoints[1] || fallbackEvidencePack.proofPoints[0],
+        fallbackEvidencePack.metrics[1] || fallbackEvidencePack.metrics[0],
+        "the point is in the proof, not the generic advice",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    ],
+    2,
+  ).map((draft) => loosenDraftText(draft, contract));
+
   return {
-    reply: `Use the ${formatEnumLabel(
-      contract.planner.targetLane,
-    )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
+    reply: fallbackEvidencePack.requiredEvidenceCount > 0
+      ? `Use the ${formatEnumLabel(
+          contract.planner.targetLane,
+        )} lane, but ground it in the creator's actual proof instead of generic strategy language. Build around: ${fallbackEvidencePack.proofPoints[0] || fallbackEvidencePack.metrics[0] || params.userMessage}`
+      : `Use the ${formatEnumLabel(
+          contract.planner.targetLane,
+        )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
     angles: [],
-    drafts: [
-      params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-      `${topType} version: ${
-        params.selectedAngle?.trim() || params.userMessage
-      }`,
-    ].map((draft) => loosenDraftText(draft, contract)),
+    drafts: fallbackDrafts.length > 0
+      ? fallbackDrafts
+      : [
+          params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+          `${topType} version: ${
+            params.selectedAngle?.trim() || params.userMessage
+          }`,
+        ].map((draft) => loosenDraftText(draft, contract)),
     draftArtifacts: buildDraftArtifacts({
-      drafts: [
-        params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-        `${topType} version: ${
-          params.selectedAngle?.trim() || params.userMessage
-        }`,
-      ].map((draft) => loosenDraftText(draft, contract)),
+      drafts:
+        fallbackDrafts.length > 0
+          ? fallbackDrafts
+          : [
+              params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+              `${topType} version: ${
+                params.selectedAngle?.trim() || params.userMessage
+              }`,
+            ].map((draft) => loosenDraftText(draft, contract)),
       outputShape: contract.planner.outputShape,
       supportAsset:
-        "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+        fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
+          ? "Attach the real screenshot, metric, or artifact that proves the strongest evidence point."
+          : "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
     }),
     supportAsset:
-      "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+      fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
+        ? "Attach the real screenshot, metric, or artifact that proves the strongest evidence point."
+        : "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
     outputShape: contract.planner.outputShape,
     whyThisWorks: [
-      "It stays inside the deterministic lane, hook, and angle constraints.",
+      fallbackEvidencePack.requiredEvidenceCount > 0
+        ? "It grounds the draft in concrete evidence already present in the creator's posts."
+        : "It stays inside the deterministic lane, hook, and angle constraints.",
       "It keeps the draft aligned to the strongest current strategy signal.",
     ],
     watchOutFor: [
@@ -653,6 +737,7 @@ function buildPlannerSystemPrompt(params: {
     `Primary angle: ${contract.planner.primaryAngle}.`,
     `Required output shape: ${contract.planner.outputShape}.`,
     "If the user wants ideas, plan in concrete post premises, not content-marketing category labels.",
+    "When strong retrieved evidence exists, keep the plan anchored to those real facts instead of abstracting into generic domain advice.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -756,6 +841,10 @@ function selectRequestConditionedAnchors(params: {
       laneAnchors: [],
       formatAnchors: [],
       formatExemplar: null,
+      evidencePack: buildEvidencePack({
+        formatExemplar: null,
+        topicAnchors: [],
+      }),
     };
   }
 
@@ -792,17 +881,22 @@ function selectRequestConditionedAnchors(params: {
     .sort((left, right) => right.formatScore - left.formatScore)
     .slice(0, 2)
     .map((item) => item.post);
+  const formatExemplar =
+    formatAnchors[0] ??
+    pickFormatExemplar({
+      context: params.context,
+      contract: params.contract,
+    });
 
   return {
     topicAnchors,
     laneAnchors,
     formatAnchors,
-    formatExemplar:
-      formatAnchors[0] ??
-      pickFormatExemplar({
-        context: params.context,
-        contract: params.contract,
-      }),
+    formatExemplar,
+    evidencePack: buildEvidencePack({
+      formatExemplar,
+      topicAnchors,
+    }),
   };
 }
 
@@ -918,6 +1012,170 @@ function formatExemplar(post: CreatorRepresentativePost | null): string {
   }
 
   return `${post.id} (${post.selectionReason}) -> ${post.text}`;
+}
+
+function uniqueEvidenceStrings(values: string[], limit: number): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.replace(/\s+/g, " ").trim())
+        .filter((value) => value.length > 0),
+    ),
+  ).slice(0, limit);
+}
+
+function extractEvidenceLines(text: string): string[] {
+  return text
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0);
+}
+
+function extractEvidenceEntities(text: string): string[] {
+  const entities: string[] = [];
+
+  for (const mention of text.match(/@\w+/g) ?? []) {
+    entities.push(mention);
+  }
+
+  for (const match of text.matchAll(/\b(?:[A-Z][A-Za-z0-9$+/.-]*)(?:\s+[A-Z][A-Za-z0-9$+/.-]*){0,3}\b/g)) {
+    const candidate = match[0].trim();
+    if (candidate.length < 3) {
+      continue;
+    }
+    if (/^(I|If|And|But|The|This|That|What|How|Why|When|Here)$/i.test(candidate)) {
+      continue;
+    }
+    entities.push(candidate);
+  }
+
+  return uniqueEvidenceStrings(entities, 8);
+}
+
+function buildEvidencePack(params: {
+  formatExemplar: CreatorRepresentativePost | null;
+  topicAnchors: CreatorRepresentativePost[];
+}): CreatorChatDebugEvidencePack {
+  const sourcePosts = dedupeRepresentativePosts(
+    [
+      params.formatExemplar,
+      ...params.topicAnchors.slice(0, 2),
+    ].filter((post): post is CreatorRepresentativePost => post !== null),
+  );
+  const allLines = sourcePosts.flatMap((post) => extractEvidenceLines(post.text));
+  const metricLines = allLines.filter((line) => /\d/.test(line));
+  const proofLines = allLines.filter((line) =>
+    /\d/.test(line) ||
+    /\b(built|build|hit|processed|grew|launched|shipped|power|scaled|profitable|used|reached)\b/i.test(
+      line,
+    ),
+  );
+  const storyLines = allLines.filter((line) =>
+    /\b(i|i'm|i’ve|i've|my|me)\b/i.test(line),
+  );
+  const constraintLines = allLines.filter((line) =>
+    /\b(with|without|less than|instead of|not more|small team|only|under|<)\b/i.test(
+      line,
+    ),
+  );
+  const entities = uniqueEvidenceStrings(
+    sourcePosts.flatMap((post) => extractEvidenceEntities(post.text)),
+    8,
+  );
+  const metrics = uniqueEvidenceStrings(metricLines, 6);
+  const proofPoints = uniqueEvidenceStrings(proofLines, 6);
+  const storyBeats = uniqueEvidenceStrings(storyLines, 4);
+  const constraints = uniqueEvidenceStrings(constraintLines, 4);
+
+  return {
+    sourcePostIds: sourcePosts.map((post) => post.id),
+    entities,
+    metrics,
+    proofPoints,
+    storyBeats,
+    constraints,
+    requiredEvidenceCount:
+      metrics.length >= 2 || proofPoints.length >= 3
+        ? 2
+        : metrics.length > 0 || proofPoints.length > 0 || entities.length > 0
+          ? 1
+          : 0,
+  };
+}
+
+function formatEvidencePack(evidencePack: CreatorChatDebugEvidencePack): string {
+  if (
+    evidencePack.entities.length === 0 &&
+    evidencePack.metrics.length === 0 &&
+    evidencePack.proofPoints.length === 0 &&
+    evidencePack.storyBeats.length === 0 &&
+    evidencePack.constraints.length === 0
+  ) {
+    return "No strong concrete evidence pack available.";
+  }
+
+  return [
+    `Source posts: ${evidencePack.sourcePostIds.join(" | ") || "none"}`,
+    `Entities: ${evidencePack.entities.join(" | ") || "none"}`,
+    `Metrics: ${evidencePack.metrics.join(" | ") || "none"}`,
+    `Proof points: ${evidencePack.proofPoints.join(" | ") || "none"}`,
+    `Story beats: ${evidencePack.storyBeats.join(" | ") || "none"}`,
+    `Constraints: ${evidencePack.constraints.join(" | ") || "none"}`,
+    `Required evidence count: ${evidencePack.requiredEvidenceCount}`,
+  ].join("\n");
+}
+
+function countEvidenceCoverage(
+  text: string,
+  evidencePack: CreatorChatDebugEvidencePack | undefined,
+): {
+  entityMatches: number;
+  metricMatches: number;
+  proofMatches: number;
+  total: number;
+} {
+  if (!evidencePack) {
+    return {
+      entityMatches: 0,
+      metricMatches: 0,
+      proofMatches: 0,
+      total: 0,
+    };
+  }
+
+  const lowered = text.toLowerCase();
+  const entityMatches = evidencePack.entities.filter((entity) =>
+    collectSignalTerms(entity).some(
+      (term) =>
+        term.length >= 3 &&
+        new RegExp(
+          `\\b${term.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+          "i",
+        ).test(text),
+    ),
+  ).length;
+  const metricMatches = evidencePack.metrics.filter((metric) =>
+    (metric.match(/[$<]?\d[\d,.]*(?:[kKmMbByY]|%|x)?(?:\/[A-Za-z]+)?/g) ?? []).some(
+      (token) => token.length >= 2 && lowered.includes(token.toLowerCase()),
+    ),
+  ).length;
+  const proofMatches = evidencePack.proofPoints.filter((point) =>
+    collectSignalTerms(point).some(
+      (term) =>
+        term.length >= 3 &&
+        new RegExp(
+          `\\b${term.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+          "i",
+        ).test(text),
+    ),
+  ).length;
+
+  return {
+    entityMatches,
+    metricMatches,
+    proofMatches,
+    total: entityMatches + metricMatches + proofMatches,
+  };
 }
 
 function countProofSignals(text: string): number {
@@ -1228,6 +1486,7 @@ function buildWriterSystemPrompt(params: {
     intent,
   );
   const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
+  const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
   const formatBlueprint = buildFormatBlueprint({
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
@@ -1241,6 +1500,7 @@ function buildWriterSystemPrompt(params: {
       : "Return a short strategic response, 4-6 concrete draft candidates, why they fit, and what to watch out for.",
     "The package must be directly useful, specific, and aligned to the deterministic contract.",
     "The user's native voice matters more than generic social-media best practices.",
+    "The retrieved evidence pack is the concrete topic ground truth. Use it for actual nouns, proof, metrics, and story details whenever the request is compatible with it.",
     "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
     "Mirror the user's actual tone, casing, looseness, and level of polish from the provided voice anchors.",
     pinnedVoiceAnchorCount > 0
@@ -1303,7 +1563,11 @@ function buildWriterSystemPrompt(params: {
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
     `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
+    `Concrete evidence pack (use this as topical proof, not just background flavor):\n${evidencePackLine}`,
     `Structural blueprint (follow this shape unless the user clearly needs something else): ${formatBlueprint}`,
+    requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
+      : "No minimum evidence reuse requirement is available.",
     "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
     "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
@@ -1339,6 +1603,7 @@ function buildCriticSystemPrompt(params: {
     intent,
   );
   const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
+  const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
   const formatBlueprint = buildFormatBlueprint({
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
@@ -1362,6 +1627,7 @@ function buildCriticSystemPrompt(params: {
       concreteSubject,
       userMessage,
     }),
+    "Reject outputs that ignore the strongest concrete evidence and replace it with generic category-level advice.",
     "Reject outputs where broad strategy or goal phrasing becomes the literal topic. Strategy should shape framing only, not replace the concrete subject.",
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
@@ -1369,7 +1635,11 @@ function buildCriticSystemPrompt(params: {
       ? "Reject long-form drafts that still read like short tweet-sized posts. They should be meaningfully developed, usually beyond tweet length, with a clear thesis and structure."
       : "",
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
+    `Concrete evidence pack to enforce:\n${evidencePackLine}`,
     `Structural blueprint to enforce: ${formatBlueprint}`,
+    requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Reject drafts that reuse fewer than ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) when the topic aligns with the evidence pack.`
+      : "No minimum evidence reuse requirement is available.",
     "Reject long-form or thread outputs that ignore the structural blueprint and collapse into a generic tweet-sized answer.",
     "Treat lowercase as a casing preference only. Casual voice can still be sentence-case, multi-line, or sectioned when the creator's anchors or exemplar support that structure.",
     `Target casing: ${contract.writer.targetCasing}.`,
@@ -1593,6 +1863,7 @@ function scoreAngleCandidate(params: {
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  evidencePack?: CreatorChatDebugEvidencePack;
 }): number {
   const angle = params.angle.trim();
   if (!angle) {
@@ -1614,6 +1885,7 @@ function scoreAngleCandidate(params: {
     ),
   );
   const strategyLeakCount = countPhraseMatches(angle, STRATEGY_LEAKAGE_PHRASES);
+  const evidenceCoverage = countEvidenceCoverage(angle, params.evidencePack);
   let score = 0;
 
   if (
@@ -1666,6 +1938,20 @@ function scoreAngleCandidate(params: {
     }
   }
 
+  if (params.evidencePack) {
+    score += Math.min(evidenceCoverage.entityMatches, 2) * 1.25;
+    score += Math.min(evidenceCoverage.metricMatches, 2) * 2;
+    score += Math.min(evidenceCoverage.proofMatches, 2) * 1.5;
+
+    if (
+      params.evidencePack.requiredEvidenceCount > 0 &&
+      evidenceCoverage.total < params.evidencePack.requiredEvidenceCount
+    ) {
+      score -=
+        (params.evidencePack.requiredEvidenceCount - evidenceCoverage.total) * 4;
+    }
+  }
+
   score += words.length >= 6 ? 1 : -1;
   score -= countPhraseMatches(angle, GENERIC_DRAFT_PHRASES) * 2;
   if ((params.selectedAngle || params.concreteSubject) && strategyLeakCount > 0) {
@@ -1681,6 +1967,7 @@ function rerankAngles(params: {
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  evidencePack?: CreatorChatDebugEvidencePack;
 }): string[] {
   const seen = new Set<string>();
 
@@ -1702,6 +1989,7 @@ function rerankAngles(params: {
         selectedAngle: params.selectedAngle,
         concreteSubject: params.concreteSubject,
         userMessage: params.userMessage,
+        evidencePack: params.evidencePack,
       }),
     }))
     .sort((left, right) => right.score - left.score)
@@ -1766,6 +2054,7 @@ function scoreDraftCandidate(params: {
   concreteSubject: string | null;
   userMessage: string;
   blueprintProfile?: FormatBlueprintProfile;
+  evidencePack?: CreatorChatDebugEvidencePack;
 }): number {
   const draft = params.draft.trim();
   if (!draft) {
@@ -1790,6 +2079,7 @@ function scoreDraftCandidate(params: {
     ),
   );
   const strategyLeakCount = countPhraseMatches(draft, STRATEGY_LEAKAGE_PHRASES);
+  const evidenceCoverage = countEvidenceCoverage(draft, params.evidencePack);
   let score = 0;
 
   if (params.contract.writer.targetCasing === "lowercase") {
@@ -1817,6 +2107,20 @@ function scoreDraftCandidate(params: {
       matchingTerms.length <= 1
     ) {
       score -= 2;
+    }
+  }
+
+  if (params.evidencePack) {
+    score += Math.min(evidenceCoverage.entityMatches, 3) * 1.25;
+    score += Math.min(evidenceCoverage.metricMatches, 3) * 2.25;
+    score += Math.min(evidenceCoverage.proofMatches, 3) * 1.5;
+
+    if (
+      params.evidencePack.requiredEvidenceCount > 0 &&
+      evidenceCoverage.total < params.evidencePack.requiredEvidenceCount
+    ) {
+      score -=
+        (params.evidencePack.requiredEvidenceCount - evidenceCoverage.total) * 5;
     }
   }
 
@@ -1916,6 +2220,7 @@ function rerankDrafts(params: {
   concreteSubject: string | null;
   userMessage: string;
   blueprintProfile?: FormatBlueprintProfile;
+  evidencePack?: CreatorChatDebugEvidencePack;
 }): string[] {
   const seen = new Set<string>();
   const candidates = params.drafts
@@ -1937,6 +2242,7 @@ function rerankDrafts(params: {
         concreteSubject: params.concreteSubject,
         userMessage: params.userMessage,
         blueprintProfile: params.blueprintProfile,
+        evidencePack: params.evidencePack,
       }),
     }))
     .sort((left, right) => right.score - left.score);
@@ -1951,6 +2257,7 @@ function buildLongFormExpansionSystemPrompt(params: {
   requestAnchors: RequestConditionedAnchors;
 }): string {
   const formatExemplarLine = formatExemplar(params.requestAnchors.formatExemplar);
+  const evidencePackLine = formatEvidencePack(params.requestAnchors.evidencePack);
   const blueprintProfile = buildFormatBlueprintProfile({
     post: params.requestAnchors.formatExemplar,
     outputShape: params.contract.planner.outputShape,
@@ -1981,6 +2288,10 @@ function buildLongFormExpansionSystemPrompt(params: {
     params.selectedAngle
       ? `The selected angle must remain the central premise: ${params.selectedAngle}`
       : "No explicit selected angle was provided.",
+    `Concrete evidence pack to preserve and reuse:\n${evidencePackLine}`,
+    params.requestAnchors.evidencePack.requiredEvidenceCount > 0
+      ? `Carry forward at least ${params.requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from that pack.`
+      : "No minimum evidence reuse requirement is available.",
     `Required output shape: ${params.contract.planner.outputShape}.`,
     `Output shape rationale: ${params.contract.planner.outputShapeRationale}`,
     `Target casing: ${params.contract.writer.targetCasing}.`,
@@ -2077,6 +2388,7 @@ export async function generateCreatorChatReply(params: {
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
       `Blocked reasons: ${contract.planner.blockedReasons.join(" | ") || "none"}`,
@@ -2155,6 +2467,7 @@ export async function generateCreatorChatReply(params: {
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       `Recent chat history:\n${historyText}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
@@ -2270,6 +2583,7 @@ export async function generateCreatorChatReply(params: {
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+      `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       `Voice profile:\n${formatVoiceProfile(context)}`,
       `Live request voice hints:\n${inferUserMessageVoiceHints(params.userMessage)}`,
       formatAnchorExamples(
@@ -2357,6 +2671,7 @@ export async function generateCreatorChatReply(params: {
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
+          evidencePack: requestAnchors.evidencePack,
         })
       : [];
   let finalDrafts =
@@ -2369,6 +2684,7 @@ export async function generateCreatorChatReply(params: {
           concreteSubject,
           userMessage: params.userMessage,
           blueprintProfile: formatBlueprintProfile,
+          evidencePack: requestAnchors.evidencePack,
         });
   const finalWatchOutFor = sanitizeStringList(
     critic.finalWatchOutFor,
@@ -2426,6 +2742,7 @@ export async function generateCreatorChatReply(params: {
           concreteSubject,
           userMessage: params.userMessage,
           blueprintProfile: formatBlueprintProfile,
+          evidencePack: requestAnchors.evidencePack,
         });
       }
     } catch {
@@ -2466,6 +2783,7 @@ export async function generateCreatorChatReply(params: {
     watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
     debug: {
       formatExemplar: buildFormatExemplarDebug(requestAnchors.formatExemplar),
+      evidencePack: requestAnchors.evidencePack,
       formatBlueprint: buildFormatBlueprint({
         post: requestAnchors.formatExemplar,
         outputShape: contract.planner.outputShape,
