@@ -240,6 +240,41 @@ The product should be able to hand the writer real post references that show:
 
 These examples should be selected deterministically first, not manually curated.
 
+### 9. Reply Layer
+
+Replies should be modeled as a separate lane, not mixed into the main original-post lane.
+
+The reply layer should capture:
+
+- reply count
+- reply share of captured activity
+- dominant reply tone
+- dominant reply style
+- reply style mix
+- reply usage note
+
+This exists for a different product purpose than the main post model.
+
+The original-post lane should drive:
+
+- standalone voice
+- content pillars
+- top-level drafting
+
+The reply lane should drive:
+
+- conversational tone
+- reply-first growth tactics
+- future extension behavior for choosing what to reply to and how
+
+This is especially important for:
+
+- 0-1k users
+- users using replies as a distribution wedge
+- future "reply guy" workflows in the extension
+
+The system should analyze replies, but it should not let reply-heavy behavior distort the main standalone-post strategy model.
+
 ## Input Sources
 
 The creator profile should be built from two categories of inputs.
@@ -250,6 +285,7 @@ These come from the scrape and structured analysis:
 
 - normalized profile
 - recent posts
+- recent replies
 - engagement metrics
 - per-post feature extraction
   - links
