@@ -7,6 +7,8 @@ interface ParsedScrapeTimeline {
   posts: XPublicPost[];
 }
 
+const MAX_PARSED_SCRAPE_POSTS = 250;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -294,7 +296,7 @@ function extractPostFromTweetNode(
 function sortAndLimitPosts(postsById: Map<string, XPublicPost>): XPublicPost[] {
   return Array.from(postsById.values())
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 100);
+    .slice(0, MAX_PARSED_SCRAPE_POSTS);
 }
 
 export function parseUserTweetsGraphqlPayload(params: {

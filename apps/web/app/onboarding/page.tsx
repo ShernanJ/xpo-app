@@ -893,12 +893,13 @@ export default function OnboardingPage() {
                   </h2>
                 </div>
 
-                <div className="space-y-3">
+                <div className="rounded-[1.4rem] border border-white/10 bg-black/20">
                   {result.data.recentPosts.length ? (
-                    result.data.recentPosts.slice(0, 3).map((post) => (
+                    <div className="max-h-[40rem] overflow-y-auto">
+                      {result.data.recentPosts.slice(0, 20).map((post, index) => (
                       <article
                         key={post.id}
-                        className="rounded-[1.4rem] border border-white/10 bg-black/30 p-4"
+                        className={`p-4 ${index > 0 ? "border-t border-white/10" : ""}`}
                       >
                         <div className="flex gap-3">
                           <ProfileAvatar
@@ -957,9 +958,10 @@ export default function OnboardingPage() {
                           </div>
                         </div>
                       </article>
-                    ))
+                      ))}
+                    </div>
                   ) : (
-                    <div className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
+                    <div className="p-4 text-sm text-zinc-400">
                       No recent posts were returned for this snapshot.
                     </div>
                   )}

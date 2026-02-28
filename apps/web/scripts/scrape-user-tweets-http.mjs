@@ -41,6 +41,8 @@ const DEFAULT_FIELD_TOGGLES = {
 const DEFAULT_MAX_REQUESTS_PER_HOUR = 45;
 const DEFAULT_MIN_INTERVAL_MS = 5000;
 const DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
+const DEFAULT_INTER_REQUEST_DELAY_MS = 1500;
+const DEFAULT_INTER_REQUEST_JITTER_MS = 750;
 const GLOBAL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const USER_ID_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -75,6 +77,8 @@ function printUsage() {
       "  --max-requests-hour <n>   Max scrape requests per hour (default: 45).",
       "  --min-interval-ms <n>     Minimum spacing between runs (default: 5000).",
       "  --cooldown-ms <n>         Cooldown after 429/403 (default: 1800000).",
+      "  --request-delay-ms <n>    Base delay between in-run requests (default: 1500).",
+      "  --request-jitter-ms <n>   Random extra delay added to in-run requests (default: 750).",
       "  --output <path>           Raw payload output path.",
       "  --import                  POST payload to onboarding scrape import endpoint.",
       "  --endpoint <url>          Import endpoint (default: http://localhost:3000/api/onboarding/scrape/import).",
@@ -93,6 +97,8 @@ function printUsage() {
       "  X_WEB_MAX_REQUESTS_PER_HOUR=<number>",
       "  X_WEB_MIN_INTERVAL_MS=<number>",
       "  X_WEB_COOLDOWN_MS=<number>",
+      "  X_WEB_REQUEST_DELAY_MS=<number>",
+      "  X_WEB_REQUEST_JITTER_MS=<number>",
       "",
       "Examples:",
       "  node scripts/scrape-user-tweets-http.mjs --account shernanjavier --import",
@@ -168,6 +174,8 @@ function parseArgs(argv) {
     maxRequestsPerHour: DEFAULT_MAX_REQUESTS_PER_HOUR,
     minIntervalMs: DEFAULT_MIN_INTERVAL_MS,
     cooldownMs: DEFAULT_COOLDOWN_MS,
+    requestDelayMs: DEFAULT_INTER_REQUEST_DELAY_MS,
+    requestJitterMs: DEFAULT_INTER_REQUEST_JITTER_MS,
     output: null,
     shouldImport: false,
     endpoint: "http://localhost:3000/api/onboarding/scrape/import",
@@ -307,6 +315,24 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === "--request-delay-ms") {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms < 0) {
+        throw new Error("--request-delay-ms must be a number >= 0.");
+      }
+      parsed.requestDelayMs = Math.floor(ms);
+      continue;
+    }
+
+    if (token === "--request-jitter-ms") {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms < 0) {
+        throw new Error("--request-jitter-ms must be a number >= 0.");
+      }
+      parsed.requestJitterMs = Math.floor(ms);
+      continue;
+    }
+
     if (token === "--endpoint") {
       parsed.endpoint = value;
       continue;
@@ -371,6 +397,15 @@ function buildDefaultOutputPath(account) {
 
 function shouldCooldownSession(error) {
   return error instanceof HttpStatusError && (error.status === 403 || error.status === 429);
+}
+
+function getJitteredDelayMs(baseMs, jitterMs) {
+  if (baseMs <= 0 && jitterMs <= 0) {
+    return 0;
+  }
+
+  const randomExtra = jitterMs > 0 ? Math.floor(Math.random() * (jitterMs + 1)) : 0;
+  return Math.max(0, baseMs + randomExtra);
 }
 
 function buildRequestHeaders(params) {
@@ -955,6 +990,17 @@ async function fetchPaginatedUserTweetsPayload(params) {
       break;
     }
 
+    const interRequestDelayMs = getJitteredDelayMs(
+      params.requestDelayMs,
+      params.requestJitterMs,
+    );
+    if (interRequestDelayMs > 0) {
+      console.log(
+        `[rate-limit] Sleeping ${interRequestDelayMs}ms before page ${page} request.`,
+      );
+      await sleep(interRequestDelayMs);
+    }
+
     console.log(`[http] Fetching page ${page} with cursor.`);
     const nextPayload = await fetchUserTweetsPayload({
       userId: params.userId,
@@ -976,7 +1022,6 @@ async function fetchPaginatedUserTweetsPayload(params) {
 
     seenCursors.add(nextCursor);
     cursor = nextCursor;
-    await sleep(350);
   }
 
   return mergedPayload;
@@ -1047,6 +1092,8 @@ async function main() {
   const envMinInterval = Number(process.env.X_WEB_MIN_INTERVAL_MS ?? NaN);
   const envCooldown = Number(process.env.X_WEB_COOLDOWN_MS ?? NaN);
   const envPages = Number(process.env.X_WEB_PAGES ?? NaN);
+  const envRequestDelay = Number(process.env.X_WEB_REQUEST_DELAY_MS ?? NaN);
+  const envRequestJitter = Number(process.env.X_WEB_REQUEST_JITTER_MS ?? NaN);
   const maxRequestsPerHour =
     Number.isFinite(envMaxRequests) && envMaxRequests > 0
       ? Math.floor(envMaxRequests)
@@ -1063,6 +1110,14 @@ async function main() {
     Number.isFinite(envPages) && envPages >= 1
       ? Math.min(5, Math.floor(envPages))
       : options.pages;
+  const requestDelayMs =
+    Number.isFinite(envRequestDelay) && envRequestDelay >= 0
+      ? Math.floor(envRequestDelay)
+      : options.requestDelayMs;
+  const requestJitterMs =
+    Number.isFinite(envRequestJitter) && envRequestJitter >= 0
+      ? Math.floor(envRequestJitter)
+      : options.requestJitterMs;
 
   const sessionFilePath = options.sessionFile ?? process.env.X_WEB_SESSION_FILE ?? null;
   const broker = await createSessionBroker({
@@ -1166,6 +1221,8 @@ async function main() {
       userId,
       count: options.count,
       pages,
+      requestDelayMs,
+      requestJitterMs,
       queryId: resolvedQueryId,
       headers,
     });

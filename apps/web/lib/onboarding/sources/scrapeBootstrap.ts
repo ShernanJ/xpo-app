@@ -31,12 +31,44 @@ export async function bootstrapScrapeCapture(account: string) {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-"));
   const outputPath = path.join(tmpDir, `${account}-payload.json`);
   const scriptPath = await resolveScrapeScriptPath();
+  const pages = Math.max(
+    1,
+    Math.min(
+      8,
+      Number.isFinite(Number(process.env.ONBOARDING_SCRAPE_PAGES))
+        ? Math.floor(Number(process.env.ONBOARDING_SCRAPE_PAGES))
+        : 5,
+    ),
+  );
+  const count = Math.max(
+    20,
+    Math.min(
+      100,
+      Number.isFinite(Number(process.env.ONBOARDING_SCRAPE_COUNT))
+        ? Math.floor(Number(process.env.ONBOARDING_SCRAPE_COUNT))
+        : 40,
+    ),
+  );
 
   try {
-    await execFileAsync(process.execPath, [scriptPath, "--account", account, "--output", outputPath], {
-      cwd: process.cwd(),
-      maxBuffer: 1024 * 1024 * 4,
-    });
+    await execFileAsync(
+      process.execPath,
+      [
+        scriptPath,
+        "--account",
+        account,
+        "--count",
+        String(count),
+        "--pages",
+        String(pages),
+        "--output",
+        outputPath,
+      ],
+      {
+        cwd: process.cwd(),
+        maxBuffer: 1024 * 1024 * 8,
+      },
+    );
 
     const payload = JSON.parse(await readFile(outputPath, "utf8"));
     return await importUserTweetsPayload({
