@@ -156,6 +156,14 @@ export type TopicSpecificity = "broad" | "niche" | "local_scene";
 
 export type AudienceBreadth = "broad" | "mixed" | "narrow";
 
+export type TransformationMode =
+  | "preserve"
+  | "optimize"
+  | "pivot_soft"
+  | "pivot_hard";
+
+export type TransformationModeSource = "default" | "user_selected";
+
 export interface TopicSignal {
   label: string;
   count: number;
@@ -207,9 +215,26 @@ export interface CreatorPerformanceProfile {
   recommendedPostsPerWeek: number;
 }
 
+export interface CreatorCurrentStateProfile {
+  followerBand: GrowthStage;
+  primaryArchetype: CreatorArchetype;
+  secondaryArchetype: CreatorArchetype | null;
+  audienceBreadth: AudienceBreadth;
+}
+
+export interface CreatorTargetStateProfile {
+  targetPrimaryArchetype: CreatorArchetype;
+  targetAudienceBreadth: AudienceBreadth | "same";
+  planningNote: string;
+}
+
 export interface CreatorStrategyProfile {
   primaryGoal: UserGoal;
   archetype: CreatorArchetype;
+  transformationMode: TransformationMode;
+  transformationModeSource: TransformationModeSource;
+  currentState: CreatorCurrentStateProfile;
+  targetState: CreatorTargetStateProfile;
   currentStrengths: string[];
   currentWeaknesses: string[];
   recommendedAngles: string[];

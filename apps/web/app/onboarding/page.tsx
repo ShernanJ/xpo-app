@@ -878,6 +878,24 @@ export default function OnboardingPage() {
                             </p>
                           </div>
                         </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Strategy Path
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {formatEnumLabel(creatorProfile.strategy.transformationMode)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Mode Source
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {formatEnumLabel(creatorProfile.strategy.transformationModeSource)}
+                            </p>
+                          </div>
+                        </div>
                         <ul className="mt-4 space-y-1.5 text-sm text-zinc-700">
                           {creatorProfile.voice.styleNotes.map((note) => (
                             <li key={note}>- {note}</li>
@@ -949,6 +967,9 @@ export default function OnboardingPage() {
                       <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Recommended Angles
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-zinc-700">
+                          {creatorProfile.strategy.targetState.planningNote}
                         </p>
                         <ul className="mt-3 space-y-2 text-sm text-zinc-700">
                           {creatorProfile.strategy.recommendedAngles.map((angle) => (

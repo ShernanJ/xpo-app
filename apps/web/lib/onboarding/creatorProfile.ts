@@ -16,6 +16,7 @@ import type {
   TopicSignal,
   TopicSpecificity,
   ToneCasing,
+  TransformationMode,
   UserGoal,
   XPublicPost,
 } from "./types";
@@ -587,6 +588,51 @@ function buildRecommendedAngles(goal: UserGoal, archetype: CreatorArchetype): st
   return angles.slice(0, 4);
 }
 
+function buildDefaultTransformationMode(): {
+  mode: TransformationMode;
+  source: "default";
+} {
+  return {
+    mode: "optimize",
+    source: "default",
+  };
+}
+
+function buildTargetState(params: {
+  goal: UserGoal;
+  archetype: CreatorArchetype;
+  audienceBreadth: AudienceBreadth;
+}): {
+  targetPrimaryArchetype: CreatorArchetype;
+  targetAudienceBreadth: AudienceBreadth | "same";
+  planningNote: string;
+} {
+  const baseNote =
+    "The current default path assumes optimizing what already works until the user explicitly chooses preserve or pivot.";
+
+  if (params.goal === "followers" && params.audienceBreadth === "narrow") {
+    return {
+      targetPrimaryArchetype: params.archetype,
+      targetAudienceBreadth: "same",
+      planningNote: `${baseNote} If the user wants broader discovery, the next strategy pass should test a softer expansion beyond the current narrow audience lane.`,
+    };
+  }
+
+  if (params.goal === "authority") {
+    return {
+      targetPrimaryArchetype: params.archetype,
+      targetAudienceBreadth: "same",
+      planningNote: `${baseNote} If the user wants a stronger repositioning, we should explicitly choose whether to preserve the current lane or pivot toward a new authority narrative.`,
+    };
+  }
+
+  return {
+    targetPrimaryArchetype: params.archetype,
+    targetAudienceBreadth: "same",
+    planningNote: baseNote,
+  };
+}
+
 function buildStrategyRationale(goal: UserGoal, archetype: CreatorArchetype): string {
   if (goal === "followers") {
     return `Optimize for discovery first. ${archetype} accounts grow faster when they package repeatable patterns into clearer hooks.`;
@@ -616,6 +662,12 @@ export function buildCreatorProfile(params: {
   const archetypeProfile = inferArchetypeProfile(posts, dominantTopics);
   const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
+  const transformation = buildDefaultTransformationMode();
+  const targetState = buildTargetState({
+    goal: params.onboarding.strategyState.goal,
+    archetype,
+    audienceBreadth,
+  });
   const primaryCasing = inferPrimaryCasing(posts);
   const lowercaseSharePercent = computeLowercaseSharePercent(posts);
   const averageLengthBand = inferAverageLengthBand(posts);
@@ -703,6 +755,15 @@ export function buildCreatorProfile(params: {
     strategy: {
       primaryGoal: params.onboarding.strategyState.goal,
       archetype,
+      transformationMode: transformation.mode,
+      transformationModeSource: transformation.source,
+      currentState: {
+        followerBand: params.onboarding.growthStage,
+        primaryArchetype: archetype,
+        secondaryArchetype: archetypeProfile.secondary,
+        audienceBreadth,
+      },
+      targetState,
       currentStrengths: performanceModel.strengths,
       currentWeaknesses: performanceModel.weaknesses,
       recommendedAngles: buildRecommendedAngles(
