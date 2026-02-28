@@ -4,7 +4,11 @@ import {
   type CreatorGenerationContract,
   type CreatorGenerationOutputShape,
 } from "./generationContract";
-import type { OnboardingResult, TonePreference } from "./types";
+import type {
+  CreatorRepresentativePost,
+  OnboardingResult,
+  TonePreference,
+} from "./types";
 
 interface ChatHistoryMessage {
   role: "assistant" | "user";
@@ -113,10 +117,20 @@ export type CreatorChatProgressPhase =
   | "critic"
   | "finalizing";
 
+export interface CreatorDraftArtifact {
+  id: string;
+  title: string;
+  kind: CreatorGenerationOutputShape;
+  content: string;
+  characterCount: number;
+  supportAsset: string | null;
+}
+
 export interface CreatorChatReplyResult {
   reply: string;
   angles: string[];
   drafts: string[];
+  draftArtifacts: CreatorDraftArtifact[];
   supportAsset: string | null;
   outputShape: CreatorGenerationOutputShape | "ideation_angles";
   whyThisWorks: string[];
@@ -169,6 +183,7 @@ function buildDeterministicFallback(params: {
       reply: `The model is still in analysis mode. ${context.readiness.reasons[0] ?? "The current sample is not strong enough for reliable drafting yet."}`,
       angles: [],
       drafts: [],
+      draftArtifacts: [],
       supportAsset: null,
       outputShape: contract.planner.outputShape,
       whyThisWorks: [],
@@ -189,6 +204,7 @@ function buildDeterministicFallback(params: {
         `one concrete lesson from ${focus} + "thoughts?"`,
       ].map((angle) => loosenDraftText(angle, contract)),
       drafts: [],
+      draftArtifacts: [],
       supportAsset:
         "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
       outputShape: "ideation_angles",
@@ -221,6 +237,17 @@ function buildDeterministicFallback(params: {
         params.selectedAngle?.trim() || params.userMessage
       }`,
     ].map((draft) => loosenDraftText(draft, contract)),
+    draftArtifacts: buildDraftArtifacts({
+      drafts: [
+        params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+        `${topType} version: ${
+          params.selectedAngle?.trim() || params.userMessage
+        }`,
+      ].map((draft) => loosenDraftText(draft, contract)),
+      outputShape: contract.planner.outputShape,
+      supportAsset:
+        "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+    }),
     supportAsset:
       "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
     outputShape: contract.planner.outputShape,
@@ -233,6 +260,46 @@ function buildDeterministicFallback(params: {
       plannerSafeConstraint(contract.planner.blockedReasons[0]),
     ].filter(Boolean),
   };
+}
+
+function buildDraftArtifacts(params: {
+  drafts: string[];
+  outputShape: CreatorGenerationOutputShape | "ideation_angles";
+  supportAsset: string | null;
+}): CreatorDraftArtifact[] {
+  const artifactKind = params.outputShape;
+
+  if (artifactKind === "ideation_angles") {
+    return [];
+  }
+
+  return params.drafts.map((draft, index) => ({
+    id: `${artifactKind}-${index + 1}`,
+    title: buildDraftArtifactTitle(artifactKind, index),
+    kind: artifactKind,
+    content: draft,
+    characterCount: draft.length,
+    supportAsset: params.supportAsset,
+  }));
+}
+
+function buildDraftArtifactTitle(
+  outputShape: CreatorGenerationOutputShape,
+  index: number,
+): string {
+  switch (outputShape) {
+    case "thread_seed":
+      return `Thread Seed ${index + 1}`;
+    case "long_form_post":
+      return `Long Form ${index + 1}`;
+    case "reply_candidate":
+      return `Reply ${index + 1}`;
+    case "quote_candidate":
+      return `Quote ${index + 1}`;
+    case "short_form_post":
+    default:
+      return `Draft ${index + 1}`;
+  }
 }
 
 function plannerSafeConstraint(value: string | undefined): string {
@@ -533,6 +600,55 @@ function formatAnchorExamples(
   ].join("\n");
 }
 
+function pickFormatExemplar(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+}): CreatorRepresentativePost | null {
+  const preferredLane = params.contract.planner.targetLane;
+  const anchors =
+    params.context.positiveAnchors.filter((post) => post.lane === preferredLane)
+      .length > 0
+      ? params.context.positiveAnchors.filter((post) => post.lane === preferredLane)
+      : params.context.positiveAnchors;
+
+  if (anchors.length === 0) {
+    return null;
+  }
+
+  const scored = [...anchors].sort((left, right) => {
+    const leftWordCount = left.text.split(/\s+/).filter(Boolean).length;
+    const rightWordCount = right.text.split(/\s+/).filter(Boolean).length;
+    const leftHasStructure = /\n|^- /m.test(left.text) ? 1 : 0;
+    const rightHasStructure = /\n|^- /m.test(right.text) ? 1 : 0;
+
+    if (
+      params.contract.planner.outputShape === "long_form_post" ||
+      params.contract.planner.outputShape === "thread_seed"
+    ) {
+      return (
+        rightHasStructure - leftHasStructure ||
+        rightWordCount - leftWordCount ||
+        right.goalFitScore - left.goalFitScore
+      );
+    }
+
+    return (
+      leftWordCount - rightWordCount ||
+      right.goalFitScore - left.goalFitScore
+    );
+  });
+
+  return scored[0] ?? null;
+}
+
+function formatExemplar(post: CreatorRepresentativePost | null): string {
+  if (!post) {
+    return "No strong format exemplar available.";
+  }
+
+  return `${post.id} (${post.selectionReason}) -> ${post.text}`;
+}
+
 function extractConcreteSubject(userMessage: string): string | null {
   const trimmed = userMessage.trim();
   const patterns = [
@@ -642,11 +758,12 @@ function buildOutputShapeGuidance(
     case "thread_seed":
       return [
         "Return stronger thesis-led drafts that can expand into a thread.",
-        "Multi-line structure is allowed when it helps clarity and matches the creator.",
+        "At least one draft should use multi-line structure or bullet beats instead of a one-line question.",
       ];
     case "long_form_post":
       return [
         "Return longer-form drafts with a clear thesis, proof, and stronger point of view.",
+        "At least one draft should be structured as an intro plus bullets or distinct paragraphs, not a single shallow question.",
         "Do not force a shallow question ending when a confident close is stronger.",
       ];
     case "short_form_post":
@@ -671,6 +788,12 @@ function buildWriterSystemPrompt(params: {
   const outputShapeGuidance = buildOutputShapeGuidance(
     contract.planner.outputShape,
     intent,
+  );
+  const formatExemplarLine = formatExemplar(
+    pickFormatExemplar({
+      context,
+      contract,
+    }),
   );
 
   return [
@@ -720,6 +843,7 @@ function buildWriterSystemPrompt(params: {
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
+    `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
     "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
     "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
@@ -740,6 +864,12 @@ function buildCriticSystemPrompt(params: {
     contract.planner.outputShape,
     intent,
   );
+  const formatExemplarLine = formatExemplar(
+    pickFormatExemplar({
+      context,
+      contract,
+    }),
+  );
 
   return [
     "You are the critic for an X growth assistant.",
@@ -753,6 +883,7 @@ function buildCriticSystemPrompt(params: {
     "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
+    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
     `Target casing: ${contract.writer.targetCasing}.`,
     `Target risk: ${contract.writer.targetRisk}.`,
@@ -926,6 +1057,106 @@ function looksLikeGenericQuestion(text: string): boolean {
   );
 }
 
+function hasStructuredLongFormShape(text: string): boolean {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  return /\n/.test(text) || /^- /m.test(text) || wordCount >= 45;
+}
+
+function scoreAngleCandidate(params: {
+  angle: string;
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+}): number {
+  const angle = params.angle.trim();
+  if (!angle) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const lowered = angle.toLowerCase();
+  const words = lowered.match(/[a-z0-9']+/g) ?? [];
+  const focusTerms = Array.from(
+    new Set([
+      ...collectSignalTerms(params.selectedAngle),
+      ...collectSignalTerms(params.concreteSubject),
+      ...collectSignalTerms(params.userMessage).slice(0, 4),
+    ]),
+  );
+  const matchingTerms = focusTerms.filter((term) =>
+    new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+      angle,
+    ),
+  );
+  let score = 0;
+
+  if (
+    params.contract.planner.outputShape === "long_form_post" ||
+    params.contract.planner.outputShape === "thread_seed"
+  ) {
+    if (/\?$/.test(angle) || /^(what|how|why|when|where|who)\b/i.test(angle)) {
+      score -= 6;
+    }
+
+    if (/^(here'?s|the|when|why|most|founders|building|scaling)\b/i.test(angle)) {
+      score += 1.5;
+    }
+
+    if (hasProofSignal(angle) || /\b(arr|users|team|engineers|profit|scale)\b/i.test(angle)) {
+      score += 2;
+    }
+  } else if (looksLikeGenericQuestion(angle)) {
+    score -= 3;
+  }
+
+  if (/^(sharing|discussing|highlighting|talking)\b/i.test(angle)) {
+    score -= 4;
+  }
+
+  if (focusTerms.length > 0) {
+    score += Math.min(matchingTerms.length, 3) * 1.5;
+  }
+
+  score += words.length >= 6 ? 1 : -1;
+  score -= countPhraseMatches(angle, GENERIC_DRAFT_PHRASES) * 2;
+
+  return score;
+}
+
+function rerankAngles(params: {
+  angles: string[];
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+}): string[] {
+  const seen = new Set<string>();
+
+  return params.angles
+    .map((angle) => loosenDraftText(angle, params.contract))
+    .filter((angle) => {
+      const normalized = angle.trim().toLowerCase();
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    })
+    .map((angle) => ({
+      angle,
+      score: scoreAngleCandidate({
+        angle,
+        contract: params.contract,
+        selectedAngle: params.selectedAngle,
+        concreteSubject: params.concreteSubject,
+        userMessage: params.userMessage,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 4)
+    .map((candidate) => candidate.angle);
+}
+
 function countPhraseMatches(text: string, phrases: string[]): number {
   const lowered = text.toLowerCase();
   return phrases.filter((phrase) => lowered.includes(phrase)).length;
@@ -985,9 +1216,15 @@ function scoreDraftCandidate(params: {
   if (params.contract.planner.outputShape === "short_form_post") {
     score += words.length <= 24 ? 2 : words.length <= 36 ? 0.5 : -2;
   } else if (params.contract.planner.outputShape === "long_form_post") {
-    score += words.length >= 26 ? 2 : -1;
+    score += hasStructuredLongFormShape(draft) ? 5 : words.length >= 32 ? 1 : -7;
+    if (/\?$/.test(draft)) {
+      score -= 5;
+    }
   } else if (params.contract.planner.outputShape === "thread_seed") {
-    score += words.length >= 18 ? 1 : -1;
+    score += hasStructuredLongFormShape(draft) ? 4 : words.length >= 22 ? 1 : -4;
+    if (/\?$/.test(draft)) {
+      score -= 3;
+    }
   }
 
   if (looksLikeGenericQuestion(draft)) {
@@ -1331,9 +1568,13 @@ export async function generateCreatorChatReply(params: {
   const intent = params.intent ?? "draft";
   const finalAngles =
     intent === "ideate"
-      ? sanitizeStringList(critic.finalAngles, 4, writer.angles).map((angle) =>
-          loosenDraftText(angle, contract),
-        )
+      ? rerankAngles({
+          angles: sanitizeStringList(critic.finalAngles, 4, writer.angles),
+          contract,
+          selectedAngle: params.selectedAngle?.trim() || null,
+          concreteSubject,
+          userMessage: params.userMessage,
+        })
       : [];
   const finalDrafts =
     intent === "ideate"
@@ -1366,6 +1607,12 @@ export async function generateCreatorChatReply(params: {
     reply: critic.finalResponse.trim() || writer.response.trim(),
     angles: finalAngles,
     drafts: finalDrafts,
+    draftArtifacts: buildDraftArtifacts({
+      drafts: finalDrafts,
+      outputShape:
+        intent === "ideate" ? "ideation_angles" : contract.planner.outputShape,
+      supportAsset: (critic.finalSupportAsset || writer.supportAsset).trim() || null,
+    }),
     supportAsset:
       (critic.finalSupportAsset || writer.supportAsset).trim() || null,
     outputShape:

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 
 import { generateCreatorChatReply } from "@/lib/onboarding/chatAgent";
 import {
+  applyCreatorToneOverrides,
   applyCreatorStrategyOverrides,
+  extractCreatorToneOverrides,
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategyOverrides";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
@@ -115,6 +117,10 @@ export async function POST(request: Request) {
     onboarding: storedRun.result,
     overrides: extractCreatorStrategyOverrides(body),
   });
+  const tonePreference = applyCreatorToneOverrides({
+    baseTone: storedRun.input.tone,
+    overrides: extractCreatorToneOverrides(body),
+  });
 
   const rawHistory = Array.isArray(body.history) ? body.history : [];
   const history = rawHistory
@@ -152,7 +158,7 @@ export async function POST(request: Request) {
             const result = await generateCreatorChatReply({
               runId,
               onboarding,
-              tonePreference: storedRun.input.tone,
+              tonePreference,
               userMessage: message,
               history,
               provider,
@@ -202,7 +208,7 @@ export async function POST(request: Request) {
     const result = await generateCreatorChatReply({
       runId,
       onboarding,
-      tonePreference: storedRun.input.tone,
+      tonePreference,
       userMessage: message,
       history,
       provider,

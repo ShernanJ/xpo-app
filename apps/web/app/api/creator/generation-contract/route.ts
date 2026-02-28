@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 
 import { buildCreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import {
+  applyCreatorToneOverrides,
   applyCreatorStrategyOverrides,
+  extractCreatorToneOverrides,
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategyOverrides";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
@@ -52,6 +54,10 @@ export async function POST(request: Request) {
     onboarding: storedRun.result,
     overrides: extractCreatorStrategyOverrides(body),
   });
+  const tonePreference = applyCreatorToneOverrides({
+    baseTone: storedRun.input.tone,
+    overrides: extractCreatorToneOverrides(body),
+  });
 
   return NextResponse.json(
     {
@@ -59,7 +65,7 @@ export async function POST(request: Request) {
       data: buildCreatorGenerationContract({
         runId,
         onboarding,
-        tonePreference: storedRun.input.tone,
+        tonePreference,
       }),
     },
     { status: 200 },

@@ -9,6 +9,8 @@ import type { CreatorGenerationContract } from "@/lib/onboarding/generationContr
 import type {
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
+  ToneCasing,
+  ToneRisk,
   TransformationMode,
   UserGoal,
 } from "@/lib/onboarding/types";
@@ -59,6 +61,7 @@ interface CreatorChatSuccess {
     reply: string;
     angles: string[];
     drafts: string[];
+    draftArtifacts: DraftArtifact[];
     supportAsset: string | null;
     outputShape:
       | "ideation_angles"
@@ -103,17 +106,33 @@ type CreatorChatStreamEvent =
   | CreatorChatStreamResultEvent
   | CreatorChatStreamErrorEvent;
 
+interface DraftArtifact {
+  id: string;
+  title: string;
+  kind:
+    | "short_form_post"
+    | "long_form_post"
+    | "thread_seed"
+    | "reply_candidate"
+    | "quote_candidate";
+  content: string;
+  characterCount: number;
+  supportAsset: string | null;
+}
+
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
   angles?: string[];
   drafts?: string[];
+  draftArtifacts?: DraftArtifact[];
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
+  outputShape?: CreatorChatSuccess["data"]["outputShape"];
 }
 
 type ChatProviderPreference = "openai" | "groq";
@@ -132,6 +151,11 @@ interface ChatStrategyInputs {
   transformationMode: TransformationMode;
 }
 
+interface ChatToneInputs {
+  toneCasing: ToneCasing;
+  toneRisk: ToneRisk;
+}
+
 interface WorkspaceLoadResult {
   ok: boolean;
   contextData?: CreatorAgentContext;
@@ -143,7 +167,9 @@ type StrategyPromptStep =
   | "transformationMode"
   | "postingCadenceCapacity"
   | "replyBudgetPerDay"
-  | "contentFocus";
+  | "contentFocus"
+  | "toneCasing"
+  | "toneRisk";
 
 interface StrategyPromptOption {
   value: string;
@@ -168,6 +194,10 @@ const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
   replyBudgetPerDay: "5_15",
   transformationMode: "optimize",
 };
+const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
+  toneCasing: "normal",
+  toneRisk: "safe",
+};
 const goalOptions: UserGoal[] = ["followers", "leads", "authority"];
 const transformationModeOptions: TransformationMode[] = [
   "preserve",
@@ -188,12 +218,16 @@ const contentFocusOptions: ChatContentFocus[] = [
   "operator_lessons",
   "social_observation",
 ];
+const toneCasingOptions: ToneCasing[] = ["lowercase", "normal"];
+const toneRiskOptions: ToneRisk[] = ["safe", "bold"];
 const strategyPromptSteps: StrategyPromptStep[] = [
   "goal",
   "transformationMode",
   "postingCadenceCapacity",
   "replyBudgetPerDay",
   "contentFocus",
+  "toneCasing",
+  "toneRisk",
 ];
 
 function formatEnumLabel(value: string): string {
@@ -246,10 +280,19 @@ function formatContentFocusLabel(value: ChatContentFocus): string {
   }
 }
 
+function formatToneCasingLabel(value: ToneCasing): string {
+  return value === "lowercase" ? "Lowercase / Casual" : "Normal / Standard";
+}
+
+function formatToneRiskLabel(value: ToneRisk): string {
+  return value === "bold" ? "Bold / Punchier" : "Safe / Steady";
+}
+
 function buildStrategyPromptState(
   step: StrategyPromptStep | null,
   inputs: ChatStrategyInputs,
   contentFocus: ChatContentFocus,
+  toneInputs: ChatToneInputs,
 ): StrategyPromptState | null {
   if (!step) {
     return null;
@@ -318,6 +361,30 @@ function buildStrategyPromptState(
           label: formatContentFocusLabel(option),
         })),
         currentValue: contentFocus,
+      };
+    case "toneCasing":
+      return {
+        ...base,
+        label: "How should the post read on the timeline?",
+        helper:
+          "Choose the default casing and looseness. This should reflect how you naturally type, not how polished you think it should look.",
+        options: toneCasingOptions.map((option) => ({
+          value: option,
+          label: formatToneCasingLabel(option),
+        })),
+        currentValue: toneInputs.toneCasing,
+      };
+    case "toneRisk":
+      return {
+        ...base,
+        label: "How aggressive should the tone be?",
+        helper:
+          "Safe stays more measured. Bold pushes harder on bluntness, stronger claims, and sharper phrasing.",
+        options: toneRiskOptions.map((option) => ({
+          value: option,
+          label: formatToneRiskLabel(option),
+        })),
+        currentValue: toneInputs.toneRisk,
       };
   }
 }
@@ -397,6 +464,7 @@ function buildDeterministicReply(
         "Context readiness is still too weak for drafting. Stay in analysis mode, wait for the backfill to finish, and keep strengthening your standalone post sample.",
       angles: [],
       drafts: [],
+      draftArtifacts: [],
       supportAsset: null,
       whyThisWorks: [],
       watchOutFor: [
@@ -404,6 +472,7 @@ function buildDeterministicReply(
       ],
       source: "deterministic",
       model: null,
+      outputShape: contract.planner.outputShape,
     };
   }
 
@@ -420,6 +489,7 @@ function buildDeterministicReply(
         `what building it changed about how you think about x growth`,
       ],
       drafts: [],
+      draftArtifacts: [],
       supportAsset:
         "Use a screenshot, quick demo clip, or a link only if it helps prove the point.",
       whyThisWorks: [
@@ -432,18 +502,26 @@ function buildDeterministicReply(
       ],
       source: "deterministic",
       model: null,
+      outputShape: "ideation_angles",
     };
   }
+
+  const drafts = [
+    options?.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+    `${topType} angle: ${
+      options?.selectedAngle?.trim() || contract.planner.primaryAngle
+    }`,
+  ];
 
   return {
     content: `Use the ${formatEnumLabel(contract.planner.targetLane)} lane. Lead with a ${topHook} opener, structure it as ${topType}, and keep it aligned to: ${contract.planner.primaryAngle}`,
     angles: [],
-    drafts: [
-      options?.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-      `${topType} angle: ${
-        options?.selectedAngle?.trim() || contract.planner.primaryAngle
-      }`,
-    ],
+    drafts,
+    draftArtifacts: buildClientDraftArtifacts(
+      drafts,
+      contract.planner.outputShape,
+      "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
+    ),
     supportAsset:
       "If the post is about a build, use a screenshot or quick demo clip instead of generic filler.",
     whyThisWorks: [
@@ -453,7 +531,42 @@ function buildDeterministicReply(
     watchOutFor: ["Avoid broad generic phrasing."],
     source: "deterministic",
     model: null,
+    outputShape: contract.planner.outputShape,
   };
+}
+
+function buildClientDraftArtifacts(
+  drafts: string[],
+  outputShape: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
+  supportAsset: string | null,
+): DraftArtifact[] {
+  return drafts.map((draft, index) => ({
+    id: `${outputShape}-${index + 1}`,
+    title: buildArtifactTitle(outputShape, index),
+    kind: outputShape,
+    content: draft,
+    characterCount: draft.length,
+    supportAsset,
+  }));
+}
+
+function buildArtifactTitle(
+  outputShape: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
+  index: number,
+): string {
+  switch (outputShape) {
+    case "thread_seed":
+      return `Thread Seed ${index + 1}`;
+    case "long_form_post":
+      return `Long Form ${index + 1}`;
+    case "reply_candidate":
+      return `Reply ${index + 1}`;
+    case "quote_candidate":
+      return `Quote ${index + 1}`;
+    case "short_form_post":
+    default:
+      return `Draft ${index + 1}`;
+  }
 }
 
 function AssistantTypingBubble(props: { status?: string | null }) {
@@ -502,19 +615,31 @@ export default function ChatPage() {
   const [strategyInputs, setStrategyInputs] = useState<ChatStrategyInputs>(
     DEFAULT_CHAT_STRATEGY_INPUTS,
   );
+  const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
+    DEFAULT_CHAT_TONE_INPUTS,
+  );
   const [contentFocus, setContentFocus] =
     useState<ChatContentFocus>("project_showcase");
   const [activeContentFocus, setActiveContentFocus] =
     useState<ChatContentFocus | null>(null);
   const [activeStrategyInputs, setActiveStrategyInputs] =
     useState<ChatStrategyInputs | null>(null);
+  const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
+    null,
+  );
   const [strategyPromptStep, setStrategyPromptStep] =
     useState<StrategyPromptStep | null>("goal");
   const [isApplyingStrategyInputs, setIsApplyingStrategyInputs] = useState(false);
+  const [activeDraftEditor, setActiveDraftEditor] = useState<{
+    messageId: string;
+    artifactIndex: number;
+  } | null>(null);
+  const [editorDraftText, setEditorDraftText] = useState("");
 
   const loadWorkspace = useCallback(
     async (
       overrides: ChatStrategyInputs | null = activeStrategyInputs,
+      toneOverrides: ChatToneInputs | null = activeToneInputs,
     ): Promise<WorkspaceLoadResult> => {
       if (!runId) {
         setErrorMessage("Missing runId. Start from the landing page.");
@@ -526,20 +651,26 @@ export default function ChatPage() {
       setErrorMessage(null);
 
       try {
+        const requestBody = {
+          runId,
+          ...(overrides ?? {}),
+          ...(toneOverrides ?? {}),
+        };
+
         const [contextResponse, contractResponse] = await Promise.all([
           fetch("/api/creator/context", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
+            body: JSON.stringify(requestBody),
           }),
           fetch("/api/creator/generation-contract", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(overrides ? { runId, ...overrides } : { runId }),
+            body: JSON.stringify(requestBody),
           }),
         ]);
 
@@ -581,7 +712,7 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, runId],
+    [activeStrategyInputs, activeToneInputs, runId],
   );
 
   useEffect(() => {
@@ -691,6 +822,36 @@ export default function ChatPage() {
     window.localStorage.setItem(chatProviderStorageKey, providerPreference);
   }, [providerPreference]);
 
+  useEffect(() => {
+    if (
+      !context ||
+      !contract ||
+      activeToneInputs ||
+      strategyPromptStep === null ||
+      messages.length > 1
+    ) {
+      return;
+    }
+
+    setToneInputs((current) => {
+      if (
+        current.toneCasing !== DEFAULT_CHAT_TONE_INPUTS.toneCasing ||
+        current.toneRisk !== DEFAULT_CHAT_TONE_INPUTS.toneRisk
+      ) {
+        return current;
+      }
+
+      return {
+        toneCasing:
+          context.creatorProfile.voice.primaryCasing === "lowercase" ||
+          context.creatorProfile.voice.lowercaseSharePercent >= 60
+            ? "lowercase"
+            : "normal",
+        toneRisk: contract.writer.targetRisk,
+      };
+    });
+  }, [activeToneInputs, context, contract, messages.length, strategyPromptStep]);
+
   const summaryChips = useMemo(() => {
     if (!context) {
       return [];
@@ -704,8 +865,15 @@ export default function ChatPage() {
       ...(activeContentFocus
         ? [`Focus: ${formatContentFocusLabel(activeContentFocus)}`]
         : []),
+      ...(activeToneInputs
+        ? [
+            `Tone: ${formatToneCasingLabel(
+              activeToneInputs.toneCasing,
+            )} / ${formatToneRiskLabel(activeToneInputs.toneRisk)}`,
+          ]
+        : []),
     ];
-  }, [activeContentFocus, context]);
+  }, [activeContentFocus, activeToneInputs, context]);
 
   const sidebarThreads = useMemo(() => {
     if (!context || !contract) {
@@ -746,9 +914,94 @@ export default function ChatPage() {
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
   const currentStrategyPrompt = useMemo(
-    () => buildStrategyPromptState(strategyPromptStep, strategyInputs, contentFocus),
-    [contentFocus, strategyInputs, strategyPromptStep],
+    () =>
+      buildStrategyPromptState(
+        strategyPromptStep,
+        strategyInputs,
+        contentFocus,
+        toneInputs,
+      ),
+    [contentFocus, strategyInputs, strategyPromptStep, toneInputs],
   );
+  const selectedDraftArtifact = useMemo(() => {
+    if (!activeDraftEditor) {
+      return null;
+    }
+
+    const message = messages.find((item) => item.id === activeDraftEditor.messageId);
+    if (!message?.draftArtifacts) {
+      return null;
+    }
+
+    return message.draftArtifacts[activeDraftEditor.artifactIndex] ?? null;
+  }, [activeDraftEditor, messages]);
+
+  useEffect(() => {
+    if (!selectedDraftArtifact) {
+      setEditorDraftText("");
+      return;
+    }
+
+    setEditorDraftText(selectedDraftArtifact.content);
+  }, [selectedDraftArtifact]);
+
+  const openDraftEditor = useCallback((messageId: string, artifactIndex: number) => {
+    setActiveDraftEditor({ messageId, artifactIndex });
+  }, []);
+
+  const saveDraftEditor = useCallback(() => {
+    if (!activeDraftEditor) {
+      return;
+    }
+
+    const nextContent = editorDraftText.trim();
+    if (!nextContent) {
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id !== activeDraftEditor.messageId || !message.draftArtifacts) {
+          return message;
+        }
+
+        const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
+          index === activeDraftEditor.artifactIndex
+            ? {
+                ...artifact,
+                content: nextContent,
+                characterCount: nextContent.length,
+              }
+            : artifact,
+        );
+
+        const nextDrafts =
+          message.drafts && message.drafts.length > 0
+            ? message.drafts.map((draft, index) =>
+                index === activeDraftEditor.artifactIndex ? nextContent : draft,
+              )
+            : nextDraftArtifacts.map((artifact) => artifact.content);
+
+        return {
+          ...message,
+          drafts: nextDrafts,
+          draftArtifacts: nextDraftArtifacts,
+        };
+      }),
+    );
+  }, [activeDraftEditor, editorDraftText]);
+
+  const copyDraftEditor = useCallback(async () => {
+    if (!editorDraftText.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(editorDraftText);
+    } catch {
+      setErrorMessage("Copy failed. Try selecting the text manually.");
+    }
+  }, [editorDraftText]);
 
   const requestAssistantReply = useCallback(
     async (options: {
@@ -759,6 +1012,7 @@ export default function ChatPage() {
       intent?: ChatIntent;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
+      toneInputOverride?: ChatToneInputs;
       contentFocusOverride?: ChatContentFocus | null;
       fallbackContext?: CreatorAgentContext;
       fallbackContract?: CreatorGenerationContract;
@@ -767,6 +1021,7 @@ export default function ChatPage() {
       const resolvedContract = options.fallbackContract ?? contract;
       const resolvedStrategyInputs =
         options.strategyInputOverride ?? activeStrategyInputs;
+      const resolvedToneInputs = options.toneInputOverride ?? activeToneInputs;
       const resolvedContentFocus =
         options.contentFocusOverride ?? activeContentFocus;
 
@@ -775,6 +1030,7 @@ export default function ChatPage() {
         !resolvedContext ||
         !resolvedContract ||
         !resolvedStrategyInputs ||
+        !resolvedToneInputs ||
         isSending
       ) {
         return;
@@ -817,6 +1073,7 @@ export default function ChatPage() {
             intent: options.intent ?? "draft",
             contentFocus: resolvedContentFocus,
             selectedAngle: options.selectedAngle ?? null,
+            ...resolvedToneInputs,
             ...resolvedStrategyInputs,
           }),
         });
@@ -834,6 +1091,7 @@ export default function ChatPage() {
                     reply: "The chat route failed to return a reply.",
                     angles: [],
                     drafts: [],
+                    draftArtifacts: [],
                     supportAsset: null,
                     outputShape: "short_form_post" as const,
                     whyThisWorks: [],
@@ -856,7 +1114,9 @@ export default function ChatPage() {
                   : (data.errors[0]?.message ?? "Failed to generate a reply.")),
               angles: reply?.angles ?? [],
               drafts: reply?.drafts ?? [],
+              draftArtifacts: reply?.draftArtifacts ?? [],
               supportAsset: reply?.supportAsset ?? null,
+              outputShape: reply?.outputShape,
               whyThisWorks: reply?.whyThisWorks ?? [],
               watchOutFor: reply?.watchOutFor ?? [],
               source: reply?.source,
@@ -932,7 +1192,9 @@ export default function ChatPage() {
             content: streamedResult.reply,
             angles: streamedResult.angles,
             drafts: streamedResult.drafts,
+            draftArtifacts: streamedResult.draftArtifacts,
             supportAsset: streamedResult.supportAsset,
+            outputShape: streamedResult.outputShape,
             whyThisWorks: streamedResult.whyThisWorks,
             watchOutFor: streamedResult.watchOutFor,
             source: streamedResult.source,
@@ -966,6 +1228,7 @@ export default function ChatPage() {
     [
       activeContentFocus,
       activeStrategyInputs,
+      activeToneInputs,
       contract,
       context,
       isSending,
@@ -977,7 +1240,7 @@ export default function ChatPage() {
 
   const handleAngleSelect = useCallback(
     async (angle: string) => {
-      if (!activeStrategyInputs || strategyPromptStep || isSending) {
+      if (!activeStrategyInputs || !activeToneInputs || strategyPromptStep || isSending) {
         return;
       }
 
@@ -988,12 +1251,14 @@ export default function ChatPage() {
         appendUserMessage: true,
         intent: "draft",
         strategyInputOverride: activeStrategyInputs,
+        toneInputOverride: activeToneInputs,
         contentFocusOverride: activeContentFocus,
       });
     },
     [
       activeContentFocus,
       activeStrategyInputs,
+      activeToneInputs,
       isSending,
       requestAssistantReply,
       strategyPromptStep,
@@ -1004,11 +1269,12 @@ export default function ChatPage() {
     async (
       nextInputs: ChatStrategyInputs,
       nextContentFocus: ChatContentFocus,
+      nextToneInputs: ChatToneInputs,
     ) => {
       setIsApplyingStrategyInputs(true);
       setErrorMessage(null);
 
-      const loaded = await loadWorkspace(nextInputs);
+      const loaded = await loadWorkspace(nextInputs, nextToneInputs);
 
       if (loaded.ok && loaded.contextData && loaded.contractData) {
         const confirmationMessage: ChatMessage = {
@@ -1018,11 +1284,14 @@ export default function ChatPage() {
             nextInputs.transformationMode,
           )}, ${formatPostingCapacityLabel(
             nextInputs.postingCadenceCapacity,
-          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}.`,
+          )}, ${formatReplyBudgetLabel(nextInputs.replyBudgetPerDay)}, ${formatToneCasingLabel(
+            nextToneInputs.toneCasing,
+          )}, ${formatToneRiskLabel(nextToneInputs.toneRisk)}.`,
         };
 
         setActiveStrategyInputs(nextInputs);
         setActiveContentFocus(nextContentFocus);
+        setActiveToneInputs(nextToneInputs);
         setStrategyPromptStep(null);
         setMessages((current) => [...current, confirmationMessage]);
 
@@ -1033,6 +1302,7 @@ export default function ChatPage() {
           appendUserMessage: false,
           historySeed: [...messages, confirmationMessage].slice(-6),
           strategyInputOverride: nextInputs,
+          toneInputOverride: nextToneInputs,
           contentFocusOverride: nextContentFocus,
           intent: "ideate",
           fallbackContext: loaded.contextData,
@@ -1053,14 +1323,9 @@ export default function ChatPage() {
       return;
     }
 
-    if (step === "contentFocus") {
-      const nextContentFocus = selectedValue as ChatContentFocus;
-      setContentFocus(nextContentFocus);
-      await finalizeStrategyPlan(strategyInputs, nextContentFocus);
-      return;
-    }
-
     const nextInputs: ChatStrategyInputs = { ...strategyInputs };
+    const nextToneInputs: ChatToneInputs = { ...toneInputs };
+    let nextContentFocus = contentFocus;
 
     if (step === "goal") {
       nextInputs.goal = selectedValue as UserGoal;
@@ -1071,9 +1336,17 @@ export default function ChatPage() {
         selectedValue as PostingCadenceCapacity;
     } else if (step === "replyBudgetPerDay") {
       nextInputs.replyBudgetPerDay = selectedValue as ReplyBudgetPerDay;
+    } else if (step === "contentFocus") {
+      nextContentFocus = selectedValue as ChatContentFocus;
+      setContentFocus(nextContentFocus);
+    } else if (step === "toneCasing") {
+      nextToneInputs.toneCasing = selectedValue as ToneCasing;
+    } else if (step === "toneRisk") {
+      nextToneInputs.toneRisk = selectedValue as ToneRisk;
     }
 
     setStrategyInputs(nextInputs);
+    setToneInputs(nextToneInputs);
 
     const currentIndex = strategyPromptSteps.indexOf(step);
     const nextStep = strategyPromptSteps[currentIndex + 1] ?? null;
@@ -1083,7 +1356,7 @@ export default function ChatPage() {
       return;
     }
 
-    await finalizeStrategyPlan(nextInputs, contentFocus);
+    await finalizeStrategyPlan(nextInputs, nextContentFocus, nextToneInputs);
   }
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1106,6 +1379,7 @@ export default function ChatPage() {
       appendUserMessage: true,
       intent: "draft",
       strategyInputOverride: activeStrategyInputs,
+      toneInputOverride: activeToneInputs ?? toneInputs,
       contentFocusOverride: activeContentFocus,
     });
   }
@@ -1309,6 +1583,7 @@ export default function ChatPage() {
                   type="button"
                   onClick={() => {
                     setStrategyInputs(activeStrategyInputs ?? strategyInputs);
+                    setToneInputs(activeToneInputs ?? toneInputs);
                     setContentFocus(activeContentFocus ?? contentFocus);
                     setStrategyPromptStep("goal");
                     setErrorMessage(null);
@@ -1417,7 +1692,41 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" && message.drafts?.length ? (
+                      {message.role === "assistant" && message.draftArtifacts?.length ? (
+                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                          {message.draftArtifacts.map((artifact, index) => (
+                            <div
+                              key={`${message.id}-draft-artifact-${artifact.id}`}
+                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    {artifact.title}
+                                  </p>
+                                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                    {formatAreaLabel(artifact.kind)} · {artifact.characterCount} chars
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openDraftEditor(message.id, index)}
+                                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                              <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
+                                {artifact.content}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {message.role === "assistant" &&
+                      !message.draftArtifacts?.length &&
+                      message.drafts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.drafts.map((draft, index) => (
                             <div
@@ -1435,7 +1744,9 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" && message.supportAsset ? (
+                      {message.role === "assistant" &&
+                      message.supportAsset &&
+                      !message.draftArtifacts?.length ? (
                         <div className="mt-4 border-t border-white/10 pt-4">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
                             Best Asset
@@ -1540,8 +1851,78 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {selectedDraftArtifact ? (
+        <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl">
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  {selectedDraftArtifact.title}
+                </p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                  {formatAreaLabel(selectedDraftArtifact.kind)} · {editorDraftText.length} chars
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveDraftEditor(null)}
+                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <textarea
+                value={editorDraftText}
+                onChange={(event) => setEditorDraftText(event.target.value)}
+                className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                placeholder="Draft content"
+              />
+
+              {selectedDraftArtifact.supportAsset ? (
+                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Suggested Asset
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-zinc-300">
+                    {selectedDraftArtifact.supportAsset}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="border-t border-white/10 px-4 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                  Edit the draft here before you use it.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void copyDraftEditor();
+                    }}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveDraftEditor}
+                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      ) : null}
+
       {analysisOpen && context ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-4 py-8">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
           <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
             <button
               type="button"

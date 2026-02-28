@@ -3,6 +3,9 @@ import type {
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
   StrategyState,
+  ToneCasing,
+  TonePreference,
+  ToneRisk,
   TransformationMode,
   TransformationModeSource,
   UserGoal,
@@ -13,6 +16,11 @@ export interface CreatorStrategyOverrides {
   postingCadenceCapacity?: PostingCadenceCapacity;
   replyBudgetPerDay?: ReplyBudgetPerDay;
   transformationMode?: TransformationMode;
+}
+
+export interface CreatorToneOverrides {
+  casing?: ToneCasing;
+  risk?: ToneRisk;
 }
 
 const VALID_GOALS = new Set<UserGoal>(["followers", "leads", "authority"]);
@@ -28,6 +36,8 @@ const VALID_TRANSFORMATION_MODES = new Set<TransformationMode>([
   "pivot_soft",
   "pivot_hard",
 ]);
+const VALID_TONE_CASING = new Set<ToneCasing>(["lowercase", "normal"]);
+const VALID_TONE_RISK = new Set<ToneRisk>(["safe", "bold"]);
 
 function getPostingCapacityMaxPostsPerWeek(
   postingCadenceCapacity: PostingCadenceCapacity,
@@ -185,5 +195,31 @@ export function applyCreatorStrategyOverrides(params: {
   return {
     ...params.onboarding,
     strategyState: buildOverriddenStrategyState(params),
+  };
+}
+
+export function extractCreatorToneOverrides(
+  input: Record<string, unknown>,
+): CreatorToneOverrides {
+  const casing = VALID_TONE_CASING.has(input.toneCasing as ToneCasing)
+    ? (input.toneCasing as ToneCasing)
+    : undefined;
+  const risk = VALID_TONE_RISK.has(input.toneRisk as ToneRisk)
+    ? (input.toneRisk as ToneRisk)
+    : undefined;
+
+  return {
+    casing,
+    risk,
+  };
+}
+
+export function applyCreatorToneOverrides(params: {
+  baseTone: TonePreference;
+  overrides: CreatorToneOverrides;
+}): TonePreference {
+  return {
+    casing: params.overrides.casing ?? params.baseTone.casing,
+    risk: params.overrides.risk ?? params.baseTone.risk,
   };
 }
