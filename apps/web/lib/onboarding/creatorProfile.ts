@@ -131,6 +131,12 @@ interface TopicAccumulator {
   hasLocalContext: boolean;
 }
 
+interface ArchetypeInferenceResult {
+  primary: CreatorArchetype;
+  secondary: CreatorArchetype | null;
+  confidence: number;
+}
+
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -457,7 +463,10 @@ function buildStyleNotes(params: {
   return notes.slice(0, 4);
 }
 
-function inferArchetype(posts: XPublicPost[], topics: TopicSignal[]): CreatorArchetype {
+function inferArchetypeProfile(
+  posts: XPublicPost[],
+  topics: TopicSignal[],
+): ArchetypeInferenceResult {
   const allText = posts.map((post) => post.text.toLowerCase()).join("\n");
   const scores: Record<Exclude<CreatorArchetype, "hybrid">, number> = {
     builder: 0,
@@ -506,14 +515,34 @@ function inferArchetype(posts: XPublicPost[], topics: TopicSignal[]): CreatorArc
   const second = ranked[1];
 
   if (!top || top[1] <= 0) {
-    return "social_operator";
+    return {
+      primary: "social_operator",
+      secondary: null,
+      confidence: 20,
+    };
   }
 
-  if (second && second[1] > 0 && top[1] - second[1] <= 1) {
-    return "hybrid";
-  }
+  const topScore = top[1];
+  const secondScore = second?.[1] ?? 0;
+  const totalScore = Math.max(
+    1,
+    ranked.reduce((sum, entry) => sum + Math.max(0, entry[1]), 0),
+  );
+  const share = topScore / totalScore;
+  const margin = topScore > 0 ? (topScore - secondScore) / topScore : 0;
+  const confidence = Number(
+    Math.max(20, Math.min(100, 35 + share * 35 + margin * 30)).toFixed(2),
+  );
+  const secondary =
+    second && secondScore > 0 && (topScore - secondScore <= 1 || secondScore / topScore >= 0.75)
+      ? (second[0] as Exclude<CreatorArchetype, "hybrid">)
+      : null;
 
-  return top[0] as Exclude<CreatorArchetype, "hybrid">;
+  return {
+    primary: top[0] as Exclude<CreatorArchetype, "hybrid">,
+    secondary,
+    confidence,
+  };
 }
 
 function buildRecommendedAngles(goal: UserGoal, archetype: CreatorArchetype): string[] {
@@ -584,7 +613,8 @@ export function buildCreatorProfile(params: {
     });
 
   const dominantTopics = extractTopicSignals(posts);
-  const archetype = inferArchetype(posts, dominantTopics);
+  const archetypeProfile = inferArchetypeProfile(posts, dominantTopics);
+  const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
   const primaryCasing = inferPrimaryCasing(posts);
   const lowercaseSharePercent = computeLowercaseSharePercent(posts);
@@ -668,6 +698,8 @@ export function buildCreatorProfile(params: {
       recommendedPostsPerWeek: params.onboarding.strategyState.recommendedPostsPerWeek,
     },
     archetype,
+    secondaryArchetype: archetypeProfile.secondary,
+    archetypeConfidence: archetypeProfile.confidence,
     strategy: {
       primaryGoal: params.onboarding.strategyState.goal,
       archetype,

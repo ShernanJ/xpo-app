@@ -225,5 +225,7 @@ export interface CreatorProfile {
   topics: CreatorTopicProfile;
   performance: CreatorPerformanceProfile;
   archetype: CreatorArchetype;
+  secondaryArchetype: CreatorArchetype | null;
+  archetypeConfidence: number;
   strategy: CreatorStrategyProfile;
 }

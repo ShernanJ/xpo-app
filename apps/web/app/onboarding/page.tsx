@@ -840,10 +840,30 @@ export default function OnboardingPage() {
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div>
                             <p className="text-[11px] uppercase tracking-wide text-zinc-500">
-                              Follower Band
+                              Primary
                             </p>
                             <p className="mt-1 text-sm font-medium text-zinc-900">
-                              {creatorProfile.identity.followerBand}
+                              {formatEnumLabel(creatorProfile.archetype)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Secondary
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {creatorProfile.secondaryArchetype
+                                ? formatEnumLabel(creatorProfile.secondaryArchetype)
+                                : "None"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Confidence
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {creatorProfile.archetypeConfidence}%
                             </p>
                           </div>
                           <div>
