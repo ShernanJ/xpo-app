@@ -42,6 +42,7 @@ The evaluation harness should produce rubric-style checks for at least:
 
 - sample quality
 - topic quality
+- niche overlay quality
 - archetype confidence
 - strategy specificity
 - interaction signal quality
@@ -72,6 +73,13 @@ Distribution-loop quality should explicitly score whether:
 - the loop is supported by the current execution pattern
 - reply or quote lanes are actually strong enough when they drive the loop
 - the loop can be treated as a real planning primitive instead of a weak suggestion
+
+Niche-overlay quality should explicitly score whether:
+
+- the inferred primary domain is coherent
+- the domain layer is distinct enough from the archetype layer
+- there is enough signal to specialize the playbook credibly
+- the likely offer is plausible for the current goal
 
 ## System Layers
 
