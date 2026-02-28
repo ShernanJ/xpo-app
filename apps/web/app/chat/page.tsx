@@ -118,6 +118,7 @@ interface DraftArtifact {
   content: string;
   characterCount: number;
   weightedCharacterCount: number;
+  maxCharacterLimit: number;
   isWithinXLimit: boolean;
   supportAsset: string | null;
   betterClosers: string[];
@@ -193,6 +194,7 @@ interface StrategyPromptState {
 
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const chatProviderStorageKey = "stanley-x-chat-provider";
+const LONG_FORM_X_LIMIT = 25_000;
 const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
   goal: "followers",
   postingCadenceCapacity: "1_per_day",
@@ -607,6 +609,8 @@ function buildClientDraftArtifact(params: {
   supportAsset: string | null;
 }): DraftArtifact {
   const weightedCharacterCount = computeClientXWeightedCharacterCount(params.content);
+  const maxCharacterLimit =
+    params.kind === "long_form_post" ? LONG_FORM_X_LIMIT : 280;
 
   return {
     id: params.id,
@@ -615,7 +619,8 @@ function buildClientDraftArtifact(params: {
     content: params.content,
     characterCount: params.content.length,
     weightedCharacterCount,
-    isWithinXLimit: weightedCharacterCount <= 280,
+    maxCharacterLimit,
+    isWithinXLimit: weightedCharacterCount <= maxCharacterLimit,
     supportAsset: params.supportAsset,
     betterClosers: buildClientBetterClosers(params.content, params.kind),
     replyPlan: buildClientReplyPlan(params.content, params.kind),
@@ -1841,7 +1846,8 @@ export default function ChatPage() {
                                     {artifact.title}
                                   </p>
                                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/280
+                                    {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
+                                    {artifact.maxCharacterLimit}
                                   </p>
                                 </div>
                                 <button
@@ -1998,7 +2004,9 @@ export default function ChatPage() {
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
                   {formatAreaLabel(selectedDraftArtifact.kind)} · {computeClientXWeightedCharacterCount(
                     editorDraftText,
-                  )}/280 · {computeClientXWeightedCharacterCount(editorDraftText) <= 280
+                  )}/{selectedDraftArtifact.maxCharacterLimit} · {computeClientXWeightedCharacterCount(
+                    editorDraftText,
+                  ) <= selectedDraftArtifact.maxCharacterLimit
                     ? "Within Limit"
                     : "Over Limit"}
                 </p>

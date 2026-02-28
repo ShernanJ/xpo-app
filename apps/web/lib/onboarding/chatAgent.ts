@@ -124,6 +124,7 @@ export interface CreatorDraftArtifact {
   content: string;
   characterCount: number;
   weightedCharacterCount: number;
+  maxCharacterLimit: number;
   isWithinXLimit: boolean;
   supportAsset: string | null;
   betterClosers: string[];
@@ -164,6 +165,13 @@ const ACRONYM_CASE_MAP = new Map<string, string>([
   ["url", "URL"],
   ["urls", "URLs"],
 ]);
+const LONG_FORM_X_LIMIT = 25_000;
+
+function getXCharacterLimitForShape(
+  outputShape: CreatorGenerationOutputShape,
+): number {
+  return outputShape === "long_form_post" ? LONG_FORM_X_LIMIT : 280;
+}
 
 function formatEnumLabel(value: string): string {
   return value
@@ -277,18 +285,24 @@ function buildDraftArtifacts(params: {
     return [];
   }
 
-  return params.drafts.map((draft, index) => ({
-    id: `${artifactKind}-${index + 1}`,
-    title: buildDraftArtifactTitle(artifactKind, index),
-    kind: artifactKind,
-    content: draft,
-    characterCount: draft.length,
-    weightedCharacterCount: computeXWeightedCharacterCount(draft),
-    isWithinXLimit: computeXWeightedCharacterCount(draft) <= 280,
-    supportAsset: params.supportAsset,
-    betterClosers: buildBetterClosers(draft, artifactKind),
-    replyPlan: buildReplyPlan(draft, artifactKind),
-  }));
+  return params.drafts.map((draft, index) => {
+    const weightedCharacterCount = computeXWeightedCharacterCount(draft);
+    const maxCharacterLimit = getXCharacterLimitForShape(artifactKind);
+
+    return {
+      id: `${artifactKind}-${index + 1}`,
+      title: buildDraftArtifactTitle(artifactKind, index),
+      kind: artifactKind,
+      content: draft,
+      characterCount: draft.length,
+      weightedCharacterCount,
+      maxCharacterLimit,
+      isWithinXLimit: weightedCharacterCount <= maxCharacterLimit,
+      supportAsset: params.supportAsset,
+      betterClosers: buildBetterClosers(draft, artifactKind),
+      replyPlan: buildReplyPlan(draft, artifactKind),
+    };
+  });
 }
 
 function buildDraftArtifactTitle(
@@ -856,6 +870,7 @@ function buildOutputShapeGuidance(
         "Return longer-form drafts with a clear thesis, proof, and stronger point of view.",
         "At least one draft should be structured as an intro plus bullets or distinct paragraphs, not a single shallow question.",
         "Do not force a shallow question ending when a confident close is stronger.",
+        "Do not keep these at tweet length. Long-form drafts should usually be well beyond 280 weighted characters and feel meaningfully developed.",
       ];
     case "short_form_post":
     default:
@@ -974,6 +989,9 @@ function buildCriticSystemPrompt(params: {
     "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
+    contract.planner.outputShape === "long_form_post"
+      ? "Reject long-form drafts that still read like short tweet-sized posts. They should be meaningfully developed, usually beyond tweet length, with a clear thesis and structure."
+      : "",
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
     `Target casing: ${contract.writer.targetCasing}.`,
@@ -1307,7 +1325,16 @@ function scoreDraftCandidate(params: {
   if (params.contract.planner.outputShape === "short_form_post") {
     score += words.length <= 24 ? 2 : words.length <= 36 ? 0.5 : -2;
   } else if (params.contract.planner.outputShape === "long_form_post") {
-    score += hasStructuredLongFormShape(draft) ? 5 : words.length >= 32 ? 1 : -7;
+    score += hasStructuredLongFormShape(draft) ? 6 : 0;
+    if (words.length >= 90) {
+      score += 4;
+    } else if (words.length >= 60) {
+      score += 2;
+    } else if (words.length >= 40) {
+      score -= 1;
+    } else {
+      score -= 10;
+    }
     if (/\?$/.test(draft)) {
       score -= 5;
     }
