@@ -349,6 +349,16 @@ The product should be able to hand the writer real post references that show:
 
 These examples should be selected deterministically first, not manually curated.
 
+Each representative example should also carry a deterministic goal-fit score.
+
+That score should estimate how strongly the example supports the current goal:
+
+- followers
+- leads
+- authority
+
+This gives the future LLM a concrete ranking signal instead of forcing it to infer goal alignment from raw examples alone.
+
 Strategy-anchor examples should be lane-aware when necessary.
 
 That means the retrieval layer should be able to pull from:
