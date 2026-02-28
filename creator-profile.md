@@ -83,6 +83,18 @@ The deterministic model should now explicitly capture whether the current topic 
 - niche enough to improve resonance
 - local enough to narrow reach while strengthening identity
 
+It should also track topic stability:
+
+- emerging
+- steady
+- fading
+
+That lets the system distinguish between:
+
+- what has been persistently central
+- what is newly becoming prominent
+- what may be more historical than current
+
 Topic extraction should prefer weighted entity and phrase candidates over raw single-token counting alone.
 
 That means repeated phrases and clearer named signals should outrank generic one-off words whenever possible.
