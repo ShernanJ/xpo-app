@@ -280,6 +280,9 @@ The niche layer should expose:
 - primary niche
 - secondary niche
 - niche confidence
+- target niche
+- recommended niches
+- niche transition summary
 - likely offer
 - offer signals
 - audience intent
@@ -290,6 +293,11 @@ Important rule:
 - if observed niche confidence is low, do not force a domain label
 - treat the account as broad / mixed / generalist instead
 - explicitly say the current signal is too general to trust as a niche yet
+- then recommend the best niche to build toward based on:
+  - goal
+  - archetype
+  - current domain signals
+  - likely offer
 
 This prevents false precision on accounts that have posted casually, broadly, or without a deliberate growth lane so far.
 
