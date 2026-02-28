@@ -72,8 +72,16 @@ This is what the user tends to talk about:
 - dominant repeated topics
 - likely content pillars
 - implied audience
+- audience breadth
+- specificity tradeoff
 
 This keeps the system anchored to what the account is already about and what adjacent topics make sense.
+
+The deterministic model should now explicitly capture whether the current topic mix is:
+
+- broad enough for general discovery
+- niche enough to improve resonance
+- local enough to narrow reach while strengthening identity
 
 ### 4. Performance Layer
 
@@ -189,6 +197,15 @@ This is the correct first step because it is:
 - testable
 - easy to debug
 - stable under iteration
+
+That deterministic layer should increasingly encode explicit tradeoffs instead of vague summaries.
+
+Examples:
+
+- top topics should be weighted by frequency, engagement, recency, and specificity
+- broad generic words should be downweighted
+- repeated niche or local entities should be promoted
+- the model should explicitly say when specificity increases resonance but narrows audience breadth
 
 LLM-based semantic enrichment can be layered on top later, but it should not be the foundation.
 
