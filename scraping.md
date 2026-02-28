@@ -248,6 +248,19 @@ Inspection entrypoint:
 - `GET /api/onboarding/backfill/jobs`
 - `GET /api/onboarding/backfill/jobs?jobId=<job id>`
 
+The jobs summary now also exposes lightweight queue health signals:
+
+- `activeJobCount`
+- `oldestPendingAgeMinutes`
+- `recentFailureCount`
+- `hasStalledQueue`
+
+This makes it possible to detect whether:
+
+- the worker is keeping up
+- pending jobs are aging out
+- failures are becoming a pattern
+
 This is intentionally separate from the main onboarding request.
 In production, this should be driven by a real background worker or scheduler, not by the main web request thread.
 
@@ -274,6 +287,8 @@ Environment overrides:
 
 - `ONBOARDING_BACKFILL_RETENTION_HOURS`
 - `ONBOARDING_BACKFILL_MAX_TERMINAL_JOBS`
+- `ONBOARDING_BACKFILL_FAILURE_WINDOW_HOURS`
+- `ONBOARDING_BACKFILL_STALLED_PENDING_MINUTES`
 
 ## 6. Planned Async Enrichment Scrape
 
