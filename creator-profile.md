@@ -45,6 +45,7 @@ The evaluation harness should produce rubric-style checks for at least:
 - archetype confidence
 - strategy specificity
 - interaction signal quality
+- distribution loop quality
 - anchor quality
 
 It should output:
@@ -64,6 +65,13 @@ Anchor quality should explicitly score whether:
 - goal-conflict examples are meaningfully different from generic caution examples
 
 This prevents the future LLM layer from getting shallow or repetitive retrieval context.
+
+Distribution-loop quality should explicitly score whether:
+
+- the inferred primary loop matches observed behavior
+- the loop is supported by the current execution pattern
+- reply or quote lanes are actually strong enough when they drive the loop
+- the loop can be treated as a real planning primitive instead of a weak suggestion
 
 ## System Layers
 
