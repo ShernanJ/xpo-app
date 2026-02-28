@@ -1,9 +1,11 @@
 import {
   classifyContentType,
+  computePostEngagement,
   detectHookPattern,
 } from "./analysis";
 import { buildPerformanceModel } from "./performanceModel";
 import type {
+  AudienceBreadth,
   ContentType,
   CreatorArchetype,
   CreatorProfile,
@@ -12,6 +14,7 @@ import type {
   OnboardingResult,
   PerformanceModel,
   TopicSignal,
+  TopicSpecificity,
   ToneCasing,
   UserGoal,
   XPublicPost,
@@ -84,6 +87,50 @@ const STOPWORDS = new Set([
   "your",
 ]);
 
+const LOW_SIGNAL_TOPIC_WORDS = new Set([
+  "almost",
+  "back",
+  "come",
+  "day",
+  "days",
+  "friend",
+  "friends",
+  "going",
+  "good",
+  "great",
+  "last",
+  "life",
+  "love",
+  "made",
+  "make",
+  "next",
+  "outside",
+  "people",
+  "planning",
+  "site",
+  "stuff",
+  "thing",
+  "things",
+  "throwback",
+  "time",
+  "today",
+  "tomorrow",
+  "week",
+  "weeks",
+  "win",
+  "years",
+]);
+
+const LOCATION_CONTEXT_PATTERN =
+  /\b(toronto|ontario|canada|burlington|montreal|vancouver|new york|nyc|sf|san francisco|la|los angeles|london)\b/i;
+
+interface TopicAccumulator {
+  count: number;
+  totalEngagement: number;
+  weightedScore: number;
+  hasLocalContext: boolean;
+}
+
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -112,36 +159,114 @@ function tokenizePost(text: string): string[] {
     .filter((token) => !STOPWORDS.has(token));
 }
 
+function getTimeOrFallback(value: string, fallback: number): number {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function inferTopicSpecificity(label: string, stats: TopicAccumulator): TopicSpecificity {
+  const isLowSignal = LOW_SIGNAL_TOPIC_WORDS.has(label);
+
+  if (!isLowSignal && stats.hasLocalContext && stats.count >= 2) {
+    return "local_scene";
+  }
+
+  if (!isLowSignal && stats.count >= 2) {
+    return "niche";
+  }
+
+  return "broad";
+}
+
 function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
   if (posts.length === 0) {
     return [];
   }
 
-  const counter = new Map<string, number>();
+  const baselineEngagement = Math.max(
+    1,
+    average(posts.map((post) => computePostEngagement(post))),
+  );
+  const timestamps = posts
+    .map((post) => new Date(post.createdAt).getTime())
+    .filter(Number.isFinite);
+  const newestTimestamp = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const oldestTimestamp = timestamps.length ? Math.min(...timestamps) : newestTimestamp;
+  const span = Math.max(1, newestTimestamp - oldestTimestamp);
+
+  const counter = new Map<string, TopicAccumulator>();
   for (const post of posts) {
+    const postEngagement = computePostEngagement(post);
+    const postTimestamp = getTimeOrFallback(post.createdAt, newestTimestamp);
+    const normalizedRecency = Math.min(
+      1,
+      Math.max(0, (postTimestamp - oldestTimestamp) / span),
+    );
+    const recencyWeight = 0.8 + normalizedRecency * 0.4;
+    const engagementWeight =
+      0.75 + Math.min(1.25, postEngagement / baselineEngagement);
+    const hasLocalContext = LOCATION_CONTEXT_PATTERN.test(post.text);
     const seenInPost = new Set<string>();
+
     for (const token of tokenizePost(post.text)) {
       if (seenInPost.has(token)) {
         continue;
       }
 
       seenInPost.add(token);
-      counter.set(token, (counter.get(token) ?? 0) + 1);
+      const specificityWeight = LOW_SIGNAL_TOPIC_WORDS.has(token)
+        ? 0.45
+        : token.length >= 4
+          ? 1.1
+          : 0.9;
+      const current = counter.get(token) ?? {
+        count: 0,
+        totalEngagement: 0,
+        weightedScore: 0,
+        hasLocalContext: false,
+      };
+
+      counter.set(token, {
+        count: current.count + 1,
+        totalEngagement: current.totalEngagement + postEngagement,
+        weightedScore:
+          current.weightedScore +
+          recencyWeight * engagementWeight * specificityWeight,
+        hasLocalContext: current.hasLocalContext || hasLocalContext,
+      });
     }
   }
 
   return Array.from(counter.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([label, count]) => ({
-      label,
-      count,
-      percentage: Number(((count / posts.length) * 100).toFixed(2)),
-    }));
+    .map(([label, stats]) => {
+      const specificity = inferTopicSpecificity(label, stats);
+      const specificityMultiplier =
+        specificity === "local_scene"
+          ? 1.15
+          : specificity === "niche"
+            ? 1.05
+            : 0.9;
+
+      return {
+        label,
+        count: stats.count,
+        percentage: Number(((stats.count / posts.length) * 100).toFixed(2)),
+        averageEngagement: Number((stats.totalEngagement / stats.count).toFixed(2)),
+        score: Number((stats.weightedScore * specificityMultiplier).toFixed(2)),
+        specificity,
+      };
+    })
+    .sort((a, b) => b.score - a.score || b.count - a.count || b.averageEngagement - a.averageEngagement)
+    .slice(0, limit);
 }
 
 function buildContentPillars(topics: TopicSignal[]): string[] {
-  return topics.slice(0, 3).map((topic) => topic.label);
+  const prioritized = [
+    ...topics.filter((topic) => topic.specificity !== "broad"),
+    ...topics.filter((topic) => topic.specificity === "broad"),
+  ];
+
+  return prioritized.slice(0, 3).map((topic) => topic.label);
 }
 
 function buildAudienceSignals(posts: XPublicPost[], topics: TopicSignal[]): string[] {
@@ -165,10 +290,58 @@ function buildAudienceSignals(posts: XPublicPost[], topics: TopicSignal[]): stri
   }
 
   if (signals.length === 0 && topics.length > 0) {
-    signals.push(`People interested in ${topics[0].label}`);
+    const topTopic = topics[0];
+    if (topTopic.specificity === "local_scene") {
+      signals.push(
+        `People already familiar with ${topTopic.label} or its local scene`,
+      );
+    } else {
+      signals.push(`People interested in ${topTopic.label}`);
+    }
   }
 
   return signals.slice(0, 3);
+}
+
+function inferAudienceBreadth(topics: TopicSignal[]): AudienceBreadth {
+  const topTopic = topics[0];
+  if (!topTopic) {
+    return "broad";
+  }
+
+  if (topTopic.specificity === "local_scene") {
+    return topTopic.percentage >= 20 ? "narrow" : "mixed";
+  }
+
+  if (topTopic.specificity === "niche") {
+    return topTopic.percentage >= 25 ? "mixed" : "broad";
+  }
+
+  return "broad";
+}
+
+function buildSpecificityTradeoff(
+  topics: TopicSignal[],
+  audienceBreadth: AudienceBreadth,
+): string {
+  const topTopic = topics[0];
+  if (!topTopic) {
+    return "There is not enough repeated topic signal yet to estimate audience breadth tradeoffs.";
+  }
+
+  if (topTopic.specificity === "local_scene") {
+    return `References to ${topTopic.label} likely strengthen identity and niche resonance, but can narrow discovery outside that scene.`;
+  }
+
+  if (topTopic.specificity === "niche") {
+    return `Leaning on ${topTopic.label} can improve relevance for a focused audience, but may reduce broad-audience clarity if overused.`;
+  }
+
+  if (audienceBreadth === "broad") {
+    return "Current topic signals are broadly legible, which helps reach, but may need more specificity to feel distinct.";
+  }
+
+  return "The current mix balances broad discovery with some niche-specific resonance.";
 }
 
 function inferPrimaryCasing(posts: XPublicPost[]): ToneCasing {
@@ -324,6 +497,9 @@ function inferArchetype(posts: XPublicPost[], topics: TopicSignal[]): CreatorArc
   if (topicWords.has("code") || topicWords.has("build")) {
     scores.builder += 1;
   }
+  if (topics.some((topic) => topic.specificity === "local_scene")) {
+    scores.social_operator += 1;
+  }
 
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const top = ranked[0];
@@ -409,6 +585,7 @@ export function buildCreatorProfile(params: {
 
   const dominantTopics = extractTopicSignals(posts);
   const archetype = inferArchetype(posts, dominantTopics);
+  const audienceBreadth = inferAudienceBreadth(dominantTopics);
   const primaryCasing = inferPrimaryCasing(posts);
   const lowercaseSharePercent = computeLowercaseSharePercent(posts);
   const averageLengthBand = inferAverageLengthBand(posts);
@@ -473,6 +650,11 @@ export function buildCreatorProfile(params: {
       dominantTopics,
       contentPillars: buildContentPillars(dominantTopics),
       audienceSignals: buildAudienceSignals(posts, dominantTopics),
+      audienceBreadth,
+      specificityTradeoff: buildSpecificityTradeoff(
+        dominantTopics,
+        audienceBreadth,
+      ),
     },
     performance: {
       baselineAverageEngagement: params.onboarding.baseline.averageEngagement,

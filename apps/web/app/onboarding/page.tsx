@@ -869,6 +869,26 @@ export default function OnboardingPage() {
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Content Pillars
                         </p>
+                        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Audience Breadth
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {formatEnumLabel(creatorProfile.topics.audienceBreadth)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Top Signal
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-900">
+                              {creatorProfile.topics.dominantTopics[0]
+                                ? `${creatorProfile.topics.dominantTopics[0].label} (${creatorProfile.topics.dominantTopics[0].percentage}%)`
+                                : "n/a"}
+                            </p>
+                          </div>
+                        </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {creatorProfile.topics.contentPillars.length ? (
                             creatorProfile.topics.contentPillars.map((pillar) => (
@@ -901,6 +921,9 @@ export default function OnboardingPage() {
                             </p>
                           )}
                         </div>
+                        <p className="mt-4 text-sm leading-6 text-zinc-700">
+                          {creatorProfile.topics.specificityTradeoff}
+                        </p>
                       </article>
 
                       <article className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

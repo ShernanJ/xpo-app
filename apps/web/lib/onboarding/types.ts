@@ -152,10 +152,17 @@ export type CreatorArchetype =
   | "social_operator"
   | "hybrid";
 
+export type TopicSpecificity = "broad" | "niche" | "local_scene";
+
+export type AudienceBreadth = "broad" | "mixed" | "narrow";
+
 export interface TopicSignal {
   label: string;
   count: number;
   percentage: number;
+  averageEngagement: number;
+  score: number;
+  specificity: TopicSpecificity;
 }
 
 export interface CreatorIdentityProfile {
@@ -184,6 +191,8 @@ export interface CreatorTopicProfile {
   dominantTopics: TopicSignal[];
   contentPillars: string[];
   audienceSignals: string[];
+  audienceBreadth: AudienceBreadth;
+  specificityTradeoff: string;
 }
 
 export interface CreatorPerformanceProfile {
