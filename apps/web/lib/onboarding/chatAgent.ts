@@ -128,22 +128,81 @@ function normalizeHistory(history: ChatHistoryMessage[]): ChatHistoryMessage[] {
     }));
 }
 
+function extractBalancedJsonValue(text: string): string {
+  const trimmed = text.trim();
+  const firstChar = trimmed[0];
+
+  if (firstChar !== "{" && firstChar !== "[") {
+    return trimmed;
+  }
+
+  const openChar = firstChar;
+  const closeChar = firstChar === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+
+    if (char === closeChar) {
+      depth -= 1;
+      if (depth === 0) {
+        return trimmed.slice(0, index + 1);
+      }
+    }
+  }
+
+  return trimmed;
+}
+
 function extractJsonObject(text: string): string {
   const trimmed = text.trim();
 
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return trimmed;
+    return extractBalancedJsonValue(trimmed);
   }
 
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fenced?.[1]) {
-    return fenced[1].trim();
+    return extractBalancedJsonValue(fenced[1].trim());
   }
 
   const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
+  const firstBracket = trimmed.indexOf("[");
+  const candidates = [firstBrace, firstBracket].filter((index) => index !== -1);
+
+  if (candidates.length > 0) {
+    const start = Math.min(...candidates);
+    return extractBalancedJsonValue(trimmed.slice(start));
   }
 
   return trimmed;
@@ -188,70 +247,105 @@ async function callProviderJson<T>(params: {
   schemaName: string;
   schema: Record<string, unknown>;
 }): Promise<T> {
-  const body =
-    params.provider.provider === "openai"
-      ? {
-          model: params.provider.model,
-          messages: [
-            { role: "system", content: params.system },
-            { role: "user", content: params.user },
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: params.schemaName,
-              schema: params.schema,
-              strict: true,
-            },
-          },
-        }
-      : {
-          model: params.provider.model,
-          messages: [
-            {
-              role: "system",
-              content: `${params.system}\nReturn only valid JSON. Do not use markdown fences.`,
-            },
-            {
-              role: "user",
-              content: `${params.user}\n\nReturn JSON that matches this shape:\n${JSON.stringify(
-                params.schema,
-              )}`,
-            },
-          ],
-          temperature: 0.2,
+  const requestHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${params.provider.apiKey}`,
+  };
+
+  const parseResponse = async (response: Response): Promise<T> => {
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `${params.provider.provider} request failed: ${response.status} ${errorText}`,
+      );
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
         };
+      }>;
+    };
+
+    const content = payload.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error(
+        `${params.provider.provider} returned an empty structured response.`,
+      );
+    }
+
+    return JSON.parse(extractJsonObject(content)) as T;
+  };
+
+  const buildPromptJsonBody = () => ({
+    model: params.provider.model,
+    messages: [
+      {
+        role: "system",
+        content: `${params.system}\nReturn only valid JSON. Do not use markdown fences.`,
+      },
+      {
+        role: "user",
+        content: `${params.user}\n\nReturn JSON that matches this shape:\n${JSON.stringify(
+          params.schema,
+        )}`,
+      },
+    ],
+    temperature: 0.2,
+  });
+
+  if (params.provider.provider === "openai") {
+    const schemaBody = {
+      model: params.provider.model,
+      messages: [
+        { role: "system", content: params.system },
+        { role: "user", content: params.user },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: params.schemaName,
+          schema: params.schema,
+          strict: true,
+        },
+      },
+    };
+
+    const schemaResponse = await fetch(params.provider.baseUrl, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify(schemaBody),
+    });
+
+    if (schemaResponse.ok) {
+      return parseResponse(schemaResponse);
+    }
+
+    const schemaErrorText = await schemaResponse.text();
+    const promptResponse = await fetch(params.provider.baseUrl, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify(buildPromptJsonBody()),
+    });
+
+    if (!promptResponse.ok) {
+      const promptErrorText = await promptResponse.text();
+      throw new Error(
+        `openai request failed: schema mode ${schemaResponse.status} ${schemaErrorText}; prompt-json fallback ${promptResponse.status} ${promptErrorText}`,
+      );
+    }
+
+    return parseResponse(promptResponse);
+  }
 
   const response = await fetch(params.provider.baseUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.provider.apiKey}`,
-    },
-    body: JSON.stringify(body),
+    headers: requestHeaders,
+    body: JSON.stringify(buildPromptJsonBody()),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `${params.provider.provider} request failed: ${response.status} ${errorText}`,
-    );
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) {
-    throw new Error(`${params.provider.provider} returned an empty structured response.`);
-  }
-
-  return JSON.parse(extractJsonObject(content)) as T;
+  return parseResponse(response);
 }
 
 function buildPlannerSystemPrompt(params: {
