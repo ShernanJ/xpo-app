@@ -714,6 +714,14 @@ The backend should then use the creator profile + generation contract to decide:
 - whether a question ending is natural
 - which asset would best support the post
 
+For long-form and thread-shaped outputs, the backend should also enforce creator-calibrated structural minimums derived from the chosen format exemplar:
+
+- target minimum word range
+- minimum number of sections / beats
+- whether a bullet-led core is preferred
+- how much proof density is required
+- whether the close should be confident vs question-led
+
 This keeps the intelligence centralized and makes results easier to debug.
 
 The first live LLM integration should sit server-side on top of this contract:
