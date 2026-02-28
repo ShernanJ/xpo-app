@@ -123,7 +123,11 @@ export interface CreatorDraftArtifact {
   kind: CreatorGenerationOutputShape;
   content: string;
   characterCount: number;
+  weightedCharacterCount: number;
+  isWithinXLimit: boolean;
   supportAsset: string | null;
+  betterClosers: string[];
+  replyPlan: string[];
 }
 
 export interface CreatorChatReplyResult {
@@ -279,7 +283,11 @@ function buildDraftArtifacts(params: {
     kind: artifactKind,
     content: draft,
     characterCount: draft.length,
+    weightedCharacterCount: computeXWeightedCharacterCount(draft),
+    isWithinXLimit: computeXWeightedCharacterCount(draft) <= 280,
     supportAsset: params.supportAsset,
+    betterClosers: buildBetterClosers(draft, artifactKind),
+    replyPlan: buildReplyPlan(draft, artifactKind),
   }));
 }
 
@@ -300,6 +308,89 @@ function buildDraftArtifactTitle(
     default:
       return `Draft ${index + 1}`;
   }
+}
+
+function computeXWeightedCharacterCount(text: string): number {
+  const urlRegex = /https?:\/\/\S+/gi;
+  let weighted = 0;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlRegex)) {
+    const start = match.index ?? 0;
+    weighted += countWeightedSegment(text.slice(lastIndex, start));
+    weighted += 23;
+    lastIndex = start + match[0].length;
+  }
+
+  weighted += countWeightedSegment(text.slice(lastIndex));
+  return weighted;
+}
+
+function countWeightedSegment(value: string): number {
+  let total = 0;
+
+  for (const char of Array.from(value)) {
+    if (isWideCharacter(char)) {
+      total += 2;
+      continue;
+    }
+
+    total += 1;
+  }
+
+  return total;
+}
+
+function isWideCharacter(char: string): boolean {
+  return /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
+    char,
+  );
+}
+
+function buildBetterClosers(
+  draft: string,
+  kind: CreatorGenerationOutputShape,
+): string[] {
+  const lower = draft.toLowerCase();
+  const suggestions = new Set<string>();
+
+  if (lower.includes("build") || lower.includes("project") || lower.includes("app")) {
+    suggestions.add("thoughts?");
+    suggestions.add("would you use this?");
+    suggestions.add("what would you add?");
+  } else if (kind === "reply_candidate" || kind === "quote_candidate") {
+    suggestions.add("fair take or am i off?");
+    suggestions.add("curious if you see it the same way");
+  } else {
+    suggestions.add("agree or am i off?");
+    suggestions.add("curious if anyone else has felt this");
+    suggestions.add("thoughts?");
+  }
+
+  return Array.from(suggestions).slice(0, 3);
+}
+
+function buildReplyPlan(
+  draft: string,
+  kind: CreatorGenerationOutputShape,
+): string[] {
+  const plan: string[] = [];
+
+  if (kind === "reply_candidate") {
+    plan.push("If they engage, ask one tighter follow-up instead of dropping a second argument.");
+    plan.push("If they push back, reply with one concrete example instead of broadening the claim.");
+    return plan;
+  }
+
+  if (draft.trim().endsWith("?")) {
+    plan.push("Reply to the first useful answer quickly and ask one deeper follow-up.");
+  } else {
+    plan.push("When someone asks for details, reply with the concrete step, metric, or build constraint you left out.");
+  }
+
+  plan.push("If someone disagrees, answer with one specific example before defending the whole thesis.");
+  plan.push("If the thread gets traction, pin one short follow-up that adds the missing proof.");
+  return plan.slice(0, 3);
 }
 
 function plannerSafeConstraint(value: string | undefined): string {

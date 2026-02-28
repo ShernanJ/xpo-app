@@ -117,7 +117,11 @@ interface DraftArtifact {
     | "quote_candidate";
   content: string;
   characterCount: number;
+  weightedCharacterCount: number;
+  isWithinXLimit: boolean;
   supportAsset: string | null;
+  betterClosers: string[];
+  replyPlan: string[];
 }
 
 interface ChatMessage {
@@ -540,14 +544,15 @@ function buildClientDraftArtifacts(
   outputShape: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
   supportAsset: string | null,
 ): DraftArtifact[] {
-  return drafts.map((draft, index) => ({
-    id: `${outputShape}-${index + 1}`,
-    title: buildArtifactTitle(outputShape, index),
-    kind: outputShape,
-    content: draft,
-    characterCount: draft.length,
-    supportAsset,
-  }));
+  return drafts.map((draft, index) =>
+    buildClientDraftArtifact({
+      id: `${outputShape}-${index + 1}`,
+      title: buildArtifactTitle(outputShape, index),
+      kind: outputShape,
+      content: draft,
+      supportAsset,
+    }),
+  );
 }
 
 function buildArtifactTitle(
@@ -567,6 +572,105 @@ function buildArtifactTitle(
     default:
       return `Draft ${index + 1}`;
   }
+}
+
+function buildClientDraftArtifact(params: {
+  id: string;
+  title: string;
+  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">;
+  content: string;
+  supportAsset: string | null;
+}): DraftArtifact {
+  const weightedCharacterCount = computeClientXWeightedCharacterCount(params.content);
+
+  return {
+    id: params.id,
+    title: params.title,
+    kind: params.kind,
+    content: params.content,
+    characterCount: params.content.length,
+    weightedCharacterCount,
+    isWithinXLimit: weightedCharacterCount <= 280,
+    supportAsset: params.supportAsset,
+    betterClosers: buildClientBetterClosers(params.content, params.kind),
+    replyPlan: buildClientReplyPlan(params.content, params.kind),
+  };
+}
+
+function computeClientXWeightedCharacterCount(text: string): number {
+  const urlRegex = /https?:\/\/\S+/gi;
+  let weighted = 0;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlRegex)) {
+    const start = match.index ?? 0;
+    weighted += countClientWeightedSegment(text.slice(lastIndex, start));
+    weighted += 23;
+    lastIndex = start + match[0].length;
+  }
+
+  weighted += countClientWeightedSegment(text.slice(lastIndex));
+  return weighted;
+}
+
+function countClientWeightedSegment(value: string): number {
+  let total = 0;
+
+  for (const char of Array.from(value)) {
+    total += /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
+      char,
+    )
+      ? 2
+      : 1;
+  }
+
+  return total;
+}
+
+function buildClientBetterClosers(
+  draft: string,
+  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
+): string[] {
+  const lower = draft.toLowerCase();
+  const suggestions = new Set<string>();
+
+  if (lower.includes("build") || lower.includes("project") || lower.includes("app")) {
+    suggestions.add("thoughts?");
+    suggestions.add("would you use this?");
+    suggestions.add("what would you add?");
+  } else if (kind === "reply_candidate" || kind === "quote_candidate") {
+    suggestions.add("fair take or am i off?");
+    suggestions.add("curious if you see it the same way");
+  } else {
+    suggestions.add("agree or am i off?");
+    suggestions.add("curious if anyone else has felt this");
+    suggestions.add("thoughts?");
+  }
+
+  return Array.from(suggestions).slice(0, 3);
+}
+
+function buildClientReplyPlan(
+  draft: string,
+  kind: Exclude<CreatorChatSuccess["data"]["outputShape"], "ideation_angles">,
+): string[] {
+  const plan: string[] = [];
+
+  if (kind === "reply_candidate") {
+    plan.push("If they engage, ask one tighter follow-up instead of dropping a second argument.");
+    plan.push("If they push back, reply with one concrete example instead of broadening the claim.");
+    return plan;
+  }
+
+  if (draft.trim().endsWith("?")) {
+    plan.push("Reply to the first useful answer quickly and ask one deeper follow-up.");
+  } else {
+    plan.push("When someone asks for details, reply with the concrete step, metric, or build constraint you left out.");
+  }
+
+  plan.push("If someone disagrees, answer with one specific example before defending the whole thesis.");
+  plan.push("If the thread gets traction, pin one short follow-up that adds the missing proof.");
+  return plan.slice(0, 3);
 }
 
 function AssistantTypingBubble(props: { status?: string | null }) {
@@ -967,11 +1071,13 @@ export default function ChatPage() {
 
         const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
           index === activeDraftEditor.artifactIndex
-            ? {
-                ...artifact,
+            ? buildClientDraftArtifact({
+                id: artifact.id,
+                title: artifact.title,
+                kind: artifact.kind,
                 content: nextContent,
-                characterCount: nextContent.length,
-              }
+                supportAsset: artifact.supportAsset,
+              })
             : artifact,
         );
 
@@ -1705,7 +1811,7 @@ export default function ChatPage() {
                                     {artifact.title}
                                   </p>
                                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    {formatAreaLabel(artifact.kind)} · {artifact.characterCount} chars
+                                    {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/280
                                   </p>
                                 </div>
                                 <button
@@ -1860,7 +1966,11 @@ export default function ChatPage() {
                   {selectedDraftArtifact.title}
                 </p>
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  {formatAreaLabel(selectedDraftArtifact.kind)} · {editorDraftText.length} chars
+                  {formatAreaLabel(selectedDraftArtifact.kind)} · {computeClientXWeightedCharacterCount(
+                    editorDraftText,
+                  )}/280 · {computeClientXWeightedCharacterCount(editorDraftText) <= 280
+                    ? "Within Limit"
+                    : "Over Limit"}
                 </p>
               </div>
               <button
@@ -1888,6 +1998,32 @@ export default function ChatPage() {
                   <p className="mt-2 text-sm leading-7 text-zinc-300">
                     {selectedDraftArtifact.supportAsset}
                   </p>
+                </div>
+              ) : null}
+
+              {selectedDraftArtifact.betterClosers.length ? (
+                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Better Closers
+                  </p>
+                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                    {selectedDraftArtifact.betterClosers.map((closer, index) => (
+                      <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {selectedDraftArtifact.replyPlan.length ? (
+                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Reply Plan
+                  </p>
+                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                    {selectedDraftArtifact.replyPlan.map((step, index) => (
+                      <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
             </div>
