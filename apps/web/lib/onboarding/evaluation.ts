@@ -280,11 +280,14 @@ function buildNextImprovements(
 export function evaluateCreatorProfile(params: {
   runId: string;
   onboarding: OnboardingResult;
+  creatorProfile?: CreatorProfile;
 }): CreatorEvaluationResult {
-  const profile = buildCreatorProfile({
-    sourceRunId: params.runId,
-    onboarding: params.onboarding,
-  });
+  const profile =
+    params.creatorProfile ??
+    buildCreatorProfile({
+      sourceRunId: params.runId,
+      onboarding: params.onboarding,
+    });
 
   const checks = [
     evaluateSampleQuality(params.onboarding),
