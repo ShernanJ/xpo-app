@@ -5,6 +5,7 @@ import type { XPublicPost, XPublicProfile } from "./types";
 interface ParsedScrapeTimeline {
   profile: XPublicProfile;
   posts: XPublicPost[];
+  replyPosts: XPublicPost[];
 }
 
 const MAX_PARSED_SCRAPE_POSTS = 250;
@@ -293,6 +294,19 @@ function extractPostFromTweetNode(
   };
 }
 
+function isReplyPost(tweetNode: Record<string, unknown>): boolean {
+  const legacy = asRecord(tweetNode.legacy);
+  if (!legacy) {
+    return false;
+  }
+
+  return (
+    asString(legacy.in_reply_to_status_id_str) !== null ||
+    asString(legacy.in_reply_to_user_id_str) !== null ||
+    asString(legacy.in_reply_to_screen_name) !== null
+  );
+}
+
 function sortAndLimitPosts(postsById: Map<string, XPublicPost>): XPublicPost[] {
   return Array.from(postsById.values())
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -314,6 +328,7 @@ export function parseUserTweetsGraphqlPayload(params: {
 
   const postsById = new Map<string, XPublicPost>();
   const fallbackPostsById = new Map<string, XPublicPost>();
+  const replyPostsById = new Map<string, XPublicPost>();
   let profileCandidate: XPublicProfile | null = null;
 
   for (const node of nodes) {
@@ -337,6 +352,16 @@ export function parseUserTweetsGraphqlPayload(params: {
     });
     if (fallbackPost && !fallbackPostsById.has(fallbackPost.id)) {
       fallbackPostsById.set(fallbackPost.id, fallbackPost);
+    }
+
+    if (isReplyPost(node)) {
+      const replyPost = extractPostFromTweetNode(node, accountNormalized, {
+        includeRetweets: false,
+        includeReplies: true,
+      });
+      if (replyPost && !replyPostsById.has(replyPost.id)) {
+        replyPostsById.set(replyPost.id, replyPost);
+      }
     }
 
     const post = extractPostFromTweetNode(node, accountNormalized, {
@@ -385,6 +410,7 @@ export function parseUserTweetsGraphqlPayload(params: {
       username: accountNormalized ?? profile.username,
     },
     posts,
+    replyPosts: sortAndLimitPosts(replyPostsById),
   };
 }
 

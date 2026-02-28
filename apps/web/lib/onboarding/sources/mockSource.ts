@@ -12,6 +12,7 @@ export function buildMockDataSource(
     source: "mock",
     profile: fallback.profile,
     posts: fallback.posts,
+    replyPosts: [],
     warnings: [warning],
   };
 }

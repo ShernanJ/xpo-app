@@ -1140,6 +1140,67 @@ export default function OnboardingPage() {
                         </p>
                       </article>
 
+                      <article className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">
+                          Reply Behavior
+                        </p>
+                        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Replies Captured
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.replyCount}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Activity Share
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.replyShareOfCapturedActivity}%
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Dominant Tone
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.dominantReplyTone
+                                ? formatEnumLabel(creatorProfile.reply.dominantReplyTone)
+                                : "Unknown"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                              Dominant Style
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-zinc-100">
+                              {creatorProfile.reply.dominantReplyStyle
+                                ? formatEnumLabel(creatorProfile.reply.dominantReplyStyle)
+                                : "Unknown"}
+                            </p>
+                          </div>
+                        </div>
+                        {creatorProfile.reply.replyStyleMix.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {creatorProfile.reply.replyStyleMix.map((item) => (
+                              <span
+                                key={item.style}
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-zinc-300"
+                              >
+                                {formatEnumLabel(item.style)} {item.percentage}%
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="mt-4 text-sm leading-6 text-zinc-300">
+                          {creatorProfile.reply.replyUsageNote}
+                        </p>
+                      </article>
+
                       <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">
                           Recommended Angles
@@ -1195,7 +1256,7 @@ export default function OnboardingPage() {
                 ) : null}
               </section>
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Source</p>
                   <p className="mt-1 text-sm font-semibold text-white">
@@ -1203,9 +1264,15 @@ export default function OnboardingPage() {
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">Posts Analyzed</p>
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Original Posts</p>
                   <p className="mt-1 text-lg font-semibold text-white">
                     {result.data.recentPostSampleCount}
+                  </p>
+                </article>
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Replies Captured</p>
+                  <p className="mt-1 text-lg font-semibold text-white">
+                    {result.data.replyPostSampleCount}
                   </p>
                 </article>
                 <article className="rounded-2xl border border-white/10 bg-black/20 p-3">

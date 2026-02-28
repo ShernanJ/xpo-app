@@ -4,6 +4,7 @@ export interface OnboardingDataSource {
   source: OnboardingResult["source"];
   profile: OnboardingResult["profile"];
   posts: OnboardingResult["recentPosts"];
+  replyPosts: OnboardingResult["recentReplyPosts"];
   warnings: string[];
 }
 

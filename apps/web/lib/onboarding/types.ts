@@ -122,7 +122,9 @@ export interface OnboardingResult {
   generatedAt: string;
   profile: XPublicProfile;
   recentPosts: XPublicPost[];
+  recentReplyPosts: XPublicPost[];
   recentPostSampleCount: number;
+  replyPostSampleCount: number;
   analysisConfidence: AnalysisConfidence;
   baseline: EngagementBaseline;
   growthStage: GrowthStage;
@@ -188,6 +190,19 @@ export type AudienceBreadth = "broad" | "mixed" | "narrow";
 export type DependenceLevel = "low" | "moderate" | "high";
 
 export type DeliveryStyle = "standalone" | "mixed" | "reply_led";
+
+export type ReplyTone =
+  | "supportive"
+  | "playful"
+  | "inquisitive"
+  | "insightful"
+  | "direct";
+
+export type ReplyStyle =
+  | "one_liner"
+  | "question"
+  | "agreement"
+  | "insight_add_on";
 
 export type TransformationMode =
   | "preserve"
@@ -261,6 +276,22 @@ export interface CreatorExecutionProfile {
   distributionNotes: string[];
 }
 
+export interface ReplyStyleMixItem {
+  style: ReplyStyle;
+  count: number;
+  percentage: number;
+}
+
+export interface CreatorReplyProfile {
+  replyCount: number;
+  replyShareOfCapturedActivity: number;
+  averageReplyLengthBand: LengthBand | null;
+  dominantReplyTone: ReplyTone | null;
+  dominantReplyStyle: ReplyStyle | null;
+  replyStyleMix: ReplyStyleMixItem[];
+  replyUsageNote: string;
+}
+
 export interface CreatorCurrentStateProfile {
   followerBand: GrowthStage;
   primaryArchetype: CreatorArchetype;
@@ -331,6 +362,7 @@ export interface CreatorProfile {
   topics: CreatorTopicProfile;
   performance: CreatorPerformanceProfile;
   execution: CreatorExecutionProfile;
+  reply: CreatorReplyProfile;
   archetype: CreatorArchetype;
   secondaryArchetype: CreatorArchetype | null;
   archetypeConfidence: number;

@@ -11,6 +11,7 @@ import type {
   CreatorArchetype,
   CreatorExecutionProfile,
   CreatorProfile,
+  CreatorReplyProfile,
   CreatorRepresentativeExamples,
   CreatorRepresentativePost,
   DeliveryStyle,
@@ -19,6 +20,9 @@ import type {
   LengthBand,
   OnboardingResult,
   PerformanceModel,
+  ReplyStyle,
+  ReplyStyleMixItem,
+  ReplyTone,
   TopicSignal,
   TopicSpecificity,
   ToneCasing,
@@ -744,6 +748,137 @@ function buildExecutionProfile(posts: XPublicPost[]): CreatorExecutionProfile {
   };
 }
 
+function classifyReplyStyle(post: XPublicPost): ReplyStyle {
+  const features = analyzePostFeatures(post);
+  const lower = post.text.toLowerCase();
+
+  if (features.hasQuestion) {
+    return "question";
+  }
+
+  if (
+    /\b(agree|exactly|true|same|facts|100%|well said|love this|congrats|this)\b/.test(
+      lower,
+    ) &&
+    features.wordCount <= 24
+  ) {
+    return "agreement";
+  }
+
+  if (features.wordCount <= 10 && features.lineCount <= 1) {
+    return "one_liner";
+  }
+
+  return "insight_add_on";
+}
+
+function detectReplyTone(post: XPublicPost): ReplyTone {
+  const features = analyzePostFeatures(post);
+  const lower = post.text.toLowerCase();
+
+  if (features.hasQuestion) {
+    return "inquisitive";
+  }
+
+  if (
+    /\b(lol|lmao|haha|😭|😂|🤣|💀|lmfao)\b/.test(lower) ||
+    /[!?]{2,}/.test(post.text)
+  ) {
+    return "playful";
+  }
+
+  if (
+    /\b(agree|exactly|true|same|facts|congrats|love this|well said|proud|happy for you)\b/.test(
+      lower,
+    )
+  ) {
+    return "supportive";
+  }
+
+  if (
+    features.wordCount >= 16 ||
+    /\bbecause|but|however|the point is|the reason|this works\b/.test(lower)
+  ) {
+    return "insightful";
+  }
+
+  return "direct";
+}
+
+function buildReplyProfile(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+}): CreatorReplyProfile {
+  const { originalPosts, replyPosts } = params;
+  const totalCapturedActivity = originalPosts.length + replyPosts.length;
+
+  if (replyPosts.length === 0) {
+    return {
+      replyCount: 0,
+      replyShareOfCapturedActivity: 0,
+      averageReplyLengthBand: null,
+      dominantReplyTone: null,
+      dominantReplyStyle: null,
+      replyStyleMix: [],
+      replyUsageNote:
+        originalPosts.length === 0
+          ? "There is not enough captured activity yet to estimate reply behavior."
+          : "No direct replies were captured in the current sample, so reply strategy is still unknown.",
+    };
+  }
+
+  const toneCounts = new Map<ReplyTone, number>();
+  const styleCounts = new Map<ReplyStyle, number>();
+
+  for (const post of replyPosts) {
+    const tone = detectReplyTone(post);
+    const style = classifyReplyStyle(post);
+    toneCounts.set(tone, (toneCounts.get(tone) ?? 0) + 1);
+    styleCounts.set(style, (styleCounts.get(style) ?? 0) + 1);
+  }
+
+  const dominantReplyTone =
+    Array.from(toneCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const dominantReplyStyle =
+    Array.from(styleCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const replyStyleMix: ReplyStyleMixItem[] = Array.from(styleCounts.entries())
+    .map(([style, count]) => ({
+      style,
+      count,
+      percentage: toPercent(count / replyPosts.length),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4);
+  const replyShareOfCapturedActivity =
+    totalCapturedActivity > 0 ? toPercent(replyPosts.length / totalCapturedActivity) : 0;
+  const averageReplyLengthBand = inferAverageLengthBand(replyPosts);
+
+  let replyUsageNote = "Replies are present, but not yet a dominant part of the current captured activity.";
+  if (replyShareOfCapturedActivity >= 50) {
+    replyUsageNote =
+      "Replies are a primary distribution habit in the current sample. That is useful for relationship-building, but the main posting lane still needs its own strategy.";
+  } else if (replyShareOfCapturedActivity >= 20) {
+    replyUsageNote =
+      "Replies are a meaningful secondary lane in the current sample. This can become a deliberate growth lever without replacing standalone posting.";
+  }
+
+  if (dominantReplyTone === "playful") {
+    replyUsageNote += " The dominant reply tone leans playful, which can help social reach when the context is a fit.";
+  } else if (dominantReplyTone === "insightful") {
+    replyUsageNote += " The dominant reply tone adds analysis, which is a stronger base for authority-building replies.";
+  }
+
+  return {
+    replyCount: replyPosts.length,
+    replyShareOfCapturedActivity,
+    averageReplyLengthBand,
+    dominantReplyTone,
+    dominantReplyStyle,
+    replyStyleMix,
+    replyUsageNote,
+  };
+}
+
 function inferArchetypeProfile(
   posts: XPublicPost[],
   topics: TopicSignal[],
@@ -830,6 +965,8 @@ function buildRecommendedAngles(
   goal: UserGoal,
   archetype: CreatorArchetype,
   execution: CreatorExecutionProfile,
+  replyProfile: CreatorReplyProfile,
+  growthStage: OnboardingResult["growthStage"],
   transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string[] {
   const angles: string[] = [];
@@ -894,6 +1031,18 @@ function buildRecommendedAngles(
     angles.push("Use clearer asks when you want replies, clicks, or conversion behavior.");
   }
 
+  if (goal === "followers" && growthStage === "0-1k") {
+    if (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10) {
+      angles.push(
+        "Use strategic replies as a second growth lane on niche-relevant posts with existing momentum.",
+      );
+    } else if (replyProfile.replyShareOfCapturedActivity >= 35) {
+      angles.push(
+        "Keep the reply habit, but turn your strongest reply ideas into standalone posts so distribution compounds beyond one thread.",
+      );
+    }
+  }
+
   if (angles.length === 0) {
     angles.push("Increase consistency around one repeatable content pillar.");
   }
@@ -938,7 +1087,9 @@ function buildExecutionWeaknesses(
 
 function buildExecutionNextMoves(
   execution: CreatorExecutionProfile,
+  replyProfile: CreatorReplyProfile,
   goal: UserGoal,
+  growthStage: OnboardingResult["growthStage"],
   transformationMode: OnboardingResult["strategyState"]["transformationMode"],
 ): string[] {
   const actions: string[] = [];
@@ -969,6 +1120,18 @@ function buildExecutionNextMoves(
 
   if ((goal === "followers" || goal === "leads") && execution.ctaIntensity === "low") {
     actions.push("Add one explicit call-to-action in the next batch to test higher response behavior.");
+  }
+
+  if (goal === "followers" && growthStage === "0-1k") {
+    if (replyProfile.replyCount === 0 || replyProfile.replyShareOfCapturedActivity < 10) {
+      actions.push(
+        "Test 3-5 thoughtful replies this week on niche-adjacent posts that already have attention.",
+      );
+    } else if (replyProfile.replyShareOfCapturedActivity >= 35) {
+      actions.push(
+        "Reuse one strong reply from this week as the seed for a standalone post built for discovery.",
+      );
+    }
   }
 
   return actions;
@@ -1054,6 +1217,7 @@ export function buildCreatorProfile(params: {
   performanceModel?: PerformanceModel;
 }): CreatorProfile {
   const posts = params.onboarding.recentPosts ?? [];
+  const replyPosts = params.onboarding.recentReplyPosts ?? [];
   const performanceModel =
     params.performanceModel ??
     buildPerformanceModel({
@@ -1066,6 +1230,10 @@ export function buildCreatorProfile(params: {
   const archetype = archetypeProfile.primary;
   const audienceBreadth = inferAudienceBreadth(dominantTopics);
   const executionProfile = buildExecutionProfile(posts);
+  const replyProfile = buildReplyProfile({
+    originalPosts: posts,
+    replyPosts,
+  });
   const transformationMode =
     params.onboarding.strategyState.transformationMode ?? "optimize";
   const transformationModeSource =
@@ -1155,6 +1323,7 @@ export function buildCreatorProfile(params: {
       ),
     },
     execution: executionProfile,
+    reply: replyProfile,
     performance: {
       baselineAverageEngagement: params.onboarding.baseline.averageEngagement,
       medianEngagement: params.onboarding.baseline.medianEngagement,
@@ -1197,13 +1366,17 @@ export function buildCreatorProfile(params: {
         params.onboarding.strategyState.goal,
         archetype,
         executionProfile,
+        replyProfile,
+        params.onboarding.growthStage,
         transformationMode,
       ),
       nextMoves: [
         ...performanceModel.nextActions,
         ...buildExecutionNextMoves(
           executionProfile,
+          replyProfile,
           params.onboarding.strategyState.goal,
+          params.onboarding.growthStage,
           transformationMode,
         ),
       ].slice(0, 5),

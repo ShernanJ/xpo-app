@@ -6,6 +6,7 @@ import type { OnboardingDataSource } from "./types";
 
 const MIN_ONBOARDING_SCRAPE_POSTS = 40;
 const MAX_ONBOARDING_ANALYSIS_POSTS = 100;
+const MAX_ONBOARDING_REPLY_ANALYSIS_POSTS = 120;
 
 export async function resolveScrapeDataSource(
   input: OnboardingInput,
@@ -61,6 +62,10 @@ export async function resolveScrapeDataSource(
     source: "scrape",
     profile,
     posts: latestCapture.posts.slice(0, MAX_ONBOARDING_ANALYSIS_POSTS),
+    replyPosts: (latestCapture.replyPosts ?? []).slice(
+      0,
+      MAX_ONBOARDING_REPLY_ANALYSIS_POSTS,
+    ),
     warnings,
   };
 }
