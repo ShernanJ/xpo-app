@@ -1184,6 +1184,8 @@ function buildWriterSystemPrompt(params: {
   intent: CreatorChatIntent;
   contentFocus: string | null;
   selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
   requestAnchors: RequestConditionedAnchors;
 }): string {
   const {
@@ -1193,6 +1195,8 @@ function buildWriterSystemPrompt(params: {
     intent,
     contentFocus,
     selectedAngle,
+    concreteSubject,
+    userMessage,
     requestAnchors,
   } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
@@ -1231,6 +1235,12 @@ function buildWriterSystemPrompt(params: {
     `Authority budget: ${contract.planner.authorityBudget}.`,
     `Proof requirement: ${contract.writer.proofRequirement}`,
     "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
+    buildConcreteTopicGuardrail({
+      selectedAngle,
+      concreteSubject,
+      userMessage,
+    }),
+    "Treat strategy, niche, goal, and growth-loop guidance as background constraints only. They can shape framing, structure, and proof density, but they must not become the literal topic of the post.",
     selectedAngle
       ? `A structured angle was explicitly selected by the user. Preserve it as the central premise: ${selectedAngle}`
       : "No structured angle was explicitly selected.",
@@ -1275,6 +1285,8 @@ function buildCriticSystemPrompt(params: {
   intent: CreatorChatIntent;
   contentFocus: string | null;
   selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
   requestAnchors: RequestConditionedAnchors;
 }): string {
   const {
@@ -1283,6 +1295,8 @@ function buildCriticSystemPrompt(params: {
     intent,
     contentFocus,
     selectedAngle,
+    concreteSubject,
+    userMessage,
     requestAnchors,
   } = params;
   const formFactorGuidance = buildFormFactorGuidance(context, intent);
@@ -1306,6 +1320,12 @@ function buildCriticSystemPrompt(params: {
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
     "Reject drafts that read like empty engagement bait, forced binary questions, or generic startup advice unless the user clearly writes that way.",
     "Reject outputs that replace the user's concrete subject with a generic adjacent topic.",
+    buildConcreteTopicGuardrail({
+      selectedAngle,
+      concreteSubject,
+      userMessage,
+    }),
+    "Reject outputs where broad strategy or goal phrasing becomes the literal topic. Strategy should shape framing only, not replace the concrete subject.",
     "Reject ideation angles that are just category labels, abstract strategies, or gerund starters like 'sharing...', 'discussing...', or 'highlighting...'.",
     "Reject bland phrases like 'major milestone', 'currently working on', 'excited to share', 'valuable insights', or 'establish authority'.",
     contract.planner.outputShape === "long_form_post"
@@ -1458,6 +1478,17 @@ const GENERIC_DRAFT_PHRASES = [
   "share your story",
 ];
 
+const STRATEGY_LEAKAGE_PHRASES = [
+  "distribution-friendly hooks",
+  "repeatable topic series",
+  "strongest current strategy signal",
+  "lean into",
+  "optimize for discovery",
+  "growth loop",
+  "operator lessons",
+  "actionable insights",
+];
+
 function collectSignalTerms(value: string | null | undefined): string[] {
   if (!value) {
     return [];
@@ -1473,6 +1504,26 @@ function collectSignalTerms(value: string | null | undefined): string[] {
         ) ?? [],
     ),
   );
+}
+
+function buildConcreteTopicGuardrail(params: {
+  selectedAngle: string | null;
+  concreteSubject: string | null;
+  userMessage: string;
+}): string {
+  if (params.selectedAngle && params.concreteSubject) {
+    return `Use the selected angle as the central premise and keep the concrete subject in the same wording family. Do not replace either with abstract strategy language. Selected angle: ${params.selectedAngle}. Concrete subject: ${params.concreteSubject}.`;
+  }
+
+  if (params.selectedAngle) {
+    return `Use the selected angle as the exact topic center. Do not replace it with broader strategy phrasing. Selected angle: ${params.selectedAngle}.`;
+  }
+
+  if (params.concreteSubject) {
+    return `The user gave a concrete subject. Keep that exact topic and wording family instead of drifting into broad strategy language. Concrete subject: ${params.concreteSubject}.`;
+  }
+
+  return `No explicit selected angle or concrete subject was detected. Use the user's actual request as the topic source instead of abstract strategy summaries: ${params.userMessage}.`;
 }
 
 function computeLowercaseShare(text: string): number {
@@ -1525,6 +1576,7 @@ function scoreAngleCandidate(params: {
       angle,
     ),
   );
+  const strategyLeakCount = countPhraseMatches(angle, STRATEGY_LEAKAGE_PHRASES);
   let score = 0;
 
   if (
@@ -1565,10 +1617,23 @@ function scoreAngleCandidate(params: {
 
   if (focusTerms.length > 0) {
     score += Math.min(matchingTerms.length, 3) * 1.5;
+
+    if ((params.selectedAngle || params.concreteSubject) && matchingTerms.length === 0) {
+      score -= 4;
+    } else if (
+      (params.selectedAngle || params.concreteSubject) &&
+      focusTerms.length >= 3 &&
+      matchingTerms.length <= 1
+    ) {
+      score -= 1.5;
+    }
   }
 
   score += words.length >= 6 ? 1 : -1;
   score -= countPhraseMatches(angle, GENERIC_DRAFT_PHRASES) * 2;
+  if ((params.selectedAngle || params.concreteSubject) && strategyLeakCount > 0) {
+    score -= strategyLeakCount * 3;
+  }
 
   return score;
 }
@@ -1687,6 +1752,7 @@ function scoreDraftCandidate(params: {
       draft,
     ),
   );
+  const strategyLeakCount = countPhraseMatches(draft, STRATEGY_LEAKAGE_PHRASES);
   let score = 0;
 
   if (params.contract.writer.targetCasing === "lowercase") {
@@ -1707,7 +1773,13 @@ function scoreDraftCandidate(params: {
     score += Math.min(matchingTerms.length, 4) * 1.25;
 
     if ((params.selectedAngle || params.concreteSubject) && matchingTerms.length === 0) {
-      score -= 4;
+      score -= 7;
+    } else if (
+      (params.selectedAngle || params.concreteSubject) &&
+      focusTerms.length >= 3 &&
+      matchingTerms.length <= 1
+    ) {
+      score -= 2;
     }
   }
 
@@ -1789,6 +1861,9 @@ function scoreDraftCandidate(params: {
   }
 
   score -= countPhraseMatches(draft, GENERIC_DRAFT_PHRASES) * 3;
+  if ((params.selectedAngle || params.concreteSubject) && strategyLeakCount > 0) {
+    score -= strategyLeakCount * 4;
+  }
 
   if (/^(sharing|discussing|highlighting|talking)\b/i.test(draft)) {
     score -= 2;
@@ -2020,6 +2095,8 @@ export async function generateCreatorChatReply(params: {
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
       selectedAngle: params.selectedAngle?.trim() || null,
+      concreteSubject,
+      userMessage: params.userMessage,
       requestAnchors,
     }),
     user: [
@@ -2052,12 +2129,12 @@ export async function generateCreatorChatReply(params: {
         3,
       ),
       formatAnchorExamples(
-        "Strategy anchors to learn from",
+        "Strategy anchors to learn from for structure and proof density only (not topic)",
         context.creatorProfile.examples.strategyAnchors,
         2,
       ),
       formatAnchorExamples(
-        "Goal anchors to learn from",
+        "Goal anchors to learn from for framing only (not topic)",
         context.creatorProfile.examples.goalAnchors,
         2,
       ),
@@ -2127,6 +2204,8 @@ export async function generateCreatorChatReply(params: {
       intent: params.intent ?? "draft",
       contentFocus: params.contentFocus ?? null,
       selectedAngle: params.selectedAngle?.trim() || null,
+      concreteSubject,
+      userMessage: params.userMessage,
       requestAnchors,
     }),
     user: [
