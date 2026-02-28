@@ -638,6 +638,7 @@ The generation contract should make these things explicit:
 - whether generation should be conservative
 - which lane the draft should target (original, reply, or quote)
 - the primary angle to push
+- whether the draft should reinforce the current niche or deliberately build toward a target niche
 - which formats and hooks are preferred
 - what must be included
 - what must be avoided
@@ -647,6 +648,8 @@ The generation contract should make these things explicit:
 This should be deterministic and stable before any LLM prompt is introduced.
 
 If readiness is too weak, the contract should fail closed into analysis-only mode instead of attempting generation.
+
+If the observed niche is still broad/generalist, the generation contract should bias the planner and writer toward the recommended target niche instead of pretending the current feed is already clearly niched.
 
 The product should also have a lightweight regression suite that runs multiple trusted onboarding runs through the current deterministic system and validates:
 
