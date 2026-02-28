@@ -1,7 +1,7 @@
 import { buildCreatorAgentContext } from "./agentContext";
 import type { CreatorRepresentativePost, OnboardingResult } from "./types";
 
-export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v1";
+export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v2";
 
 export type CreatorGenerationStageMode =
   | "full_generation"
@@ -83,6 +83,10 @@ function selectAnchorIds(posts: CreatorRepresentativePost[], limit: number): str
   return posts.slice(0, limit).map((post) => post.id);
 }
 
+function formatReadableLabel(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 export function buildCreatorGenerationContract(params: {
   runId: string;
   onboarding: OnboardingResult;
@@ -99,13 +103,27 @@ export function buildCreatorGenerationContract(params: {
   const primaryAngle =
     creatorProfile.strategy.recommendedAngles[0] ??
     "Stay consistent around the strongest current lane.";
+  const observedNiche = creatorProfile.niche.primaryNiche;
+  const targetNiche = creatorProfile.niche.targetNiche;
+  const shouldPlanTowardTargetNiche =
+    observedNiche === "generalist" &&
+    targetNiche !== null &&
+    targetNiche !== "generalist";
+  const effectiveNiche =
+    (shouldPlanTowardTargetNiche ? targetNiche : observedNiche) ?? observedNiche;
 
   const mustInclude = [
-    `Primary niche: ${creatorProfile.niche.primaryNiche.replace(/_/g, " ")}`,
-    `Distribution loop: ${creatorProfile.distribution.primaryLoop.replace(/_/g, " ")}`,
+    shouldPlanTowardTargetNiche
+      ? `Target niche to build toward: ${formatReadableLabel(effectiveNiche)}`
+      : `Primary niche: ${formatReadableLabel(effectiveNiche)}`,
+    `Distribution loop: ${formatReadableLabel(creatorProfile.distribution.primaryLoop)}`,
     `Primary goal: ${creatorProfile.strategy.primaryGoal}`,
     creatorProfile.playbook.ctaPolicy,
   ];
+
+  if (shouldPlanTowardTargetNiche) {
+    mustInclude.push(creatorProfile.niche.transitionSummary);
+  }
 
   if (creatorProfile.conversation.readiness === "high") {
     mustInclude.push("Design for replies and plan to stay active in the thread.");
@@ -122,6 +140,12 @@ export function buildCreatorGenerationContract(params: {
       .map((post) => `Avoid copying pattern from ${post.id}: ${post.selectionReason}`),
   ];
 
+  if (shouldPlanTowardTargetNiche) {
+    mustAvoid.push(
+      "Do not write in a broad generic way that hides the target niche you are trying to build toward.",
+    );
+  }
+
   if (mode === "analysis_only") {
     mustAvoid.push("Do not generate a post draft while context readiness is below threshold.");
   }
@@ -137,6 +161,14 @@ export function buildCreatorGenerationContract(params: {
         ? "The idea should still make sense when rewritten as a standalone take."
         : "The post stands on its own without relying on extra context.",
   ];
+
+  if (shouldPlanTowardTargetNiche) {
+    checklist.push(
+      `The draft should make ${formatReadableLabel(
+        effectiveNiche,
+      )} more legible than the current broad feed does today.`,
+    );
+  }
 
   if (creatorProfile.conversation.readiness === "high") {
     checklist.push("The draft creates an opening for real replies, not just passive likes.");
@@ -155,7 +187,11 @@ export function buildCreatorGenerationContract(params: {
       objective:
         mode === "analysis_only"
           ? "Do not generate. Return analysis and next steps only."
-          : `Plan one ${targetLane} draft that advances ${creatorProfile.strategy.primaryGoal}.`,
+          : shouldPlanTowardTargetNiche
+            ? `Plan one ${targetLane} draft that advances ${creatorProfile.strategy.primaryGoal} while building toward ${formatReadableLabel(
+                effectiveNiche,
+              )}.`
+            : `Plan one ${targetLane} draft that advances ${creatorProfile.strategy.primaryGoal}.`,
       primaryAngle,
       targetLane,
       suggestedContentTypes: creatorProfile.playbook.preferredContentTypes,
