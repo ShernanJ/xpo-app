@@ -132,7 +132,38 @@ It should expose:
 
 That allows downstream systems to treat weak classifications more cautiously.
 
-### 6. Strategy Layer
+### 6. Execution Layer
+
+This is how the account currently distributes attention:
+
+- link usage rate
+- mention usage rate
+- CTA usage rate
+- reply-style rate
+- standalone-style rate
+- link dependence
+- mention dependence
+- CTA intensity
+- delivery style
+- execution notes
+
+This layer exists so the product can reason about delivery constraints directly.
+
+The system should be able to say things like:
+
+- this account is too link-dependent
+- this account relies too heavily on mention-led distribution
+- this account is mostly reply-led
+- this account already has a strong standalone discovery base
+
+These are not just analytics details. They should directly influence:
+
+- current weaknesses
+- recommended angles
+- next moves
+- later draft strategy
+
+### 7. Strategy Layer
 
 This is where the scraped behavior and user goal meet.
 
@@ -169,7 +200,7 @@ That means the strategy layer should separate:
 
 The system should not assume every user wants the same kind of growth.
 
-### 7. Example Layer
+### 8. Example Layer
 
 This is the concrete post context the future drafting agent should use.
 
