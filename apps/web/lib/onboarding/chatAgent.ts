@@ -110,6 +110,7 @@ function normalizeCriticOutput(
 }
 
 export type ChatModelProvider = "openai" | "groq";
+type ChatModelStage = "planner" | "writer" | "critic";
 export type CreatorChatIntent = "ideate" | "draft" | "review";
 export type CreatorChatProgressPhase =
   | "planning"
@@ -521,21 +522,39 @@ function extractJsonObject(text: string): string {
   return trimmed;
 }
 
-function resolveProviderConfig(
+function resolveStageProviderPreference(
+  stage: ChatModelStage,
   preferredProvider?: ChatModelProvider,
-): ModelProviderConfig | null {
-  const normalizedPreference = preferredProvider ?? "groq";
+): ChatModelProvider {
+  const envKey = `CHAT_${stage.toUpperCase()}_PROVIDER` as const;
+  const envPreference = process.env[envKey]?.trim().toLowerCase();
 
-  if (normalizedPreference === "groq") {
+  if (envPreference === "openai" || envPreference === "groq") {
+    return envPreference;
+  }
+
+  return preferredProvider ?? "groq";
+}
+
+function buildProviderConfig(
+  provider: ChatModelProvider,
+  stage: ChatModelStage,
+): ModelProviderConfig | null {
+  if (provider === "groq") {
     const apiKey = process.env.GROQ_API_KEY?.trim();
     if (!apiKey) {
       return null;
     }
 
+    const stageModelKey = `GROQ_${stage.toUpperCase()}_MODEL` as const;
+
     return {
       provider: "groq",
       apiKey,
-      model: process.env.GROQ_MODEL?.trim() || "llama-3.1-8b-instant",
+      model:
+        process.env[stageModelKey]?.trim() ||
+        process.env.GROQ_MODEL?.trim() ||
+        "llama-3.1-8b-instant",
       baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     };
   }
@@ -545,12 +564,33 @@ function resolveProviderConfig(
     return null;
   }
 
+  const stageModelKey = `OPENAI_${stage.toUpperCase()}_MODEL` as const;
+
   return {
     provider: "openai",
     apiKey,
-    model: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
+    model:
+      process.env[stageModelKey]?.trim() ||
+      process.env.OPENAI_MODEL?.trim() ||
+      "gpt-4.1-mini",
     baseUrl: "https://api.openai.com/v1/chat/completions",
   };
+}
+
+function resolveProviderConfig(
+  stage: ChatModelStage,
+  preferredProvider?: ChatModelProvider,
+): ModelProviderConfig | null {
+  const preferred = resolveStageProviderPreference(stage, preferredProvider);
+  const primary = buildProviderConfig(preferred, stage);
+  if (primary) {
+    return primary;
+  }
+
+  const fallbackProvider: ChatModelProvider =
+    preferred === "groq" ? "openai" : "groq";
+
+  return buildProviderConfig(fallbackProvider, stage);
 }
 
 async function callProviderJson<T>(params: {
@@ -2053,9 +2093,11 @@ export async function generateCreatorChatReply(params: {
     };
   }
 
-  const provider = resolveProviderConfig(params.provider);
+  const plannerProvider = resolveProviderConfig("planner", params.provider);
+  const writerProvider = resolveProviderConfig("writer", params.provider);
+  const criticProvider = resolveProviderConfig("critic", params.provider);
 
-  if (!provider) {
+  if (!plannerProvider || !writerProvider || !criticProvider) {
     params.onProgress?.("finalizing");
     return {
       ...deterministicFallback,
@@ -2086,7 +2128,7 @@ export async function generateCreatorChatReply(params: {
 
   params.onProgress?.("planning");
   const plannerResponse = await callProviderJson<PlannerOutput>({
-    provider,
+    provider: plannerProvider,
     system: buildPlannerSystemPrompt({ context, contract }),
     user: [
       `User request: ${params.userMessage}`,
@@ -2153,7 +2195,7 @@ export async function generateCreatorChatReply(params: {
 
   params.onProgress?.("writing");
   const writerResponse = await callProviderJson<WriterOutput>({
-    provider,
+    provider: writerProvider,
     system: buildWriterSystemPrompt({
       context,
       contract,
@@ -2269,7 +2311,7 @@ export async function generateCreatorChatReply(params: {
 
   params.onProgress?.("critic");
   const criticResponse = await callProviderJson<CriticOutput>({
-    provider,
+    provider: criticProvider,
     system: buildCriticSystemPrompt({
       contract,
       context,
@@ -2405,7 +2447,7 @@ export async function generateCreatorChatReply(params: {
   ) {
     try {
       const expansion = await callProviderJson<{ expandedDraft: string }>({
-        provider,
+        provider: writerProvider,
         system: buildLongFormExpansionSystemPrompt({
           context,
           contract,
@@ -2481,8 +2523,8 @@ export async function generateCreatorChatReply(params: {
       writer.whyThisWorks,
     ),
     watchOutFor: sanitizeStringList(finalWatchOutFor, 3),
-    source: provider.provider,
-    model: provider.model,
+    source: writerProvider.provider,
+    model: writerProvider.model,
     mode: contract.mode,
   };
 }
