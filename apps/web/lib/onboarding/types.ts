@@ -34,6 +34,7 @@ export interface OnboardingInput {
   transformationMode?: TransformationMode;
   transformationModeSource?: TransformationModeSource;
   forceMock?: boolean;
+  forceFreshScrape?: boolean;
 }
 
 export interface XPublicProfile {

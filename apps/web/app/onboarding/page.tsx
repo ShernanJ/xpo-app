@@ -277,6 +277,7 @@ export default function OnboardingPage() {
         ? ("user_selected" as const)
         : ("default" as const),
       forceMock,
+      forceFreshScrape: true,
     }),
     [account, forceMock, hasTouchedTransformationMode, transformationMode],
   );

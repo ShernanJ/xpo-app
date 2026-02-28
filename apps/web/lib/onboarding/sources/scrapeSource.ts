@@ -16,20 +16,36 @@ export async function resolveScrapeDataSource(
   const warnings: string[] = [];
   const hadExistingCapture = Boolean(latestCapture);
   const initialPostCount = latestCapture?.posts.length ?? 0;
+  const shouldForceRefresh = input.forceFreshScrape === true;
 
   const shouldBootstrap =
-    !latestCapture || latestCapture.posts.length < MIN_ONBOARDING_SCRAPE_POSTS;
+    shouldForceRefresh ||
+    !latestCapture ||
+    latestCapture.posts.length < MIN_ONBOARDING_SCRAPE_POSTS;
 
   if (shouldBootstrap) {
+    const priorCapture = latestCapture;
     await bootstrapScrapeCapture(input.account);
     const refreshedCapture = await readLatestScrapeCaptureByAccount(input.account);
 
     if (refreshedCapture) {
       latestCapture = refreshedCapture;
+    } else if (priorCapture) {
+      latestCapture = priorCapture;
     }
 
     if (!latestCapture) {
       warnings.push("No cached scrape found. Ran live onboarding bootstrap scrape.");
+    } else if (
+      shouldForceRefresh &&
+      refreshedCapture &&
+      refreshedCapture.captureId !== priorCapture?.captureId
+    ) {
+      warnings.push("Ran a fresh onboarding scrape before analysis.");
+    } else if (shouldForceRefresh && priorCapture) {
+      warnings.push(
+        "Attempted a fresh onboarding scrape, but kept the cached capture when no newer result was available.",
+      );
     } else if (latestCapture.posts.length < MIN_ONBOARDING_SCRAPE_POSTS) {
       warnings.push(
         hadExistingCapture

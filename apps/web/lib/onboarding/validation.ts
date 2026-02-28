@@ -15,7 +15,8 @@ type OnboardingField =
   | "transformationModeSource"
   | "tone.casing"
   | "tone.risk"
-  | "forceMock";
+  | "forceMock"
+  | "forceFreshScrape";
 
 export interface OnboardingValidationError {
   field: OnboardingField;
@@ -204,6 +205,18 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
     }
   }
 
+  let forceFreshScrape: boolean | undefined;
+  if (body.forceFreshScrape !== undefined) {
+    if (typeof body.forceFreshScrape !== "boolean") {
+      errors.push({
+        field: "forceFreshScrape",
+        message: "forceFreshScrape must be a boolean when provided.",
+      });
+    } else {
+      forceFreshScrape = body.forceFreshScrape;
+    }
+  }
+
   if (errors.length > 0 || !account || !goal || !casing || !risk) {
     return { ok: false, errors };
   }
@@ -221,6 +234,7 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
         risk,
       },
       forceMock,
+      forceFreshScrape,
     },
   };
 }
