@@ -72,6 +72,20 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
+function formatNicheSummary(context: CreatorAgentContext): string {
+  const { primaryNiche, targetNiche } = context.creatorProfile.niche;
+
+  if (
+    primaryNiche === "generalist" &&
+    targetNiche &&
+    targetNiche !== "generalist"
+  ) {
+    return `Broad Right Now -> ${formatEnumLabel(targetNiche)}`;
+  }
+
+  return formatEnumLabel(primaryNiche);
+}
+
 const chatScanlineStyle = {
   backgroundImage:
     "linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
@@ -84,17 +98,31 @@ function buildInitialAssistantMessage(
 ): string {
   const angle = contract.planner.primaryAngle;
   const loop = formatEnumLabel(context.creatorProfile.distribution.primaryLoop);
-  const niche = formatEnumLabel(context.creatorProfile.niche.primaryNiche);
+  const observedNiche = formatEnumLabel(context.creatorProfile.niche.primaryNiche);
+  const targetNiche =
+    context.creatorProfile.niche.targetNiche &&
+    context.creatorProfile.niche.targetNiche !== "generalist"
+      ? formatEnumLabel(context.creatorProfile.niche.targetNiche)
+      : null;
 
   if (contract.mode === "analysis_only") {
     return `I analyzed @${context.account}. Your current model is not strong enough for reliable drafting yet. You're trending ${formatEnumLabel(
       context.creatorProfile.archetype,
-    )} in ${niche}, but we should stay in analysis mode until the sample deepens.`;
+    )} in ${observedNiche}, but we should stay in analysis mode until the sample deepens.`;
+  }
+
+  if (
+    context.creatorProfile.niche.primaryNiche === "generalist" &&
+    targetNiche
+  ) {
+    return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
+      context.creatorProfile.archetype,
+    )}, but your current niche signal is still broad. The best niche to build toward is ${targetNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
   }
 
   return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
     context.creatorProfile.archetype,
-  )} in ${niche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
+  )} in ${observedNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
 }
 
 function buildDeterministicReply(
@@ -283,7 +311,7 @@ export default function ChatPage() {
 
     return [
       `Archetype: ${formatEnumLabel(context.creatorProfile.archetype)}`,
-      `Niche: ${formatEnumLabel(context.creatorProfile.niche.primaryNiche)}`,
+      `Niche: ${formatNicheSummary(context)}`,
       `Loop: ${formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}`,
       `Readiness: ${formatEnumLabel(context.readiness.status)}`,
     ];
@@ -657,7 +685,7 @@ export default function ChatPage() {
                 <div className="border border-white/10 p-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    {formatEnumLabel(context.creatorProfile.niche.primaryNiche)}
+                    {formatNicheSummary(context)}
                   </p>
                 </div>
                 <div className="border border-white/10 p-4">

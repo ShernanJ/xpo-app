@@ -14,6 +14,7 @@ import type {
   CreatorConversationProfile,
   CreatorDistributionLoopProfile,
   CreatorNicheLabel,
+  CreatorNicheRecommendation,
   CreatorNicheOverlayProfile,
   CreatorOfferType,
   CreatorPlaybookProfile,
@@ -730,6 +731,12 @@ function formatNicheLabel(label: CreatorNicheLabel): string {
   }
 }
 
+function formatReadableLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function buildNicheOverlayProfile(params: {
   profileBio: string;
   posts: XPublicPost[];
@@ -769,6 +776,10 @@ function buildNicheOverlayProfile(params: {
       secondaryNiche: null,
       confidence: 20,
       domainSignals: [],
+      targetNiche: null,
+      recommendedNiches: [],
+      transitionSummary:
+        "The current account signal is still too broad to recommend one domain direction from observed behavior alone.",
       likelyOffer: "audience_only",
       offerSignals: [],
       audienceIntent:
@@ -813,6 +824,10 @@ function buildNicheOverlayProfile(params: {
         label: entry.label,
         score: entry.score,
       })),
+      targetNiche: null,
+      recommendedNiches: [],
+      transitionSummary:
+        "The current account signal is still broad. Use the goal and strategic direction to choose a clearer niche to build toward.",
       likelyOffer,
       offerSignals,
       audienceIntent:
@@ -837,6 +852,11 @@ function buildNicheOverlayProfile(params: {
       label: entry.label,
       score: entry.score,
     })),
+    targetNiche: primary.label,
+    recommendedNiches: [],
+    transitionSummary: `Current posts already lean ${formatNicheLabel(
+      primary.label,
+    )}; the job now is to make that niche more legible and repeatable.`,
     likelyOffer,
     offerSignals,
     audienceIntent: primary.audienceIntent,
@@ -847,6 +867,225 @@ function buildNicheOverlayProfile(params: {
             secondary.label,
           )}.`
         : ""),
+  };
+}
+
+function buildTargetNicheProfile(params: {
+  observed: CreatorNicheOverlayProfile;
+  goal: UserGoal;
+  archetype: CreatorArchetype;
+  transformationMode: OnboardingResult["strategyState"]["transformationMode"];
+}): CreatorNicheOverlayProfile {
+  const scores = new Map<CreatorNicheLabel, number>();
+  const reasons = new Map<CreatorNicheLabel, string[]>();
+
+  for (const definition of NICHE_DEFINITIONS) {
+    scores.set(definition.label, 0);
+    reasons.set(definition.label, []);
+  }
+
+  const boost = (label: CreatorNicheLabel, amount: number, reason: string) => {
+    if (label === "generalist" || !scores.has(label)) {
+      return;
+    }
+
+    scores.set(label, (scores.get(label) ?? 0) + amount);
+
+    const currentReasons = reasons.get(label) ?? [];
+    if (!currentReasons.includes(reason)) {
+      currentReasons.push(reason);
+      reasons.set(label, currentReasons);
+    }
+  };
+
+  for (const signal of params.observed.domainSignals) {
+    boost(
+      signal.label,
+      signal.score * 4,
+      `${formatNicheLabel(signal.label)} already shows up in the current domain signals.`,
+    );
+  }
+
+  if (params.observed.primaryNiche !== "generalist") {
+    const carryForwardWeight =
+      params.transformationMode === "preserve"
+        ? 28
+        : params.transformationMode === "optimize"
+          ? 22
+          : 10;
+
+    boost(
+      params.observed.primaryNiche,
+      carryForwardWeight,
+      "The current feed already has a clear niche signal worth preserving or compounding.",
+    );
+  }
+
+  if (
+    params.observed.secondaryNiche &&
+    (params.transformationMode === "preserve" ||
+      params.transformationMode === "optimize")
+  ) {
+    boost(
+      params.observed.secondaryNiche,
+      12,
+      "A secondary niche already exists and can be tightened if needed.",
+    );
+  }
+
+  const archetypeBoosts: Record<CreatorArchetype, Array<[CreatorNicheLabel, number]>> = {
+    builder: [
+      ["software_and_product", 18],
+      ["startups_and_growth", 14],
+      ["artificial_intelligence", 8],
+    ],
+    founder_operator: [
+      ["startups_and_growth", 20],
+      ["software_and_product", 12],
+      ["media_and_creators", 6],
+    ],
+    job_seeker: [
+      ["career_and_hiring", 20],
+      ["software_and_product", 10],
+      ["startups_and_growth", 8],
+    ],
+    educator: [
+      ["software_and_product", 10],
+      ["fitness_and_health", 10],
+      ["design_and_creative", 10],
+      ["policy_and_society", 8],
+      ["finance_and_investing", 8],
+      ["artificial_intelligence", 8],
+    ],
+    curator: [
+      ["media_and_creators", 16],
+      ["policy_and_society", 10],
+      ["finance_and_investing", 10],
+      ["software_and_product", 8],
+      ["community_and_events", 8],
+    ],
+    social_operator: [
+      ["community_and_events", 20],
+      ["media_and_creators", 14],
+      ["startups_and_growth", 6],
+    ],
+    hybrid: [["software_and_product", 8], ["media_and_creators", 8], ["startups_and_growth", 8]],
+  };
+
+  for (const [label, amount] of archetypeBoosts[params.archetype]) {
+    boost(
+      label,
+      amount,
+      `${formatReadableLabel(params.archetype)} accounts tend to build authority in this lane more naturally.`,
+    );
+  }
+
+  const goalBoosts: Record<UserGoal, Array<[CreatorNicheLabel, number]>> = {
+    followers: [
+      ["media_and_creators", 12],
+      ["community_and_events", 10],
+      ["software_and_product", 8],
+    ],
+    leads: [
+      ["software_and_product", 12],
+      ["startups_and_growth", 12],
+      ["design_and_creative", 8],
+      ["fitness_and_health", 8],
+      ["finance_and_investing", 8],
+      ["career_and_hiring", 6],
+    ],
+    authority: [
+      ["software_and_product", 12],
+      ["artificial_intelligence", 12],
+      ["finance_and_investing", 12],
+      ["policy_and_society", 12],
+      ["design_and_creative", 8],
+      ["fitness_and_health", 8],
+    ],
+  };
+
+  for (const [label, amount] of goalBoosts[params.goal]) {
+    boost(
+      label,
+      amount,
+      `${formatReadableLabel(params.goal)} is easier when the niche is clear and legible in this lane.`,
+    );
+  }
+
+  const offerBoosts: Record<CreatorOfferType, Array<[CreatorNicheLabel, number]>> = {
+    audience_only: [
+      ["media_and_creators", 8],
+      ["community_and_events", 4],
+    ],
+    job_market: [["career_and_hiring", 14]],
+    product_or_company: [
+      ["startups_and_growth", 12],
+      ["software_and_product", 10],
+    ],
+    service_or_consulting: [
+      ["software_and_product", 8],
+      ["design_and_creative", 8],
+      ["finance_and_investing", 8],
+      ["fitness_and_health", 8],
+      ["policy_and_society", 6],
+    ],
+    community_or_event: [
+      ["community_and_events", 14],
+      ["media_and_creators", 8],
+    ],
+  };
+
+  for (const [label, amount] of offerBoosts[params.observed.likelyOffer]) {
+    boost(label, amount, `The likely offer or conversion path already fits ${formatNicheLabel(label)} better than a broad feed.`);
+  }
+
+  const rankedRecommendations = Array.from(scores.entries())
+    .filter((entry) => entry[1] > 0)
+    .sort((left, right) => right[1] - left[1]);
+
+  const recommendedNiches: CreatorNicheRecommendation[] = rankedRecommendations
+    .slice(0, 3)
+    .map(([label, score]) => ({
+      label,
+      score: Number(score.toFixed(2)),
+      rationale: (reasons.get(label) ?? []).slice(0, 2).join(" "),
+    }));
+
+  const targetNiche = recommendedNiches[0]?.label ?? null;
+
+  let transitionSummary =
+    "Use the current goal and strongest signals to pick one clearer domain lane, then repeat it until the account reads less mixed.";
+
+  if (targetNiche) {
+    if (params.observed.primaryNiche === "generalist") {
+      transitionSummary = `Right now the account reads broad. Build toward ${formatNicheLabel(
+        targetNiche,
+      )} by repeating domain-specific examples, references, and post angles until the feed feels more legible.`;
+    } else if (targetNiche !== params.observed.primaryNiche) {
+      transitionSummary =
+        params.transformationMode === "pivot_hard"
+          ? `Current posts lean ${formatNicheLabel(
+              params.observed.primaryNiche,
+            )}, but the stronger direction is ${formatNicheLabel(
+              targetNiche,
+            )}. Shift decisively so the new niche becomes unmistakable.`
+          : `Current posts lean ${formatNicheLabel(
+              params.observed.primaryNiche,
+            )}, but the stronger next lane is ${formatNicheLabel(
+              targetNiche,
+            )}. Shift gradually by increasing that domain's share of the weekly mix.`;
+    } else {
+      transitionSummary = `Current posts already lean ${formatNicheLabel(
+        targetNiche,
+      )}. The next step is to make that niche easier to recognize by repeating it more consistently.`;
+    }
+  }
+
+  return {
+    ...params.observed,
+    targetNiche,
+    recommendedNiches,
+    transitionSummary,
   };
 }
 
@@ -2365,6 +2604,12 @@ function buildRecommendedAngles(
     angles.push(
       `Turn your strongest ${formatNicheLabel(niche.primaryNiche)} signal into a repeatable series instead of isolated one-off posts.`,
     );
+  } else if (niche.targetNiche && niche.targetNiche !== "generalist") {
+    angles.push(
+      `Right now the feed is too broad to read as one clear niche. Build toward ${formatNicheLabel(
+        niche.targetNiche,
+      )} by repeating that domain's examples, references, and post angles more consistently.`,
+    );
   }
 
   if (goal === "followers" && conversation.readiness === "low") {
@@ -2666,6 +2911,17 @@ function buildPlaybookProfile(params: {
       `Build one repeatable weekly series around ${formatNicheLabel(
         params.niche.primaryNiche,
       )} that the audience can recognize quickly.`,
+    );
+  } else if (params.niche.targetNiche && params.niche.targetNiche !== "generalist") {
+    toneGuidelines.push(
+      `The current feed is still broad, so start anchoring examples and references in ${formatNicheLabel(
+        params.niche.targetNiche,
+      )} until the account reads less mixed.`,
+    );
+    experimentFocus.push(
+      `Run a weekly series that repeatedly signals ${formatNicheLabel(
+        params.niche.targetNiche,
+      )} so the niche becomes easier to recognize.`,
     );
   }
 
@@ -3216,7 +3472,7 @@ export function buildCreatorProfile(params: {
     });
 
   const dominantTopics = extractTopicSignals(posts);
-  const nicheProfile = buildNicheOverlayProfile({
+  const observedNicheProfile = buildNicheOverlayProfile({
     profileBio: params.onboarding.profile.bio,
     posts,
     topics: dominantTopics,
@@ -3243,6 +3499,12 @@ export function buildCreatorProfile(params: {
     params.onboarding.strategyState.transformationMode ?? "optimize";
   const transformationModeSource =
     params.onboarding.strategyState.transformationModeSource ?? "default";
+  const nicheProfile = buildTargetNicheProfile({
+    observed: observedNicheProfile,
+    goal: params.onboarding.strategyState.goal,
+    archetype,
+    transformationMode,
+  });
   const targetState = buildTargetState({
     goal: params.onboarding.strategyState.goal,
     archetype,

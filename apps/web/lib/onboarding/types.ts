@@ -305,11 +305,20 @@ export interface CreatorNicheSignal {
   score: number;
 }
 
+export interface CreatorNicheRecommendation {
+  label: CreatorNicheLabel;
+  score: number;
+  rationale: string;
+}
+
 export interface CreatorNicheOverlayProfile {
   primaryNiche: CreatorNicheLabel;
   secondaryNiche: CreatorNicheLabel | null;
   confidence: number;
   domainSignals: CreatorNicheSignal[];
+  targetNiche: CreatorNicheLabel | null;
+  recommendedNiches: CreatorNicheRecommendation[];
+  transitionSummary: string;
   likelyOffer: CreatorOfferType;
   offerSignals: string[];
   audienceIntent: string;
