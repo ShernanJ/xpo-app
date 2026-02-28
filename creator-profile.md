@@ -117,6 +117,16 @@ This is the bridge between raw behavior and strategy.
 
 The archetype helps determine which growth tactics and content framing are most natural for the user.
 
+The model should not force a single hard label when the account is clearly mixed.
+
+It should expose:
+
+- primary archetype
+- secondary archetype (when there is meaningful overlap)
+- archetype confidence
+
+That allows downstream systems to treat weak classifications more cautiously.
+
 ### 6. Strategy Layer
 
 This is where the scraped behavior and user goal meet.
