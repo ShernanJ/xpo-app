@@ -498,6 +498,7 @@ function buildRepresentativeExamples(params: {
       voiceAnchors: [],
       strategyAnchors: [],
       goalAnchors: [],
+      goalConflictExamples: [],
       cautionExamples: [],
     };
   }
@@ -595,6 +596,14 @@ function buildRepresentativeExamples(params: {
     baselineEngagement,
     goal: params.goal,
   });
+  const goalConflictExamples = buildGoalConflictExamples({
+    originalPosts: posts,
+    replyPosts: params.replyPosts,
+    quotePosts: params.quotePosts,
+    baselineEngagement,
+    goal: params.goal,
+    strategyDelta: params.strategyDelta,
+  });
 
   const byEngagementAsc = [...posts].sort((a, b) => {
     const engagementDelta = computePostEngagement(a) - computePostEngagement(b);
@@ -621,6 +630,7 @@ function buildRepresentativeExamples(params: {
     voiceAnchors,
     strategyAnchors,
     goalAnchors,
+    goalConflictExamples,
     cautionExamples,
   };
 }
@@ -821,6 +831,130 @@ function buildGoalAnchors(params: {
       lane,
       params.baselineEngagement,
       `Best example for the current goal (${params.goal}). Use this as a goal-specific drafting anchor.`,
+    ),
+  );
+}
+
+function buildGoalConflictExamples(params: {
+  originalPosts: XPublicPost[];
+  replyPosts: XPublicPost[];
+  quotePosts: XPublicPost[];
+  baselineEngagement: number;
+  goal: UserGoal;
+  strategyDelta: CreatorStrategyProfile["delta"];
+}): CreatorRepresentativePost[] {
+  const priorities: Record<CreatorStrategyProfile["delta"]["adjustments"][number]["priority"], number> = {
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
+
+  const candidates: Array<{ post: XPublicPost; lane: CreatorContentLane }> = [
+    ...params.originalPosts.map((post) => ({ post, lane: "original" as const })),
+    ...params.replyPosts.map((post) => ({ post, lane: "reply" as const })),
+    ...params.quotePosts.map((post) => ({ post, lane: "quote" as const })),
+  ];
+
+  const scored = candidates
+    .map(({ post, lane }) => {
+      const features = analyzePostFeatures(post);
+      let score = Math.max(
+        0,
+        (params.baselineEngagement - features.engagementTotal) /
+          Math.max(1, params.baselineEngagement || 1),
+      );
+
+      if (params.goal === "followers") {
+        if (features.hasLinks) {
+          score += 1.1;
+        }
+        if (features.hasMentions) {
+          score += 0.8;
+        }
+        if (lane !== "original") {
+          score += 0.55;
+        }
+        if (features.entityCandidates.length >= 3) {
+          score += 0.75;
+        }
+      }
+
+      if (params.goal === "leads") {
+        if (!features.hasCta) {
+          score += 1.2;
+        }
+        if (!features.hasNumbers) {
+          score += 0.9;
+        }
+        if (features.wordCount < 12) {
+          score += 0.7;
+        }
+        if (lane !== "original") {
+          score += 0.45;
+        }
+      }
+
+      if (params.goal === "authority") {
+        if (features.wordCount < 16) {
+          score += 1.1;
+        }
+        if (features.lineCount <= 1) {
+          score += 0.7;
+        }
+        if (lane === "reply") {
+          score += 0.7;
+        }
+        if (features.hasLinks) {
+          score += 0.45;
+        }
+      }
+
+      for (const adjustment of params.strategyDelta.adjustments) {
+        const weight = priorities[adjustment.priority];
+
+        if (adjustment.area === "link_dependence" && features.hasLinks) {
+          score += 0.8 * weight;
+        }
+
+        if (adjustment.area === "mention_dependence" && features.hasMentions) {
+          score += 0.8 * weight;
+        }
+
+        if (adjustment.area === "standalone_posts" && lane !== "original") {
+          score += 0.8 * weight;
+        }
+
+        if (
+          (adjustment.area === "audience_breadth" ||
+            adjustment.area === "topic_specificity") &&
+          features.entityCandidates.length >= 2
+        ) {
+          score += 0.55 * weight;
+        }
+      }
+
+      return {
+        post,
+        lane,
+        score,
+        engagementTotal: features.engagementTotal,
+      };
+    })
+    .sort((a, b) => {
+      const scoreDelta = b.score - a.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return a.engagementTotal - b.engagementTotal;
+    });
+
+  return scored.slice(0, 3).map(({ post, lane }) =>
+    buildRepresentativePost(
+      post,
+      lane,
+      params.baselineEngagement,
+      `High-conflict example for the current goal (${params.goal}). Avoid repeating this pattern while pursuing the current target state.`,
     ),
   );
 }
