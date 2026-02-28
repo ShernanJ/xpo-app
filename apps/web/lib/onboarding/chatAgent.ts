@@ -754,6 +754,74 @@ function formatExemplar(post: CreatorRepresentativePost | null): string {
   return `${post.id} (${post.selectionReason}) -> ${post.text}`;
 }
 
+function buildFormatBlueprint(params: {
+  post: CreatorRepresentativePost | null;
+  outputShape: CreatorGenerationOutputShape;
+}): string {
+  const { post, outputShape } = params;
+
+  if (!post) {
+    return "No strong structural blueprint available.";
+  }
+
+  const lines = post.text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const wordCount = post.text.split(/\s+/).filter(Boolean).length;
+  const bulletLines = lines.filter((line) => /^[-*•]\s|^\d+\./.test(line)).length;
+  const numberedFacts =
+    post.text.match(/\b\d[\d,.%$kKmMbByY<>+/:-]*\b/g)?.length ?? 0;
+  const hasIdentityIntro =
+    /(?:^|\n)i(?:'m| am)\b.{0,60}\b(founder|builder|cto|ceo|engineer)\b/i.test(
+      post.text,
+    );
+  const hasManifestoSection =
+    /here'?s what i(?:'ll| will) be posting about|here'?s what i(?:'m| am) focused on|my goal for\b/i.test(
+      post.text,
+    );
+  const hasOriginStory =
+    /\b(i grew up|when i first|years later|immigrat|small town|cold .+ winter)\b/i.test(
+      post.text,
+    );
+  const hasContrarianFrame =
+    /\b(ignore|ignoring|wrong|unlearn|less, not more|delete 80%|founder traps)\b/i.test(
+      post.text,
+    );
+  const hasConfidentClose = !/\?\s*$/.test(post.text.trim());
+
+  return [
+    outputShape === "long_form_post" || outputShape === "thread_seed"
+      ? "Use a developed long-form authority shape, not a tweet-sized answer."
+      : "Keep the structure compact and direct.",
+    hasIdentityIntro
+      ? "Open by grounding the reader in who the creator is or what they do."
+      : "Open with a clear thesis, not a question.",
+    bulletLines > 0
+      ? `Use a bullet-led core section (${bulletLines} bullet beats in the exemplar).`
+      : lines.length >= 4 || wordCount >= 80
+        ? `Use multiple short sections (${Math.max(lines.length, 3)} beats), not one flat paragraph.`
+        : "Use at least 3 clear beats if you are writing long form.",
+    numberedFacts > 0
+      ? `Carry concrete proof. The exemplar uses ${numberedFacts} numeric or metric signals.`
+      : "Include at least one concrete proof point, artifact, or operating detail.",
+    hasContrarianFrame
+      ? "Include one strong contrarian belief or anti-best-practice statement."
+      : "Make one clear point of view explicit.",
+    hasManifestoSection
+      ? "If it fits, include an explicit promise, framework, or 'here's what I'm posting about' section."
+      : "",
+    hasOriginStory
+      ? "Use one short lived-context or backstory beat to add weight."
+      : "",
+    hasConfidentClose
+      ? "Prefer a confident closing statement over a forced question ending."
+      : "If you end with a question, only do it after a fully developed thesis.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function extractConcreteSubject(userMessage: string): string | null {
   const trimmed = userMessage.trim();
   const patterns = [
@@ -901,6 +969,13 @@ function buildWriterSystemPrompt(params: {
       contract,
     }),
   );
+  const formatBlueprint = buildFormatBlueprint({
+    post: pickFormatExemplar({
+      context,
+      contract,
+    }),
+    outputShape: contract.planner.outputShape,
+  });
 
   return [
     "You are the writer for an X growth assistant.",
@@ -950,6 +1025,7 @@ function buildWriterSystemPrompt(params: {
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
     `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
+    `Structural blueprint (follow this shape unless the user clearly needs something else): ${formatBlueprint}`,
     "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
     "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
@@ -976,6 +1052,13 @@ function buildCriticSystemPrompt(params: {
       contract,
     }),
   );
+  const formatBlueprint = buildFormatBlueprint({
+    post: pickFormatExemplar({
+      context,
+      contract,
+    }),
+    outputShape: contract.planner.outputShape,
+  });
 
   return [
     "You are the critic for an X growth assistant.",
@@ -993,6 +1076,8 @@ function buildCriticSystemPrompt(params: {
       ? "Reject long-form drafts that still read like short tweet-sized posts. They should be meaningfully developed, usually beyond tweet length, with a clear thesis and structure."
       : "",
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
+    `Structural blueprint to enforce: ${formatBlueprint}`,
+    "Reject long-form or thread outputs that ignore the structural blueprint and collapse into a generic tweet-sized answer.",
     "Prefer concise first-person lowercase phrasing when the user's voice supports it, for example: 'been building ... , thoughts?'",
     `Target casing: ${contract.writer.targetCasing}.`,
     `Target risk: ${contract.writer.targetRisk}.`,
@@ -1204,11 +1289,24 @@ function scoreAngleCandidate(params: {
     params.contract.planner.outputShape === "thread_seed"
   ) {
     if (/\?$/.test(angle) || /^(what|how|why|when|where|who)\b/i.test(angle)) {
-      score -= 6;
+      score -= 9;
     }
 
-    if (/^(here'?s|the|when|why|most|founders|building|scaling)\b/i.test(angle)) {
-      score += 1.5;
+    if (
+      /\b(how to|what are|what's the|how do you|how can founders|what metrics do you)\b/i.test(
+        angle,
+      )
+    ) {
+      score -= 5;
+    }
+
+    if (
+      !/\?$/.test(angle) &&
+      /^(here'?s|the|most|founders|get|why|building|scaling|i(?:'m| am)|my|the playbook|the discipline|the founder traps|what it actually takes)\b/i.test(
+        angle,
+      )
+    ) {
+      score += 3;
     }
 
     if (hasProofSignal(angle) || /\b(arr|users|team|engineers|profit|scale)\b/i.test(angle)) {
@@ -1269,6 +1367,16 @@ function rerankAngles(params: {
 function countPhraseMatches(text: string, phrases: string[]): number {
   const lowered = text.toLowerCase();
   return phrases.filter((phrase) => lowered.includes(phrase)).length;
+}
+
+function isClearlyLongFormDraft(draft: string): boolean {
+  const weightedCount = computeXWeightedCharacterCount(draft);
+  const wordCount = draft.trim().split(/\s+/).filter(Boolean).length;
+
+  return (
+    weightedCount >= 380 ||
+    (hasStructuredLongFormShape(draft) && wordCount >= 55)
+  );
 }
 
 function scoreDraftCandidate(params: {
@@ -1396,6 +1504,48 @@ function rerankDrafts(params: {
     .sort((left, right) => right.score - left.score);
 
   return candidates.slice(0, 3).map((candidate) => candidate.draft);
+}
+
+function buildLongFormExpansionSystemPrompt(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+}): string {
+  const formatExemplarLine = formatExemplar(
+    pickFormatExemplar({
+      context: params.context,
+      contract: params.contract,
+    }),
+  );
+  const formatBlueprint = buildFormatBlueprint({
+    post: pickFormatExemplar({
+      context: params.context,
+      contract: params.contract,
+    }),
+    outputShape: params.contract.planner.outputShape,
+  });
+
+  return [
+    "You are expanding an X long-form draft into a stronger, more developed post.",
+    "Return one expanded draft only.",
+    "The expanded draft must stay faithful to the existing premise, voice, and subject.",
+    "Do not change the topic or turn it into generic advice.",
+    "Keep the user's voice and casing. Preserve casualness when appropriate.",
+    "For long-form on X, the post should be substantially developed and usually exceed normal tweet length.",
+    "Use a clear thesis, supporting proof, and stronger structure.",
+    "A paragraph + bullets or multiple short paragraphs is good if it fits.",
+    "Do not pad with filler. Add specifics, examples, constraints, or stronger framing.",
+    params.selectedAngle
+      ? `The selected angle must remain the central premise: ${params.selectedAngle}`
+      : "No explicit selected angle was provided.",
+    `Required output shape: ${params.contract.planner.outputShape}.`,
+    `Target casing: ${params.contract.writer.targetCasing}.`,
+    `Tone blend: ${params.contract.writer.toneBlendSummary}`,
+    `Proof requirement: ${params.contract.writer.proofRequirement}`,
+    `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
+    `Follow this structural blueprint: ${formatBlueprint}`,
+    "Return only valid JSON that follows the provided schema.",
+  ].join("\n");
 }
 
 export async function generateCreatorChatReply(params: {
@@ -1694,7 +1844,7 @@ export async function generateCreatorChatReply(params: {
           userMessage: params.userMessage,
         })
       : [];
-  const finalDrafts =
+  let finalDrafts =
     intent === "ideate"
       ? []
       : rerankDrafts({
@@ -1709,6 +1859,57 @@ export async function generateCreatorChatReply(params: {
     3,
     writer.watchOutFor,
   );
+
+  if (
+    intent !== "ideate" &&
+    contract.planner.outputShape === "long_form_post" &&
+    finalDrafts.length > 0 &&
+    !finalDrafts.some((draft) => isClearlyLongFormDraft(draft))
+  ) {
+    try {
+      const expansion = await callProviderJson<{ expandedDraft: string }>({
+        provider,
+        system: buildLongFormExpansionSystemPrompt({
+          context,
+          contract,
+          selectedAngle: params.selectedAngle?.trim() || null,
+        }),
+        user: [
+          `Original user request: ${params.userMessage}`,
+          `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
+          `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+          `Current best draft to expand:\n${finalDrafts[0]}`,
+          `Other candidate drafts:\n${finalDrafts.slice(1).join("\n\n") || "none"}`,
+        ].join("\n\n"),
+        schemaName: "creator_long_form_expansion_output",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            expandedDraft: { type: "string" },
+          },
+          required: ["expandedDraft"],
+        },
+      });
+
+      const expandedDraft = loosenDraftText(
+        coerceString(expansion?.expandedDraft),
+        contract,
+      );
+
+      if (expandedDraft) {
+        finalDrafts = rerankDrafts({
+          drafts: [expandedDraft, ...finalDrafts],
+          contract,
+          selectedAngle: params.selectedAngle?.trim() || null,
+          concreteSubject,
+          userMessage: params.userMessage,
+        });
+      }
+    } catch {
+      // Keep the original drafts if the long-form expansion pass fails.
+    }
+  }
 
   if (
     intent !== "ideate" &&
