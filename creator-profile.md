@@ -637,6 +637,12 @@ The generation contract should make these things explicit:
 - whether generation is allowed at all
 - whether generation should be conservative
 - which lane the draft should target (original, reply, or quote)
+- which output shape should be used:
+  - short-form post
+  - long-form post
+  - thread seed
+  - reply candidate
+  - quote candidate
 - the primary angle to push
 - whether the draft should reinforce the current niche or deliberately build toward a target niche
 - which formats and hooks are preferred
@@ -650,6 +656,24 @@ This should be deterministic and stable before any LLM prompt is introduced.
 If readiness is too weak, the contract should fail closed into analysis-only mode instead of attempting generation.
 
 If the observed niche is still broad/generalist, the generation contract should bias the planner and writer toward the recommended target niche instead of pretending the current feed is already clearly niched.
+
+Frontend should not own generation style logic.
+
+The client should send structured inputs such as:
+
+- intent
+- content focus
+- selected angle
+
+The backend should then use the creator profile + generation contract to decide:
+
+- output shape
+- tone form
+- CTA style
+- whether a question ending is natural
+- which asset would best support the post
+
+This keeps the intelligence centralized and makes results easier to debug.
 
 The first live LLM integration should sit server-side on top of this contract:
 
