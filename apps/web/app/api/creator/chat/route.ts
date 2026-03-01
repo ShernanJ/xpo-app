@@ -119,11 +119,11 @@ export async function POST(request: Request) {
 
     if (intent === "coach" || intent === "ideate") {
       if (contentFocus) {
-        return `I picked ${contentFocus}. Ask me ONE question to make this specific before drafting.`;
+        return `I want to focus on ${contentFocus}. Help me find one concrete moment worth turning into a post.`;
       }
 
       if (intent === "coach") {
-        return "Ask me ONE question to make this specific before drafting.";
+        return "Help me find one concrete moment worth turning into a post.";
       }
 
       return "";

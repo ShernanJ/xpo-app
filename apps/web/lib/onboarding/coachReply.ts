@@ -60,7 +60,11 @@ export function isBroadDraftRequest(value: string): boolean {
   return (
     /\b(make|write|draft) (me )?a post\b/.test(normalized) ||
     /\bhelp me write a post\b/.test(normalized) ||
-    /\bmake this a post\b/.test(normalized)
+    /\bmake this a post\b/.test(normalized) ||
+    /\b(can|could) you just draft me a post\b/.test(normalized) ||
+    /\bgive me anything\b/.test(normalized) ||
+    /\bjust give me something\b/.test(normalized) ||
+    /\bgive me a starting point\b/.test(normalized)
   );
 }
 

@@ -469,6 +469,65 @@ function buildDeterministicCoachReply(params: {
   };
 }
 
+function extractActiveConversationConstraints(params: {
+  history: ChatHistoryMessage[];
+  userMessage: string;
+}): string[] {
+  const constraints = new Set<string>();
+  const recentUserMessages = params.history
+    .filter((message) => message.role === "user")
+    .slice(-6)
+    .map((message) => message.content);
+  const candidateMessages = [...recentUserMessages, params.userMessage];
+
+  for (const value of candidateMessages) {
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    if (
+      /villainiz|vilify|make (my )?cofounder look bad|too negative|too harsh/i.test(
+        normalized,
+      )
+    ) {
+      constraints.add(
+        "Do not villainize the other person. Keep the focus on the creator's lesson and what they would do differently.",
+      );
+    }
+
+    if (isMetaClarifyingPrompt(normalized)) {
+      constraints.add(
+        "If a detail is irrelevant, acknowledge it directly and do not keep steering the conversation back to it.",
+      );
+    }
+
+    if (isCorrectionPrompt(normalized)) {
+      constraints.add(
+        "Respect the user's correction immediately and carry that boundary forward in later turns.",
+      );
+    }
+  }
+
+  return Array.from(constraints);
+}
+
+function hasConcreteUserSignal(history: ChatHistoryMessage[]): boolean {
+  return history
+    .filter((message) => message.role === "user")
+    .some((message) => {
+      const content = message.content.trim();
+      return (
+        content.length >= 18 &&
+        !isThinCoachInput(content) &&
+        !isBroadDiscoveryPrompt(content) &&
+        !isBroadDraftRequest(content) &&
+        !isCorrectionPrompt(content) &&
+        !isMetaClarifyingPrompt(content)
+      );
+    });
+}
+
 function buildCoachSystemPrompt(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -487,6 +546,7 @@ function buildCoachSystemPrompt(params: {
     "The final sentence must be exactly one focused follow-up question and must be the only sentence that ends with a question mark.",
     "Ask for one concrete episode, proof point, reaction, mistake, or moment the creator can build a post around.",
     "Do not ask multiple questions.",
+    "If the user gives you a correction or boundary, acknowledge it and keep that boundary active in later turns.",
     `Creator archetype: ${context.creatorProfile.archetype}.`,
     `Primary niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
@@ -510,6 +570,10 @@ function buildCoachUserPrompt(params: {
           )
           .join("\n")
       : "No prior conversation.";
+  const constraints = extractActiveConversationConstraints({
+    history: params.history,
+    userMessage: params.userMessage,
+  });
 
   return [
     `Current user input: ${params.userMessage}`,
@@ -517,6 +581,8 @@ function buildCoachUserPrompt(params: {
     params.selectedAngle ? `Selected angle: ${params.selectedAngle}` : null,
     "Recent conversation:",
     historyText,
+    constraints.length > 0 ? "Active user constraints to keep:" : null,
+    constraints.length > 0 ? constraints.map((item) => `- ${item}`).join("\n") : null,
     "Ask one focused follow-up question that makes the next draft more specific.",
     "If the current input is still broad, first acknowledge it casually, offer 2-4 broad directions that fit the creator, then ask for one recent concrete moment.",
     "If the current input already names a moment, ask for the strongest detail, reaction, or outcome from that moment.",
@@ -4368,20 +4434,25 @@ export async function generateCreatorChatReply(params: {
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
   const requestedIntent = params.intent ?? "draft";
+  const normalizedHistory = normalizeHistory(params.history ?? []);
+  const broadDraftRequest = isBroadDraftRequest(params.userMessage);
+  const concreteHistorySignal = hasConcreteUserSignal(normalizedHistory);
   const shouldForceCoachFromPrompt =
     isCorrectionPrompt(params.userMessage) ||
     isMetaClarifyingPrompt(params.userMessage);
   const shouldCoach =
     !params.selectedAngle &&
     requestedIntent !== "review" &&
-    (requestedIntent === "coach" ||
+    ((requestedIntent === "coach" && !broadDraftRequest) ||
       shouldForceCoachFromPrompt ||
       isThinCoachInput(params.userMessage) ||
       isBroadDiscoveryPrompt(params.userMessage) ||
-      isBroadDraftRequest(params.userMessage));
+      (broadDraftRequest && !concreteHistorySignal));
   const effectiveIntent: CreatorChatIntent = shouldCoach
     ? "coach"
-    : requestedIntent;
+    : broadDraftRequest && requestedIntent === "coach"
+      ? "draft"
+      : requestedIntent;
   const context = buildCreatorAgentContext({
     runId: params.runId,
     onboarding: params.onboarding,
@@ -4455,7 +4526,7 @@ export async function generateCreatorChatReply(params: {
 
     try {
       params.onProgress?.("writing");
-      const history = normalizeHistory(params.history ?? []);
+      const history = normalizedHistory;
       const coachOutput = await callProviderJson<{ reply: string }>({
         provider: writerProvider,
         system: buildCoachSystemPrompt({ context, contract }),

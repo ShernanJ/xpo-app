@@ -369,32 +369,6 @@ const chatScanlineStyle = {
   backgroundSize: "100% 6px",
 };
 
-function buildInitialCoachMessage(context: CreatorAgentContext): string {
-  const builderLike =
-    context.creatorProfile.archetype === "builder" ||
-    context.creatorProfile.archetype === "founder_operator";
-  const ideas = builderLike
-    ? [
-        "a project you're currently building",
-        "a useful update from something you shipped",
-        "something cool you learned recently",
-      ]
-    : [
-        "a recent thing you learned the hard way",
-        "a moment that changed how you work",
-        "something people keep asking you about",
-      ];
-
-  return [
-    "Sure, let's figure out what makes sense to post next.",
-    "",
-    "A few easy places to start:",
-    ...ideas.map((idea) => `- ${idea}`),
-    "",
-    "Which one feels closest to what you want to write about right now?",
-  ].join("\n");
-}
-
 function formatTypingStatusLabel(status?: string | null): string {
   switch (status) {
     case "Planning the next move.":
@@ -598,42 +572,6 @@ export default function ChatPage() {
     setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
   }, [runId]);
-
-  useEffect(() => {
-    if (!context || !contract || messages.length > 0) {
-      return;
-    }
-
-    setMessages([
-      {
-        id: "assistant-initial",
-        role: "assistant",
-        content: buildInitialCoachMessage(context),
-        excludeFromHistory: true,
-        outputShape: "coach_question",
-        quickReplies: [
-          {
-            kind: "example_reply",
-            value: "i shipped something recently and the outcome surprised me",
-            label: "I shipped something recently",
-            suggestedFocus: "project_showcase",
-          },
-          {
-            kind: "example_reply",
-            value: "i tried something that failed harder than i expected",
-            label: "Something failed harder than expected",
-            suggestedFocus: "build_in_public",
-          },
-          {
-            kind: "example_reply",
-            value: "a user said something that changed what i'm building",
-            label: "A user changed what I'm building",
-            suggestedFocus: "social_observation",
-          },
-        ],
-      },
-    ]);
-  }, [context, contract, messages.length]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -1017,10 +955,12 @@ export default function ChatPage() {
       }
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
+      const resolvedIntent = options.intent ?? "draft";
       const hasStructuredIntent =
         !!options.selectedAngle ||
-        (((options.intent ?? "draft") === "ideate" ||
-          (options.intent ?? "draft") === "coach") &&
+        (resolvedIntent === "coach" &&
+          (!trimmedPrompt || !!resolvedContentFocus)) ||
+        ((resolvedIntent === "ideate" || resolvedIntent === "coach") &&
           !!resolvedContentFocus);
 
       if (!trimmedPrompt && !hasStructuredIntent) {
@@ -1061,7 +1001,7 @@ export default function ChatPage() {
             history,
             provider: providerPreference,
             stream: true,
-            intent: options.intent ?? "draft",
+            intent: resolvedIntent,
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
             pinnedVoicePostIds,
@@ -1101,6 +1041,35 @@ export default function ChatPage() {
               debug: data.data.debug,
               source: data.data.source,
               model: data.data.model ?? null,
+              quickReplies:
+                current.length === 0 &&
+                resolvedIntent === "coach" &&
+                !trimmedPrompt &&
+                !options.selectedAngle
+                  ? [
+                      {
+                        kind: "example_reply",
+                        value:
+                          "i shipped something recently and the outcome surprised me",
+                        label: "I shipped something recently",
+                        suggestedFocus: "project_showcase",
+                      },
+                      {
+                        kind: "example_reply",
+                        value:
+                          "i tried something that failed harder than i expected",
+                        label: "Something failed harder than expected",
+                        suggestedFocus: "build_in_public",
+                      },
+                      {
+                        kind: "example_reply",
+                        value:
+                          "a user said something that changed what i'm building",
+                        label: "A user changed what I'm building",
+                        suggestedFocus: "social_observation",
+                      },
+                    ]
+                  : undefined,
             },
           ]);
           return;
@@ -1180,6 +1149,34 @@ export default function ChatPage() {
             debug: streamedResult.debug,
             source: streamedResult.source,
             model: streamedResult.model ?? null,
+            quickReplies:
+              current.length === 0 &&
+              resolvedIntent === "coach" &&
+              !trimmedPrompt &&
+              !options.selectedAngle
+                ? [
+                    {
+                      kind: "example_reply",
+                      value:
+                        "i shipped something recently and the outcome surprised me",
+                      label: "I shipped something recently",
+                      suggestedFocus: "project_showcase",
+                    },
+                    {
+                      kind: "example_reply",
+                      value: "i tried something that failed harder than i expected",
+                      label: "Something failed harder than expected",
+                      suggestedFocus: "build_in_public",
+                    },
+                    {
+                      kind: "example_reply",
+                      value:
+                        "a user said something that changed what i'm building",
+                      label: "A user changed what I'm building",
+                      suggestedFocus: "social_observation",
+                    },
+                  ]
+                : undefined,
           },
         ]);
       } catch (error) {
@@ -1207,6 +1204,39 @@ export default function ChatPage() {
       runId,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !context ||
+      !contract ||
+      messages.length > 0 ||
+      isSending ||
+      !activeStrategyInputs ||
+      !activeToneInputs
+    ) {
+      return;
+    }
+
+    void requestAssistantReply({
+      appendUserMessage: false,
+      intent: "coach",
+      historySeed: [],
+      strategyInputOverride: activeStrategyInputs,
+      toneInputOverride: activeToneInputs,
+      contentFocusOverride: activeContentFocus,
+      fallbackContext: context,
+      fallbackContract: contract,
+    });
+  }, [
+    activeContentFocus,
+    activeStrategyInputs,
+    activeToneInputs,
+    context,
+    contract,
+    isSending,
+    messages.length,
+    requestAssistantReply,
+  ]);
 
   const handleAngleSelect = useCallback(
     async (angle: string) => {
