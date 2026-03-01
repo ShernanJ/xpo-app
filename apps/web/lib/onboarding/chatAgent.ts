@@ -1837,6 +1837,145 @@ function countStructuralSections(text: string): number {
   return paragraphs.length;
 }
 
+interface AuthorityRenderContractCheck {
+  sectionCount: number;
+  wordCount: number;
+  hasProofHeader: boolean;
+  bulletCount: number;
+  hasMechanismHeader: boolean;
+  numberedCount: number;
+  hasValidCta: boolean;
+  finalLineIsQuestion: boolean;
+  openerIsQuestion: boolean;
+  genericDefinitionHits: number;
+  isCompliant: boolean;
+}
+
+function splitRenderSections(text: string): string[] {
+  return text
+    .trim()
+    .split(/\n\s*\n/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+}
+
+function pickAuthorityCtaTemplate(params: {
+  lane: VolatilityLane;
+  goal: VolatilityGoal;
+}): string {
+  if (params.goal === "followers") {
+    return "follow and i'll link every thread under this post";
+  }
+
+  if (params.goal === "clicks") {
+    return params.lane === "Operator Lessons"
+      ? "reply playbook and i'll send you the operator breakdown"
+      : "reply asset and i'll send you the resource";
+  }
+
+  if (params.lane === "Operator Lessons") {
+    return "reply with your bottleneck and i'll give you one lever";
+  }
+
+  return "reply with your angle and i'll give you a sharper version";
+}
+
+function formatAuthorityRenderContract(params: {
+  lane: VolatilityLane;
+  goal: VolatilityGoal;
+  targetCasing: CreatorGenerationContract["writer"]["targetCasing"];
+}): string {
+  const ctaTemplate = pickAuthorityCtaTemplate({
+    lane: params.lane,
+    goal: params.goal,
+  });
+
+  return [
+    "Authority render contract (must follow exactly for long-form drafts):",
+    "Return only the post body text for each draft.",
+    "Exactly 4 sections, each separated by one blank line.",
+    "Section 1 (Thesis): 1-2 lines, strong contrarian claim / hard rule / thesis opener. No question.",
+    'Section 2 (Proof): start with "proof:" then exactly 3 bullet lines using "- ". Each bullet must include a metric or concrete proof point plus what it implies.',
+    'Section 3 (Mechanism): start with "what made it work:" then exactly 3 numbered lines using "1)", "2)", "3)". Each line must be a concrete mechanism, not generic advice.',
+    "Section 4 (Close + CTA): 2-4 lines. Line 1 = one-sentence POV. Line 2 = one-sentence promise of what you'll post next. Final line = CTA.",
+    "Total length must be 90-170 words.",
+    `Preferred CTA for this lane and goal: ${ctaTemplate}`,
+    "The final line must be a statement, not a question.",
+    params.targetCasing === "lowercase"
+      ? "Use lowercase everywhere except proper nouns."
+      : "Keep natural casing that matches the creator's actual voice.",
+    "Do not define concepts or write vague abstractions. Every claim needs a mechanism or example.",
+  ].join(" ");
+}
+
+function checkAuthorityRenderContract(draft: string): AuthorityRenderContractCheck {
+  const trimmed = draft.trim();
+  const sections = splitRenderSections(trimmed);
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  const linesBySection = sections.map((section) =>
+    section
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+  const proofLines = linesBySection[1] ?? [];
+  const mechanismLines = linesBySection[2] ?? [];
+  const closingLines = linesBySection[3] ?? [];
+  const firstSectionText = sections[0] ?? "";
+  const finalLine = closingLines[closingLines.length - 1] ?? "";
+  const genericDefinitionHits =
+    countPhraseMatches(trimmed, [
+      "the key is",
+      "important because",
+      "allows for",
+      "x is",
+      "it is",
+    ]) + (/\ballows for\b/i.test(trimmed) ? 1 : 0);
+
+  const hasProofHeader = /^proof:\s*$/i.test(proofLines[0] ?? "");
+  const bulletCount = proofLines
+    .slice(1)
+    .filter((line) => /^-\s+/.test(line)).length;
+  const hasMechanismHeader = /^what made it work:\s*$/i.test(
+    mechanismLines[0] ?? "",
+  );
+  const numberedCount = mechanismLines
+    .slice(1)
+    .filter((line) => /^(1|2|3)\)\s+/.test(line)).length;
+  const hasValidCta =
+    /^reply .+ and i(?:'|’)ll .+/i.test(finalLine) ||
+    /^follow and i(?:'|’)ll link every thread under this post$/i.test(finalLine);
+  const finalLineIsQuestion = /\?\s*$/.test(finalLine);
+  const openerIsQuestion = /^\s*[^.\n!?]*\?\s*$/m.test(firstSectionText.split("\n")[0] ?? "");
+
+  const isCompliant =
+    sections.length === 4 &&
+    wordCount >= 90 &&
+    wordCount <= 170 &&
+    hasProofHeader &&
+    bulletCount === 3 &&
+    hasMechanismHeader &&
+    numberedCount === 3 &&
+    hasValidCta &&
+    !finalLineIsQuestion &&
+    !openerIsQuestion &&
+    genericDefinitionHits === 0;
+
+  return {
+    sectionCount: sections.length,
+    wordCount,
+    hasProofHeader,
+    bulletCount,
+    hasMechanismHeader,
+    numberedCount,
+    hasValidCta,
+    finalLineIsQuestion,
+    openerIsQuestion,
+    genericDefinitionHits,
+    isCompliant,
+  };
+}
+
 function buildFormatBlueprintProfile(params: {
   post: CreatorRepresentativePost | null;
   outputShape: CreatorGenerationOutputShape;
@@ -2266,6 +2405,14 @@ function buildWriterSystemPrompt(params: {
   const formatSkeleton = formatLongFormSkeleton(
     buildLongFormContentSkeleton(requestAnchors.formatExemplar),
   );
+  const authorityRenderContract =
+    contract.planner.outputShape === "long_form_post"
+      ? formatAuthorityRenderContract({
+          lane: requestAnchors.angleSelection.inferredLane,
+          goal: requestAnchors.angleSelection.inferredGoal,
+          targetCasing: contract.writer.targetCasing,
+        })
+      : null;
 
   return [
     "You are the writer for an X growth assistant.",
@@ -2292,6 +2439,7 @@ function buildWriterSystemPrompt(params: {
     `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
     `Structural blueprint: ${formatBlueprint}`,
     `Long-form content skeleton: ${formatSkeleton}`,
+    authorityRenderContract,
     `Required output shape: ${contract.planner.outputShape}.`,
     `Output shape rationale: ${contract.planner.outputShapeRationale}`,
     "Do not reuse or lightly paraphrase the exemplar's wording. Use it for structure and evidence only.",
@@ -2397,6 +2545,14 @@ function buildCriticSystemPrompt(params: {
   const formatSkeleton = formatLongFormSkeleton(
     buildLongFormContentSkeleton(requestAnchors.formatExemplar),
   );
+  const authorityRenderContract =
+    contract.planner.outputShape === "long_form_post"
+      ? formatAuthorityRenderContract({
+          lane: requestAnchors.angleSelection.inferredLane,
+          goal: requestAnchors.angleSelection.inferredGoal,
+          targetCasing: contract.writer.targetCasing,
+        })
+      : null;
 
   return [
     "You are the critic for an X growth assistant.",
@@ -2422,6 +2578,9 @@ function buildCriticSystemPrompt(params: {
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Structural blueprint to enforce: ${formatBlueprint}`,
     `Long-form content skeleton to enforce: ${formatSkeleton}`,
+    authorityRenderContract
+      ? `Reject drafts that violate this authority render contract: ${authorityRenderContract}`
+      : "",
     "Reject outputs that ignore the strongest concrete evidence and replace it with generic category-level advice.",
     "Reject drafts that copy or closely paraphrase the anchor opener, the first 15 words, or any anchor bullet line.",
     "Reject drafts that reuse 5-word sequences from the anchor.",
@@ -2988,6 +3147,10 @@ function scoreDraftCandidate(params: {
   const strategyLeakCount = countPhraseMatches(draft, STRATEGY_LEAKAGE_PHRASES);
   const evidenceCoverage = countEvidenceCoverage(draft, params.evidencePack);
   const exemplarReuse = analyzeExemplarReuse(draft, params.formatExemplar);
+  const authorityRenderCheck =
+    params.contract.planner.outputShape === "long_form_post"
+      ? checkAuthorityRenderContract(draft)
+      : null;
   let score = 0;
 
   if (params.contract.writer.targetCasing === "lowercase") {
@@ -3096,6 +3259,43 @@ function scoreDraftCandidate(params: {
       !matchesLongFormSkeleton(draft, params.contentSkeleton)
     ) {
       score -= 6;
+    }
+    if (authorityRenderCheck?.isCompliant) {
+      score += 12;
+    } else if (authorityRenderCheck) {
+      if (authorityRenderCheck.sectionCount !== 4) {
+        score -= 8;
+      }
+      if (
+        authorityRenderCheck.wordCount < 90 ||
+        authorityRenderCheck.wordCount > 170
+      ) {
+        score -= 8;
+      }
+      if (!authorityRenderCheck.hasProofHeader) {
+        score -= 5;
+      }
+      if (authorityRenderCheck.bulletCount !== 3) {
+        score -= 6;
+      }
+      if (!authorityRenderCheck.hasMechanismHeader) {
+        score -= 5;
+      }
+      if (authorityRenderCheck.numberedCount !== 3) {
+        score -= 6;
+      }
+      if (!authorityRenderCheck.hasValidCta) {
+        score -= 8;
+      }
+      if (authorityRenderCheck.finalLineIsQuestion) {
+        score -= 4;
+      }
+      if (authorityRenderCheck.openerIsQuestion) {
+        score -= 4;
+      }
+      if (authorityRenderCheck.genericDefinitionHits > 0) {
+        score -= authorityRenderCheck.genericDefinitionHits * 4;
+      }
     }
   } else if (params.contract.planner.outputShape === "thread_seed") {
     score += hasStructuredLongFormShape(draft) ? 4 : words.length >= 22 ? 1 : -4;
@@ -3255,6 +3455,10 @@ function buildDraftDiagnostics(params: {
       trimmedDraft,
       params.formatExemplar,
     );
+    const authorityRenderCheck =
+      params.contract.planner.outputShape === "long_form_post"
+        ? checkAuthorityRenderContract(trimmedDraft)
+        : null;
     const matchesBlueprint =
       params.contract.planner.outputShape === "long_form_post" ||
       params.contract.planner.outputShape === "thread_seed"
@@ -3355,6 +3559,55 @@ function buildDraftDiagnostics(params: {
         `Overlaps ${Math.round(exemplarReuse.overlapRatio * 100)}% with the exemplar wording.`,
       );
     }
+    if (authorityRenderCheck) {
+      if (authorityRenderCheck.isCompliant) {
+        reasons.push("Matches the authority long-form render contract.");
+      } else {
+        if (authorityRenderCheck.sectionCount !== 4) {
+          reasons.push(
+            `Uses ${authorityRenderCheck.sectionCount} sections instead of exactly 4.`,
+          );
+        }
+        if (
+          authorityRenderCheck.wordCount < 90 ||
+          authorityRenderCheck.wordCount > 170
+        ) {
+          reasons.push(
+            `Uses ${authorityRenderCheck.wordCount} words instead of the 90-170 target range.`,
+          );
+        }
+        if (!authorityRenderCheck.hasProofHeader) {
+          reasons.push('Missing the required "proof:" section header.');
+        }
+        if (authorityRenderCheck.bulletCount !== 3) {
+          reasons.push(
+            `Uses ${authorityRenderCheck.bulletCount} proof bullets instead of exactly 3.`,
+          );
+        }
+        if (!authorityRenderCheck.hasMechanismHeader) {
+          reasons.push('Missing the required "what made it work:" section header.');
+        }
+        if (authorityRenderCheck.numberedCount !== 3) {
+          reasons.push(
+            `Uses ${authorityRenderCheck.numberedCount} numbered mechanism lines instead of exactly 3.`,
+          );
+        }
+        if (!authorityRenderCheck.hasValidCta) {
+          reasons.push("Missing a valid CTA in the final line.");
+        }
+        if (authorityRenderCheck.finalLineIsQuestion) {
+          reasons.push("Ends with a question instead of a confident CTA line.");
+        }
+        if (authorityRenderCheck.openerIsQuestion) {
+          reasons.push("Opens with a question instead of a thesis or hard rule.");
+        }
+        if (authorityRenderCheck.genericDefinitionHits > 0) {
+          reasons.push(
+            `Contains ${authorityRenderCheck.genericDefinitionHits} generic-definition phrase hit(s).`,
+          );
+        }
+      }
+    }
 
     return {
       preview: compactTextForPrompt(trimmedDraft, 220),
@@ -3391,6 +3644,14 @@ function buildLongFormExpansionSystemPrompt(params: {
     outputShape: params.contract.planner.outputShape,
   });
   const formatSkeleton = formatLongFormSkeleton(contentSkeleton);
+  const authorityRenderContract =
+    params.contract.planner.outputShape === "long_form_post"
+      ? formatAuthorityRenderContract({
+          lane: params.requestAnchors.angleSelection.inferredLane,
+          goal: params.requestAnchors.angleSelection.inferredGoal,
+          targetCasing: params.contract.writer.targetCasing,
+        })
+      : null;
 
   return [
     "You are expanding an X long-form draft into a stronger, more developed post.",
@@ -3408,6 +3669,7 @@ function buildLongFormExpansionSystemPrompt(params: {
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Follow this structural blueprint: ${formatBlueprint}`,
     `Follow this long-form content skeleton: ${formatSkeleton}`,
+    authorityRenderContract,
     "Keep the user's voice and casing. Preserve casualness when appropriate.",
     "For long-form on X, the post should be substantially developed and usually exceed normal tweet length.",
     `Exemplar-derived minimums: at least ${blueprintProfile.minimumWords} words and ${blueprintProfile.minimumSections} clear sections.`,
