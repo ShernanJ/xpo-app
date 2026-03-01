@@ -258,6 +258,11 @@ If new grounding failures appear:
 - inspect dev-mode grounding diagnostics first
 - then add or tighten regression cases before changing generation logic
 
+## Post-Core Hardening
+
+- [x] Tighten long-form repair prompts so validator-driven rewrites happen from scratch instead of patching bad drafts in place
+- [x] Extend offline grounding regressions so a case can require `validator.pass === true` and surface validator errors directly
+
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
 ## What Not To Work On Right Now
