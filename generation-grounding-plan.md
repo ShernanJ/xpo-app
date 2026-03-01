@@ -234,12 +234,12 @@ Likely files:
 
 ### 11. Offline Grounding Regression Checks
 
-- [ ] Add offline checks for:
+- [x] Add offline checks for:
   - evidence usage
   - hallucinated metrics
   - long-form minimum quality
   - voice fidelity
-- [ ] Add a small regression suite with known creator accounts
+- [x] Add a small regression suite with known creator accounts
 
 Definition of done:
 - grounding regressions can be detected before manual testing
@@ -252,7 +252,11 @@ Likely files:
 
 If continuing from scratch after context compaction, do this in order:
 
-1. Offline Grounding Regression Checks
+1. (complete) Grounding plan core items are implemented
+
+If new grounding failures appear:
+- inspect dev-mode grounding diagnostics first
+- then add or tighten regression cases before changing generation logic
 
 Do not jump ahead unless a lower item is blocked and a higher item is already complete.
 
