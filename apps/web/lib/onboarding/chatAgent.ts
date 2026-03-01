@@ -9,6 +9,11 @@ import {
   type CreatorGenerationContract,
   type CreatorGenerationOutputShape,
 } from "./generationContract";
+import {
+  validateDraft,
+  type DraftCtaMode,
+  type DraftValidationResult,
+} from "./draftValidator";
 import type {
   CreatorRepresentativePost,
   OnboardingResult,
@@ -170,6 +175,7 @@ export interface CreatorChatDebugDraftDiagnostic {
   strategyLeakCount: number;
   matchesBlueprint: boolean | null;
   matchesSkeleton: boolean | null;
+  validator: DraftValidationResult | null;
   reasons: string[];
 }
 
@@ -1970,8 +1976,10 @@ function countStructuralSections(text: string): number {
 }
 
 interface AuthorityRenderContractCheck {
+  validator: DraftValidationResult;
   sectionCount: number;
   wordCount: number;
+  blankLineSeparators: number;
   hasProofHeader: boolean;
   bulletCount: number;
   hasMechanismHeader: boolean;
@@ -1983,33 +1991,47 @@ interface AuthorityRenderContractCheck {
   isCompliant: boolean;
 }
 
-function splitRenderSections(text: string): string[] {
-  return text
-    .trim()
-    .split(/\n\s*\n/)
-    .map((section) => section.trim())
-    .filter(Boolean);
-}
-
 function pickAuthorityCtaTemplate(params: {
   lane: VolatilityLane;
   goal: VolatilityGoal;
 }): string {
+  const ctaMode = resolveAuthorityCtaMode(params);
+  if (ctaMode === "A") {
+    return 'CTA: Reply "PLAYBOOK" and I\'ll send the operator breakdown.';
+  }
+  if (ctaMode === "C") {
+    return "CTA: Comment your bottleneck and I'll reply with the first 3 moves.";
+  }
+  return "CTA: Follow — I'm posting operator lessons for the next 14 days.";
+}
+
+function buildAuthorityCtaBody(params: {
+  lane: VolatilityLane;
+  goal: VolatilityGoal;
+}): string {
+  const ctaMode = resolveAuthorityCtaMode(params);
+  if (ctaMode === "A") {
+    return 'Reply "PLAYBOOK" and I\'ll send the operator breakdown.';
+  }
+  if (ctaMode === "C") {
+    return "Comment your bottleneck and I'll reply with the first 3 moves.";
+  }
+  return "Follow — I'm posting operator lessons for the next 14 days.";
+}
+
+function resolveAuthorityCtaMode(params: {
+  lane: VolatilityLane;
+  goal: VolatilityGoal;
+}): DraftCtaMode {
   if (params.goal === "followers") {
-    return "follow and i'll link every thread under this post";
+    return "B";
   }
 
   if (params.goal === "clicks") {
-    return params.lane === "Operator Lessons"
-      ? "reply playbook and i'll send you the operator breakdown"
-      : "reply asset and i'll send you the resource";
+    return "A";
   }
 
-  if (params.lane === "Operator Lessons") {
-    return "reply with your bottleneck and i'll give you one lever";
-  }
-
-  return "reply with your angle and i'll give you a sharper version";
+  return "C";
 }
 
 function formatAuthorityRenderContract(params: {
@@ -2024,26 +2046,34 @@ function formatAuthorityRenderContract(params: {
 
   return [
     "Authority render contract (must follow exactly for long-form drafts):",
-    "Return only the post body text for each draft.",
-    "Exactly 4 sections, each separated by one blank line.",
-    "Section 1 (Thesis): 1-2 lines, strong contrarian claim / hard rule / thesis opener. No question.",
-    'Section 2 (Proof): start with "proof:" then exactly 3 bullet lines using "- ". Each bullet must include a metric or concrete proof point plus what it implies.',
-    'Section 3 (Mechanism): start with "what made it work:" then exactly 3 numbered lines using "1)", "2)", "3)". Each line must be a concrete mechanism, not generic advice.',
-    "Section 4 (Close + CTA): 2-4 lines. Line 1 = one-sentence POV. Line 2 = one-sentence promise of what you'll post next. Final line = CTA.",
-    "Total length must be 90-170 words.",
-    `Preferred CTA for this lane and goal: ${ctaTemplate}`,
-    "The final line must be a statement, not a question.",
+    "Return ONLY the final draft text.",
+    "Exactly 4 sections, each separated by exactly one blank line.",
+    'Section 1 starts with "THESIS:" on its own line and contains 1-2 declarative lines. No questions in the thesis.',
+    'Section 2 starts with "PROOF:" on its own line and contains exactly 3 bullet lines beginning with "- ". At least 2 bullets must carry numeric proof when metrics exist.',
+    'Section 3 starts with "MECHANISM:" on its own line and contains exactly 3 numbered lines beginning with "1) ", "2) ", "3) ". Each line must be a concrete step.',
+    'Section 4 starts with "CTA:" on its own line, then 2-4 lines total in that section body. The final line must be a valid CTA and a statement, not a question.',
+    "Keep total length between 90 and 190 words.",
+    "Keep every line at or under 92 characters.",
+    "No 5-word sequence from the selected exemplar may appear verbatim.",
+    `Default CTA mode for this request: ${ctaTemplate}`,
     params.targetCasing === "lowercase"
-      ? "Use lowercase everywhere except proper nouns."
+      ? 'Use lowercase everywhere except proper nouns. Keep the labels "THESIS:", "PROOF:", "MECHANISM:", and "CTA:" uppercase.'
       : "Keep natural casing that matches the creator's actual voice.",
     "Do not define concepts or write vague abstractions. Every claim needs a mechanism or example.",
   ].join(" ");
 }
 
-function checkAuthorityRenderContract(draft: string): AuthorityRenderContractCheck {
-  const trimmed = draft.trim();
-  const sections = splitRenderSections(trimmed);
-  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+function checkAuthorityRenderContract(params: {
+  draft: string;
+  exemplarText: string;
+  evidenceMetrics: string[];
+  ctaMode: DraftCtaMode;
+}): AuthorityRenderContractCheck {
+  const trimmed = params.draft.trim();
+  const sections = trimmed
+    .split(/\n[ \t]*\n/)
+    .map((section) => section.trim())
+    .filter(Boolean);
   const linesBySection = sections.map((section) =>
     section
       .split(/\n+/)
@@ -2053,7 +2083,7 @@ function checkAuthorityRenderContract(draft: string): AuthorityRenderContractChe
   const proofLines = linesBySection[1] ?? [];
   const mechanismLines = linesBySection[2] ?? [];
   const closingLines = linesBySection[3] ?? [];
-  const firstSectionText = sections[0] ?? "";
+  const thesisLines = linesBySection[0] ?? [];
   const finalLine = closingLines[closingLines.length - 1] ?? "";
   const genericDefinitionHits =
     countPhraseMatches(trimmed, [
@@ -2063,48 +2093,28 @@ function checkAuthorityRenderContract(draft: string): AuthorityRenderContractChe
       "x is",
       "it is",
     ]) + (/\ballows for\b/i.test(trimmed) ? 1 : 0);
-
-  const hasProofHeader = /^proof:\s*$/i.test(proofLines[0] ?? "");
-  const bulletCount = proofLines
-    .slice(1)
-    .filter((line) => /^-\s+/.test(line)).length;
-  const hasMechanismHeader = /^what made it work:\s*$/i.test(
-    mechanismLines[0] ?? "",
-  );
-  const numberedCount = mechanismLines
-    .slice(1)
-    .filter((line) => /^(1|2|3)\)\s+/.test(line)).length;
-  const hasValidCta =
-    /^reply .+ and i(?:'|’)ll .+/i.test(finalLine) ||
-    /^follow and i(?:'|’)ll link every thread under this post$/i.test(finalLine);
-  const finalLineIsQuestion = /\?\s*$/.test(finalLine);
-  const openerIsQuestion = /^\s*[^.\n!?]*\?\s*$/m.test(firstSectionText.split("\n")[0] ?? "");
-
-  const isCompliant =
-    sections.length === 4 &&
-    wordCount >= 90 &&
-    wordCount <= 170 &&
-    hasProofHeader &&
-    bulletCount === 3 &&
-    hasMechanismHeader &&
-    numberedCount === 3 &&
-    hasValidCta &&
-    !finalLineIsQuestion &&
-    !openerIsQuestion &&
-    genericDefinitionHits === 0;
+  const validator = validateDraft({
+    draft: trimmed,
+    mode: "long_form_post",
+    exemplarText: params.exemplarText,
+    evidenceMetrics: params.evidenceMetrics,
+    ctaMode: params.ctaMode,
+  });
 
   return {
-    sectionCount: sections.length,
-    wordCount,
-    hasProofHeader,
-    bulletCount,
-    hasMechanismHeader,
-    numberedCount,
-    hasValidCta,
-    finalLineIsQuestion,
-    openerIsQuestion,
+    validator,
+    sectionCount: validator.metrics.sectionCount,
+    wordCount: validator.metrics.wordCount,
+    blankLineSeparators: validator.metrics.blankLineSeparators,
+    hasProofHeader: proofLines[0] === "PROOF:",
+    bulletCount: validator.metrics.proofBullets,
+    hasMechanismHeader: mechanismLines[0] === "MECHANISM:",
+    numberedCount: validator.metrics.mechanismSteps,
+    hasValidCta: !validator.errors.includes("E_INVALID_CTA"),
+    finalLineIsQuestion: /\?\s*$/.test(finalLine),
+    openerIsQuestion: thesisLines.slice(1).some((line) => line.includes("?")),
     genericDefinitionHits,
-    isCompliant,
+    isCompliant: validator.pass && genericDefinitionHits === 0,
   };
 }
 
@@ -2216,7 +2226,7 @@ function buildDeterministicAuthorityDrafts(params: {
     );
   }
 
-  const cta = pickAuthorityCtaTemplate({
+  const ctaBody = buildAuthorityCtaBody({
     lane: params.angleSelection.inferredLane,
     goal: params.angleSelection.inferredGoal,
   });
@@ -2228,22 +2238,22 @@ function buildDeterministicAuthorityDrafts(params: {
   const closeB = "if the system is real, the proof will keep showing up without more noise.";
 
   const draftA = [
-    `${thesisA}\n${sanitizeDeterministicEvidenceFragment(proofLead)} is the receipt, not the headline.`,
-    ["proof:", ...proofLines].join("\n"),
-    ["what made it work:", ...numberedLines].join("\n"),
-    `${closeA}\ni'll keep breaking down ${nextTopic}.\n${cta}`,
+    ["THESIS:", thesisA, `${sanitizeDeterministicEvidenceFragment(proofLead)} is the receipt, not the headline.`].join("\n"),
+    ["PROOF:", ...proofLines].join("\n"),
+    ["MECHANISM:", ...numberedLines].join("\n"),
+    ["CTA:", closeA, `i'll keep breaking down ${nextTopic}.`, ctaBody].join("\n"),
   ].join("\n\n");
 
   const draftB = [
-    `${thesisB}\nsmall teams only win when the mechanism is clear enough to repeat.`,
-    ["proof:", ...proofLines.slice().reverse()].join("\n"),
+    ["THESIS:", thesisB, "small teams only win when the mechanism is clear enough to repeat."].join("\n"),
+    ["PROOF:", ...proofLines.slice().reverse()].join("\n"),
     [
-      "what made it work:",
+      "MECHANISM:",
       `${1}) ${numberedLines[1]?.replace(/^2\)\s*/, "") || mechanismHints[0]}`,
       `${2}) ${numberedLines[0]?.replace(/^1\)\s*/, "") || mechanismHints[1]}`,
       `${3}) ${numberedLines[2]?.replace(/^3\)\s*/, "") || mechanismHints[2]}`,
     ].join("\n"),
-    `${closeB}\ni'll keep posting the operator lessons behind ${nextTopic}.\n${cta}`,
+    ["CTA:", closeB, `i'll keep posting the operator lessons behind ${nextTopic}.`, ctaBody].join("\n"),
   ].join("\n\n");
 
   return [draftA, draftB];
@@ -2578,8 +2588,9 @@ function buildFormFactorGuidance(
   }
 
   if (
-    context.creatorProfile.voice.primaryCasing === "lowercase" ||
-    context.creatorProfile.voice.lowercaseSharePercent >= 60
+    context.creatorProfile.voice.primaryCasing === "lowercase" &&
+    context.creatorProfile.voice.lowercaseSharePercent >= 72 &&
+    context.creatorProfile.voice.multiLinePostRate < 35
   ) {
     return [
       "Prefer clipped lowercase wording, loose syntax, and casual internet-native phrasing.",
@@ -2922,8 +2933,12 @@ function applyTargetCasing(
   const withAcronyms = lowered.replace(/\b[a-z][a-z0-9]{1,6}\b/g, (token) => {
     return ACRONYM_CASE_MAP.get(token) ?? token;
   });
+  const restoredLabels = withAcronyms.replace(
+    /^(thesis:|proof:|mechanism:|cta:)$/gim,
+    (label) => label.toUpperCase(),
+  );
 
-  return withAcronyms.replace(/__url_(\d+)__/gi, (match, index) => {
+  return restoredLabels.replace(/__url_(\d+)__/gi, (match, index) => {
     const numericIndex = Number(index);
     return Number.isInteger(numericIndex) && urlPlaceholders[numericIndex]
       ? urlPlaceholders[numericIndex]
@@ -3422,7 +3437,15 @@ function scoreDraftCandidate(params: {
   const exemplarReuse = analyzeExemplarReuse(draft, params.formatExemplar);
   const authorityRenderCheck =
     params.contract.planner.outputShape === "long_form_post"
-      ? checkAuthorityRenderContract(draft)
+      ? checkAuthorityRenderContract({
+          draft,
+          exemplarText: params.formatExemplar?.text ?? "",
+          evidenceMetrics: params.evidencePack?.metrics ?? [],
+          ctaMode: resolveAuthorityCtaMode({
+            lane: params.angleSelection.inferredLane,
+            goal: params.angleSelection.inferredGoal,
+          }),
+        })
       : null;
   let score = 0;
 
@@ -3730,7 +3753,15 @@ function buildDraftDiagnostics(params: {
     );
     const authorityRenderCheck =
       params.contract.planner.outputShape === "long_form_post"
-        ? checkAuthorityRenderContract(trimmedDraft)
+        ? checkAuthorityRenderContract({
+            draft: trimmedDraft,
+            exemplarText: params.formatExemplar?.text ?? "",
+            evidenceMetrics: params.evidencePack?.metrics ?? [],
+            ctaMode: resolveAuthorityCtaMode({
+              lane: params.angleSelection.inferredLane,
+              goal: params.angleSelection.inferredGoal,
+            }),
+          })
         : null;
     const matchesBlueprint =
       params.contract.planner.outputShape === "long_form_post" ||
@@ -3892,6 +3923,7 @@ function buildDraftDiagnostics(params: {
       strategyLeakCount,
       matchesBlueprint,
       matchesSkeleton,
+      validator: authorityRenderCheck?.validator ?? null,
       reasons,
     };
   });
@@ -3961,6 +3993,51 @@ function buildLongFormExpansionSystemPrompt(params: {
     `Target casing: ${params.contract.writer.targetCasing}.`,
     `Tone blend: ${params.contract.writer.toneBlendSummary}`,
     `Proof requirement: ${params.contract.writer.proofRequirement}`,
+    "Return only valid JSON that follows the provided schema.",
+  ].join("\n");
+}
+
+function validateLongFormDraftCandidate(params: {
+  draft: string;
+  requestAnchors: RequestConditionedAnchors;
+}): DraftValidationResult {
+  return validateDraft({
+    draft: params.draft,
+    mode: "long_form_post",
+    exemplarText: params.requestAnchors.formatExemplar?.text ?? "",
+    evidenceMetrics: params.requestAnchors.evidencePack.metrics,
+    ctaMode: resolveAuthorityCtaMode({
+      lane: params.requestAnchors.angleSelection.inferredLane,
+      goal: params.requestAnchors.angleSelection.inferredGoal,
+    }),
+  });
+}
+
+function buildLongFormRepairSystemPrompt(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+  selectedAngle: string | null;
+  requestAnchors: RequestConditionedAnchors;
+  failingDraft: string;
+  validation: DraftValidationResult;
+}): string {
+  const authorityRenderContract = formatAuthorityRenderContract({
+    lane: params.requestAnchors.angleSelection.inferredLane,
+    goal: params.requestAnchors.angleSelection.inferredGoal,
+    targetCasing: params.contract.writer.targetCasing,
+  });
+
+  return [
+    "You are repairing a failing X long-form authority post.",
+    "Produce a NEW draft that fixes the validator errors.",
+    "Do not preserve overlapping 5-word sequences from the failing draft or the exemplar.",
+    "Keep the same concrete topic, selected angle, and proof source.",
+    authorityRenderContract,
+    `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
+    `Concrete evidence pack:\n${formatEvidencePack(params.requestAnchors.evidencePack)}`,
+    `Format exemplar: ${formatExemplar(params.requestAnchors.formatExemplar)}`,
+    `Current failing draft:\n${params.failingDraft}`,
+    `Validator errors to fix: ${params.validation.errors.join(" | ") || "none"}`,
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -4384,6 +4461,7 @@ export async function generateCreatorChatReply(params: {
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
+          formatExemplar: requestAnchors.formatExemplar,
           blueprintProfile: formatBlueprintProfile,
           contentSkeleton: formatContentSkeleton,
           evidencePack: requestAnchors.evidencePack,
@@ -4467,6 +4545,127 @@ export async function generateCreatorChatReply(params: {
     );
   }
 
+  if (
+    intent !== "ideate" &&
+    contract.planner.outputShape === "long_form_post" &&
+    finalDrafts.length > 0
+  ) {
+    let validatedDrafts = finalDrafts.map((draft) => ({
+      draft,
+      validation: validateLongFormDraftCandidate({
+        draft,
+        requestAnchors,
+      }),
+      score: scoreDraftCandidate({
+        draft,
+        contract,
+        angleSelection: requestAnchors.angleSelection,
+        selectedAngle: params.selectedAngle?.trim() || null,
+        concreteSubject,
+        userMessage: params.userMessage,
+        formatExemplar: requestAnchors.formatExemplar,
+        blueprintProfile: formatBlueprintProfile,
+        contentSkeleton: formatContentSkeleton,
+        evidencePack: requestAnchors.evidencePack,
+      }),
+    }));
+
+    let repairAttempts = 0;
+    while (
+      !validatedDrafts.some((candidate) => candidate.validation.pass) &&
+      repairAttempts < 2 &&
+      validatedDrafts.length > 0
+    ) {
+      const repairTarget = validatedDrafts
+        .slice()
+        .sort((left, right) => right.score - left.score)[0];
+
+      try {
+        const repair = await callProviderJson<{ repairedDraft: string }>({
+          provider: writerProvider,
+          system: buildLongFormRepairSystemPrompt({
+            context,
+            contract,
+            selectedAngle: params.selectedAngle?.trim() || null,
+            requestAnchors,
+            failingDraft: repairTarget.draft,
+            validation: repairTarget.validation,
+          }),
+          user: [
+            `Original user request: ${params.userMessage}`,
+            `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
+            `Concrete subject from user request: ${concreteSubject ?? "none"}`,
+          ].join("\n\n"),
+          schemaName: "creator_long_form_repair_output",
+          maxOutputTokens: 1800,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              repairedDraft: { type: "string" },
+            },
+            required: ["repairedDraft"],
+          },
+        });
+
+        const repairedDraft = loosenDraftText(
+          coerceString(repair?.repairedDraft),
+          contract,
+        );
+
+        if (repairedDraft) {
+          finalDrafts = rerankDrafts({
+            drafts: [repairedDraft, ...finalDrafts],
+            contract,
+            angleSelection: requestAnchors.angleSelection,
+            selectedAngle: params.selectedAngle?.trim() || null,
+            concreteSubject,
+            userMessage: params.userMessage,
+            formatExemplar: requestAnchors.formatExemplar,
+            blueprintProfile: formatBlueprintProfile,
+            contentSkeleton: formatContentSkeleton,
+            evidencePack: requestAnchors.evidencePack,
+          });
+          validatedDrafts = finalDrafts.map((draft) => ({
+            draft,
+            validation: validateLongFormDraftCandidate({
+              draft,
+              requestAnchors,
+            }),
+            score: scoreDraftCandidate({
+              draft,
+              contract,
+              angleSelection: requestAnchors.angleSelection,
+              selectedAngle: params.selectedAngle?.trim() || null,
+              concreteSubject,
+              userMessage: params.userMessage,
+              formatExemplar: requestAnchors.formatExemplar,
+              blueprintProfile: formatBlueprintProfile,
+              contentSkeleton: formatContentSkeleton,
+              evidencePack: requestAnchors.evidencePack,
+            }),
+          }));
+        }
+      } catch {
+        // Keep the best available candidate if repair fails.
+      }
+
+      repairAttempts += 1;
+    }
+
+    const passingDrafts = validatedDrafts
+      .filter((candidate) => candidate.validation.pass)
+      .map((candidate) => candidate.draft);
+
+    if (passingDrafts.length > 0) {
+      finalDrafts = passingDrafts.slice(0, 3);
+    } else {
+      finalWatchOutFor.unshift(
+        "The candidate response package does not meet the long-form render contract.",
+      );
+    }
+  }
+
   return {
     reply: critic.finalResponse.trim() || writer.response.trim(),
     angles: finalAngles,
@@ -4515,6 +4714,7 @@ export async function generateCreatorChatReply(params: {
               selectedAngle: params.selectedAngle?.trim() || null,
               concreteSubject,
               userMessage: params.userMessage,
+              formatExemplar: requestAnchors.formatExemplar,
               blueprintProfile: formatBlueprintProfile,
               contentSkeleton: formatContentSkeleton,
               evidencePack: requestAnchors.evidencePack,

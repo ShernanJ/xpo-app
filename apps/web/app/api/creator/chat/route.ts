@@ -105,7 +105,25 @@ export async function POST(request: Request) {
       ).slice(0, 2)
     : [];
   const stream = body.stream === true;
-  const effectiveMessage = message || selectedAngle || (intent === "ideate" ? contentFocus ?? "" : "");
+  const effectiveMessage = (() => {
+    if (message) {
+      return message;
+    }
+
+    if (intent === "draft" && selectedAngle) {
+      return "Turn the selected angle into X draft(s) following the render contract.";
+    }
+
+    if (intent === "ideate") {
+      return contentFocus ?? "";
+    }
+
+    if (selectedAngle) {
+      return "Use the selected angle as the primary direction and keep the output aligned to it.";
+    }
+
+    return "";
+  })();
 
   if (!runId) {
     return NextResponse.json(

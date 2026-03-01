@@ -134,6 +134,21 @@ interface CreatorChatSuccess {
         matchesBlueprint: boolean | null;
         matchesSkeleton: boolean | null;
         reasons: string[];
+        validator: {
+          pass: boolean;
+          errors: string[];
+          metrics: {
+            wordCount: number;
+            sectionCount: number;
+            blankLineSeparators: number;
+            proofBullets: number;
+            mechanismSteps: number;
+            maxLineLen: number;
+            ngramOverlap5: number;
+            metricReuseCount: number;
+            bannedOpenerHit: boolean;
+          };
+        } | null;
       }>;
     };
     source: "openai" | "groq" | "deterministic";
@@ -292,12 +307,12 @@ function inferInitialToneInputs(params: {
 
   const stronglyLowercaseShortForm =
     voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 68 &&
+    voice.lowercaseSharePercent >= 72 &&
     voice.multiLinePostRate < 35;
   const overwhelminglyLowercaseLongForm =
     voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 88 &&
-    voice.multiLinePostRate < 20;
+    voice.lowercaseSharePercent >= 95 &&
+    voice.multiLinePostRate < 10;
   const shouldUseLowercase = isLongFormCreator
     ? overwhelminglyLowercaseLongForm
     : stronglyLowercaseShortForm;
@@ -1713,7 +1728,86 @@ export default function ChatPage() {
                                                   : "Miss"}
                                               </span>
                                             ) : null}
+                                            {diagnostic.validator ? (
+                                              <span>
+                                                Validator{" "}
+                                                {diagnostic.validator.pass
+                                                  ? "Pass"
+                                                  : "Fail"}
+                                              </span>
+                                            ) : null}
                                           </div>
+                                          {diagnostic.validator ? (
+                                            <div className="mt-2 space-y-2 rounded-xl border border-white/8 bg-black/20 p-2 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                                              <div className="flex flex-wrap gap-2">
+                                                <span>
+                                                  Words{" "}
+                                                  {diagnostic.validator.metrics.wordCount}
+                                                </span>
+                                                <span>
+                                                  Sections{" "}
+                                                  {diagnostic.validator.metrics.sectionCount}
+                                                </span>
+                                                <span>
+                                                  Spacers{" "}
+                                                  {
+                                                    diagnostic.validator.metrics
+                                                      .blankLineSeparators
+                                                  }
+                                                </span>
+                                                <span>
+                                                  Bullets{" "}
+                                                  {diagnostic.validator.metrics.proofBullets}
+                                                </span>
+                                                <span>
+                                                  Steps{" "}
+                                                  {
+                                                    diagnostic.validator.metrics
+                                                      .mechanismSteps
+                                                  }
+                                                </span>
+                                                <span>
+                                                  Max Line{" "}
+                                                  {diagnostic.validator.metrics.maxLineLen}
+                                                </span>
+                                                <span>
+                                                  5-Grams{" "}
+                                                  {
+                                                    diagnostic.validator.metrics
+                                                      .ngramOverlap5
+                                                  }
+                                                </span>
+                                                <span>
+                                                  Metrics{" "}
+                                                  {
+                                                    diagnostic.validator.metrics
+                                                      .metricReuseCount
+                                                  }
+                                                </span>
+                                                <span>
+                                                  Banned Opener{" "}
+                                                  {diagnostic.validator.metrics
+                                                    .bannedOpenerHit
+                                                    ? "Hit"
+                                                    : "Clear"}
+                                                </span>
+                                              </div>
+                                              {diagnostic.validator.errors.length > 0 ? (
+                                                <div className="flex flex-wrap gap-1">
+                                                  {diagnostic.validator.errors.map(
+                                                    (errorCode) => (
+                                                      <span
+                                                        key={`${message.id}-diagnostic-${index}-validator-${errorCode}`}
+                                                        className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300"
+                                                      >
+                                                        {errorCode}
+                                                      </span>
+                                                    ),
+                                                  )}
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          ) : null}
                                           {diagnostic.reasons.length > 0 ? (
                                             <ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">
                                               {diagnostic.reasons.map((reason, reasonIndex) => (

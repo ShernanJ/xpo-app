@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:draft-validator": "node --test --experimental-strip-types lib/onboarding/draftValidator.test.mjs",
     "capture:user-tweets": "node scripts/capture-user-tweets-playwright.mjs",
     "scrape:user-tweets:http": "node scripts/scrape-user-tweets-http.mjs"
   },
