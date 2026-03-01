@@ -324,6 +324,31 @@ function inferInitialToneInputs(params: {
   };
 }
 
+function inferComposerIntent(input: string): ChatIntent {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "coach";
+  }
+
+  if (
+    /\b(draft|write|rewrite|turn this into|make this a post|make this into a post|post draft|write me a post|turn this into drafts)\b/i.test(
+      trimmed,
+    )
+  ) {
+    return "draft";
+  }
+
+  if (/\b(review|critique|edit|improve this|make this better)\b/i.test(trimmed)) {
+    return "review";
+  }
+
+  if (/\b(idea|ideate|brainstorm|angles?|topics?)\b/i.test(trimmed)) {
+    return "ideate";
+  }
+
+  return "coach";
+}
+
 function formatNicheSummary(context: CreatorAgentContext): string {
   const { primaryNiche, targetNiche } = context.creatorProfile.niche;
 
@@ -382,17 +407,46 @@ function buildInitialCoachMessage(
   contract: CreatorGenerationContract,
 ): string {
   const summary = buildInitialAssistantMessage(context, contract);
-  const nextMove =
+  const coachingFrame =
     context.creatorProfile.identity.isVerified ||
     contract.planner.outputShape === "long_form_post" ||
     contract.planner.outputShape === "thread_seed"
-      ? "The fastest way to get to a strong draft is to anchor it to one recent moment with real proof behind it."
-      : "The fastest way to get to a strong draft is to anchor it to one recent specific moment instead of a broad topic.";
+      ? "You already have enough proof to write something strong. The only thing missing is one specific moment to build it around."
+      : "You already have enough signal to write something strong. The only thing missing is one specific moment instead of a broad topic.";
 
-  return `${summary}\n\n${nextMove}\n\nWhat is the most recent specific situation you want to write about?`;
+  return `${summary}\n\n${coachingFrame}\n\nTell me the most recent real moment you want to turn into a post.`;
+}
+
+function formatTypingStatusLabel(status?: string | null): string {
+  switch (status) {
+    case "Planning the next move.":
+      return "thinking through the sharpest angle";
+    case "Writing draft options.":
+      return "turning that into something postable";
+    case "Tightening the response.":
+      return "tightening the wording";
+    case "Finalizing the reply.":
+      return "getting the final wording right";
+    default:
+      return "thinking this through";
+  }
 }
 
 function AssistantTypingBubble(props: { status?: string | null }) {
+  const [dotCount, setDotCount] = useState(1);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setDotCount((current) => (current >= 3 ? 1 : current + 1));
+    }, 420);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const statusLabel = formatTypingStatusLabel(props.status);
+
   return (
     <div
       className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100"
@@ -409,8 +463,9 @@ function AssistantTypingBubble(props: { status?: string | null }) {
         ))}
       </div>
       {props.status ? (
-        <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          {props.status}
+        <p className="mt-3 text-xs text-zinc-400">
+          {statusLabel}
+          {".".repeat(dotCount)}
         </p>
       ) : null}
     </div>
@@ -455,6 +510,9 @@ export default function ChatPage() {
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
   );
+  const [typedAssistantLengths, setTypedAssistantLengths] = useState<
+    Record<string, number>
+  >({});
 
   const loadWorkspace = useCallback(
     async (
@@ -560,6 +618,7 @@ export default function ChatPage() {
     setEditorDraftText("");
     setPinnedVoicePostIds([]);
     setPinnedEvidencePostIds([]);
+    setTypedAssistantLengths({});
   }, [runId]);
 
   useEffect(() => {
@@ -597,6 +656,45 @@ export default function ChatPage() {
       },
     ]);
   }, [context, contract, messages.length]);
+
+  useEffect(() => {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.content.length > 0);
+
+    if (!latestAssistantMessage) {
+      return;
+    }
+
+    const targetLength = latestAssistantMessage.content.length;
+    const currentLength = typedAssistantLengths[latestAssistantMessage.id] ?? 0;
+
+    if (currentLength >= targetLength) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setTypedAssistantLengths((current) => {
+        const latest = current[latestAssistantMessage.id] ?? 0;
+        if (latest >= targetLength) {
+          window.clearInterval(interval);
+          return current;
+        }
+
+        const remaining = targetLength - latest;
+        const step = remaining > 90 ? 8 : remaining > 40 ? 5 : 3;
+
+        return {
+          ...current,
+          [latestAssistantMessage.id]: Math.min(targetLength, latest + step),
+        };
+      });
+    }, 18);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [messages, typedAssistantLengths]);
 
   useEffect(() => {
     if (!backfillJobId) {
@@ -1203,7 +1301,7 @@ export default function ChatPage() {
         prompt: quickReply.value,
         displayUserMessage: quickReply.label,
         appendUserMessage: true,
-        intent: "draft",
+        intent: "coach",
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
         contentFocusOverride: quickReply.suggestedFocus ?? activeContentFocus,
@@ -1231,12 +1329,13 @@ export default function ChatPage() {
       return;
     }
 
+    const inferredIntent = inferComposerIntent(trimmedInput);
     setDraftInput("");
 
     await requestAssistantReply({
       prompt: trimmedInput,
       appendUserMessage: true,
-      intent: "draft",
+      intent: inferredIntent,
       strategyInputOverride: activeStrategyInputs,
       toneInputOverride: activeToneInputs,
       contentFocusOverride: activeContentFocus,
