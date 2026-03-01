@@ -351,6 +351,62 @@ function buildDeterministicCoachReply(params: {
   };
 }
 
+function buildCoachSystemPrompt(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+}): string {
+  const { context, contract } = params;
+
+  return [
+    "You are an X writing coach.",
+    "Your job is to help the creator get from a broad idea to one concrete post-worthy moment.",
+    "Be concise, human, and specific.",
+    "Do not write drafts, bullet lists, or multiple options.",
+    "Do not output angles or frameworks.",
+    "Respond in 2-3 sentences total.",
+    "Sentence 1 should be a short coaching observation or recommendation.",
+    "The final sentence must be exactly one focused follow-up question and must be the only sentence that ends with a question mark.",
+    "Ask for one concrete episode, proof point, reaction, mistake, or moment the creator can build a post around.",
+    "Do not ask multiple questions.",
+    `Creator archetype: ${context.creatorProfile.archetype}.`,
+    `Primary niche: ${context.creatorProfile.niche.primaryNiche}.`,
+    `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
+    `Preferred output shape after enough context: ${contract.planner.outputShape}.`,
+  ].join("\n");
+}
+
+function buildCoachUserPrompt(params: {
+  userMessage: string;
+  contentFocus?: string | null;
+  selectedAngle?: string | null;
+  history: ChatHistoryMessage[];
+}): string {
+  const historyText =
+    params.history.length > 0
+      ? params.history
+          .slice(-4)
+          .map(
+            (message) =>
+              `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 160)}`,
+          )
+          .join("\n")
+      : "No prior conversation.";
+
+  return [
+    `Current user input: ${params.userMessage}`,
+    params.contentFocus ? `Current focus lane: ${params.contentFocus}` : null,
+    params.selectedAngle ? `Selected angle: ${params.selectedAngle}` : null,
+    "Recent conversation:",
+    historyText,
+    "Ask one focused follow-up question that makes the next draft more specific.",
+    "If the current input is still broad, ask for a recent concrete moment.",
+    "If the current input already names a moment, ask for the strongest detail, reaction, or outcome from that moment.",
+    'Return JSON only: {"reply":"..."}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function buildDeterministicFallback(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -2602,6 +2658,21 @@ function inferUserMessageVoiceHints(userMessage: string): string {
     return "No additional live voice hints.";
   }
 
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  const isThinVoiceSample =
+    wordCount < 6 ||
+    trimmed.length < 48 ||
+    /^(project showcase|technical insight|build in public|operator lessons|social observation)$/i.test(
+      trimmed,
+    );
+
+  if (isThinVoiceSample) {
+    return [
+      "Live request is too thin to override the established creator voice.",
+      "Use it as a topical hint only, not as a casing or structure signal.",
+    ].join("\n");
+  }
+
   const letters = trimmed.match(/[A-Za-z]/g) ?? [];
   const lowercaseLetters = trimmed.match(/[a-z]/g) ?? [];
   const lowercaseShare =
@@ -2617,7 +2688,7 @@ function inferUserMessageVoiceHints(userMessage: string): string {
     sentenceCount <= 1
       ? "Live request style: clipped and direct"
       : "Live request style: multi-sentence",
-    "Weight the current user message style more heavily than weak historical signals if they conflict.",
+    "Only let the current user message style override the established voice when it is clearly specific and stronger than the existing anchors.",
   ].join("\n");
 }
 
@@ -2792,7 +2863,7 @@ function buildWriterSystemPrompt(params: {
       concreteSubject,
       userMessage,
     }),
-    "The current user message style matters most when choosing how loose, casual, or clipped the output should feel.",
+    "Use the current user message as a voice override only when it is substantive enough to be a real style sample. Thin prompts should not overpower the established creator voice.",
     pinnedVoiceAnchorCount > 0
       ? "Pinned voice references are the highest-priority tone source. If they conflict with weaker inferred signals, follow the pinned references."
       : "No pinned voice references were provided.",
@@ -3000,6 +3071,35 @@ function applyTargetCasing(
   });
 }
 
+function normalizeTowardSentenceCase(text: string): string {
+  const normalizedLines = text.split("\n").map((line) => {
+    if (!line.trim()) {
+      return line;
+    }
+
+    if (/^(THESIS:|PROOF:|MECHANISM:|CTA:)$/i.test(line.trim())) {
+      return line.trim().toUpperCase();
+    }
+
+    const lineMatch = line.match(/^(\s*(?:-\s+|\d\)\s+)?)?(.*)$/);
+    const prefix = lineMatch?.[1] ?? "";
+    const body = lineMatch?.[2] ?? line;
+
+    const capitalizedBody = body.replace(/[a-z]/, (character) =>
+      character.toUpperCase(),
+    );
+    const restoredPronouns = capitalizedBody.replace(/\bi\b/g, "I");
+    const restoredAcronyms = restoredPronouns.replace(
+      /\b[a-z][a-z0-9]{1,6}\b/g,
+      (token) => ACRONYM_CASE_MAP.get(token) ?? token,
+    );
+
+    return `${prefix}${restoredAcronyms}`;
+  });
+
+  return normalizedLines.join("\n");
+}
+
 function loosenDraftText(text: string, contract: CreatorGenerationContract): string {
   let next = text.trim().replace(/[ \t]+/g, " ");
 
@@ -3016,8 +3116,18 @@ function loosenDraftText(text: string, contract: CreatorGenerationContract): str
       next = next.replace(/[.!]+$/g, "");
     }
   }
+  next = applyTargetCasing(next, contract.writer.targetCasing);
 
-  return applyTargetCasing(next, contract.writer.targetCasing);
+  if (
+    contract.writer.targetCasing !== "lowercase" &&
+    (contract.planner.outputShape === "long_form_post" ||
+      contract.planner.outputShape === "thread_seed") &&
+    computeLowercaseShare(next) >= 85
+  ) {
+    next = normalizeTowardSentenceCase(next);
+  }
+
+  return next;
 }
 
 function hasProofSignal(text: string): boolean {
@@ -4158,24 +4268,91 @@ export async function generateCreatorChatReply(params: {
     };
   }
 
-  if (effectiveIntent === "coach") {
-    params.onProgress?.("finalizing");
-    return {
-      ...buildDeterministicCoachReply({
-        userMessage: params.userMessage,
-        contentFocus: params.contentFocus ?? null,
-        selectedAngle: params.selectedAngle ?? null,
-        debug: deterministicFallback.debug,
-      }),
-      source: "deterministic",
-      model: null,
-      mode: contract.mode,
-    };
-  }
-
   const plannerProvider = resolveProviderConfig("planner", params.provider);
   const writerProvider = resolveProviderConfig("writer", params.provider);
   const criticProvider = resolveProviderConfig("critic", params.provider);
+
+  if (effectiveIntent === "coach") {
+    if (!writerProvider) {
+      params.onProgress?.("finalizing");
+      return {
+        ...buildDeterministicCoachReply({
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          debug: deterministicFallback.debug,
+        }),
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+      };
+    }
+
+    try {
+      params.onProgress?.("writing");
+      const history = normalizeHistory(params.history ?? []);
+      const coachOutput = await callProviderJson<{ reply: string }>({
+        provider: writerProvider,
+        system: buildCoachSystemPrompt({ context, contract }),
+        user: buildCoachUserPrompt({
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          history,
+        }),
+        schemaName: "coach_reply",
+        schema: {
+          type: "object",
+          properties: {
+            reply: { type: "string" },
+          },
+          required: ["reply"],
+          additionalProperties: false,
+        },
+        maxOutputTokens: 220,
+      });
+
+      const reply = coerceString(coachOutput.reply);
+      const validation = validateCoachReplyText(reply);
+      const safeReply = validation.isValid
+        ? reply
+        : buildDeterministicCoachReply({
+            userMessage: params.userMessage,
+            contentFocus: params.contentFocus ?? null,
+            selectedAngle: params.selectedAngle ?? null,
+            debug: deterministicFallback.debug,
+          }).reply;
+
+      params.onProgress?.("finalizing");
+      return {
+        reply: safeReply,
+        angles: [],
+        drafts: [],
+        draftArtifacts: [],
+        supportAsset: null,
+        outputShape: "coach_question",
+        whyThisWorks: [],
+        watchOutFor: [],
+        debug: deterministicFallback.debug,
+        source: writerProvider.provider,
+        model: writerProvider.model,
+        mode: contract.mode,
+      };
+    } catch {
+      params.onProgress?.("finalizing");
+      return {
+        ...buildDeterministicCoachReply({
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          debug: deterministicFallback.debug,
+        }),
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+      };
+    }
+  }
 
   if (!plannerProvider || !writerProvider || !criticProvider) {
     params.onProgress?.("finalizing");
