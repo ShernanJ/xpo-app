@@ -781,6 +781,7 @@ async function callProviderJson<T>(params: {
   user: string;
   schemaName: string;
   schema: Record<string, unknown>;
+  maxOutputTokens?: number;
 }): Promise<T> {
   const requestHeaders = {
     "Content-Type": "application/json",
@@ -828,6 +829,9 @@ async function callProviderJson<T>(params: {
       },
     ],
     temperature: 0.2,
+    ...(typeof params.maxOutputTokens === "number"
+      ? { max_tokens: params.maxOutputTokens }
+      : {}),
   });
 
   if (params.provider.provider === "openai") {
@@ -845,6 +849,9 @@ async function callProviderJson<T>(params: {
           strict: true,
         },
       },
+      ...(typeof params.maxOutputTokens === "number"
+        ? { max_tokens: params.maxOutputTokens }
+        : {}),
     };
 
     const schemaResponse = await fetch(params.provider.baseUrl, {
@@ -881,6 +888,44 @@ async function callProviderJson<T>(params: {
   });
 
   return parseResponse(response);
+}
+
+function getStageMaxOutputTokens(params: {
+  stage: ChatModelStage;
+  intent: CreatorChatIntent;
+  outputShape?: CreatorGenerationOutputShape | "ideation_angles";
+}): number {
+  if (params.stage === "planner") {
+    return 320;
+  }
+
+  if (params.stage === "critic") {
+    return params.outputShape === "long_form_post" ||
+      params.outputShape === "thread_seed"
+      ? 1100
+      : 700;
+  }
+
+  if (params.outputShape === "long_form_post") {
+    return 1600;
+  }
+
+  if (params.outputShape === "thread_seed") {
+    return 1200;
+  }
+
+  return params.intent === "ideate" ? 900 : 800;
+}
+
+function summarizeWriterOutputForCritic(writer: WriterOutput): string {
+  return JSON.stringify({
+    response: compactTextForPrompt(writer.response, 220),
+    angles: writer.angles.slice(0, 4),
+    drafts: writer.drafts.slice(0, 3).map((draft) => compactTextForPrompt(draft, 280)),
+    supportAsset: compactTextForPrompt(writer.supportAsset, 100),
+    whyThisWorks: writer.whyThisWorks.slice(0, 3),
+    watchOutFor: writer.watchOutFor.slice(0, 3),
+  });
 }
 
 function buildPlannerSystemPrompt(params: {
@@ -1259,8 +1304,76 @@ function extractEvidenceLines(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+function stripEvidenceListMarker(line: string): string {
+  return line.replace(/^[-*•]\s*/, "").trim();
+}
+
+function isMetricLikeEvidenceLine(line: string): boolean {
+  const normalized = stripEvidenceListMarker(line);
+
+  if (!/\d/.test(normalized) || /:$/.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /^[-*•]\s/.test(line) ||
+    /\$|%|\b(arr|mrr|engineers?|users?|creators?|people|days?|months?|years?|profitable|processed)\b/i.test(
+      normalized,
+    )
+  );
+}
+
+function isProofLikeEvidenceLine(line: string): boolean {
+  const normalized = stripEvidenceListMarker(line);
+
+  if (/:$/.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /^[-*•]\s/.test(line) ||
+    /\b(built|build|hit|processed|grew|launched|shipped|power|scaled|profitable|used|reached)\b/i.test(
+      normalized,
+    )
+  );
+}
+
+function extractAtomicEvidenceFragments(
+  lines: string[],
+  limit: number,
+  maxLength: number,
+): string[] {
+  return uniqueEvidenceStrings(
+    lines.map((line) => compactTextForPrompt(stripEvidenceListMarker(line), maxLength)),
+    limit,
+  );
+}
+
 function extractEvidenceEntities(text: string): string[] {
   const entities: string[] = [];
+  const stopwords = new Set([
+    "I",
+    "If",
+    "And",
+    "But",
+    "The",
+    "This",
+    "That",
+    "What",
+    "How",
+    "Why",
+    "When",
+    "Here",
+    "Use",
+    "Original",
+    "Built",
+    "Build",
+    "Hit",
+    "Reply",
+    "Follow",
+    "Random",
+    "PDF",
+  ]);
 
   for (const mention of text.match(/@\w+/g) ?? []) {
     entities.push(mention);
@@ -1271,7 +1384,7 @@ function extractEvidenceEntities(text: string): string[] {
     if (candidate.length < 3) {
       continue;
     }
-    if (/^(I|If|And|But|The|This|That|What|How|Why|When|Here)$/i.test(candidate)) {
+    if (stopwords.has(candidate)) {
       continue;
     }
     entities.push(candidate);
@@ -1293,15 +1406,10 @@ function buildEvidencePack(params: {
     ].filter((post): post is CreatorRepresentativePost => post !== null),
   );
   const allLines = sourcePosts.flatMap((post) => extractEvidenceLines(post.text));
-  const metricLines = allLines.filter((line) => /\d/.test(line));
-  const proofLines = allLines.filter((line) =>
-    /\d/.test(line) ||
-    /\b(built|build|hit|processed|grew|launched|shipped|power|scaled|profitable|used|reached)\b/i.test(
-      line,
-    ),
-  );
+  const metricLines = allLines.filter(isMetricLikeEvidenceLine);
+  const proofLines = allLines.filter(isProofLikeEvidenceLine);
   const storyLines = allLines.filter((line) =>
-    /\b(i|i'm|i’ve|i've|my|me)\b/i.test(line),
+    /\b(i|i'm|i’ve|i've|my|me)\b/i.test(line) && !/:$/.test(line),
   );
   const constraintLines = allLines.filter((line) =>
     /\b(with|without|less than|instead of|not more|small team|only|under|<)\b/i.test(
@@ -1312,10 +1420,10 @@ function buildEvidencePack(params: {
     sourcePosts.flatMap((post) => extractEvidenceEntities(post.text)),
     8,
   );
-  const metrics = uniqueEvidenceStrings(metricLines, 6);
-  const proofPoints = uniqueEvidenceStrings(proofLines, 6);
-  const storyBeats = uniqueEvidenceStrings(storyLines, 4);
-  const constraints = uniqueEvidenceStrings(constraintLines, 4);
+  const metrics = extractAtomicEvidenceFragments(metricLines, 4, 72);
+  const proofPoints = extractAtomicEvidenceFragments(proofLines, 5, 88);
+  const storyBeats = extractAtomicEvidenceFragments(storyLines, 3, 88);
+  const constraints = extractAtomicEvidenceFragments(constraintLines, 3, 72);
 
   return {
     sourcePostIds: sourcePosts.map((post) => post.id),
@@ -3807,6 +3915,11 @@ export async function generateCreatorChatReply(params: {
       `Deterministic must-avoid constraints: ${contract.writer.mustAvoid.join(" | ")}`,
     ].join("\n\n"),
     schemaName: "creator_planner_output",
+    maxOutputTokens: getStageMaxOutputTokens({
+      stage: "planner",
+      intent: params.intent ?? "draft",
+      outputShape: contract.planner.outputShape,
+    }),
     schema: {
       type: "object",
       additionalProperties: false,
@@ -3927,6 +4040,11 @@ export async function generateCreatorChatReply(params: {
       ].join(" | ")}`,
     ].join("\n\n"),
     schemaName: "creator_writer_output",
+    maxOutputTokens: getStageMaxOutputTokens({
+      stage: "writer",
+      intent: params.intent ?? "draft",
+      outputShape: contract.planner.outputShape,
+    }),
     schema: {
       type: "object",
       additionalProperties: false,
@@ -4018,11 +4136,16 @@ export async function generateCreatorChatReply(params: {
         requestAnchors.formatAnchors,
         1,
       ),
-      `Candidate response package:\n${JSON.stringify(writer)}`,
+      `Candidate response package:\n${summarizeWriterOutputForCritic(writer)}`,
       `Checklist: ${contract.critic.checklist.join(" | ")}`,
       `Hard constraints: drafts must sound like the user's real voice, not generic expert copy.`,
     ].join("\n\n"),
     schemaName: "creator_critic_output",
+    maxOutputTokens: getStageMaxOutputTokens({
+      stage: "critic",
+      intent: params.intent ?? "draft",
+      outputShape: contract.planner.outputShape,
+    }),
     schema: {
       type: "object",
       additionalProperties: false,
@@ -4134,6 +4257,7 @@ export async function generateCreatorChatReply(params: {
           `Other candidate drafts:\n${finalDrafts.slice(1).join("\n\n") || "none"}`,
         ].join("\n\n"),
         schemaName: "creator_long_form_expansion_output",
+        maxOutputTokens: 1800,
         schema: {
           type: "object",
           additionalProperties: false,
