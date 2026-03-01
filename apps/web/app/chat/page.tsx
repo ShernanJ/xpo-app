@@ -10,6 +10,12 @@ import {
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
+import {
+  isBroadDiscoveryPrompt,
+  isCorrectionPrompt,
+  isMetaClarifyingPrompt,
+  isThinCoachInput,
+} from "@/lib/onboarding/coachReply";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   PostingCadenceCapacity,
@@ -263,29 +269,6 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
-function formatContentFocusLabel(value: ChatContentFocus): string {
-  switch (value) {
-    case "project_showcase":
-      return "Project Showcase";
-    case "technical_insight":
-      return "Technical Insight";
-    case "build_in_public":
-      return "Build In Public";
-    case "operator_lessons":
-      return "Operator Lessons";
-    case "social_observation":
-      return "Social Observation";
-  }
-}
-
-function formatToneCasingLabel(value: ToneCasing): string {
-  return value === "lowercase" ? "Lowercase" : "Standard Casing";
-}
-
-function formatToneRiskLabel(value: ToneRisk): string {
-  return value === "bold" ? "Bold / Punchier" : "Safe / Steady";
-}
-
 function inferInitialToneInputs(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -342,6 +325,18 @@ function inferComposerIntent(input: string): ChatIntent {
     return "review";
   }
 
+  if (isCorrectionPrompt(trimmed) || isMetaClarifyingPrompt(trimmed)) {
+    return "coach";
+  }
+
+  if (isBroadDiscoveryPrompt(trimmed)) {
+    return "coach";
+  }
+
+  if (isThinCoachInput(trimmed)) {
+    return "coach";
+  }
+
   if (/\b(idea|ideate|brainstorm|angles?|topics?)\b/i.test(trimmed)) {
     return "ideate";
   }
@@ -369,52 +364,18 @@ const chatScanlineStyle = {
   backgroundSize: "100% 6px",
 };
 
-function buildInitialAssistantMessage(
-  context: CreatorAgentContext,
-  contract: CreatorGenerationContract,
-): string {
-  const angle = contract.planner.primaryAngle;
-  const loop = formatEnumLabel(context.creatorProfile.distribution.primaryLoop);
-  const observedNiche = formatEnumLabel(context.creatorProfile.niche.primaryNiche);
-  const targetNiche =
-    context.creatorProfile.niche.targetNiche &&
-    context.creatorProfile.niche.targetNiche !== "generalist"
-      ? formatEnumLabel(context.creatorProfile.niche.targetNiche)
-      : null;
-
-  if (contract.mode === "analysis_only") {
-    return `I analyzed @${context.account}. Your current model is not strong enough for reliable drafting yet. You're trending ${formatEnumLabel(
-      context.creatorProfile.archetype,
-    )} in ${observedNiche}, but we should stay in analysis mode until the sample deepens.`;
-  }
-
-  if (
-    context.creatorProfile.niche.primaryNiche === "generalist" &&
-    targetNiche
-  ) {
-    return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
-      context.creatorProfile.archetype,
-    )}, but your current niche signal is still broad. The best niche to build toward is ${targetNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
-  }
-
-  return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
-    context.creatorProfile.archetype,
-  )} in ${observedNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
-}
-
 function buildInitialCoachMessage(
   context: CreatorAgentContext,
   contract: CreatorGenerationContract,
 ): string {
-  const summary = buildInitialAssistantMessage(context, contract);
   const coachingFrame =
     context.creatorProfile.identity.isVerified ||
     contract.planner.outputShape === "long_form_post" ||
     contract.planner.outputShape === "thread_seed"
-      ? "You already have enough proof to write something strong. The only thing missing is one specific moment to build it around."
-      : "You already have enough signal to write something strong. The only thing missing is one specific moment instead of a broad topic.";
+      ? "You already have enough proof to write something strong."
+      : "You already have enough signal to write something strong.";
 
-  return `${summary}\n\n${coachingFrame}\n\nTell me the most recent real moment you want to turn into a post.`;
+  return `${coachingFrame}\n\nYou do not need another generic topic list. The next strong post is usually hiding in one real moment that already happened.\n\nWhat happened recently that made you think, "I should probably post this"?`;
 }
 
 function formatTypingStatusLabel(status?: string | null): string {
@@ -488,7 +449,7 @@ export default function ChatPage() {
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
+  const [, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
@@ -854,29 +815,6 @@ export default function ChatPage() {
       current.filter((postId) => availableIds.has(postId)),
     );
   }, [pinnedReferenceCandidates]);
-
-  const summaryChips = useMemo(() => {
-    if (!context) {
-      return [];
-    }
-
-    return [
-      `Archetype: ${formatEnumLabel(context.creatorProfile.archetype)}`,
-      `Niche: ${formatNicheSummary(context)}`,
-      `Loop: ${formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}`,
-      `Readiness: ${formatEnumLabel(context.readiness.status)}`,
-      ...(activeContentFocus
-        ? [`Focus: ${formatContentFocusLabel(activeContentFocus)}`]
-        : []),
-      ...(activeToneInputs
-        ? [
-            `Tone: ${formatToneCasingLabel(
-              activeToneInputs.toneCasing,
-            )} / ${formatToneRiskLabel(activeToneInputs.toneRisk)}`,
-          ]
-        : []),
-    ];
-  }, [activeContentFocus, activeToneInputs, context]);
 
   const sidebarThreads = useMemo(() => {
     if (!context || !contract) {
@@ -1272,24 +1210,15 @@ export default function ChatPage() {
   );
 
   const handleQuickReplySelect = useCallback(
-    async (quickReply: ChatQuickReply) => {
-      if (!activeStrategyInputs || !activeToneInputs || isSending) {
+    (quickReply: ChatQuickReply) => {
+      if (isSending) {
         return;
       }
 
       if (quickReply.kind === "content_focus") {
         setActiveContentFocus(quickReply.value as ChatContentFocus);
-
-        await requestAssistantReply({
-          prompt: "",
-          displayUserMessage: quickReply.label,
-          includeUserMessageInHistory: false,
-          appendUserMessage: true,
-          intent: "coach",
-          strategyInputOverride: activeStrategyInputs,
-          toneInputOverride: activeToneInputs,
-          contentFocusOverride: quickReply.value as ChatContentFocus,
-        });
+        setDraftInput(`i want to focus on ${quickReply.label.toLowerCase()}`);
+        setErrorMessage(null);
         return;
       }
 
@@ -1297,23 +1226,10 @@ export default function ChatPage() {
         setActiveContentFocus(quickReply.suggestedFocus);
       }
 
-      await requestAssistantReply({
-        prompt: quickReply.value,
-        displayUserMessage: quickReply.label,
-        appendUserMessage: true,
-        intent: "coach",
-        strategyInputOverride: activeStrategyInputs,
-        toneInputOverride: activeToneInputs,
-        contentFocusOverride: quickReply.suggestedFocus ?? activeContentFocus,
-      });
+      setDraftInput(quickReply.value);
+      setErrorMessage(null);
     },
-    [
-      activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
-      isSending,
-      requestAssistantReply,
-    ],
+    [isSending],
   );
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1528,23 +1444,6 @@ export default function ChatPage() {
 
           <section className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
-              <div className="flex flex-wrap items-center gap-2">
-                {summaryChips.map((chip) => (
-                  <span
-                    key={chip}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400"
-                  >
-                    {chip}
-                  </span>
-                ))}
-              </div>
-
-              {backfillNotice ? (
-                <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
-                  {backfillNotice}
-                </div>
-              ) : null}
-
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -1675,7 +1574,7 @@ export default function ChatPage() {
                       !message.draftArtifacts?.length ? (
                         <div className="mt-4 border-t border-white/10 pt-4">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Best Asset
+                            Visual / Demo Ideas
                           </p>
                           <p className="mt-2 text-xs leading-6 text-zinc-300">
                             {message.supportAsset}
@@ -2098,7 +1997,7 @@ export default function ChatPage() {
               {selectedDraftArtifact.supportAsset ? (
                 <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Suggested Asset
+                    Visual / Demo Ideas
                   </p>
                   <p className="mt-2 text-sm leading-7 text-zinc-300">
                     {selectedDraftArtifact.supportAsset}

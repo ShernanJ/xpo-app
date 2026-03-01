@@ -15,6 +15,9 @@ import {
   type DraftValidationResult,
 } from "./draftValidator";
 import {
+  isBroadDiscoveryPrompt,
+  isCorrectionPrompt,
+  isMetaClarifyingPrompt,
   isThinCoachInput,
   validateCoachReplyText,
 } from "./coachReply";
@@ -313,6 +316,102 @@ function formatEnumLabel(value: string): string {
     .join(" ");
 }
 
+function looksLikeRawAssetLabel(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return true;
+  }
+
+  if (/^[A-Za-z0-9_-]{12,}$/.test(trimmed) && !/\s/.test(trimmed)) {
+    return true;
+  }
+
+  return (
+    /^(best asset|suggested asset|image|video|photo|screenshot|demo|link)$/i.test(
+      trimmed,
+    ) ||
+    trimmed.length < 18
+  );
+}
+
+function buildDefaultVisualSupportIdeas(params: {
+  contentFocus?: string | null;
+  selectedAngle?: string | null;
+  userMessage: string;
+  evidencePack: CreatorChatDebugEvidencePack;
+}): string {
+  const focusSource =
+    params.selectedAngle?.trim() ||
+    params.contentFocus?.trim() ||
+    params.userMessage.trim();
+  const normalizedFocus = focusSource.toLowerCase();
+  const proofSeed =
+    params.evidencePack.proofPoints[0] ||
+    params.evidencePack.metrics[0] ||
+    params.evidencePack.entities[0] ||
+    "the core proof";
+
+  if (
+    /\b(build|product|feature|ship|app|tool|demo|launch|workflow|prototype)\b/.test(
+      normalizedFocus,
+    )
+  ) {
+    return `Pair it with a clean product screenshot that makes ${proofSeed} visible, a 10-20 second screen recording of the exact flow, or a before/after visual that shows what changed.`;
+  }
+
+  if (/\b(operator|team|growth|process|system|metrics?)\b/.test(normalizedFocus)) {
+    return `Pair it with a dashboard screenshot, an annotated metric snapshot, or a short walkthrough video that shows the operating constraint or proof behind ${proofSeed}.`;
+  }
+
+  if (
+    /\b(user|customer|reply|dm|conversation|surprised|feedback|reaction)\b/.test(
+      normalizedFocus,
+    )
+  ) {
+    return `Pair it with a cropped screenshot of the real moment, a blurred DM or reply that captures the reaction, or a short voiceover clip that explains why ${proofSeed} changed your thinking.`;
+  }
+
+  return `Pair it with a real screenshot, a short screen recording, or an annotated visual that makes ${proofSeed} feel tangible instead of abstract.`;
+}
+
+function normalizeVisualSupportIdeas(params: {
+  raw: string | null;
+  contentFocus?: string | null;
+  selectedAngle?: string | null;
+  userMessage: string;
+  evidencePack: CreatorChatDebugEvidencePack;
+}): string | null {
+  const raw = params.raw?.trim() ?? "";
+  if (!raw || looksLikeRawAssetLabel(raw)) {
+    return buildDefaultVisualSupportIdeas(params);
+  }
+
+  const normalized = raw
+    .replace(/\s+/g, " ")
+    .replace(/^best asset:?/i, "")
+    .replace(/^suggested asset:?/i, "")
+    .trim();
+
+  if (!normalized || looksLikeRawAssetLabel(normalized)) {
+    return buildDefaultVisualSupportIdeas(params);
+  }
+
+  if (
+    /^pair it with\b/i.test(normalized) ||
+    /\b(screenshot|screen recording|demo|video|photo|visual|walkthrough)\b/i.test(
+      normalized,
+    )
+  ) {
+    return normalized;
+  }
+
+  return `Pair it with ${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}.`;
+}
+
 function buildDeterministicCoachReply(params: {
   userMessage: string;
   contentFocus?: string | null;
@@ -329,10 +428,20 @@ function buildDeterministicCoachReply(params: {
     normalizedSeed.length > 72
       ? `${normalizedSeed.slice(0, 69).trimEnd()}...`
       : normalizedSeed;
-  const reply = [
-    `You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.`,
-    `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
-  ].join(" ");
+  const reply = isMetaClarifyingPrompt(params.userMessage)
+    ? [
+        "You're right, that detail should not be steering the post if it is not actually the point.",
+        `What is the real moment you want the post to revolve around instead of ${conciseSeed}?`,
+      ].join(" ")
+    : isCorrectionPrompt(params.userMessage)
+      ? [
+          "That's fair, we should keep the lesson without forcing the wrong framing.",
+          `What is the version of ${conciseSeed} you actually want to emphasize?`,
+        ].join(" ")
+      : [
+          "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.",
+          `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
+        ].join(" ");
   const validation = validateCoachReplyText(reply);
   const safeReply = validation.isValid
     ? reply
@@ -401,6 +510,8 @@ function buildCoachUserPrompt(params: {
     "Ask one focused follow-up question that makes the next draft more specific.",
     "If the current input is still broad, ask for a recent concrete moment.",
     "If the current input already names a moment, ask for the strongest detail, reaction, or outcome from that moment.",
+    "If the user is correcting your framing or setting a boundary, acknowledge that first in one sentence, then ask one better follow-up question.",
+    "If the user asks why you mentioned something irrelevant, answer that directly in one sentence, then ask one tighter replacement question.",
     'Return JSON only: {"reply":"..."}',
   ]
     .filter(Boolean)
@@ -515,6 +626,17 @@ function buildDeterministicFallback(params: {
       fallbackEvidencePack.entities[0] ||
       null;
 
+    const fallbackSupportAsset = normalizeVisualSupportIdeas({
+      raw:
+        fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
+          ? "Use the exact screenshot, metric, or artifact that proves the strongest evidence point."
+          : "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
+      contentFocus: params.contentFocus ?? null,
+      selectedAngle: params.selectedAngle?.trim() || null,
+      userMessage: params.userMessage,
+      evidencePack: fallbackEvidencePack,
+    });
+
     return {
       reply:
         fallbackEvidencePack.requiredEvidenceCount > 0
@@ -540,10 +662,7 @@ function buildDeterministicFallback(params: {
       ).map((angle) => loosenDraftText(angle, contract)),
       drafts: [],
       draftArtifacts: [],
-      supportAsset:
-        fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
-          ? "Use the exact screenshot, metric, or artifact that proves the strongest evidence point."
-          : "Use a real screenshot, short demo clip, or a product link only if it helps prove the point.",
+      supportAsset: fallbackSupportAsset,
       outputShape: "ideation_angles",
       whyThisWorks: [
         "It separates planning from final post writing.",
@@ -635,6 +754,17 @@ function buildDeterministicFallback(params: {
     evidencePack: fallbackEvidencePack,
   });
 
+  const fallbackDraftSupportAsset = normalizeVisualSupportIdeas({
+    raw:
+      fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
+        ? "Attach the real screenshot, metric, or artifact that proves the strongest evidence point."
+        : "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+    contentFocus: params.contentFocus ?? null,
+    selectedAngle: params.selectedAngle?.trim() || null,
+    userMessage: params.userMessage,
+    evidencePack: fallbackEvidencePack,
+  });
+
   return {
     reply: fallbackEvidencePack.requiredEvidenceCount > 0
       ? `Use the ${formatEnumLabel(
@@ -663,15 +793,9 @@ function buildDeterministicFallback(params: {
               }`,
             ].map((draft) => loosenDraftText(draft, contract)),
       outputShape: contract.planner.outputShape,
-      supportAsset:
-        fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
-          ? "Attach the real screenshot, metric, or artifact that proves the strongest evidence point."
-          : "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+      supportAsset: fallbackDraftSupportAsset,
     }),
-    supportAsset:
-      fallbackEvidencePack.metrics.length > 0 || fallbackEvidencePack.proofPoints.length > 0
-        ? "Attach the real screenshot, metric, or artifact that proves the strongest evidence point."
-        : "If you mention a product or project, attach a screenshot or quick demo instead of a generic link.",
+    supportAsset: fallbackDraftSupportAsset,
     outputShape: contract.planner.outputShape,
     whyThisWorks: [
       fallbackEvidencePack.requiredEvidenceCount > 0
@@ -2910,6 +3034,8 @@ function buildWriterSystemPrompt(params: {
     `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
     `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
+    "The supportAsset field must describe 1-3 concrete image, video, or demo ideas that would make the post more believable.",
+    "Never return a URL, raw asset id, or a vague label like 'best asset', 'screenshot', or 'demo' by itself.",
     "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
     "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
     "Do not mention internal model fields unless useful to the user.",
@@ -3035,6 +3161,7 @@ function buildCriticSystemPrompt(params: {
     `Output shape rationale: ${contract.planner.outputShapeRationale}`,
     `Readiness status: ${context.readiness.status}.`,
     `Explicit content focus: ${contentFocus ?? "none"}.`,
+    "Reject supportAsset values that are just a URL, raw asset id, or a vague noun. Rewrite them into concrete visual or demo pairing ideas.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
@@ -4230,13 +4357,20 @@ export async function generateCreatorChatReply(params: {
   pinnedEvidencePostIds?: string[];
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
-  const effectiveIntent: CreatorChatIntent =
-    params.intent === "coach" ||
-    (!params.selectedAngle &&
-      (params.intent ?? "draft") !== "review" &&
-      isThinCoachInput(params.userMessage))
-      ? "coach"
-      : (params.intent ?? "draft");
+  const requestedIntent = params.intent ?? "draft";
+  const shouldForceCoachFromPrompt =
+    isCorrectionPrompt(params.userMessage) ||
+    isMetaClarifyingPrompt(params.userMessage);
+  const shouldCoach =
+    !params.selectedAngle &&
+    requestedIntent !== "review" &&
+    (requestedIntent === "coach" ||
+      shouldForceCoachFromPrompt ||
+      isThinCoachInput(params.userMessage) ||
+      isBroadDiscoveryPrompt(params.userMessage));
+  const effectiveIntent: CreatorChatIntent = shouldCoach
+    ? "coach"
+    : requestedIntent;
   const context = buildCreatorAgentContext({
     runId: params.runId,
     onboarding: params.onboarding,
@@ -4929,6 +5063,14 @@ export async function generateCreatorChatReply(params: {
     }
   }
 
+  const normalizedSupportAsset = normalizeVisualSupportIdeas({
+    raw: (critic.finalSupportAsset || writer.supportAsset).trim() || null,
+    contentFocus: params.contentFocus ?? null,
+    selectedAngle: params.selectedAngle?.trim() || null,
+    userMessage: params.userMessage,
+    evidencePack: requestAnchors.evidencePack,
+  });
+
   return {
     reply: critic.finalResponse.trim() || writer.response.trim(),
     angles: finalAngles,
@@ -4937,10 +5079,9 @@ export async function generateCreatorChatReply(params: {
       drafts: finalDrafts,
       outputShape:
         intent === "ideate" ? "ideation_angles" : contract.planner.outputShape,
-      supportAsset: (critic.finalSupportAsset || writer.supportAsset).trim() || null,
+      supportAsset: normalizedSupportAsset,
     }),
-    supportAsset:
-      (critic.finalSupportAsset || writer.supportAsset).trim() || null,
+    supportAsset: normalizedSupportAsset,
     outputShape:
       intent === "ideate" ? "ideation_angles" : contract.planner.outputShape,
     whyThisWorks: sanitizeStringList(
