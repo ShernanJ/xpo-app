@@ -65,6 +65,7 @@ export async function POST(request: Request) {
       requireBlueprintMatch?: boolean;
       requireSkeletonMatch?: boolean;
       requireProofReuse?: boolean;
+      requireValidatorPass?: boolean;
     }>;
   }> = [];
 
@@ -195,6 +196,12 @@ export async function POST(request: Request) {
                     typeof (value as { requireProofReuse?: unknown }).requireProofReuse ===
                     "boolean"
                       ? (value as { requireProofReuse?: boolean }).requireProofReuse
+                      : undefined,
+                  requireValidatorPass:
+                    typeof (value as { requireValidatorPass?: unknown })
+                      .requireValidatorPass === "boolean"
+                      ? (value as { requireValidatorPass?: boolean })
+                          .requireValidatorPass
                       : undefined,
                 }
               : null,

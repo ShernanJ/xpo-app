@@ -33,6 +33,7 @@ export interface CreatorGroundingRegressionInput {
   requireBlueprintMatch?: boolean;
   requireSkeletonMatch?: boolean;
   requireProofReuse?: boolean;
+  requireValidatorPass?: boolean;
 }
 
 export interface CreatorGroundingRegressionResult {
@@ -50,6 +51,8 @@ export interface CreatorGroundingRegressionResult {
   evidenceCoverage: number;
   genericPhraseCount: number;
   strategyLeakCount: number;
+  validatorPass: boolean | null;
+  validatorErrors: string[];
   issues: string[];
 }
 
@@ -169,6 +172,16 @@ function runGroundingRegressionCheck(params: {
     ) {
       issues.push("top draft did not reuse a metric or proof signal");
     }
+
+    if (params.check.requireValidatorPass) {
+      if (!topDiagnostic.validator) {
+        issues.push("top draft did not expose validator diagnostics");
+      } else if (!topDiagnostic.validator.pass) {
+        issues.push(
+          `top draft failed validator: ${topDiagnostic.validator.errors.join(", ") || "unknown errors"}`,
+        );
+      }
+    }
   }
 
   return {
@@ -183,6 +196,8 @@ function runGroundingRegressionCheck(params: {
     evidenceCoverage: topDiagnostic?.evidenceCoverage.total ?? 0,
     genericPhraseCount: topDiagnostic?.genericPhraseCount ?? 0,
     strategyLeakCount: topDiagnostic?.strategyLeakCount ?? 0,
+    validatorPass: topDiagnostic?.validator?.pass ?? null,
+    validatorErrors: topDiagnostic?.validator?.errors ?? [],
     issues,
   };
 }

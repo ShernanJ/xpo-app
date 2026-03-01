@@ -4029,15 +4029,25 @@ function buildLongFormRepairSystemPrompt(params: {
 
   return [
     "You are repairing a failing X long-form authority post.",
-    "Produce a NEW draft that fixes the validator errors.",
+    "Rewrite from scratch. Do not patch the existing draft line-by-line.",
+    "Produce a NEW draft that fixes every validator error.",
     "Do not preserve overlapping 5-word sequences from the failing draft or the exemplar.",
+    "Do not reuse the failing opener, sentence order, or section order verbatim.",
     "Keep the same concrete topic, selected angle, and proof source.",
+    "The render contract is mandatory. If a constraint conflicts with the failing draft, discard the failing draft and follow the contract.",
     authorityRenderContract,
     `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
     `Concrete evidence pack:\n${formatEvidencePack(params.requestAnchors.evidencePack)}`,
     `Format exemplar: ${formatExemplar(params.requestAnchors.formatExemplar)}`,
     `Current failing draft:\n${params.failingDraft}`,
     `Validator errors to fix: ${params.validation.errors.join(" | ") || "none"}`,
+    "Required rewrite behavior:",
+    "- Use uppercase section labels exactly as specified.",
+    "- Use exactly one blank line between sections.",
+    "- Write a fresh THESIS that is declarative and structurally different from the failing draft.",
+    "- Include the required PROOF bullets and MECHANISM steps exactly.",
+    "- End with a valid CTA and nothing after it.",
+    "- If the previous draft copied phrasing too literally, rotate the wording and preserve only the proof.",
     "Return only valid JSON that follows the provided schema.",
   ].join("\n");
 }
