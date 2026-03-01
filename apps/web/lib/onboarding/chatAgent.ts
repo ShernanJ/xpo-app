@@ -14,6 +14,10 @@ import {
   type DraftCtaMode,
   type DraftValidationResult,
 } from "./draftValidator";
+import {
+  isThinCoachInput,
+  validateCoachReplyText,
+} from "./coachReply";
 import type {
   CreatorRepresentativePost,
   OnboardingResult,
@@ -121,7 +125,7 @@ function normalizeCriticOutput(
 
 export type ChatModelProvider = "openai" | "groq";
 type ChatModelStage = "planner" | "writer" | "critic";
-export type CreatorChatIntent = "ideate" | "draft" | "review";
+export type CreatorChatIntent = "coach" | "ideate" | "draft" | "review";
 export type CreatorChatProgressPhase =
   | "planning"
   | "writing"
@@ -185,7 +189,10 @@ export interface CreatorChatReplyResult {
   drafts: string[];
   draftArtifacts: CreatorDraftArtifact[];
   supportAsset: string | null;
-  outputShape: CreatorGenerationOutputShape | "ideation_angles";
+  outputShape:
+    | CreatorGenerationOutputShape
+    | "ideation_angles"
+    | "coach_question";
   whyThisWorks: string[];
   watchOutFor: string[];
   debug: CreatorChatDebugInfo;
@@ -306,6 +313,44 @@ function formatEnumLabel(value: string): string {
     .join(" ");
 }
 
+function buildDeterministicCoachReply(params: {
+  userMessage: string;
+  contentFocus?: string | null;
+  selectedAngle?: string | null;
+  debug: CreatorChatDebugInfo;
+}): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
+  const promptSeed =
+    params.selectedAngle?.trim() ||
+    params.contentFocus?.trim() ||
+    params.userMessage.trim() ||
+    "the next post";
+  const normalizedSeed = promptSeed.replace(/\s+/g, " ").trim();
+  const conciseSeed =
+    normalizedSeed.length > 72
+      ? `${normalizedSeed.slice(0, 69).trimEnd()}...`
+      : normalizedSeed;
+  const reply = [
+    `You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.`,
+    `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
+  ].join(" ");
+  const validation = validateCoachReplyText(reply);
+  const safeReply = validation.isValid
+    ? reply
+    : "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic. Tell me the most recent situation where this became real in practice?";
+
+  return {
+    reply: safeReply,
+    angles: [],
+    drafts: [],
+    draftArtifacts: [],
+    supportAsset: null,
+    outputShape: "coach_question",
+    whyThisWorks: [],
+    watchOutFor: [],
+    debug: params.debug,
+  };
+}
+
 function buildDeterministicFallback(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -390,6 +435,15 @@ function buildDeterministicFallback(params: {
       ],
       debug: debugInfo,
     };
+  }
+
+  if (params.intent === "coach") {
+    return buildDeterministicCoachReply({
+      userMessage: params.userMessage,
+      contentFocus: params.contentFocus ?? null,
+      selectedAngle: params.selectedAngle ?? null,
+      debug: debugInfo,
+    });
   }
 
   if (params.intent === "ideate") {
@@ -4066,6 +4120,13 @@ export async function generateCreatorChatReply(params: {
   pinnedEvidencePostIds?: string[];
   onProgress?: (phase: CreatorChatProgressPhase) => void;
 }): Promise<CreatorChatReplyResult> {
+  const effectiveIntent: CreatorChatIntent =
+    params.intent === "coach" ||
+    (!params.selectedAngle &&
+      (params.intent ?? "draft") !== "review" &&
+      isThinCoachInput(params.userMessage))
+      ? "coach"
+      : (params.intent ?? "draft");
   const context = buildCreatorAgentContext({
     runId: params.runId,
     onboarding: params.onboarding,
@@ -4080,7 +4141,7 @@ export async function generateCreatorChatReply(params: {
     context,
     contract,
     userMessage: params.userMessage,
-    intent: params.intent,
+    intent: effectiveIntent,
     contentFocus: params.contentFocus,
     selectedAngle: params.selectedAngle ?? null,
     pinnedVoicePostIds: params.pinnedVoicePostIds ?? [],
@@ -4091,6 +4152,21 @@ export async function generateCreatorChatReply(params: {
     params.onProgress?.("finalizing");
     return {
       ...deterministicFallback,
+      source: "deterministic",
+      model: null,
+      mode: contract.mode,
+    };
+  }
+
+  if (effectiveIntent === "coach") {
+    params.onProgress?.("finalizing");
+    return {
+      ...buildDeterministicCoachReply({
+        userMessage: params.userMessage,
+        contentFocus: params.contentFocus ?? null,
+        selectedAngle: params.selectedAngle ?? null,
+        debug: deterministicFallback.debug,
+      }),
       source: "deterministic",
       model: null,
       mode: contract.mode,

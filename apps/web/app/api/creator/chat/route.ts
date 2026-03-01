@@ -73,7 +73,10 @@ export async function POST(request: Request) {
       ? body.provider
       : "groq";
   const intent =
-    body.intent === "ideate" || body.intent === "draft" || body.intent === "review"
+    body.intent === "coach" ||
+    body.intent === "ideate" ||
+    body.intent === "draft" ||
+    body.intent === "review"
       ? body.intent
       : "draft";
   const contentFocus =
@@ -114,8 +117,16 @@ export async function POST(request: Request) {
       return "Turn the selected angle into X draft(s) following the render contract.";
     }
 
-    if (intent === "ideate") {
-      return contentFocus ?? "";
+    if (intent === "coach" || intent === "ideate") {
+      if (contentFocus) {
+        return `I picked ${contentFocus}. Ask me ONE question to make this specific before drafting.`;
+      }
+
+      if (intent === "coach") {
+        return "Ask me ONE question to make this specific before drafting.";
+      }
+
+      return "";
     }
 
     if (selectedAngle) {
@@ -143,7 +154,7 @@ export async function POST(request: Request) {
           {
             field: "message",
             message:
-              "A message, selectedAngle, or ideation contentFocus is required.",
+              "A message, selectedAngle, or content focus is required.",
           },
         ],
       },

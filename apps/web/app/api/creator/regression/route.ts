@@ -49,10 +49,11 @@ export async function POST(request: Request) {
     groundingChecks?: Array<{
       label?: string;
       prompt?: string;
-      intent?: "ideate" | "draft" | "review";
+      intent?: "coach" | "ideate" | "draft" | "review";
       contentFocus?: string | null;
       selectedAngle?: string | null;
       expectedOutputShape?:
+        | "coach_question"
         | "ideation_angles"
         | "short_form_post"
         | "long_form_post"
@@ -121,10 +122,13 @@ export async function POST(request: Request) {
                       ? (value as { prompt?: string }).prompt
                       : undefined,
                   intent:
+                    (value as { intent?: unknown }).intent === "coach" ||
                     (value as { intent?: unknown }).intent === "ideate" ||
                     (value as { intent?: unknown }).intent === "draft" ||
                     (value as { intent?: unknown }).intent === "review"
-                      ? ((value as { intent?: "ideate" | "draft" | "review" }).intent ??
+                      ? ((value as {
+                          intent?: "coach" | "ideate" | "draft" | "review";
+                        }).intent ??
                         undefined)
                       : undefined,
                   contentFocus:
@@ -136,6 +140,8 @@ export async function POST(request: Request) {
                       ? (value as { selectedAngle?: string }).selectedAngle
                       : undefined,
                   expectedOutputShape:
+                    (value as { expectedOutputShape?: unknown }).expectedOutputShape ===
+                      "coach_question" ||
                     (value as { expectedOutputShape?: unknown }).expectedOutputShape ===
                       "ideation_angles" ||
                     (value as { expectedOutputShape?: unknown }).expectedOutputShape ===
@@ -150,6 +156,7 @@ export async function POST(request: Request) {
                       "quote_candidate"
                       ? ((value as {
                           expectedOutputShape?:
+                            | "coach_question"
                             | "ideation_angles"
                             | "short_form_post"
                             | "long_form_post"

@@ -69,6 +69,7 @@ interface CreatorChatSuccess {
     draftArtifacts: DraftArtifact[];
     supportAsset: string | null;
     outputShape:
+      | "coach_question"
       | "ideation_angles"
       | "short_form_post"
       | "long_form_post"
@@ -206,7 +207,7 @@ interface ChatMessage {
 }
 
 type ChatProviderPreference = "openai" | "groq";
-type ChatIntent = "ideate" | "draft" | "review";
+type ChatIntent = "coach" | "ideate" | "draft" | "review";
 type ChatContentFocus =
   | "project_showcase"
   | "technical_insight"
@@ -215,9 +216,10 @@ type ChatContentFocus =
   | "social_observation";
 
 interface ChatQuickReply {
-  kind: "content_focus";
-  value: ChatContentFocus;
+  kind: "content_focus" | "example_reply";
+  value: string;
   label: string;
+  suggestedFocus?: ChatContentFocus;
 }
 
 interface ChatStrategyInputs {
@@ -250,14 +252,6 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
-const contentFocusOptions: ChatContentFocus[] = [
-  "project_showcase",
-  "technical_insight",
-  "build_in_public",
-  "operator_lessons",
-  "social_observation",
-];
-
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -381,6 +375,21 @@ function buildInitialAssistantMessage(
   return `I analyzed @${context.account}. You're primarily ${formatEnumLabel(
     context.creatorProfile.archetype,
   )} in ${observedNiche}, and your strongest growth loop is ${loop}. The best next angle is: ${angle}`;
+}
+
+function buildInitialCoachMessage(
+  context: CreatorAgentContext,
+  contract: CreatorGenerationContract,
+): string {
+  const summary = buildInitialAssistantMessage(context, contract);
+  const nextMove =
+    context.creatorProfile.identity.isVerified ||
+    contract.planner.outputShape === "long_form_post" ||
+    contract.planner.outputShape === "thread_seed"
+      ? "The fastest way to get to a strong draft is to anchor it to one recent moment with real proof behind it."
+      : "The fastest way to get to a strong draft is to anchor it to one recent specific moment instead of a broad topic.";
+
+  return `${summary}\n\n${nextMove}\n\nWhat is the most recent specific situation you want to write about?`;
 }
 
 function AssistantTypingBubble(props: { status?: string | null }) {
@@ -562,16 +571,29 @@ export default function ChatPage() {
       {
         id: "assistant-initial",
         role: "assistant",
-        content: `${buildInitialAssistantMessage(
-          context,
-          contract,
-        )}\n\nwhat do you want to focus on posting about next? tell me in your own words, or pick a lane to start.`,
+        content: buildInitialCoachMessage(context, contract),
         excludeFromHistory: true,
-        quickReplies: contentFocusOptions.map((option) => ({
-          kind: "content_focus",
-          value: option,
-          label: formatContentFocusLabel(option),
-        })),
+        outputShape: "coach_question",
+        quickReplies: [
+          {
+            kind: "example_reply",
+            value: "i shipped something recently and the outcome surprised me",
+            label: "I shipped something recently",
+            suggestedFocus: "project_showcase",
+          },
+          {
+            kind: "example_reply",
+            value: "i tried something that failed harder than i expected",
+            label: "Something failed harder than expected",
+            suggestedFocus: "build_in_public",
+          },
+          {
+            kind: "example_reply",
+            value: "a user said something that changed what i'm building",
+            label: "A user changed what I'm building",
+            suggestedFocus: "social_observation",
+          },
+        ],
       },
     ]);
   }, [context, contract, messages.length]);
@@ -935,7 +957,9 @@ export default function ChatPage() {
       const trimmedPrompt = options.prompt?.trim() ?? "";
       const hasStructuredIntent =
         !!options.selectedAngle ||
-        ((options.intent ?? "draft") === "ideate" && !!resolvedContentFocus);
+        (((options.intent ?? "draft") === "ideate" ||
+          (options.intent ?? "draft") === "coach") &&
+          !!resolvedContentFocus);
 
       if (!trimmedPrompt && !hasStructuredIntent) {
         return;
@@ -1151,29 +1175,47 @@ export default function ChatPage() {
 
   const handleQuickReplySelect = useCallback(
     async (quickReply: ChatQuickReply) => {
-      if (
-        quickReply.kind !== "content_focus" ||
-        !activeStrategyInputs ||
-        !activeToneInputs ||
-        isSending
-      ) {
+      if (!activeStrategyInputs || !activeToneInputs || isSending) {
         return;
       }
 
-      setActiveContentFocus(quickReply.value);
+      if (quickReply.kind === "content_focus") {
+        setActiveContentFocus(quickReply.value as ChatContentFocus);
+
+        await requestAssistantReply({
+          prompt: "",
+          displayUserMessage: quickReply.label,
+          includeUserMessageInHistory: false,
+          appendUserMessage: true,
+          intent: "coach",
+          strategyInputOverride: activeStrategyInputs,
+          toneInputOverride: activeToneInputs,
+          contentFocusOverride: quickReply.value as ChatContentFocus,
+        });
+        return;
+      }
+
+      if (quickReply.suggestedFocus) {
+        setActiveContentFocus(quickReply.suggestedFocus);
+      }
 
       await requestAssistantReply({
-        prompt: "",
+        prompt: quickReply.value,
         displayUserMessage: quickReply.label,
-        includeUserMessageInHistory: false,
         appendUserMessage: true,
-        intent: "ideate",
+        intent: "draft",
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
-        contentFocusOverride: quickReply.value,
+        contentFocusOverride: quickReply.suggestedFocus ?? activeContentFocus,
       });
     },
-    [activeStrategyInputs, activeToneInputs, isSending, requestAssistantReply],
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      activeToneInputs,
+      isSending,
+      requestAssistantReply,
+    ],
   );
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1443,7 +1485,9 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" && message.angles?.length ? (
+                      {message.role === "assistant" &&
+                      message.outputShape !== "coach_question" &&
+                      message.angles?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.angles.map((angle, index) => (
                             <div
@@ -1471,7 +1515,9 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" && message.draftArtifacts?.length ? (
+                      {message.role === "assistant" &&
+                      message.outputShape !== "coach_question" &&
+                      message.draftArtifacts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.draftArtifacts.map((artifact, index) => (
                             <div
@@ -1505,6 +1551,7 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
+                      message.outputShape !== "coach_question" &&
                       !message.draftArtifacts?.length &&
                       message.drafts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
@@ -1571,12 +1618,16 @@ export default function ChatPage() {
 
                       {showDevTools && message.role === "assistant" && message.source ? (
                         <div className="mt-4 border-t border-white/10 pt-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            {message.source}
-                            {message.model ? ` · ${message.model}` : ""}
-                          </p>
-                          {message.debug ? (
-                            <div className="mt-3 space-y-2">
+                          <details className="group">
+                            <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                              Debug Details
+                              <span className="ml-2 text-zinc-600">
+                                {message.source}
+                                {message.model ? ` · ${message.model}` : ""}
+                              </span>
+                            </summary>
+                            {message.debug ? (
+                              <div className="mt-3 space-y-2">
                               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
                                 Shape Rationale
                               </p>
@@ -1855,8 +1906,9 @@ export default function ChatPage() {
                                   </div>
                                 </>
                               ) : null}
-                            </div>
-                          ) : null}
+                              </div>
+                            ) : null}
+                          </details>
                         </div>
                       ) : null}
                     </div>

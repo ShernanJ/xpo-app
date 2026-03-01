@@ -3,6 +3,7 @@ import {
   buildDeterministicCreatorChatReply,
   type CreatorChatIntent,
 } from "./chatAgent";
+import { validateCoachReplyText } from "./coachReply";
 import type { OnboardingResult } from "./types";
 
 export interface CreatorRegressionCaseInput {
@@ -21,6 +22,7 @@ export interface CreatorGroundingRegressionInput {
   contentFocus?: string | null;
   selectedAngle?: string | null;
   expectedOutputShape?:
+    | "coach_question"
     | "ideation_angles"
     | "short_form_post"
     | "long_form_post"
@@ -40,6 +42,7 @@ export interface CreatorGroundingRegressionResult {
   label: string;
   passed: boolean;
   outputShape:
+    | "coach_question"
     | "ideation_angles"
     | "short_form_post"
     | "long_form_post"
@@ -110,6 +113,7 @@ function runGroundingRegressionCheck(params: {
   });
   const topDiagnostic = reply.debug.draftDiagnostics[0] ?? null;
   const issues: string[] = [];
+  const coachValidation = validateCoachReplyText(reply.reply);
 
   if (
     params.check.expectedOutputShape &&
@@ -120,7 +124,15 @@ function runGroundingRegressionCheck(params: {
     );
   }
 
-  if (intent !== "ideate" && !topDiagnostic) {
+  if (reply.outputShape === "coach_question") {
+    if ((reply.drafts?.length ?? 0) > 0 || (reply.draftArtifacts?.length ?? 0) > 0) {
+      issues.push("coach output should not include drafts");
+    }
+
+    if (!coachValidation.isValid) {
+      issues.push("coach output must end with exactly one question");
+    }
+  } else if (intent !== "ideate" && !topDiagnostic) {
     issues.push("no draft diagnostics were produced for the top draft");
   }
 
