@@ -298,6 +298,13 @@ function inferInitialToneInputs(params: {
 }): ChatToneInputs {
   const { context, contract } = params;
   const voice = context.creatorProfile.voice;
+  if (context.creatorProfile.identity.isVerified) {
+    return {
+      toneCasing: "normal",
+      toneRisk: contract.writer.targetRisk,
+    };
+  }
+
   const isLongFormCreator =
     context.creatorProfile.identity.isVerified ||
     contract.planner.outputShape === "long_form_post" ||
@@ -522,6 +529,29 @@ export default function ChatPage() {
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (!runId) {
+      return;
+    }
+
+    setContext(null);
+    setContract(null);
+    setMessages([]);
+    setDraftInput("");
+    setErrorMessage(null);
+    setStreamStatus(null);
+    setAnalysisOpen(false);
+    setBackfillNotice(null);
+    setActiveContentFocus(null);
+    setToneInputs(DEFAULT_CHAT_TONE_INPUTS);
+    setActiveToneInputs(null);
+    setActiveStrategyInputs(DEFAULT_CHAT_STRATEGY_INPUTS);
+    setActiveDraftEditor(null);
+    setEditorDraftText("");
+    setPinnedVoicePostIds([]);
+    setPinnedEvidencePostIds([]);
+  }, [runId]);
 
   useEffect(() => {
     if (!context || !contract || messages.length > 0) {

@@ -228,16 +228,28 @@ function resolveTargetTone(params: {
   risk: ToneRisk;
   summary: string;
 } {
-  const observedLowercase =
-    params.creatorProfile.voice.primaryCasing === "lowercase" &&
-    ((params.creatorProfile.voice.lowercaseSharePercent >= 68 &&
-      params.creatorProfile.voice.multiLinePostRate < 35) ||
-      (params.creatorProfile.voice.lowercaseSharePercent >= 88 &&
-        params.creatorProfile.voice.multiLinePostRate < 20));
+  const isLongFormCreator =
+    params.creatorProfile.identity.isVerified ||
+    params.creatorProfile.voice.averageLengthBand === "long" ||
+    params.creatorProfile.playbook.cadence.threadBias === "high" ||
+    params.creatorProfile.voice.multiLinePostRate >= 30;
+  const observedLowercase = isLongFormCreator
+    ? params.creatorProfile.voice.primaryCasing === "lowercase" &&
+      params.creatorProfile.voice.lowercaseSharePercent >= 95 &&
+      params.creatorProfile.voice.multiLinePostRate < 10
+    : params.creatorProfile.voice.primaryCasing === "lowercase" &&
+      params.creatorProfile.voice.lowercaseSharePercent >= 72 &&
+      params.creatorProfile.voice.multiLinePostRate < 35;
   const requestedCasing = params.tonePreference?.casing ?? "normal";
   const requestedRisk = params.tonePreference?.risk ?? "safe";
   const casing: ToneCasing =
-    requestedCasing === "lowercase" || observedLowercase ? "lowercase" : "normal";
+    requestedCasing === "lowercase"
+      ? "lowercase"
+      : isLongFormCreator
+        ? "normal"
+        : observedLowercase
+          ? "lowercase"
+          : "normal";
   const summary =
     casing === requestedCasing
       ? `Honor the ${requestedCasing} casing preference while preserving the observed voice.`
