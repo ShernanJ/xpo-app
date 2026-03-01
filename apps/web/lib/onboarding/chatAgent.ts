@@ -194,6 +194,7 @@ interface RequestConditionedAnchors {
   formatAnchors: CreatorRepresentativePost[];
   formatExemplar: CreatorRepresentativePost | null;
   evidencePack: CreatorChatDebugEvidencePack;
+  angleSelection: AngleSelection;
 }
 
 interface FormatBlueprintProfile {
@@ -211,6 +212,64 @@ interface LongFormContentSkeleton {
   hasTurningPoint: boolean;
   hasLesson: boolean;
   closeMode: "confident" | "question";
+}
+
+type VolatilityLane =
+  | "Project Showcase"
+  | "Technical Insight"
+  | "Build In Public"
+  | "Operator Lessons"
+  | "Social Observation";
+
+type VolatilityGoal = "followers" | "replies" | "clicks";
+
+type VolatilityOpenerType =
+  | "contrarian claim"
+  | "problem statement"
+  | "vivid micro-story"
+  | "hard rule"
+  | "surprising statistic"
+  | "single-sentence thesis"
+  | "identity announcement"
+  | "question";
+
+interface AngleLever {
+  id: string;
+  type:
+    | "identity"
+    | "scale"
+    | "speed"
+    | "team"
+    | "philosophy"
+    | "origin"
+    | "talent"
+    | "contrarian"
+    | "process"
+    | "trap";
+  title: string;
+  description: string;
+  exampleHooks: string[];
+  allowedProof: {
+    metrics: string[];
+    entities: string[];
+  };
+}
+
+interface AngleSelection {
+  inferredLane: VolatilityLane;
+  inferredGoal: VolatilityGoal;
+  primary: AngleLever | null;
+  secondary: AngleLever[];
+  anchorOpenerType: VolatilityOpenerType;
+  allowedOpenerTypes: Array<
+    | "contrarian claim"
+    | "problem statement"
+    | "vivid micro-story"
+    | "hard rule"
+    | "surprising statistic"
+    | "single-sentence thesis"
+  >;
+  metricReuseLimit: number;
 }
 
 interface ModelProviderConfig {
@@ -270,6 +329,20 @@ function buildDeterministicFallback(params: {
     formatExemplar: fallbackFormatExemplar,
     topicAnchors: context.positiveAnchors.slice(0, 2),
     evidenceAnchors: pinnedEvidenceAnchors,
+  });
+  const fallbackAngleSelection = selectAngleLevers({
+    levers: extractLeversFromEvidence({
+      formatExemplar: fallbackFormatExemplar,
+      evidencePack: fallbackEvidencePack,
+    }),
+    inferredLane: inferVolatilityLane({
+      contentFocus: params.contentFocus ?? null,
+      userMessage: params.userMessage,
+      selectedAngle: params.selectedAngle ?? null,
+    }),
+    inferredGoal: inferVolatilityGoal(context),
+    targetLength: contract.planner.outputShape,
+    anchorOpenerType: classifyOpenerType(fallbackFormatExemplar?.text ?? ""),
   });
   const fallbackFormatBlueprint = buildFormatBlueprint({
     post: fallbackFormatExemplar,
@@ -410,6 +483,7 @@ function buildDeterministicFallback(params: {
             }`,
           ].map((draft) => loosenDraftText(draft, contract)),
     contract,
+    angleSelection: fallbackAngleSelection,
     selectedAngle: params.selectedAngle?.trim() || null,
     concreteSubject: extractConcreteSubject(params.userMessage),
     userMessage: params.userMessage,
@@ -951,15 +1025,30 @@ function selectRequestConditionedAnchors(params: {
   const pool = params.context.positiveAnchors;
 
   if (pool.length === 0) {
+    const emptyEvidencePack = buildEvidencePack({
+      formatExemplar: null,
+      topicAnchors: [],
+      evidenceAnchors: params.pinnedEvidenceAnchors,
+    });
     return {
       topicAnchors: [],
       laneAnchors: [],
       formatAnchors: [],
       formatExemplar: null,
-      evidencePack: buildEvidencePack({
-        formatExemplar: null,
-        topicAnchors: [],
-        evidenceAnchors: params.pinnedEvidenceAnchors,
+      evidencePack: emptyEvidencePack,
+      angleSelection: selectAngleLevers({
+        levers: extractLeversFromEvidence({
+          formatExemplar: null,
+          evidencePack: emptyEvidencePack,
+        }),
+        inferredLane: inferVolatilityLane({
+          contentFocus: params.contentFocus,
+          userMessage: params.userMessage,
+          selectedAngle: params.selectedAngle,
+        }),
+        inferredGoal: inferVolatilityGoal(params.context),
+        anchorOpenerType: "single-sentence thesis",
+        targetLength: params.contract.planner.outputShape,
       }),
     };
   }
@@ -1003,16 +1092,32 @@ function selectRequestConditionedAnchors(params: {
       context: params.context,
       contract: params.contract,
     });
+  const evidencePack = buildEvidencePack({
+    formatExemplar,
+    topicAnchors,
+    evidenceAnchors: params.pinnedEvidenceAnchors,
+  });
+  const anchorOpenerType = classifyOpenerType(formatExemplar?.text ?? "");
 
   return {
     topicAnchors,
     laneAnchors,
     formatAnchors,
     formatExemplar,
-    evidencePack: buildEvidencePack({
-      formatExemplar,
-      topicAnchors,
-      evidenceAnchors: params.pinnedEvidenceAnchors,
+    evidencePack,
+    angleSelection: selectAngleLevers({
+      levers: extractLeversFromEvidence({
+        formatExemplar,
+        evidencePack,
+      }),
+      inferredLane: inferVolatilityLane({
+        contentFocus: params.contentFocus,
+        userMessage: params.userMessage,
+        selectedAngle: params.selectedAngle,
+      }),
+      inferredGoal: inferVolatilityGoal(params.context),
+      anchorOpenerType,
+      targetLength: params.contract.planner.outputShape,
     }),
   };
 }
@@ -1228,6 +1333,385 @@ function buildEvidencePack(params: {
   };
 }
 
+const VOLATILITY_ALLOWED_OPENERS: Array<
+  | "contrarian claim"
+  | "problem statement"
+  | "vivid micro-story"
+  | "hard rule"
+  | "surprising statistic"
+  | "single-sentence thesis"
+> = [
+  "contrarian claim",
+  "problem statement",
+  "vivid micro-story",
+  "hard rule",
+  "surprising statistic",
+  "single-sentence thesis",
+];
+
+function inferVolatilityLane(params: {
+  contentFocus: string | null;
+  userMessage: string;
+  selectedAngle: string | null;
+}): VolatilityLane {
+  const text = [
+    params.contentFocus,
+    params.userMessage,
+    params.selectedAngle,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/\b(project|showcase|demo|ship|launched?)\b/.test(text)) {
+    return "Project Showcase";
+  }
+  if (/\b(technical|tutorial|engineering|code|architecture|infra|debug)\b/.test(text)) {
+    return "Technical Insight";
+  }
+  if (/\b(build in public|building in public|build|ship|shipped)\b/.test(text)) {
+    return "Build In Public";
+  }
+  if (/\b(operator|ops|founder|startup|scale|distribution|team)\b/.test(text)) {
+    return "Operator Lessons";
+  }
+  return "Social Observation";
+}
+
+function inferVolatilityGoal(context: CreatorAgentContext): VolatilityGoal {
+  if (context.creatorProfile.distribution.primaryLoop === "reply_driven") {
+    return "replies";
+  }
+  if (context.creatorProfile.strategy.primaryGoal === "leads") {
+    return "clicks";
+  }
+  return "followers";
+}
+
+function classifyOpenerType(text: string): VolatilityOpenerType {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (!trimmed) {
+    return "single-sentence thesis";
+  }
+
+  const firstSentence = extractFirstSentence(trimmed).toLowerCase();
+
+  if (firstSentence.endsWith("?")) {
+    return "question";
+  }
+  if (
+    /\bhere'?s who i am\b|\bhere'?s what i do\b|\bi'm [a-z0-9@._-]+,/.test(
+      firstSentence,
+    )
+  ) {
+    return "identity announcement";
+  }
+  if (/^(most|too many|the problem|nobody talks about)\b/.test(firstSentence)) {
+    return "problem statement";
+  }
+  if (/^(never|always|stop|do not|don't)\b/.test(firstSentence)) {
+    return "hard rule";
+  }
+  if (/^(i |when i |i grew up|years ago|last year|the first time)\b/.test(firstSentence)) {
+    return "vivid micro-story";
+  }
+  if (/\b\d/.test(firstSentence)) {
+    return "surprising statistic";
+  }
+  if (
+    /\b(wrong|broken|overrated|underrated|backwards|myth|mistake)\b/.test(
+      firstSentence,
+    )
+  ) {
+    return "contrarian claim";
+  }
+
+  return "single-sentence thesis";
+}
+
+function extractFirstSentence(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const match = normalized.match(/.+?(?:[.!?](?=\s|$)|$)/);
+  return match?.[0]?.trim() ?? normalized;
+}
+
+function extractFirstWords(text: string, count: number): string {
+  return text
+    .trim()
+    .split(/\s+/)
+    .slice(0, count)
+    .join(" ")
+    .toLowerCase();
+}
+
+function createLever(
+  id: AngleLever["id"],
+  type: AngleLever["type"],
+  title: string,
+  description: string,
+  exampleHooks: string[],
+  metrics: string[],
+  entities: string[],
+): AngleLever {
+  return {
+    id,
+    type,
+    title,
+    description,
+    exampleHooks,
+    allowedProof: {
+      metrics: uniqueEvidenceStrings(metrics, 4),
+      entities: uniqueEvidenceStrings(entities, 4),
+    },
+  };
+}
+
+function extractLeversFromEvidence(params: {
+  formatExemplar: CreatorRepresentativePost | null;
+  evidencePack: CreatorChatDebugEvidencePack;
+}): AngleLever[] {
+  const sourceText = [
+    params.formatExemplar?.text ?? "",
+    ...params.evidencePack.storyBeats,
+    ...params.evidencePack.proofPoints,
+    ...params.evidencePack.constraints,
+  ]
+    .join("\n")
+    .toLowerCase();
+  const metrics = params.evidencePack.metrics;
+  const entities = params.evidencePack.entities;
+  const levers: AngleLever[] = [];
+
+  if (/\b(small team|team|engineers?)\b/.test(sourceText)) {
+    levers.push(
+      createLever(
+        "small-team-dominance",
+        "team",
+        "small team dominance",
+        "show how lean teams outperform through clarity, talent density, and execution",
+        [
+          "small teams don't lose because they're small",
+          "lean teams can outrun bigger orgs",
+        ],
+        metrics.filter((metric) => /\b(engineer|team|people|users?)\b/i.test(metric)),
+        entities,
+      ),
+    );
+  }
+
+  if (/\b(ignore|ignored|best practices?)\b/.test(sourceText)) {
+    levers.push(
+      createLever(
+        "ignore-best-practices",
+        "contrarian",
+        "ignoring best practices",
+        "frame execution as winning by rejecting default playbooks",
+        [
+          "most best practices are inherited drag",
+          "the default playbook breaks more companies than it saves",
+        ],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  if (/\b(grew up|immigrat|small town|winter|lens)\b/.test(sourceText)) {
+    levers.push(
+      createLever(
+        "origin-lens",
+        "origin",
+        "origin lens",
+        "use a formative personal arc to frame current operating beliefs",
+        [
+          "how you grow changes when you have rebuilt from nothing",
+        ],
+        metrics.filter((metric) => /\$|\b\d/.test(metric)),
+        entities,
+      ),
+    );
+  }
+
+  if (/\b(hiring|talent|top 1%|waiting years?)\b/.test(sourceText)) {
+    levers.push(
+      createLever(
+        "talent-density",
+        "talent",
+        "talent density over speed",
+        "prioritize hiring quality and patience over fast headcount growth",
+        [
+          "hiring slower can speed the company up",
+        ],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  if (/\b(trap|mistake|kill companies|quietly kill)\b/.test(sourceText)) {
+    levers.push(
+      createLever(
+        "founder-traps",
+        "trap",
+        "founder traps",
+        "surface the hidden mistakes that look harmless until they compound",
+        [
+          "most founders don't die from obvious mistakes",
+        ],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  if (metrics.length > 0) {
+    levers.push(
+      createLever(
+        "proof-led-scale",
+        "scale",
+        "proof-led scale",
+        "lead with concrete operating proof instead of abstract claims",
+        [
+          "if you want to talk about scale, bring receipts",
+        ],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  if (
+    /\b(execution|process|discipline|systems|delete 80%|doing less, not more)\b/.test(
+      sourceText,
+    )
+  ) {
+    levers.push(
+      createLever(
+        "execution-philosophy",
+        "process",
+        "execution philosophy",
+        "turn the creator's operating philosophy into the core lesson",
+        [
+          "scale is usually a process problem before it's a resource problem",
+        ],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  if (levers.length === 0) {
+    levers.push(
+      createLever(
+        "concrete-proof-angle",
+        "philosophy",
+        "concrete proof over vague advice",
+        "anchor the post in the strongest available concrete proof",
+        ["the fastest way to sound credible is to be specific"],
+        metrics,
+        entities,
+      ),
+    );
+  }
+
+  return dedupeLevers(levers);
+}
+
+function dedupeLevers(levers: AngleLever[]): AngleLever[] {
+  const seen = new Set<string>();
+  return levers.filter((lever) => {
+    if (seen.has(lever.id)) {
+      return false;
+    }
+    seen.add(lever.id);
+    return true;
+  });
+}
+
+function selectAngleLevers(params: {
+  levers: AngleLever[];
+  inferredLane: VolatilityLane;
+  inferredGoal: VolatilityGoal;
+  anchorOpenerType: VolatilityOpenerType;
+  targetLength: CreatorGenerationOutputShape;
+}): AngleSelection {
+  const scored = params.levers
+    .map((lever) => {
+      let score = 0;
+
+      if (params.inferredLane === "Operator Lessons") {
+        if (
+          ["team", "process", "contrarian", "trap", "talent"].includes(lever.type)
+        ) {
+          score += 4;
+        }
+      } else if (params.inferredLane === "Build In Public") {
+        if (["origin", "process", "speed", "identity"].includes(lever.type)) {
+          score += 4;
+        }
+      } else if (params.inferredLane === "Project Showcase") {
+        if (["scale", "speed", "process"].includes(lever.type)) {
+          score += 4;
+        }
+      } else if (params.inferredLane === "Technical Insight") {
+        if (["process", "contrarian", "team"].includes(lever.type)) {
+          score += 3;
+        }
+      } else if (["identity", "origin", "contrarian"].includes(lever.type)) {
+        score += 3;
+      }
+
+      if (params.inferredGoal === "followers") {
+        if (["contrarian", "identity", "trap", "origin"].includes(lever.type)) {
+          score += 2;
+        }
+      } else if (params.inferredGoal === "replies") {
+        if (["trap", "contrarian", "process"].includes(lever.type)) {
+          score += 2;
+        }
+      } else if (["scale", "team", "talent"].includes(lever.type)) {
+        score += 2;
+      }
+
+      if (params.targetLength === "long_form_post" || params.targetLength === "thread_seed") {
+        score += lever.allowedProof.metrics.length > 0 ? 2 : 0;
+      }
+
+      return { lever, score };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  const primary = scored[0]?.lever ?? null;
+  const secondary = primary
+    ? scored
+        .slice(1)
+        .map((item) => item.lever)
+        .filter((lever) => lever.type !== primary.type)
+        .slice(0, 2)
+    : [];
+
+  const allowedOpenerTypes = VOLATILITY_ALLOWED_OPENERS.filter(
+    (type) => type !== params.anchorOpenerType,
+  );
+  const metricReuseLimit =
+    params.targetLength === "long_form_post" ? 4 : 2;
+
+  return {
+    inferredLane: params.inferredLane,
+    inferredGoal: params.inferredGoal,
+    primary,
+    secondary,
+    anchorOpenerType: params.anchorOpenerType,
+    allowedOpenerTypes:
+      allowedOpenerTypes.length > 0 ? allowedOpenerTypes : VOLATILITY_ALLOWED_OPENERS,
+    metricReuseLimit,
+  };
+}
+
 function formatEvidencePack(evidencePack: CreatorChatDebugEvidencePack): string {
   if (
     evidencePack.entities.length === 0 &&
@@ -1248,6 +1732,34 @@ function formatEvidencePack(evidencePack: CreatorChatDebugEvidencePack): string 
     `Required evidence count: ${evidencePack.requiredEvidenceCount}`,
     `Source posts: ${evidencePack.sourcePostIds.join(" | ") || "none"}`,
   ].join("\n");
+}
+
+function formatAngleSelection(angleSelection: AngleSelection): string {
+  const primary = angleSelection.primary;
+  const secondary =
+    angleSelection.secondary.length > 0
+      ? angleSelection.secondary.map((lever) => lever.title).join(" | ")
+      : "none";
+
+  return [
+    `Inferred lane: ${angleSelection.inferredLane}`,
+    `Inferred goal: ${angleSelection.inferredGoal}`,
+    `Primary lever: ${primary ? `${primary.id} | ${primary.title} | ${primary.description}` : "none"}`,
+    `Secondary levers: ${secondary}`,
+    `Allowed opener types: ${angleSelection.allowedOpenerTypes.join(" | ")}`,
+    `Anchor opener type to avoid: ${angleSelection.anchorOpenerType}`,
+    `Metric reuse limit: ${angleSelection.metricReuseLimit}`,
+    `Primary lever metrics: ${primary?.allowedProof.metrics.join(" | ") || "none"}`,
+    `Primary lever entities: ${primary?.allowedProof.entities.join(" | ") || "none"}`,
+  ].join("\n");
+}
+
+function buildAngleIsolationLine(angleSelection: AngleSelection): string {
+  if (!angleSelection.primary) {
+    return "No strong primary lever is available. Stay concrete and pick one specific claim, not a broad category.";
+  }
+
+  return `Use exactly one primary angle lever: ${angleSelection.primary.title}. You may support it with at most two secondary levers (${angleSelection.secondary.map((lever) => lever.title).join(" | ") || "none"}), but the draft must clearly read as being about the primary lever.`;
 }
 
 function countEvidenceCoverage(
@@ -1746,6 +2258,7 @@ function buildWriterSystemPrompt(params: {
   );
   const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
   const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
+  const angleSelectionLine = formatAngleSelection(requestAnchors.angleSelection);
   const formatBlueprint = buildFormatBlueprint({
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
@@ -1766,6 +2279,8 @@ function buildWriterSystemPrompt(params: {
     selectedAngle
       ? `Selected angle (highest-priority topic constraint): ${selectedAngle}`
       : "Selected angle (highest-priority topic constraint): none",
+    `Angle volatility engine:\n${angleSelectionLine}`,
+    buildAngleIsolationLine(requestAnchors.angleSelection),
     concreteSubject
       ? `Concrete subject (keep this wording family): ${concreteSubject}`
       : "Concrete subject (keep this wording family): none",
@@ -1773,11 +2288,17 @@ function buildWriterSystemPrompt(params: {
     requestAnchors.evidencePack.requiredEvidenceCount > 0
       ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
       : "No minimum evidence reuse requirement is available.",
+    `Reuse at most ${requestAnchors.angleSelection.metricReuseLimit} metric proof point(s) in a single draft.`,
     `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
     `Structural blueprint: ${formatBlueprint}`,
     `Long-form content skeleton: ${formatSkeleton}`,
     `Required output shape: ${contract.planner.outputShape}.`,
     `Output shape rationale: ${contract.planner.outputShapeRationale}`,
+    "Do not reuse or lightly paraphrase the exemplar's wording. Use it for structure and evidence only.",
+    "Do not copy the anchor first sentence, the first 15 words, or any bullet line verbatim.",
+    "No 5-word sequence from the anchor may appear in the draft.",
+    `The opener must use one of these rotated moves: ${requestAnchors.angleSelection.allowedOpenerTypes.join(" | ")}.`,
+    `The opener must not match the anchor opener type: ${requestAnchors.angleSelection.anchorOpenerType}.`,
     "Use strategy, niche, goal, and growth-loop guidance as background constraints only. They can shape framing, structure, and proof density, but they must not become the literal topic of the post.",
     "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
     buildConcreteTopicGuardrail({
@@ -1868,6 +2389,7 @@ function buildCriticSystemPrompt(params: {
   );
   const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
   const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
+  const angleSelectionLine = formatAngleSelection(requestAnchors.angleSelection);
   const formatBlueprint = buildFormatBlueprint({
     post: requestAnchors.formatExemplar,
     outputShape: contract.planner.outputShape,
@@ -1880,6 +2402,8 @@ function buildCriticSystemPrompt(params: {
     "You are the critic for an X growth assistant.",
     "Review the candidate response package and either approve it or tighten it.",
     "Keep the final response concise, useful, and aligned to the deterministic checklist.",
+    `Angle volatility engine:\n${angleSelectionLine}`,
+    buildAngleIsolationLine(requestAnchors.angleSelection),
     intent === "ideate"
       ? "If the user is still planning, keep the response focused on authentic angles, keep final drafts empty, and make the angles feel like something the user would naturally say."
       : "Keep the draft candidates sharp and usable as actual X posts.",
@@ -1894,10 +2418,14 @@ function buildCriticSystemPrompt(params: {
     requestAnchors.evidencePack.requiredEvidenceCount > 0
       ? `Reject drafts that reuse fewer than ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) when the topic aligns with the evidence pack.`
       : "No minimum evidence reuse requirement is available.",
+    `Reject drafts that reuse more than ${requestAnchors.angleSelection.metricReuseLimit} metric proof point(s) unless the system explicitly asked for more.`,
     `Use this structure as the closest good mold when it exists: ${formatExemplarLine}`,
     `Structural blueprint to enforce: ${formatBlueprint}`,
     `Long-form content skeleton to enforce: ${formatSkeleton}`,
     "Reject outputs that ignore the strongest concrete evidence and replace it with generic category-level advice.",
+    "Reject drafts that copy or closely paraphrase the anchor opener, the first 15 words, or any anchor bullet line.",
+    "Reject drafts that reuse 5-word sequences from the anchor.",
+    `Reject drafts whose opener type matches the anchor opener type: ${requestAnchors.angleSelection.anchorOpenerType}.`,
     "Reject outputs where broad strategy or goal phrasing becomes the literal topic. Strategy should shape framing only, not replace the concrete subject.",
     "Reject drafts that sound more formal, generic, or polished than the user's real voice anchors.",
     pinnedVoiceAnchorCount > 0
@@ -2271,6 +2799,113 @@ function countPhraseMatches(text: string, phrases: string[]): number {
   return phrases.filter((phrase) => lowered.includes(phrase)).length;
 }
 
+function normalizeWordsForOverlap(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter(
+    (token) => token.length >= 3,
+  );
+}
+
+function createNgrams(tokens: string[], size: number): Set<string> {
+  const grams = new Set<string>();
+  if (tokens.length < size) {
+    return grams;
+  }
+
+  for (let index = 0; index <= tokens.length - size; index += 1) {
+    grams.add(tokens.slice(index, index + size).join(" "));
+  }
+
+  return grams;
+}
+
+function analyzeExemplarReuse(
+  draft: string,
+  exemplar: CreatorRepresentativePost | null | undefined,
+): {
+  overlapRatio: number;
+  exactLineReuseCount: number;
+  reusedFiveGramCount: number;
+  firstSentenceOverlap: boolean;
+  firstFifteenWordOverlap: boolean;
+  anchorOpenerType: VolatilityOpenerType;
+  draftOpenerType: VolatilityOpenerType;
+  openerMatchesAnchorType: boolean;
+} {
+  const draftOpenerType = classifyOpenerType(draft);
+
+  if (!exemplar?.text.trim()) {
+    return {
+      overlapRatio: 0,
+      exactLineReuseCount: 0,
+      reusedFiveGramCount: 0,
+      firstSentenceOverlap: false,
+      firstFifteenWordOverlap: false,
+      anchorOpenerType: "single-sentence thesis",
+      draftOpenerType,
+      openerMatchesAnchorType: false,
+    };
+  }
+
+  const draftTokens = normalizeWordsForOverlap(draft);
+  const exemplarTokens = normalizeWordsForOverlap(exemplar.text);
+  const draftBigrams = createNgrams(draftTokens, 2);
+  const exemplarBigrams = createNgrams(exemplarTokens, 2);
+  const draftFiveGrams = createNgrams(draftTokens, 5);
+  const exemplarFiveGrams = createNgrams(exemplarTokens, 5);
+
+  let overlapCount = 0;
+  for (const gram of draftBigrams) {
+    if (exemplarBigrams.has(gram)) {
+      overlapCount += 1;
+    }
+  }
+
+  let reusedFiveGramCount = 0;
+  for (const gram of draftFiveGrams) {
+    if (exemplarFiveGrams.has(gram)) {
+      reusedFiveGramCount += 1;
+    }
+  }
+
+  const draftLines = draft
+    .split(/\n+/)
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => line.length >= 12);
+  const exemplarLineSet = new Set(
+    exemplar.text
+      .split(/\n+/)
+      .map((line) => line.trim().toLowerCase())
+      .filter((line) => line.length >= 12),
+  );
+  const exactLineReuseCount = draftLines.filter((line) =>
+    exemplarLineSet.has(line),
+  ).length;
+  const normalizedDraft = draftTokens.join(" ");
+  const normalizedAnchorFirstSentence = normalizeWordsForOverlap(
+    extractFirstSentence(exemplar.text),
+  ).join(" ");
+  const normalizedAnchorFirstFifteen = normalizeWordsForOverlap(
+    extractFirstWords(exemplar.text, 15),
+  ).join(" ");
+  const anchorOpenerType = classifyOpenerType(exemplar.text);
+
+  return {
+    overlapRatio:
+      draftBigrams.size === 0 ? 0 : overlapCount / Math.max(1, draftBigrams.size),
+    exactLineReuseCount,
+    reusedFiveGramCount,
+    firstSentenceOverlap:
+      normalizedAnchorFirstSentence.length >= 12 &&
+      normalizedDraft.includes(normalizedAnchorFirstSentence),
+    firstFifteenWordOverlap:
+      normalizedAnchorFirstFifteen.length >= 20 &&
+      normalizedDraft.includes(normalizedAnchorFirstFifteen),
+    anchorOpenerType,
+    draftOpenerType,
+    openerMatchesAnchorType: anchorOpenerType === draftOpenerType,
+  };
+}
+
 function isClearlyLongFormDraft(draft: string): boolean {
   const weightedCount = computeXWeightedCharacterCount(draft);
   const wordCount = draft.trim().split(/\s+/).filter(Boolean).length;
@@ -2319,9 +2954,11 @@ function matchesLongFormBlueprint(
 function scoreDraftCandidate(params: {
   draft: string;
   contract: CreatorGenerationContract;
+  angleSelection: AngleSelection;
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  formatExemplar?: CreatorRepresentativePost | null;
   blueprintProfile?: FormatBlueprintProfile;
   contentSkeleton?: LongFormContentSkeleton;
   evidencePack?: CreatorChatDebugEvidencePack;
@@ -2350,6 +2987,7 @@ function scoreDraftCandidate(params: {
   );
   const strategyLeakCount = countPhraseMatches(draft, STRATEGY_LEAKAGE_PHRASES);
   const evidenceCoverage = countEvidenceCoverage(draft, params.evidencePack);
+  const exemplarReuse = analyzeExemplarReuse(draft, params.formatExemplar);
   let score = 0;
 
   if (params.contract.writer.targetCasing === "lowercase") {
@@ -2391,6 +3029,14 @@ function scoreDraftCandidate(params: {
     ) {
       score -=
         (params.evidencePack.requiredEvidenceCount - evidenceCoverage.total) * 5;
+    }
+
+    if (
+      evidenceCoverage.metricMatches > params.angleSelection.metricReuseLimit
+    ) {
+      score -=
+        (evidenceCoverage.metricMatches - params.angleSelection.metricReuseLimit) *
+        6;
     }
   }
 
@@ -2498,15 +3144,45 @@ function scoreDraftCandidate(params: {
     score -= 2;
   }
 
+  if (exemplarReuse.exactLineReuseCount > 0) {
+    score -= exemplarReuse.exactLineReuseCount * 12;
+  }
+
+  if (exemplarReuse.reusedFiveGramCount > 0) {
+    score -= exemplarReuse.reusedFiveGramCount * 10;
+  }
+
+  if (exemplarReuse.firstSentenceOverlap) {
+    score -= 16;
+  }
+
+  if (exemplarReuse.firstFifteenWordOverlap) {
+    score -= 14;
+  }
+
+  if (exemplarReuse.openerMatchesAnchorType) {
+    score -= 8;
+  }
+
+  if (exemplarReuse.overlapRatio >= 0.55) {
+    score -= 14;
+  } else if (exemplarReuse.overlapRatio >= 0.4) {
+    score -= 8;
+  } else if (exemplarReuse.overlapRatio >= 0.25) {
+    score -= 3;
+  }
+
   return score;
 }
 
 function rerankDrafts(params: {
   drafts: string[];
   contract: CreatorGenerationContract;
+  angleSelection: AngleSelection;
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  formatExemplar?: CreatorRepresentativePost | null;
   blueprintProfile?: FormatBlueprintProfile;
   contentSkeleton?: LongFormContentSkeleton;
   evidencePack?: CreatorChatDebugEvidencePack;
@@ -2527,9 +3203,11 @@ function rerankDrafts(params: {
       score: scoreDraftCandidate({
         draft,
         contract: params.contract,
+        angleSelection: params.angleSelection,
         selectedAngle: params.selectedAngle,
         concreteSubject: params.concreteSubject,
         userMessage: params.userMessage,
+        formatExemplar: params.formatExemplar,
         blueprintProfile: params.blueprintProfile,
         contentSkeleton: params.contentSkeleton,
         evidencePack: params.evidencePack,
@@ -2543,9 +3221,11 @@ function rerankDrafts(params: {
 function buildDraftDiagnostics(params: {
   drafts: string[];
   contract: CreatorGenerationContract;
+  angleSelection: AngleSelection;
   selectedAngle: string | null;
   concreteSubject: string | null;
   userMessage: string;
+  formatExemplar?: CreatorRepresentativePost | null;
   blueprintProfile?: FormatBlueprintProfile;
   contentSkeleton?: LongFormContentSkeleton;
   evidencePack?: CreatorChatDebugEvidencePack;
@@ -2571,6 +3251,10 @@ function buildDraftDiagnostics(params: {
       trimmedDraft,
       STRATEGY_LEAKAGE_PHRASES,
     );
+    const exemplarReuse = analyzeExemplarReuse(
+      trimmedDraft,
+      params.formatExemplar,
+    );
     const matchesBlueprint =
       params.contract.planner.outputShape === "long_form_post" ||
       params.contract.planner.outputShape === "thread_seed"
@@ -2588,9 +3272,11 @@ function buildDraftDiagnostics(params: {
     const score = scoreDraftCandidate({
       draft: trimmedDraft,
       contract: params.contract,
+      angleSelection: params.angleSelection,
       selectedAngle: params.selectedAngle,
       concreteSubject: params.concreteSubject,
       userMessage: params.userMessage,
+      formatExemplar: params.formatExemplar,
       blueprintProfile: params.blueprintProfile,
       contentSkeleton: params.contentSkeleton,
       evidencePack: params.evidencePack,
@@ -2628,6 +3314,46 @@ function buildDraftDiagnostics(params: {
     }
     if (strategyLeakCount > 0) {
       reasons.push(`Contains ${strategyLeakCount} strategy-leak phrase hit(s).`);
+    }
+    if (exemplarReuse.exactLineReuseCount > 0) {
+      reasons.push(
+        `Reuses ${exemplarReuse.exactLineReuseCount} exemplar line(s) too closely.`,
+      );
+    }
+    if (exemplarReuse.reusedFiveGramCount > 0) {
+      reasons.push(
+        `Reuses ${exemplarReuse.reusedFiveGramCount} five-word anchor sequence(s).`,
+      );
+    }
+    if (exemplarReuse.firstSentenceOverlap) {
+      reasons.push("Reuses the anchor's first sentence too closely.");
+    }
+    if (exemplarReuse.firstFifteenWordOverlap) {
+      reasons.push("Overlaps with the anchor's first 15 words.");
+    }
+    if (exemplarReuse.openerMatchesAnchorType) {
+      reasons.push(
+        `Matches the anchor opener type (${exemplarReuse.anchorOpenerType}) instead of rotating it.`,
+      );
+    }
+    if (
+      params.evidencePack &&
+      evidenceCoverage.metricMatches > params.angleSelection.metricReuseLimit
+    ) {
+      reasons.push(
+        `Reuses ${evidenceCoverage.metricMatches} metric proof point(s), above the limit of ${params.angleSelection.metricReuseLimit}.`,
+      );
+    }
+    if (
+      exemplarReuse.exactLineReuseCount === 0 &&
+      exemplarReuse.reusedFiveGramCount === 0 &&
+      !exemplarReuse.firstSentenceOverlap &&
+      !exemplarReuse.firstFifteenWordOverlap &&
+      exemplarReuse.overlapRatio >= 0.4
+    ) {
+      reasons.push(
+        `Overlaps ${Math.round(exemplarReuse.overlapRatio * 100)}% with the exemplar wording.`,
+      );
     }
 
     return {
@@ -2810,6 +3536,7 @@ export async function generateCreatorChatReply(params: {
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Angle volatility selection:\n${formatAngleSelection(requestAnchors.angleSelection)}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       `Recent chat history:\n${historyText}`,
       `Deterministic strategy delta: ${contract.planner.strategyDeltaSummary}`,
@@ -2843,15 +3570,21 @@ export async function generateCreatorChatReply(params: {
     },
   });
   const planner = normalizePlannerOutput(plannerResponse, contract);
+  const leverFallbackAngle =
+    requestAnchors.angleSelection.primary?.title ??
+    contract.planner.primaryAngle;
   const effectivePlanner: PlannerOutput = {
     ...planner,
-    angle: params.selectedAngle?.trim() || planner.angle,
+    angle: params.selectedAngle?.trim() || leverFallbackAngle,
     mustInclude: params.selectedAngle?.trim()
       ? [
           `Preserve selected angle: ${params.selectedAngle.trim()}`,
           ...planner.mustInclude,
         ].slice(0, 4)
-      : planner.mustInclude,
+      : [
+          `Use exactly one primary angle lever: ${leverFallbackAngle}`,
+          ...planner.mustInclude,
+        ].slice(0, 4),
     mustAvoid: planner.mustAvoid,
   };
   const laneVoiceAnchors = selectLaneVoiceAnchors(
@@ -2885,6 +3618,7 @@ export async function generateCreatorChatReply(params: {
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Angle volatility selection:\n${formatAngleSelection(requestAnchors.angleSelection)}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       formatAnchorExamples(
         "Pinned evidence references (facts/proof first)",
@@ -2993,6 +3727,7 @@ export async function generateCreatorChatReply(params: {
       `Selected angle: ${params.selectedAngle?.trim() || "none"}`,
       `Concrete subject from user request: ${concreteSubject ?? "none"}`,
       `Explicit content focus: ${params.contentFocus ?? "none"}`,
+      `Angle volatility selection:\n${formatAngleSelection(requestAnchors.angleSelection)}`,
       `Concrete evidence pack:\n${formatEvidencePack(requestAnchors.evidencePack)}`,
       formatAnchorExamples(
         "Pinned evidence references (facts/proof first)",
@@ -3095,6 +3830,7 @@ export async function generateCreatorChatReply(params: {
       : rerankDrafts({
           drafts: sanitizeStringList(critic.finalDrafts, 6, writer.drafts),
           contract,
+          angleSelection: requestAnchors.angleSelection,
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
@@ -3155,6 +3891,7 @@ export async function generateCreatorChatReply(params: {
         finalDrafts = rerankDrafts({
           drafts: [expandedDraft, ...finalDrafts],
           contract,
+          angleSelection: requestAnchors.angleSelection,
           selectedAngle: params.selectedAngle?.trim() || null,
           concreteSubject,
           userMessage: params.userMessage,
@@ -3223,6 +3960,7 @@ export async function generateCreatorChatReply(params: {
           : buildDraftDiagnostics({
               drafts: finalDrafts,
               contract,
+              angleSelection: requestAnchors.angleSelection,
               selectedAngle: params.selectedAngle?.trim() || null,
               concreteSubject,
               userMessage: params.userMessage,
