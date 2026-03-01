@@ -15,6 +15,7 @@ import {
   type DraftValidationResult,
 } from "./draftValidator";
 import {
+  isBroadDraftRequest,
   isBroadDiscoveryPrompt,
   isCorrectionPrompt,
   isMetaClarifyingPrompt,
@@ -428,7 +429,15 @@ function buildDeterministicCoachReply(params: {
     normalizedSeed.length > 72
       ? `${normalizedSeed.slice(0, 69).trimEnd()}...`
       : normalizedSeed;
-  const reply = isMetaClarifyingPrompt(params.userMessage)
+  const reply =
+    isBroadDiscoveryPrompt(params.userMessage) ||
+    isBroadDraftRequest(params.userMessage)
+      ? [
+          "Sure, let's figure out what you actually want to write before we force a draft.",
+          "A few easy directions: a project you're building, an update from something you shipped, or something useful you learned while building.",
+          "Which one feels closest to the post you want right now?",
+        ].join(" ")
+      : isMetaClarifyingPrompt(params.userMessage)
     ? [
         "You're right, that detail should not be steering the post if it is not actually the point.",
         `What is the real moment you want the post to revolve around instead of ${conciseSeed}?`,
@@ -470,8 +479,9 @@ function buildCoachSystemPrompt(params: {
     "You are an X writing coach.",
     "Your job is to help the creator get from a broad idea to one concrete post-worthy moment.",
     "Be concise, human, and specific.",
-    "Do not write drafts, bullet lists, or multiple options.",
-    "Do not output angles or frameworks.",
+    "Do not write drafts.",
+    "If the user asks broadly what to post about, you may give 2-4 broad directions first, then end with one focused follow-up question.",
+    "Do not turn those directions into angle cards or rigid frameworks.",
     "Respond in 2-3 sentences total.",
     "Sentence 1 should be a short coaching observation or recommendation.",
     "The final sentence must be exactly one focused follow-up question and must be the only sentence that ends with a question mark.",
@@ -508,7 +518,7 @@ function buildCoachUserPrompt(params: {
     "Recent conversation:",
     historyText,
     "Ask one focused follow-up question that makes the next draft more specific.",
-    "If the current input is still broad, ask for a recent concrete moment.",
+    "If the current input is still broad, first acknowledge it casually, offer 2-4 broad directions that fit the creator, then ask for one recent concrete moment.",
     "If the current input already names a moment, ask for the strongest detail, reaction, or outcome from that moment.",
     "If the user is correcting your framing or setting a boundary, acknowledge that first in one sentence, then ask one better follow-up question.",
     "If the user asks why you mentioned something irrelevant, answer that directly in one sentence, then ask one tighter replacement question.",
@@ -4367,7 +4377,8 @@ export async function generateCreatorChatReply(params: {
     (requestedIntent === "coach" ||
       shouldForceCoachFromPrompt ||
       isThinCoachInput(params.userMessage) ||
-      isBroadDiscoveryPrompt(params.userMessage));
+      isBroadDiscoveryPrompt(params.userMessage) ||
+      isBroadDraftRequest(params.userMessage));
   const effectiveIntent: CreatorChatIntent = shouldCoach
     ? "coach"
     : requestedIntent;
@@ -4407,6 +4418,26 @@ export async function generateCreatorChatReply(params: {
   const criticProvider = resolveProviderConfig("critic", params.provider);
 
   if (effectiveIntent === "coach") {
+    if (
+      isBroadDiscoveryPrompt(params.userMessage) ||
+      isBroadDraftRequest(params.userMessage) ||
+      isCorrectionPrompt(params.userMessage) ||
+      isMetaClarifyingPrompt(params.userMessage)
+    ) {
+      params.onProgress?.("finalizing");
+      return {
+        ...buildDeterministicCoachReply({
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          debug: deterministicFallback.debug,
+        }),
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+      };
+    }
+
     if (!writerProvider) {
       params.onProgress?.("finalizing");
       return {

@@ -11,6 +11,7 @@ import {
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import {
+  isBroadDraftRequest,
   isBroadDiscoveryPrompt,
   isCorrectionPrompt,
   isMetaClarifyingPrompt,
@@ -313,6 +314,10 @@ function inferComposerIntent(input: string): ChatIntent {
     return "coach";
   }
 
+  if (isBroadDraftRequest(trimmed)) {
+    return "coach";
+  }
+
   if (
     /\b(draft|write|rewrite|turn this into|make this a post|make this into a post|post draft|write me a post|turn this into drafts)\b/i.test(
       trimmed,
@@ -364,18 +369,30 @@ const chatScanlineStyle = {
   backgroundSize: "100% 6px",
 };
 
-function buildInitialCoachMessage(
-  context: CreatorAgentContext,
-  contract: CreatorGenerationContract,
-): string {
-  const coachingFrame =
-    context.creatorProfile.identity.isVerified ||
-    contract.planner.outputShape === "long_form_post" ||
-    contract.planner.outputShape === "thread_seed"
-      ? "You already have enough proof to write something strong."
-      : "You already have enough signal to write something strong.";
+function buildInitialCoachMessage(context: CreatorAgentContext): string {
+  const builderLike =
+    context.creatorProfile.archetype === "builder" ||
+    context.creatorProfile.archetype === "founder_operator";
+  const ideas = builderLike
+    ? [
+        "a project you're currently building",
+        "a useful update from something you shipped",
+        "something cool you learned recently",
+      ]
+    : [
+        "a recent thing you learned the hard way",
+        "a moment that changed how you work",
+        "something people keep asking you about",
+      ];
 
-  return `${coachingFrame}\n\nYou do not need another generic topic list. The next strong post is usually hiding in one real moment that already happened.\n\nWhat happened recently that made you think, "I should probably post this"?`;
+  return [
+    "Sure, let's figure out what makes sense to post next.",
+    "",
+    "A few easy places to start:",
+    ...ideas.map((idea) => `- ${idea}`),
+    "",
+    "Which one feels closest to what you want to write about right now?",
+  ].join("\n");
 }
 
 function formatTypingStatusLabel(status?: string | null): string {
@@ -410,7 +427,7 @@ function AssistantTypingBubble(props: { status?: string | null }) {
 
   return (
     <div
-      className="max-w-[88%] rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-zinc-100"
+      className="max-w-[88%] px-0 py-1 text-zinc-100"
       aria-live="polite"
       aria-label="Assistant is typing"
     >
@@ -591,7 +608,7 @@ export default function ChatPage() {
       {
         id: "assistant-initial",
         role: "assistant",
-        content: buildInitialCoachMessage(context, contract),
+        content: buildInitialCoachMessage(context),
         excludeFromHistory: true,
         outputShape: "coach_question",
         quickReplies: [
@@ -866,6 +883,15 @@ export default function ChatPage() {
 
     return message.draftArtifacts[activeDraftEditor.artifactIndex] ?? null;
   }, [activeDraftEditor, messages]);
+
+  const latestAssistantMessageId = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((message) => message.role === "assistant" && message.content.length > 0)
+        ?.id ?? null,
+    [messages],
+  );
 
   useEffect(() => {
     if (!selectedDraftArtifact) {
@@ -1459,11 +1485,27 @@ export default function ChatPage() {
                       key={message.id}
                       className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${
                         message.role === "assistant"
-                          ? "rounded-[1.75rem] border border-white/10 bg-white/[0.03] text-zinc-100"
+                          ? "text-zinc-100"
                           : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      <p className="whitespace-pre-wrap">
+                        {message.role === "assistant" &&
+                        message.id === latestAssistantMessageId ? (
+                          <>
+                            {message.content.slice(
+                              0,
+                              typedAssistantLengths[message.id] ?? 0,
+                            )}
+                            {(typedAssistantLengths[message.id] ?? 0) <
+                            message.content.length ? (
+                              <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                            ) : null}
+                          </>
+                        ) : (
+                          message.content
+                        )}
+                      </p>
 
                       {message.role === "assistant" && message.quickReplies?.length ? (
                         <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
@@ -1614,301 +1656,6 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {showDevTools && message.role === "assistant" && message.source ? (
-                        <div className="mt-4 border-t border-white/10 pt-3">
-                          <details className="group">
-                            <summary className="cursor-pointer list-none text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                              Debug Details
-                              <span className="ml-2 text-zinc-600">
-                                {message.source}
-                                {message.model ? ` · ${message.model}` : ""}
-                              </span>
-                            </summary>
-                            {message.debug ? (
-                              <div className="mt-3 space-y-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                Shape Rationale
-                              </p>
-                              <p className="text-xs leading-6 text-zinc-400">
-                                {message.debug.outputShapeRationale}
-                              </p>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                Format Blueprint
-                              </p>
-                              <p className="text-xs leading-6 text-zinc-400">
-                                {message.debug.formatBlueprint}
-                              </p>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                Format Skeleton
-                              </p>
-                              <p className="text-xs leading-6 text-zinc-400">
-                                {message.debug.formatSkeleton}
-                              </p>
-                              {message.debug.topicAnchors.length > 0 ? (
-                                <>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    Selected Topic Anchors
-                                  </p>
-                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
-                                    {message.debug.topicAnchors.map((post) => (
-                                      <li key={`${message.id}-topic-anchor-${post.id}`}>
-                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
-                                        {post.selectionReason}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </>
-                              ) : null}
-                              {message.debug.pinnedVoiceReferences.length > 0 ? (
-                                <>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    Pinned Voice References
-                                  </p>
-                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
-                                    {message.debug.pinnedVoiceReferences.map((post) => (
-                                      <li key={`${message.id}-voice-pin-${post.id}`}>
-                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
-                                        {post.selectionReason}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </>
-                              ) : null}
-                              {message.debug.pinnedEvidenceReferences.length > 0 ? (
-                                <>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    Pinned Evidence References
-                                  </p>
-                                  <ul className="space-y-1 text-xs leading-6 text-zinc-400">
-                                    {message.debug.pinnedEvidenceReferences.map((post) => (
-                                      <li key={`${message.id}-evidence-pin-${post.id}`}>
-                                        {post.id} · {formatEnumLabel(post.lane)} ·{" "}
-                                        {post.selectionReason}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </>
-                              ) : null}
-                              {message.debug.formatExemplar ? (
-                                <>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    Format Exemplar
-                                  </p>
-                                  <p className="text-xs leading-6 text-zinc-400">
-                                    {message.debug.formatExemplar.id} ·{" "}
-                                    {formatEnumLabel(message.debug.formatExemplar.lane)} · goal-fit{" "}
-                                    {message.debug.formatExemplar.goalFitScore}
-                                  </p>
-                                  <p className="text-xs leading-6 text-zinc-500">
-                                    {message.debug.formatExemplar.selectionReason}
-                                  </p>
-                                  <p className="line-clamp-4 text-xs leading-6 text-zinc-300">
-                                    {message.debug.formatExemplar.text}
-                                  </p>
-                                </>
-                              ) : (
-                                <p className="text-xs leading-6 text-zinc-500">
-                                  No strong format exemplar selected.
-                                </p>
-                              )}
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                Evidence Pack
-                              </p>
-                              <div className="space-y-1 text-xs leading-6 text-zinc-400">
-                                <p>
-                                  Required evidence:{" "}
-                                  {message.debug.evidencePack.requiredEvidenceCount}
-                                </p>
-                                {message.debug.evidencePack.entities.length > 0 ? (
-                                  <p>
-                                    Entities:{" "}
-                                    {message.debug.evidencePack.entities.join(", ")}
-                                  </p>
-                                ) : null}
-                                {message.debug.evidencePack.metrics.length > 0 ? (
-                                  <p>
-                                    Metrics:{" "}
-                                    {message.debug.evidencePack.metrics.join(", ")}
-                                  </p>
-                                ) : null}
-                                {message.debug.evidencePack.proofPoints.length > 0 ? (
-                                  <p>
-                                    Proof:{" "}
-                                    {message.debug.evidencePack.proofPoints.join(" | ")}
-                                  </p>
-                                ) : null}
-                                {message.debug.evidencePack.storyBeats.length > 0 ? (
-                                  <p>
-                                    Story beats:{" "}
-                                    {message.debug.evidencePack.storyBeats.join(" | ")}
-                                  </p>
-                                ) : null}
-                                {message.debug.evidencePack.constraints.length > 0 ? (
-                                  <p>
-                                    Constraints:{" "}
-                                    {message.debug.evidencePack.constraints.join(" | ")}
-                                  </p>
-                                ) : null}
-                              </div>
-                              {message.debug.draftDiagnostics.length > 0 ? (
-                                <>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    Draft Diagnostics
-                                  </p>
-                                  <div className="space-y-3">
-                                    {message.debug.draftDiagnostics.map(
-                                      (diagnostic, index) => (
-                                        <div
-                                          key={`${message.id}-diagnostic-${index}`}
-                                          className="rounded-2xl border border-white/10 bg-white/[0.02] p-3"
-                                        >
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            <p className="text-xs font-semibold text-zinc-200">
-                                              Draft {index + 1}
-                                            </p>
-                                            {diagnostic.chosen ? (
-                                              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                                                Chosen
-                                              </span>
-                                            ) : null}
-                                            <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                                              Score {diagnostic.score}
-                                            </span>
-                                          </div>
-                                          <p className="mt-2 text-xs leading-6 text-zinc-300">
-                                            {diagnostic.preview}
-                                          </p>
-                                          <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                                            <span>
-                                              Evidence {diagnostic.evidenceCoverage.total}
-                                            </span>
-                                            <span>
-                                              Focus {diagnostic.focusTermMatches}
-                                            </span>
-                                            <span>
-                                              Generic {diagnostic.genericPhraseCount}
-                                            </span>
-                                            <span>
-                                              Leak {diagnostic.strategyLeakCount}
-                                            </span>
-                                            {diagnostic.matchesBlueprint !== null ? (
-                                              <span>
-                                                Blueprint{" "}
-                                                {diagnostic.matchesBlueprint
-                                                  ? "Match"
-                                                  : "Miss"}
-                                              </span>
-                                            ) : null}
-                                            {diagnostic.matchesSkeleton !== null ? (
-                                              <span>
-                                                Skeleton{" "}
-                                                {diagnostic.matchesSkeleton
-                                                  ? "Match"
-                                                  : "Miss"}
-                                              </span>
-                                            ) : null}
-                                            {diagnostic.validator ? (
-                                              <span>
-                                                Validator{" "}
-                                                {diagnostic.validator.pass
-                                                  ? "Pass"
-                                                  : "Fail"}
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                          {diagnostic.validator ? (
-                                            <div className="mt-2 space-y-2 rounded-xl border border-white/8 bg-black/20 p-2 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                                              <div className="flex flex-wrap gap-2">
-                                                <span>
-                                                  Words{" "}
-                                                  {diagnostic.validator.metrics.wordCount}
-                                                </span>
-                                                <span>
-                                                  Sections{" "}
-                                                  {diagnostic.validator.metrics.sectionCount}
-                                                </span>
-                                                <span>
-                                                  Spacers{" "}
-                                                  {
-                                                    diagnostic.validator.metrics
-                                                      .blankLineSeparators
-                                                  }
-                                                </span>
-                                                <span>
-                                                  Bullets{" "}
-                                                  {diagnostic.validator.metrics.proofBullets}
-                                                </span>
-                                                <span>
-                                                  Steps{" "}
-                                                  {
-                                                    diagnostic.validator.metrics
-                                                      .mechanismSteps
-                                                  }
-                                                </span>
-                                                <span>
-                                                  Max Line{" "}
-                                                  {diagnostic.validator.metrics.maxLineLen}
-                                                </span>
-                                                <span>
-                                                  5-Grams{" "}
-                                                  {
-                                                    diagnostic.validator.metrics
-                                                      .ngramOverlap5
-                                                  }
-                                                </span>
-                                                <span>
-                                                  Metrics{" "}
-                                                  {
-                                                    diagnostic.validator.metrics
-                                                      .metricReuseCount
-                                                  }
-                                                </span>
-                                                <span>
-                                                  Banned Opener{" "}
-                                                  {diagnostic.validator.metrics
-                                                    .bannedOpenerHit
-                                                    ? "Hit"
-                                                    : "Clear"}
-                                                </span>
-                                              </div>
-                                              {diagnostic.validator.errors.length > 0 ? (
-                                                <div className="flex flex-wrap gap-1">
-                                                  {diagnostic.validator.errors.map(
-                                                    (errorCode) => (
-                                                      <span
-                                                        key={`${message.id}-diagnostic-${index}-validator-${errorCode}`}
-                                                        className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300"
-                                                      >
-                                                        {errorCode}
-                                                      </span>
-                                                    ),
-                                                  )}
-                                                </div>
-                                              ) : null}
-                                            </div>
-                                          ) : null}
-                                          {diagnostic.reasons.length > 0 ? (
-                                            <ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">
-                                              {diagnostic.reasons.map((reason, reasonIndex) => (
-                                                <li
-                                                  key={`${message.id}-diagnostic-${index}-reason-${reasonIndex}`}
-                                                >
-                                                  {reason}
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          ) : null}
-                                        </div>
-                                      ),
-                                    )}
-                                  </div>
-                                </>
-                              ) : null}
-                              </div>
-                            ) : null}
-                          </details>
-                        </div>
-                      ) : null}
                     </div>
                   ))}
 

@@ -51,6 +51,19 @@ export function isBroadDiscoveryPrompt(value: string): boolean {
   );
 }
 
+export function isBroadDraftRequest(value: string): boolean {
+  const normalized = normalizeCoachInput(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /\b(make|write|draft) (me )?a post\b/.test(normalized) ||
+    /\bhelp me write a post\b/.test(normalized) ||
+    /\bmake this a post\b/.test(normalized)
+  );
+}
+
 export function isCorrectionPrompt(value: string): boolean {
   const normalized = normalizeCoachInput(value);
   if (!normalized) {
