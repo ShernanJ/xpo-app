@@ -450,27 +450,51 @@ function buildDeterministicFallback(params: {
     ? formatEnumLabel(contract.planner.suggestedContentTypes[0])
     : "Single Line";
 
-  const fallbackDrafts = uniqueEvidenceStrings(
-    [
-      [
-        params.selectedAngle?.trim() || params.userMessage,
-        fallbackEvidencePack.proofPoints[0],
-        fallbackEvidencePack.metrics[0],
-        fallbackEvidencePack.constraints[0],
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      [
-        fallbackEvidencePack.storyBeats[0],
-        fallbackEvidencePack.proofPoints[1] || fallbackEvidencePack.proofPoints[0],
-        fallbackEvidencePack.metrics[1] || fallbackEvidencePack.metrics[0],
-        "the point is in the proof, not the generic advice",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-    ],
-    2,
-  ).map((draft) => loosenDraftText(draft, contract));
+  const fallbackDraftCandidates =
+    contract.planner.outputShape === "long_form_post"
+      ? buildDeterministicAuthorityDrafts({
+          contract,
+          angleSelection: fallbackAngleSelection,
+          selectedAngle: params.selectedAngle?.trim() || null,
+          userMessage: params.userMessage,
+          evidencePack: fallbackEvidencePack,
+        }).map((draft) => loosenDraftText(draft, contract))
+      : uniqueEvidenceStrings(
+          [
+            [
+              params.selectedAngle?.trim() || params.userMessage,
+              fallbackEvidencePack.proofPoints[0],
+              fallbackEvidencePack.metrics[0],
+              fallbackEvidencePack.constraints[0],
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+            [
+              fallbackEvidencePack.storyBeats[0],
+              fallbackEvidencePack.proofPoints[1] || fallbackEvidencePack.proofPoints[0],
+              fallbackEvidencePack.metrics[1] || fallbackEvidencePack.metrics[0],
+              "the point is in the proof, not the generic advice",
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          ],
+          2,
+        ).map((draft) => loosenDraftText(draft, contract));
+  const fallbackDrafts = rerankDrafts({
+    drafts: fallbackDraftCandidates,
+    contract,
+    angleSelection: fallbackAngleSelection,
+    selectedAngle: params.selectedAngle?.trim() || null,
+    concreteSubject: extractConcreteSubject(params.userMessage),
+    userMessage: params.userMessage,
+    formatExemplar: fallbackFormatExemplar,
+    blueprintProfile: buildFormatBlueprintProfile({
+      post: fallbackFormatExemplar,
+      outputShape: contract.planner.outputShape,
+    }),
+    contentSkeleton: buildLongFormContentSkeleton(fallbackFormatExemplar),
+    evidencePack: fallbackEvidencePack,
+  });
   const fallbackDraftDiagnostics = buildDraftDiagnostics({
     drafts:
       fallbackDrafts.length > 0
@@ -2082,6 +2106,147 @@ function checkAuthorityRenderContract(draft: string): AuthorityRenderContractChe
     genericDefinitionHits,
     isCompliant,
   };
+}
+
+function sanitizeDeterministicEvidenceFragment(value: string): string {
+  return stripEvidenceListMarker(value)
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.:;,\s]+$/g, "")
+    .trim();
+}
+
+function buildDeterministicProofImplication(fragment: string): string {
+  const lowered = fragment.toLowerCase();
+
+  if (/\bengineers?\b|\bteam\b|\bpeople\b/.test(lowered)) {
+    return "which proves leverage compounds when the bar stays high";
+  }
+
+  if (/\barr\b|\bmrr\b|\$|\brevenue\b|\bprofitable\b/.test(lowered)) {
+    return "which shows focus can turn into durable growth fast";
+  }
+
+  if (/\busers?\b|\bcreators?\b|\bcustomers?\b/.test(lowered)) {
+    return "which means the product solved a repeated pain at real scale";
+  }
+
+  if (/\bday\b|\bmonth\b|\byear\b|\bweek\b/.test(lowered)) {
+    return "which matters because speed only counts when it compounds";
+  }
+
+  return "which matters because the mechanism was stronger than the hype";
+}
+
+function buildDeterministicMechanismHints(params: {
+  selectedAngle: string | null;
+  contract: CreatorGenerationContract;
+  evidencePack: CreatorChatDebugEvidencePack;
+}): string[] {
+  const angle = (params.selectedAngle || params.contract.planner.primaryAngle).toLowerCase();
+  const hints: string[] = [];
+
+  if (/\bteam\b|\bhire\b|\btalent\b/.test(angle)) {
+    hints.push("keep the team small enough that every strong hire changes output");
+    hints.push("raise the talent bar so ownership is obvious on every project");
+  }
+
+  if (/\bdistribution\b|\bgrowth\b|\bmetric\b/.test(angle)) {
+    hints.push("tie execution to a tiny set of metrics you can defend every week");
+    hints.push("build repeatable distribution loops before adding more surface area");
+  }
+
+  if (/\bprocess\b|\boperator\b|\bexecution\b/.test(angle)) {
+    hints.push("cut work aggressively until only the highest-leverage moves survive");
+  }
+
+  if (params.evidencePack.constraints[0]) {
+    hints.push(`keep a hard constraint in place: ${sanitizeDeterministicEvidenceFragment(params.evidencePack.constraints[0]).toLowerCase()}`);
+  }
+
+  if (params.evidencePack.storyBeats[0]) {
+    hints.push("turn one concrete operating detail into a repeatable standard");
+  }
+
+  hints.push("make the operating system obvious enough that results look repeatable");
+
+  return uniqueEvidenceStrings(hints, 3);
+}
+
+function buildDeterministicAuthorityDrafts(params: {
+  contract: CreatorGenerationContract;
+  angleSelection: AngleSelection;
+  selectedAngle: string | null;
+  userMessage: string;
+  evidencePack: CreatorChatDebugEvidencePack;
+}): string[] {
+  const angle =
+    params.selectedAngle?.trim() ||
+    params.angleSelection.primary?.title ||
+    params.contract.planner.primaryAngle;
+  const compactProof = uniqueEvidenceStrings(
+    [
+      ...params.evidencePack.metrics,
+      ...params.evidencePack.proofPoints,
+      ...params.evidencePack.constraints,
+    ].map(sanitizeDeterministicEvidenceFragment),
+    3,
+  );
+  const proofLines = compactProof
+    .slice(0, 3)
+    .map(
+      (fragment) =>
+        `- ${fragment} ${buildDeterministicProofImplication(fragment)}`,
+    );
+  while (proofLines.length < 3) {
+    proofLines.push(
+      "- the strongest results came from one repeatable operating advantage, not more complexity",
+    );
+  }
+
+  const mechanismHints = buildDeterministicMechanismHints({
+    selectedAngle: params.selectedAngle ?? null,
+    contract: params.contract,
+    evidencePack: params.evidencePack,
+  });
+  const numberedLines = mechanismHints.map((hint, index) => `${index + 1}) ${hint}`);
+  while (numberedLines.length < 3) {
+    numberedLines.push(
+      `${numberedLines.length + 1}) keep the proof tied to one operating rule people can reuse`,
+    );
+  }
+
+  const cta = pickAuthorityCtaTemplate({
+    lane: params.angleSelection.inferredLane,
+    goal: params.angleSelection.inferredGoal,
+  });
+  const proofLead = compactProof[0]?.toLowerCase() || "the strongest operating proof";
+  const thesisA = `${angle.replace(/[.?!]+$/g, "")} is only interesting when the proof is undeniable.`;
+  const thesisB = `most people talk about ${angle.toLowerCase()}. the real advantage is the operating system behind it.`;
+  const nextTopic = `${formatEnumLabel(params.angleSelection.inferredLane).toLowerCase()} systems that keep compounding when the team stays small`;
+  const closeA = "the edge is not more people. the edge is better constraints and cleaner execution.";
+  const closeB = "if the system is real, the proof will keep showing up without more noise.";
+
+  const draftA = [
+    `${thesisA}\n${sanitizeDeterministicEvidenceFragment(proofLead)} is the receipt, not the headline.`,
+    ["proof:", ...proofLines].join("\n"),
+    ["what made it work:", ...numberedLines].join("\n"),
+    `${closeA}\ni'll keep breaking down ${nextTopic}.\n${cta}`,
+  ].join("\n\n");
+
+  const draftB = [
+    `${thesisB}\nsmall teams only win when the mechanism is clear enough to repeat.`,
+    ["proof:", ...proofLines.slice().reverse()].join("\n"),
+    [
+      "what made it work:",
+      `${1}) ${numberedLines[1]?.replace(/^2\)\s*/, "") || mechanismHints[0]}`,
+      `${2}) ${numberedLines[0]?.replace(/^1\)\s*/, "") || mechanismHints[1]}`,
+      `${3}) ${numberedLines[2]?.replace(/^3\)\s*/, "") || mechanismHints[2]}`,
+    ].join("\n"),
+    `${closeB}\ni'll keep posting the operator lessons behind ${nextTopic}.\n${cta}`,
+  ].join("\n\n");
+
+  return [draftA, draftB];
 }
 
 function buildFormatBlueprintProfile(params: {
