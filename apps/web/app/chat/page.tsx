@@ -77,13 +77,13 @@ interface CreatorChatSuccess {
     draftArtifacts: DraftArtifact[];
     supportAsset: string | null;
     outputShape:
-      | "coach_question"
-      | "ideation_angles"
-      | "short_form_post"
-      | "long_form_post"
-      | "thread_seed"
-      | "reply_candidate"
-      | "quote_candidate";
+    | "coach_question"
+    | "ideation_angles"
+    | "short_form_post"
+    | "long_form_post"
+    | "thread_seed"
+    | "reply_candidate"
+    | "quote_candidate";
     whyThisWorks: string[];
     watchOutFor: string[];
     debug: {
@@ -163,6 +163,13 @@ interface CreatorChatSuccess {
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
+    memory?: {
+      conversationState: string;
+      activeConstraints: string[];
+      topicSummary: string | null;
+      concreteAnswerCount: number;
+      currentDraftArtifactId: string | null;
+    };
   };
 }
 
@@ -467,6 +474,9 @@ export default function ChatPage() {
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
   );
+  const [conversationMemory, setConversationMemory] = useState<
+    CreatorChatSuccess["data"]["memory"] | null
+  >(null);
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
     Record<string, number>
   >({});
@@ -719,7 +729,7 @@ export default function ChatPage() {
 
     const inferredToneInputs =
       toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
-      toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
+        toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
         ? inferInitialToneInputs({ context, contract })
         : toneInputs;
 
@@ -888,20 +898,20 @@ export default function ChatPage() {
         const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
           index === activeDraftEditor.artifactIndex
             ? buildDraftArtifact({
-                id: artifact.id,
-                title: artifact.title,
-                kind: artifact.kind,
-                content: nextContent,
-                supportAsset: artifact.supportAsset,
-              })
+              id: artifact.id,
+              title: artifact.title,
+              kind: artifact.kind,
+              content: nextContent,
+              supportAsset: artifact.supportAsset,
+            })
             : artifact,
         );
 
         const nextDrafts =
           message.drafts && message.drafts.length > 0
             ? message.drafts.map((draft, index) =>
-                index === activeDraftEditor.artifactIndex ? nextContent : draft,
-              )
+              index === activeDraftEditor.artifactIndex ? nextContent : draft,
+            )
             : nextDraftArtifacts.map((artifact) => artifact.content);
 
         return {
@@ -1013,6 +1023,7 @@ export default function ChatPage() {
             pinnedEvidencePostIds,
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
+            ...(conversationMemory ? { memory: conversationMemory } : {}),
           }),
         });
 
@@ -1048,35 +1059,40 @@ export default function ChatPage() {
               model: data.data.model ?? null,
               quickReplies:
                 current.length === 0 &&
-                resolvedIntent === "coach" &&
-                !trimmedPrompt &&
-                !options.selectedAngle
+                  resolvedIntent === "coach" &&
+                  !trimmedPrompt &&
+                  !options.selectedAngle
                   ? [
-                      {
-                        kind: "example_reply",
-                        value:
-                          "i shipped something recently and the outcome surprised me",
-                        label: "I shipped something recently",
-                        suggestedFocus: "project_showcase",
-                      },
-                      {
-                        kind: "example_reply",
-                        value:
-                          "i tried something that failed harder than i expected",
-                        label: "Something failed harder than expected",
-                        suggestedFocus: "build_in_public",
-                      },
-                      {
-                        kind: "example_reply",
-                        value:
-                          "a user said something that changed what i'm building",
-                        label: "A user changed what I'm building",
-                        suggestedFocus: "social_observation",
-                      },
-                    ]
+                    {
+                      kind: "example_reply",
+                      value:
+                        "i shipped something recently and the outcome surprised me",
+                      label: "I shipped something recently",
+                      suggestedFocus: "project_showcase",
+                    },
+                    {
+                      kind: "example_reply",
+                      value:
+                        "i tried something that failed harder than i expected",
+                      label: "Something failed harder than expected",
+                      suggestedFocus: "build_in_public",
+                    },
+                    {
+                      kind: "example_reply",
+                      value:
+                        "a user said something that changed what i'm building",
+                      label: "A user changed what I'm building",
+                      suggestedFocus: "social_observation",
+                    },
+                  ]
                   : undefined,
             },
           ]);
+
+          // Store returned memory blob
+          if (data.data.memory) {
+            setConversationMemory(data.data.memory);
+          }
           return;
         }
 
@@ -1156,34 +1172,39 @@ export default function ChatPage() {
             model: streamedResult.model ?? null,
             quickReplies:
               current.length === 0 &&
-              resolvedIntent === "coach" &&
-              !trimmedPrompt &&
-              !options.selectedAngle
+                resolvedIntent === "coach" &&
+                !trimmedPrompt &&
+                !options.selectedAngle
                 ? [
-                    {
-                      kind: "example_reply",
-                      value:
-                        "i shipped something recently and the outcome surprised me",
-                      label: "I shipped something recently",
-                      suggestedFocus: "project_showcase",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "i tried something that failed harder than i expected",
-                      label: "Something failed harder than expected",
-                      suggestedFocus: "build_in_public",
-                    },
-                    {
-                      kind: "example_reply",
-                      value:
-                        "a user said something that changed what i'm building",
-                      label: "A user changed what I'm building",
-                      suggestedFocus: "social_observation",
-                    },
-                  ]
+                  {
+                    kind: "example_reply",
+                    value:
+                      "i shipped something recently and the outcome surprised me",
+                    label: "I shipped something recently",
+                    suggestedFocus: "project_showcase",
+                  },
+                  {
+                    kind: "example_reply",
+                    value: "i tried something that failed harder than i expected",
+                    label: "Something failed harder than expected",
+                    suggestedFocus: "build_in_public",
+                  },
+                  {
+                    kind: "example_reply",
+                    value:
+                      "a user said something that changed what i'm building",
+                    label: "A user changed what I'm building",
+                    suggestedFocus: "social_observation",
+                  },
+                ]
                 : undefined,
           },
         ]);
+
+        // Store returned memory blob from stream
+        if (streamedResult.memory) {
+          setConversationMemory(streamedResult.memory);
+        }
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -1201,6 +1222,7 @@ export default function ChatPage() {
       activeToneInputs,
       contract,
       context,
+      conversationMemory,
       isSending,
       messages,
       providerPreference,
@@ -1306,13 +1328,11 @@ export default function ChatPage() {
       return;
     }
 
-    const inferredIntent = inferComposerIntent(trimmedInput);
     setDraftInput("");
 
     await requestAssistantReply({
       prompt: trimmedInput,
       appendUserMessage: true,
-      intent: inferredIntent,
       strategyInputOverride: activeStrategyInputs,
       toneInputOverride: activeToneInputs,
       contentFocusOverride: activeContentFocus,
@@ -1342,16 +1362,14 @@ export default function ChatPage() {
 
       <div className="relative flex h-full min-h-0">
         <aside
-          className={`sticky top-0 hidden h-full min-h-0 shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${
-            sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
-          }`}
+          className={`sticky top-0 hidden h-full min-h-0 shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
+            }`}
         >
           <div className="px-3 pt-3">
             <Link
               href="/"
-              className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition hover:bg-white/[0.04] ${
-                sidebarOpen ? "justify-start" : "justify-center"
-              }`}
+              className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition hover:bg-white/[0.04] ${sidebarOpen ? "justify-start" : "justify-center"
+                }`}
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-sm font-semibold tracking-[0.18em] text-white">
                 X
@@ -1403,9 +1421,8 @@ export default function ChatPage() {
           <div className="px-3 pt-3">
             <button
               type="button"
-              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${
-                sidebarOpen ? "justify-start" : "justify-center"
-              }`}
+              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${sidebarOpen ? "justify-start" : "justify-center"
+                }`}
             >
               <span className="text-sm text-white">✎</span>
               {sidebarOpen ? (
@@ -1518,22 +1535,21 @@ export default function ChatPage() {
                   {messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${
-                        message.role === "assistant"
+                      className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
                           ? "text-zinc-100"
                           : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
-                      }`}
+                        }`}
                     >
                       <p className="whitespace-pre-wrap">
                         {message.role === "assistant" &&
-                        message.id === latestAssistantMessageId ? (
+                          message.id === latestAssistantMessageId ? (
                           <>
                             {message.content.slice(
                               0,
                               typedAssistantLengths[message.id] ?? 0,
                             )}
                             {(typedAssistantLengths[message.id] ?? 0) <
-                            message.content.length ? (
+                              message.content.length ? (
                               <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
                             ) : null}
                           </>
@@ -1561,8 +1577,8 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
-                      message.outputShape !== "coach_question" &&
-                      message.angles?.length ? (
+                        message.outputShape !== "coach_question" &&
+                        message.angles?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.angles.map((angle, index) => (
                             <div
@@ -1591,8 +1607,8 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
-                      message.outputShape !== "coach_question" &&
-                      message.draftArtifacts?.length ? (
+                        message.outputShape !== "coach_question" &&
+                        message.draftArtifacts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.draftArtifacts.map((artifact, index) => (
                             <div
@@ -1626,9 +1642,9 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
-                      message.outputShape !== "coach_question" &&
-                      !message.draftArtifacts?.length &&
-                      message.drafts?.length ? (
+                        message.outputShape !== "coach_question" &&
+                        !message.draftArtifacts?.length &&
+                        message.drafts?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                           {message.drafts.map((draft, index) => (
                             <div
@@ -1647,8 +1663,8 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
-                      message.supportAsset &&
-                      !message.draftArtifacts?.length ? (
+                        message.supportAsset &&
+                        !message.draftArtifacts?.length ? (
                         <div className="mt-4 border-t border-white/10 pt-4">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
                             Visual / Demo Ideas
@@ -1660,8 +1676,8 @@ export default function ChatPage() {
                       ) : null}
 
                       {message.role === "assistant" &&
-                      ((message.whyThisWorks?.length ?? 0) > 0 ||
-                        (message.watchOutFor?.length ?? 0) > 0) ? (
+                        ((message.whyThisWorks?.length ?? 0) > 0 ||
+                          (message.watchOutFor?.length ?? 0) > 0) ? (
                         <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
                           {message.whyThisWorks?.length ? (
                             <div>
@@ -1958,22 +1974,20 @@ export default function ChatPage() {
                               <button
                                 type="button"
                                 onClick={() => togglePinnedPostId(post.id, "voice")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                  isVoicePinned
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
                                     ? "border-white/20 bg-white/[0.06] text-white"
                                     : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                }`}
+                                  }`}
                               >
                                 {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => togglePinnedPostId(post.id, "evidence")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                  isEvidencePinned
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
                                     ? "border-white/20 bg-white/[0.06] text-white"
                                     : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                }`}
+                                  }`}
                               >
                                 {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
                               </button>

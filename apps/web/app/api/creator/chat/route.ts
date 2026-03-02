@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import {
   buildDeterministicCreatorChatReply,
   generateCreatorChatReply,
+  type ConversationMemory,
+  type UiAction,
 } from "@/lib/onboarding/chatAgent";
 import {
   applyCreatorToneOverrides,
@@ -28,6 +30,9 @@ interface CreatorChatRequest extends Record<string, unknown> {
   intent?: unknown;
   contentFocus?: unknown;
   stream?: unknown;
+  memory?: unknown;
+  uiAction?: unknown;
+  editTarget?: unknown;
 }
 
 type ChatProgressPhase = "planning" | "writing" | "critic" | "finalizing";
@@ -74,40 +79,74 @@ export async function POST(request: Request) {
       : "groq";
   const intent =
     body.intent === "coach" ||
-    body.intent === "ideate" ||
-    body.intent === "draft" ||
-    body.intent === "review"
+      body.intent === "ideate" ||
+      body.intent === "draft" ||
+      body.intent === "review"
       ? body.intent
-      : "draft";
+      : undefined;
   const contentFocus =
     typeof body.contentFocus === "string" && body.contentFocus.trim().length > 0
       ? body.contentFocus.trim()
       : null;
   const pinnedVoicePostIds = Array.isArray(body.pinnedVoicePostIds)
     ? Array.from(
-        new Set(
-          body.pinnedVoicePostIds
-            .filter(
-              (value): value is string =>
-                typeof value === "string" && value.trim().length > 0,
-            )
-            .map((value) => value.trim()),
-        ),
-      ).slice(0, 2)
+      new Set(
+        body.pinnedVoicePostIds
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+          .map((value) => value.trim()),
+      ),
+    ).slice(0, 2)
     : [];
   const pinnedEvidencePostIds = Array.isArray(body.pinnedEvidencePostIds)
     ? Array.from(
-        new Set(
-          body.pinnedEvidencePostIds
-            .filter(
-              (value): value is string =>
-                typeof value === "string" && value.trim().length > 0,
-            )
-            .map((value) => value.trim()),
-        ),
-      ).slice(0, 2)
+      new Set(
+        body.pinnedEvidencePostIds
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+          .map((value) => value.trim()),
+      ),
+    ).slice(0, 2)
     : [];
   const stream = body.stream === true;
+
+  // Parse memory blob (round-tripped from previous response)
+  const memory: ConversationMemory | null = (() => {
+    if (body.memory && typeof body.memory === "object" && !Array.isArray(body.memory)) {
+      const m = body.memory as Record<string, unknown>;
+      if (
+        typeof m.conversationState === "string" &&
+        Array.isArray(m.activeConstraints) &&
+        typeof m.concreteAnswerCount === "number"
+      ) {
+        return m as unknown as ConversationMemory;
+      }
+    }
+    return null;
+  })();
+
+  // Parse UI action
+  const validUiActions: UiAction[] = ["select_angle", "edit_draft", "pin_voice", "pin_evidence"];
+  const uiAction: UiAction | null =
+    typeof body.uiAction === "string" && validUiActions.includes(body.uiAction as UiAction)
+      ? (body.uiAction as UiAction)
+      : null;
+
+  // Parse edit target
+  const editTarget = (() => {
+    if (body.editTarget && typeof body.editTarget === "object" && !Array.isArray(body.editTarget)) {
+      const et = body.editTarget as Record<string, unknown>;
+      return {
+        artifactId: typeof et.artifactId === "string" ? et.artifactId : undefined,
+        artifactText: typeof et.artifactText === "string" ? et.artifactText : undefined,
+      };
+    }
+    return null;
+  })();
   const effectiveMessage = (() => {
     if (message) {
       return message;
@@ -227,6 +266,9 @@ export async function POST(request: Request) {
               selectedAngle,
               pinnedVoicePostIds,
               pinnedEvidencePostIds,
+              memory,
+              uiAction,
+              editTarget,
               onProgress: (phase) => {
                 if (phase === lastPhase) {
                   return;
@@ -255,6 +297,7 @@ export async function POST(request: Request) {
               selectedAngle,
               pinnedVoicePostIds,
               pinnedEvidencePostIds,
+              memory,
             });
             push({
               type: "status",
@@ -292,6 +335,9 @@ export async function POST(request: Request) {
       selectedAngle,
       pinnedVoicePostIds,
       pinnedEvidencePostIds,
+      memory,
+      uiAction,
+      editTarget,
     });
 
     return NextResponse.json(
@@ -312,6 +358,7 @@ export async function POST(request: Request) {
       selectedAngle,
       pinnedVoicePostIds,
       pinnedEvidencePostIds,
+      memory,
     });
 
     return NextResponse.json(

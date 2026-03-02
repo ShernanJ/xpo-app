@@ -84,8 +84,8 @@ function normalizePlannerOutput(
 ): PlannerOutput {
   const targetLane =
     value?.targetLane === "original" ||
-    value?.targetLane === "reply" ||
-    value?.targetLane === "quote"
+      value?.targetLane === "reply" ||
+      value?.targetLane === "quote"
       ? value.targetLane
       : fallback.planner.targetLane;
 
@@ -130,12 +130,32 @@ function normalizeCriticOutput(
 
 export type ChatModelProvider = "openai" | "groq";
 type ChatModelStage = "planner" | "writer" | "critic";
-export type CreatorChatIntent = "coach" | "ideate" | "draft" | "review";
+export type CreatorChatIntent = "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question";
 export type CreatorChatProgressPhase =
   | "planning"
   | "writing"
   | "critic"
   | "finalizing";
+
+export type ConversationState =
+  | "needs_more_context"
+  | "ready_to_ideate"
+  | "ready_to_draft"
+  | "editing";
+
+export interface ConversationMemory {
+  conversationState: ConversationState;
+  activeConstraints: string[];
+  topicSummary: string | null;
+  concreteAnswerCount: number;
+  currentDraftArtifactId: string | null;
+}
+
+export type UiAction =
+  | "select_angle"
+  | "edit_draft"
+  | "pin_voice"
+  | "pin_evidence";
 
 export type CreatorDraftArtifact = DraftArtifactDetails;
 
@@ -195,15 +215,16 @@ export interface CreatorChatReplyResult {
   draftArtifacts: CreatorDraftArtifact[];
   supportAsset: string | null;
   outputShape:
-    | CreatorGenerationOutputShape
-    | "ideation_angles"
-    | "coach_question";
+  | CreatorGenerationOutputShape
+  | "ideation_angles"
+  | "coach_question";
   whyThisWorks: string[];
   watchOutFor: string[];
   debug: CreatorChatDebugInfo;
   source: ChatModelProvider | "deterministic";
   model: string | null;
   mode: CreatorGenerationContract["mode"];
+  memory: ConversationMemory;
 }
 
 interface RequestConditionedAnchors {
@@ -254,16 +275,16 @@ type VolatilityOpenerType =
 interface AngleLever {
   id: string;
   type:
-    | "identity"
-    | "scale"
-    | "speed"
-    | "team"
-    | "philosophy"
-    | "origin"
-    | "talent"
-    | "contrarian"
-    | "process"
-    | "trap";
+  | "identity"
+  | "scale"
+  | "speed"
+  | "team"
+  | "philosophy"
+  | "origin"
+  | "talent"
+  | "contrarian"
+  | "process"
+  | "trap";
   title: string;
   description: string;
   exampleHooks: string[];
@@ -419,7 +440,7 @@ function buildDeterministicCoachReply(params: {
   contentFocus?: string | null;
   selectedAngle?: string | null;
   debug: CreatorChatDebugInfo;
-}): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
+}): Omit<CreatorChatReplyResult, "source" | "model" | "mode" | "memory"> {
   const promptSeed =
     params.selectedAngle?.trim() ||
     params.contentFocus?.trim() ||
@@ -432,26 +453,26 @@ function buildDeterministicCoachReply(params: {
       : normalizedSeed;
   const reply =
     isBroadDiscoveryPrompt(params.userMessage) ||
-    isBroadDraftRequest(params.userMessage)
+      isBroadDraftRequest(params.userMessage)
       ? [
-          "Sure, let's figure out what you actually want to write before we force a draft.",
-          "A few easy directions: a project you're building, an update from something you shipped, or something useful you learned while building.",
-          "Which one feels closest to the post you want right now?",
-        ].join(" ")
-      : isMetaClarifyingPrompt(params.userMessage)
-    ? [
-        "You're right, that detail should not be steering the post if it is not actually the point.",
-        `What is the real moment you want the post to revolve around instead of ${conciseSeed}?`,
+        "Sure, let's figure out what you actually want to write before we force a draft.",
+        "A few easy directions: a project you're building, an update from something you shipped, or something useful you learned while building.",
+        "Which one feels closest to the post you want right now?",
       ].join(" ")
-    : isCorrectionPrompt(params.userMessage)
-      ? [
-          "That's fair, we should keep the lesson without forcing the wrong framing.",
-          `What is the version of ${conciseSeed} you actually want to emphasize?`,
+      : isMetaClarifyingPrompt(params.userMessage)
+        ? [
+          "You're right, that detail should not be steering the post if it is not actually the point.",
+          `What is the real moment you want the post to revolve around instead of ${conciseSeed}?`,
         ].join(" ")
-      : [
-          "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.",
-          `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
-        ].join(" ");
+        : isCorrectionPrompt(params.userMessage)
+          ? [
+            "That's fair, we should keep the lesson without forcing the wrong framing.",
+            `What is the version of ${conciseSeed} you actually want to emphasize?`,
+          ].join(" ")
+          : [
+            "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.",
+            `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
+          ].join(" ");
   const validation = validateCoachReplyText(reply);
   const safeReply = validation.isValid
     ? reply
@@ -513,6 +534,251 @@ function extractActiveConversationConstraints(params: {
   return Array.from(constraints);
 }
 
+function isDirectQuestion(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^(why|how|what do you mean|what does that mean|can you explain|what is|what are)\b/i.test(
+      normalized,
+    ) &&
+    normalized.endsWith("?")
+  );
+}
+
+function countConcreteUserAnswers(history: ChatHistoryMessage[]): number {
+  return history.filter((message) => {
+    if (message.role !== "user") {
+      return false;
+    }
+    const content = message.content.trim();
+    return (
+      content.length >= 18 &&
+      !isThinCoachInput(content) &&
+      !isBroadDiscoveryPrompt(content) &&
+      !isBroadDraftRequest(content) &&
+      !isCorrectionPrompt(content) &&
+      !isMetaClarifyingPrompt(content) &&
+      !isDraftPushPrompt(content) &&
+      !isDirectQuestion(content)
+    );
+  }).length;
+}
+
+export function classifyTurnIntent(params: {
+  message: string;
+  memory: ConversationMemory | null;
+  uiAction: UiAction | null;
+  hasDraftArtifact: boolean;
+  selectedAngle: string | null;
+  history: ChatHistoryMessage[];
+}): CreatorChatIntent {
+  const { message, memory, uiAction, hasDraftArtifact, selectedAngle } = params;
+
+  // Priority 1: UI-driven edit action
+  if (uiAction === "edit_draft" && hasDraftArtifact) {
+    return "edit";
+  }
+
+  // Priority 2: Correction/edit request when a draft exists
+  if (isCorrectionPrompt(message) && hasDraftArtifact) {
+    return "edit";
+  }
+
+  // Priority 3: Direct questions and meta-clarifying prompts
+  if (isMetaClarifyingPrompt(message) || isDirectQuestion(message)) {
+    return "answer_question";
+  }
+
+  // Priority 4: Explicit draft requests
+  if (isBroadDraftRequest(message) || isDraftPushPrompt(message)) {
+    return "draft";
+  }
+  if (
+    /\b(draft|write|rewrite|turn this into|make this a post|make this into a post|post draft|write me a post|turn this into drafts)\b/i.test(
+      message,
+    )
+  ) {
+    return "draft";
+  }
+
+  // Priority 5: Angle selection → draft
+  if (uiAction === "select_angle" || selectedAngle) {
+    return "draft";
+  }
+
+  // Priority 6: Correction without a draft → acknowledge and continue coaching
+  if (isCorrectionPrompt(message)) {
+    return "coach";
+  }
+
+  // Priority 7: Explicit ideation keywords
+  if (/\b(idea|ideate|brainstorm|angles?|topics?)\b/i.test(message)) {
+    return "ideate";
+  }
+
+  // Priority 8: Review keywords
+  if (/\b(review|critique|edit|improve this|make this better)\b/i.test(message)) {
+    return "review";
+  }
+
+  // Priority 9: State-based transitions using memory
+  if (memory) {
+    if (memory.conversationState === "ready_to_draft") {
+      return "draft";
+    }
+    if (memory.conversationState === "ready_to_ideate") {
+      return "ideate";
+    }
+    if (memory.conversationState === "editing") {
+      return hasDraftArtifact ? "edit" : "draft";
+    }
+  }
+
+  // Priority 10: Based on concrete answer count
+  const concreteAnswers = memory?.concreteAnswerCount ?? countConcreteUserAnswers(params.history);
+  if (concreteAnswers >= 1 && !isThinCoachInput(message) && !isBroadDiscoveryPrompt(message)) {
+    return "ideate";
+  }
+
+  // Default: coach
+  return "coach";
+}
+
+export function computeConversationMemory(params: {
+  userMessage: string;
+  history: ChatHistoryMessage[];
+  previousMemory: ConversationMemory | null;
+  hasDraftArtifact: boolean;
+  currentDraftArtifactId: string | null;
+}): ConversationMemory {
+  const { userMessage, history, previousMemory, hasDraftArtifact, currentDraftArtifactId } = params;
+
+  // Count concrete answers from history + current message
+  const historyConcreteCount = countConcreteUserAnswers(history);
+  const currentMessageIsConcrete =
+    userMessage.trim().length >= 18 &&
+    !isThinCoachInput(userMessage) &&
+    !isBroadDiscoveryPrompt(userMessage) &&
+    !isBroadDraftRequest(userMessage) &&
+    !isCorrectionPrompt(userMessage) &&
+    !isMetaClarifyingPrompt(userMessage) &&
+    !isDraftPushPrompt(userMessage) &&
+    !isDirectQuestion(userMessage);
+  const concreteAnswerCount = historyConcreteCount + (currentMessageIsConcrete ? 1 : 0);
+
+  // Merge constraints: carry forward from previous memory + extract new ones
+  const previousConstraints = previousMemory?.activeConstraints ?? [];
+  const newConstraints = extractActiveConversationConstraints({
+    history,
+    userMessage,
+  });
+  const mergedConstraints = Array.from(
+    new Set([...previousConstraints, ...newConstraints]),
+  );
+
+  // Build topic summary from most recent concrete user message
+  const topicSummary =
+    previousMemory?.topicSummary ??
+    (currentMessageIsConcrete ? userMessage.trim().slice(0, 200) : null);
+
+  // Derive conversation state
+  let conversationState: ConversationState;
+  if (isCorrectionPrompt(userMessage) && hasDraftArtifact) {
+    conversationState = "editing";
+  } else if (concreteAnswerCount === 0) {
+    conversationState = "needs_more_context";
+  } else if (hasDraftArtifact) {
+    conversationState = "ready_to_draft";
+  } else if (concreteAnswerCount >= 1) {
+    conversationState = "ready_to_ideate";
+  } else {
+    conversationState = "needs_more_context";
+  }
+
+  return {
+    conversationState,
+    activeConstraints: mergedConstraints,
+    topicSummary,
+    concreteAnswerCount,
+    currentDraftArtifactId: currentDraftArtifactId ?? previousMemory?.currentDraftArtifactId ?? null,
+  };
+}
+
+function buildEditingSystemPrompt(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+  activeConstraints: string[];
+}): string {
+  return [
+    "You are an X writing coach editing a draft post based on the user's instruction.",
+    "Apply the edit instruction directly to the current draft.",
+    "Return only the edited draft text — do not explain the changes.",
+    "Keep the same topic, voice, and structure unless the edit requires changing them.",
+    "Do not add new information the user did not ask for.",
+    "Do not ask follow-up questions.",
+    `Creator archetype: ${params.context.creatorProfile.archetype}.`,
+    `Primary niche: ${params.context.creatorProfile.niche.primaryNiche}.`,
+    `Target casing: ${params.contract.writer.targetCasing}.`,
+    params.activeConstraints.length > 0
+      ? `Active user constraints (must respect all of these):\n${params.activeConstraints.map((c) => `- ${c}`).join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildEditingUserPrompt(params: {
+  userMessage: string;
+  currentDraftText: string;
+  activeConstraints: string[];
+}): string {
+  return [
+    `Current draft:\n${params.currentDraftText}`,
+    `User edit instruction: ${params.userMessage}`,
+    'Return JSON only: {"editedDraft":"..."}',
+  ].join("\n\n");
+}
+
+function buildAnswerQuestionSystemPrompt(params: {
+  context: CreatorAgentContext;
+  contract: CreatorGenerationContract;
+}): string {
+  return [
+    "You are an X writing coach answering the user's direct question.",
+    "Answer the question concisely in 1-2 sentences.",
+    "After answering, suggest what to do next in one sentence (ideate, draft, or refine), but do not force a direction.",
+    "Do not ask a follow-up question unless genuinely needed for disambiguation.",
+    `Creator archetype: ${params.context.creatorProfile.archetype}.`,
+    `Primary niche: ${params.context.creatorProfile.niche.primaryNiche}.`,
+  ].join("\n");
+}
+
+function buildAnswerQuestionUserPrompt(params: {
+  userMessage: string;
+  history: ChatHistoryMessage[];
+}): string {
+  const historyText =
+    params.history.length > 0
+      ? params.history
+        .slice(-4)
+        .map(
+          (message) =>
+            `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 160)}`,
+        )
+        .join("\n")
+      : "No prior conversation.";
+
+  return [
+    `User question: ${params.userMessage}`,
+    "Recent conversation:",
+    historyText,
+    'Return JSON only: {"reply":"..."}',
+  ].join("\n");
+}
+
 function hasConcreteUserSignal(history: ChatHistoryMessage[]): boolean {
   return history
     .filter((message) => message.role === "user")
@@ -564,12 +830,12 @@ function buildCoachUserPrompt(params: {
   const historyText =
     params.history.length > 0
       ? params.history
-          .slice(-4)
-          .map(
-            (message) =>
-              `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 160)}`,
-          )
-          .join("\n")
+        .slice(-4)
+        .map(
+          (message) =>
+            `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 160)}`,
+        )
+        .join("\n")
       : "No prior conversation.";
   const constraints = extractActiveConversationConstraints({
     history: params.history,
@@ -604,7 +870,7 @@ function buildDeterministicFallback(params: {
   selectedAngle?: string | null;
   pinnedVoicePostIds?: string[];
   pinnedEvidencePostIds?: string[];
-}): Omit<CreatorChatReplyResult, "source" | "model" | "mode"> {
+}): Omit<CreatorChatReplyResult, "source" | "model" | "mode" | "memory"> {
   const { context, contract } = params;
   const pinnedVoiceAnchors = selectPinnedReferencePosts(
     context,
@@ -765,33 +1031,33 @@ function buildDeterministicFallback(params: {
   const fallbackDraftCandidates =
     contract.planner.outputShape === "long_form_post"
       ? buildDeterministicAuthorityDrafts({
-          contract,
-          angleSelection: fallbackAngleSelection,
-          selectedAngle: params.selectedAngle?.trim() || null,
-          userMessage: params.userMessage,
-          evidencePack: fallbackEvidencePack,
-        }).map((draft) => loosenDraftText(draft, contract))
+        contract,
+        angleSelection: fallbackAngleSelection,
+        selectedAngle: params.selectedAngle?.trim() || null,
+        userMessage: params.userMessage,
+        evidencePack: fallbackEvidencePack,
+      }).map((draft) => loosenDraftText(draft, contract))
       : uniqueEvidenceStrings(
+        [
           [
-            [
-              params.selectedAngle?.trim() || params.userMessage,
-              fallbackEvidencePack.proofPoints[0],
-              fallbackEvidencePack.metrics[0],
-              fallbackEvidencePack.constraints[0],
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-            [
-              fallbackEvidencePack.storyBeats[0],
-              fallbackEvidencePack.proofPoints[1] || fallbackEvidencePack.proofPoints[0],
-              fallbackEvidencePack.metrics[1] || fallbackEvidencePack.metrics[0],
-              "the point is in the proof, not the generic advice",
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-          ],
-          2,
-        ).map((draft) => loosenDraftText(draft, contract));
+            params.selectedAngle?.trim() || params.userMessage,
+            fallbackEvidencePack.proofPoints[0],
+            fallbackEvidencePack.metrics[0],
+            fallbackEvidencePack.constraints[0],
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          [
+            fallbackEvidencePack.storyBeats[0],
+            fallbackEvidencePack.proofPoints[1] || fallbackEvidencePack.proofPoints[0],
+            fallbackEvidencePack.metrics[1] || fallbackEvidencePack.metrics[0],
+            "the point is in the proof, not the generic advice",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        ],
+        2,
+      ).map((draft) => loosenDraftText(draft, contract));
   const fallbackDrafts = rerankDrafts({
     drafts: fallbackDraftCandidates,
     contract,
@@ -812,12 +1078,11 @@ function buildDeterministicFallback(params: {
       fallbackDrafts.length > 0
         ? fallbackDrafts
         : [
-            params.selectedAngle?.trim() ||
-              `${topHook}: ${contract.planner.primaryAngle}`,
-            `${topType} version: ${
-              params.selectedAngle?.trim() || params.userMessage
-            }`,
-          ].map((draft) => loosenDraftText(draft, contract)),
+          params.selectedAngle?.trim() ||
+          `${topHook}: ${contract.planner.primaryAngle}`,
+          `${topType} version: ${params.selectedAngle?.trim() || params.userMessage
+          }`,
+        ].map((draft) => loosenDraftText(draft, contract)),
     contract,
     angleSelection: fallbackAngleSelection,
     selectedAngle: params.selectedAngle?.trim() || null,
@@ -845,30 +1110,28 @@ function buildDeterministicFallback(params: {
   return {
     reply: fallbackEvidencePack.requiredEvidenceCount > 0
       ? `Use the ${formatEnumLabel(
-          contract.planner.targetLane,
-        )} lane, but ground it in the creator's actual proof instead of generic strategy language. Build around: ${fallbackEvidencePack.proofPoints[0] || fallbackEvidencePack.metrics[0] || params.userMessage}`
+        contract.planner.targetLane,
+      )} lane, but ground it in the creator's actual proof instead of generic strategy language. Build around: ${fallbackEvidencePack.proofPoints[0] || fallbackEvidencePack.metrics[0] || params.userMessage}`
       : `Use the ${formatEnumLabel(
-          contract.planner.targetLane,
-        )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
+        contract.planner.targetLane,
+      )} lane for "${params.userMessage}". Lead with a ${topHook} opener, structure it as ${topType}, and stay anchored to: ${contract.planner.primaryAngle}`,
     angles: [],
     drafts: fallbackDrafts.length > 0
       ? fallbackDrafts
       : [
-          params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-          `${topType} version: ${
-            params.selectedAngle?.trim() || params.userMessage
-          }`,
-        ].map((draft) => loosenDraftText(draft, contract)),
+        params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+        `${topType} version: ${params.selectedAngle?.trim() || params.userMessage
+        }`,
+      ].map((draft) => loosenDraftText(draft, contract)),
     draftArtifacts: buildDraftArtifacts({
       drafts:
         fallbackDrafts.length > 0
           ? fallbackDrafts
           : [
-              params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
-              `${topType} version: ${
-                params.selectedAngle?.trim() || params.userMessage
-              }`,
-            ].map((draft) => loosenDraftText(draft, contract)),
+            params.selectedAngle?.trim() || `${topHook}: ${contract.planner.primaryAngle}`,
+            `${topType} version: ${params.selectedAngle?.trim() || params.userMessage
+            }`,
+          ].map((draft) => loosenDraftText(draft, contract)),
       outputShape: contract.planner.outputShape,
       supportAsset: fallbackDraftSupportAsset,
     }),
@@ -901,6 +1164,7 @@ export function buildDeterministicCreatorChatReply(params: {
   selectedAngle?: string | null;
   pinnedVoicePostIds?: string[];
   pinnedEvidencePostIds?: string[];
+  memory?: ConversationMemory | null;
 }): CreatorChatReplyResult {
   const context = buildCreatorAgentContext({
     runId: params.runId,
@@ -922,11 +1186,20 @@ export function buildDeterministicCreatorChatReply(params: {
     pinnedEvidencePostIds: params.pinnedEvidencePostIds ?? [],
   });
 
+  const memory = params.memory ?? computeConversationMemory({
+    userMessage: params.userMessage,
+    history: [],
+    previousMemory: null,
+    hasDraftArtifact: false,
+    currentDraftArtifactId: null,
+  });
+
   return {
     ...fallback,
     source: "deterministic",
     model: null,
     mode: contract.mode,
+    memory,
   };
 }
 
@@ -1790,13 +2063,13 @@ const VOLATILITY_ALLOWED_OPENERS: Array<
   | "surprising statistic"
   | "single-sentence thesis"
 > = [
-  "contrarian claim",
-  "problem statement",
-  "vivid micro-story",
-  "hard rule",
-  "surprising statistic",
-  "single-sentence thesis",
-];
+    "contrarian claim",
+    "problem statement",
+    "vivid micro-story",
+    "hard rule",
+    "surprising statistic",
+    "single-sentence thesis",
+  ];
 
 function inferVolatilityLane(params: {
   contentFocus: string | null;
@@ -2137,10 +2410,10 @@ function selectAngleLevers(params: {
   const primary = scored[0]?.lever ?? null;
   const secondary = primary
     ? scored
-        .slice(1)
-        .map((item) => item.lever)
-        .filter((lever) => lever.type !== primary.type)
-        .slice(0, 2)
+      .slice(1)
+      .map((item) => item.lever)
+      .filter((lever) => lever.type !== primary.type)
+      .slice(0, 2)
     : [];
 
   const allowedOpenerTypes = VOLATILITY_ALLOWED_OPENERS.filter(
@@ -3018,10 +3291,10 @@ function buildWriterSystemPrompt(params: {
   const authorityRenderContract =
     contract.planner.outputShape === "long_form_post"
       ? formatAuthorityRenderContract({
-          lane: requestAnchors.angleSelection.inferredLane,
-          goal: requestAnchors.angleSelection.inferredGoal,
-          targetCasing: contract.writer.targetCasing,
-        })
+        lane: requestAnchors.angleSelection.inferredLane,
+        goal: requestAnchors.angleSelection.inferredGoal,
+        targetCasing: contract.writer.targetCasing,
+      })
       : null;
 
   return [
@@ -3088,13 +3361,13 @@ function buildWriterSystemPrompt(params: {
     intent === "ideate"
       ? "Each angle should feel like a believable post direction the user could actually say, not a generic instruction like 'share a recent win'."
       : contract.planner.outputShape === "long_form_post" ||
-          contract.planner.outputShape === "thread_seed"
+        contract.planner.outputShape === "thread_seed"
         ? "For draft mode, match the creator's natural structure and length. Do not compress long-form or thread-shaped outputs into tweet-sized copy."
         : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
     intent === "ideate"
       ? "Angles should read like rough post premises or one-liners. Do not output category labels or gerund openers like 'sharing...', 'discussing...', 'highlighting...', or 'talking about...'."
       : contract.planner.outputShape === "long_form_post" ||
-          contract.planner.outputShape === "thread_seed"
+        contract.planner.outputShape === "thread_seed"
         ? "Long-form and thread-shaped drafts should still feel native to X, but they must preserve the creator's natural sections, spacing, and proof density."
         : "At least one draft should feel blunt and native to X, like something the user would text to the timeline, not a polished content exercise.",
     "Casual does not mean forced lowercase or one-line output. Preserve the creator's natural casing, line breaks, and structure unless the anchors and exemplar clearly show otherwise.",
@@ -3160,10 +3433,10 @@ function buildCriticSystemPrompt(params: {
   const authorityRenderContract =
     contract.planner.outputShape === "long_form_post"
       ? formatAuthorityRenderContract({
-          lane: requestAnchors.angleSelection.inferredLane,
-          goal: requestAnchors.angleSelection.inferredGoal,
-          targetCasing: contract.writer.targetCasing,
-        })
+        lane: requestAnchors.angleSelection.inferredLane,
+        goal: requestAnchors.angleSelection.inferredGoal,
+        targetCasing: contract.writer.targetCasing,
+      })
       : null;
 
   return [
@@ -3806,14 +4079,14 @@ function scoreDraftCandidate(params: {
   const authorityRenderCheck =
     params.contract.planner.outputShape === "long_form_post"
       ? checkAuthorityRenderContract({
-          draft,
-          exemplarText: params.formatExemplar?.text ?? "",
-          evidenceMetrics: params.evidencePack?.metrics ?? [],
-          ctaMode: resolveAuthorityCtaMode({
-            lane: params.angleSelection.inferredLane,
-            goal: params.angleSelection.inferredGoal,
-          }),
-        })
+        draft,
+        exemplarText: params.formatExemplar?.text ?? "",
+        evidenceMetrics: params.evidencePack?.metrics ?? [],
+        ctaMode: resolveAuthorityCtaMode({
+          lane: params.angleSelection.inferredLane,
+          goal: params.angleSelection.inferredGoal,
+        }),
+      })
       : null;
   let score = 0;
 
@@ -4122,25 +4395,25 @@ function buildDraftDiagnostics(params: {
     const authorityRenderCheck =
       params.contract.planner.outputShape === "long_form_post"
         ? checkAuthorityRenderContract({
-            draft: trimmedDraft,
-            exemplarText: params.formatExemplar?.text ?? "",
-            evidenceMetrics: params.evidencePack?.metrics ?? [],
-            ctaMode: resolveAuthorityCtaMode({
-              lane: params.angleSelection.inferredLane,
-              goal: params.angleSelection.inferredGoal,
-            }),
-          })
+          draft: trimmedDraft,
+          exemplarText: params.formatExemplar?.text ?? "",
+          evidenceMetrics: params.evidencePack?.metrics ?? [],
+          ctaMode: resolveAuthorityCtaMode({
+            lane: params.angleSelection.inferredLane,
+            goal: params.angleSelection.inferredGoal,
+          }),
+        })
         : null;
     const matchesBlueprint =
       params.contract.planner.outputShape === "long_form_post" ||
-      params.contract.planner.outputShape === "thread_seed"
+        params.contract.planner.outputShape === "thread_seed"
         ? params.blueprintProfile
           ? matchesLongFormBlueprint(trimmedDraft, params.blueprintProfile)
           : null
         : null;
     const matchesSkeleton =
       params.contract.planner.outputShape === "long_form_post" ||
-      params.contract.planner.outputShape === "thread_seed"
+        params.contract.planner.outputShape === "thread_seed"
         ? params.contentSkeleton
           ? matchesLongFormSkeleton(trimmedDraft, params.contentSkeleton)
           : null
@@ -4320,10 +4593,10 @@ function buildLongFormExpansionSystemPrompt(params: {
   const authorityRenderContract =
     params.contract.planner.outputShape === "long_form_post"
       ? formatAuthorityRenderContract({
-          lane: params.requestAnchors.angleSelection.inferredLane,
-          goal: params.requestAnchors.angleSelection.inferredGoal,
-          targetCasing: params.contract.writer.targetCasing,
-        })
+        lane: params.requestAnchors.angleSelection.inferredLane,
+        goal: params.requestAnchors.angleSelection.inferredGoal,
+        targetCasing: params.contract.writer.targetCasing,
+      })
       : null;
 
   return [
@@ -4433,31 +4706,36 @@ export async function generateCreatorChatReply(params: {
   pinnedVoicePostIds?: string[];
   pinnedEvidencePostIds?: string[];
   onProgress?: (phase: CreatorChatProgressPhase) => void;
+  memory?: ConversationMemory | null;
+  uiAction?: UiAction | null;
+  editTarget?: { artifactId?: string; artifactText?: string } | null;
 }): Promise<CreatorChatReplyResult> {
-  const requestedIntent = params.intent ?? "draft";
   const normalizedHistory = normalizeHistory(params.history ?? []);
-  const broadDraftRequest = isBroadDraftRequest(params.userMessage);
-  const concreteHistorySignal = hasConcreteUserSignal(normalizedHistory);
-  const draftPushRequest =
-    isDraftPushPrompt(params.userMessage) && concreteHistorySignal;
-  const explicitDraftRequest =
-    requestedIntent === "draft" || broadDraftRequest || draftPushRequest;
-  const shouldForceCoachFromPrompt =
-    isCorrectionPrompt(params.userMessage) ||
-    isMetaClarifyingPrompt(params.userMessage);
-  const shouldCoach =
-    !params.selectedAngle &&
-    requestedIntent !== "review" &&
-    !explicitDraftRequest &&
-    ((requestedIntent === "coach" && !broadDraftRequest) ||
-      shouldForceCoachFromPrompt ||
-      isThinCoachInput(params.userMessage) ||
-      isBroadDiscoveryPrompt(params.userMessage));
-  const effectiveIntent: CreatorChatIntent = shouldCoach
-    ? "coach"
-    : explicitDraftRequest && requestedIntent === "coach"
-      ? "draft"
-      : requestedIntent;
+  const previousMemory = params.memory ?? null;
+  const uiAction = params.uiAction ?? null;
+
+  // Determine if there are existing draft artifacts (from edit target or history check)
+  const hasDraftArtifact = !!(params.editTarget?.artifactText);
+  const currentDraftArtifactId = params.editTarget?.artifactId ?? previousMemory?.currentDraftArtifactId ?? null;
+
+  // Backend-authoritative intent classification
+  const effectiveIntent = classifyTurnIntent({
+    message: params.userMessage,
+    memory: previousMemory,
+    uiAction,
+    hasDraftArtifact,
+    selectedAngle: params.selectedAngle ?? null,
+    history: normalizedHistory,
+  });
+
+  // Compute conversation memory for this turn
+  const memory = computeConversationMemory({
+    userMessage: params.userMessage,
+    history: normalizedHistory,
+    previousMemory,
+    hasDraftArtifact,
+    currentDraftArtifactId,
+  });
   const context = buildCreatorAgentContext({
     runId: params.runId,
     onboarding: params.onboarding,
@@ -4486,6 +4764,7 @@ export async function generateCreatorChatReply(params: {
       source: "deterministic",
       model: null,
       mode: contract.mode,
+      memory,
     };
   }
 
@@ -4496,9 +4775,7 @@ export async function generateCreatorChatReply(params: {
   if (effectiveIntent === "coach") {
     if (
       isBroadDiscoveryPrompt(params.userMessage) ||
-      isBroadDraftRequest(params.userMessage) ||
-      isCorrectionPrompt(params.userMessage) ||
-      isMetaClarifyingPrompt(params.userMessage)
+      isBroadDraftRequest(params.userMessage)
     ) {
       params.onProgress?.("finalizing");
       return {
@@ -4511,6 +4788,7 @@ export async function generateCreatorChatReply(params: {
         source: "deterministic",
         model: null,
         mode: contract.mode,
+        memory,
       };
     }
 
@@ -4526,6 +4804,7 @@ export async function generateCreatorChatReply(params: {
         source: "deterministic",
         model: null,
         mode: contract.mode,
+        memory,
       };
     }
 
@@ -4558,11 +4837,11 @@ export async function generateCreatorChatReply(params: {
       const safeReply = validation.isValid
         ? reply
         : buildDeterministicCoachReply({
-            userMessage: params.userMessage,
-            contentFocus: params.contentFocus ?? null,
-            selectedAngle: params.selectedAngle ?? null,
-            debug: deterministicFallback.debug,
-          }).reply;
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          debug: deterministicFallback.debug,
+        }).reply;
 
       params.onProgress?.("finalizing");
       return {
@@ -4578,6 +4857,7 @@ export async function generateCreatorChatReply(params: {
         source: writerProvider.provider,
         model: writerProvider.model,
         mode: contract.mode,
+        memory,
       };
     } catch {
       params.onProgress?.("finalizing");
@@ -4591,6 +4871,160 @@ export async function generateCreatorChatReply(params: {
         source: "deterministic",
         model: null,
         mode: contract.mode,
+        memory,
+      };
+    }
+  }
+
+  // --- answer_question path ---
+  if (effectiveIntent === "answer_question") {
+    if (!writerProvider) {
+      params.onProgress?.("finalizing");
+      return {
+        ...buildDeterministicCoachReply({
+          userMessage: params.userMessage,
+          contentFocus: params.contentFocus ?? null,
+          selectedAngle: params.selectedAngle ?? null,
+          debug: deterministicFallback.debug,
+        }),
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+        memory,
+      };
+    }
+
+    try {
+      params.onProgress?.("writing");
+      const answerOutput = await callProviderJson<{ reply: string }>({
+        provider: writerProvider,
+        system: buildAnswerQuestionSystemPrompt({ context, contract }),
+        user: buildAnswerQuestionUserPrompt({
+          userMessage: params.userMessage,
+          history: normalizedHistory,
+        }),
+        schemaName: "answer_question_reply",
+        schema: {
+          type: "object",
+          properties: {
+            reply: { type: "string" },
+          },
+          required: ["reply"],
+          additionalProperties: false,
+        },
+        maxOutputTokens: 300,
+      });
+
+      params.onProgress?.("finalizing");
+      return {
+        reply: coerceString(answerOutput.reply) || "I mentioned that because it seemed like a strong signal from your recent posts, but if it's not relevant we can drop it and focus on something else.",
+        angles: [],
+        drafts: [],
+        draftArtifacts: [],
+        supportAsset: null,
+        outputShape: "coach_question",
+        whyThisWorks: [],
+        watchOutFor: [],
+        debug: deterministicFallback.debug,
+        source: writerProvider.provider,
+        model: writerProvider.model,
+        mode: contract.mode,
+        memory,
+      };
+    } catch {
+      params.onProgress?.("finalizing");
+      return {
+        reply: "I mentioned that because it seemed like a strong signal from your recent posts, but if it's not relevant we can drop it. What would you rather focus on?",
+        angles: [],
+        drafts: [],
+        draftArtifacts: [],
+        supportAsset: null,
+        outputShape: "coach_question",
+        whyThisWorks: [],
+        watchOutFor: [],
+        debug: deterministicFallback.debug,
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+        memory,
+      };
+    }
+  }
+
+  // --- editing path ---
+  if (effectiveIntent === "edit" && params.editTarget?.artifactText && writerProvider) {
+    try {
+      params.onProgress?.("writing");
+      const editOutput = await callProviderJson<{ editedDraft: string }>({
+        provider: writerProvider,
+        system: buildEditingSystemPrompt({
+          context,
+          contract,
+          activeConstraints: memory.activeConstraints,
+        }),
+        user: buildEditingUserPrompt({
+          userMessage: params.userMessage,
+          currentDraftText: params.editTarget.artifactText,
+          activeConstraints: memory.activeConstraints,
+        }),
+        schemaName: "edit_draft_reply",
+        schema: {
+          type: "object",
+          properties: {
+            editedDraft: { type: "string" },
+          },
+          required: ["editedDraft"],
+          additionalProperties: false,
+        },
+        maxOutputTokens: 1200,
+      });
+
+      const editedDraft = coerceString(editOutput.editedDraft);
+      const editedArtifacts = buildDraftArtifacts({
+        drafts: editedDraft ? [editedDraft] : [],
+        outputShape: contract.planner.outputShape,
+        supportAsset: null,
+      });
+
+      // Update memory to track the new draft
+      const editMemory: ConversationMemory = {
+        ...memory,
+        conversationState: "ready_to_draft",
+        currentDraftArtifactId: editedArtifacts[0]?.id ?? memory.currentDraftArtifactId,
+      };
+
+      params.onProgress?.("finalizing");
+      return {
+        reply: "Done — here's the updated draft.",
+        angles: [],
+        drafts: editedDraft ? [editedDraft] : [],
+        draftArtifacts: editedArtifacts,
+        supportAsset: null,
+        outputShape: contract.planner.outputShape,
+        whyThisWorks: [],
+        watchOutFor: [],
+        debug: deterministicFallback.debug,
+        source: writerProvider.provider,
+        model: writerProvider.model,
+        mode: contract.mode,
+        memory: editMemory,
+      };
+    } catch {
+      params.onProgress?.("finalizing");
+      return {
+        reply: "I couldn't apply that edit — could you rephrase what you'd like changed?",
+        angles: [],
+        drafts: [],
+        draftArtifacts: [],
+        supportAsset: null,
+        outputShape: "coach_question",
+        whyThisWorks: [],
+        watchOutFor: [],
+        debug: deterministicFallback.debug,
+        source: "deterministic",
+        model: null,
+        mode: contract.mode,
+        memory,
       };
     }
   }
@@ -4602,6 +5036,7 @@ export async function generateCreatorChatReply(params: {
       source: "deterministic",
       model: null,
       mode: contract.mode,
+      memory,
     };
   }
 
@@ -4627,12 +5062,12 @@ export async function generateCreatorChatReply(params: {
   const historyText =
     history.length > 0
       ? history
-          .slice(-6)
-          .map(
-            (message) =>
-              `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 180)}`,
-          )
-          .join("\n")
+        .slice(-6)
+        .map(
+          (message) =>
+            `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 180)}`,
+        )
+        .join("\n")
       : "No prior chat history.";
   const formatBlueprintProfile = buildFormatBlueprintProfile({
     post: requestAnchors.formatExemplar,
@@ -4699,13 +5134,13 @@ export async function generateCreatorChatReply(params: {
     angle: params.selectedAngle?.trim() || leverFallbackAngle,
     mustInclude: params.selectedAngle?.trim()
       ? [
-          `Preserve selected angle: ${params.selectedAngle.trim()}`,
-          ...planner.mustInclude,
-        ].slice(0, 4)
+        `Preserve selected angle: ${params.selectedAngle.trim()}`,
+        ...planner.mustInclude,
+      ].slice(0, 4)
       : [
-          `Use exactly one primary angle lever: ${leverFallbackAngle}`,
-          ...planner.mustInclude,
-        ].slice(0, 4),
+        `Use exactly one primary angle lever: ${leverFallbackAngle}`,
+        ...planner.mustInclude,
+      ].slice(0, 4),
     mustAvoid: planner.mustAvoid,
   };
   const laneVoiceAnchors = selectLaneVoiceAnchors(
@@ -4943,33 +5378,33 @@ export async function generateCreatorChatReply(params: {
   const critic = normalizeCriticOutput(criticResponse, writer);
 
   params.onProgress?.("finalizing");
-  const intent = params.intent ?? "draft";
+  const intent = effectiveIntent;
   const finalAngles =
     intent === "ideate"
       ? rerankAngles({
-          angles: sanitizeStringList(critic.finalAngles, 4, writer.angles),
-          contract,
-          selectedAngle: params.selectedAngle?.trim() || null,
-          concreteSubject,
-          userMessage: params.userMessage,
-          evidencePack: requestAnchors.evidencePack,
-        })
+        angles: sanitizeStringList(critic.finalAngles, 4, writer.angles),
+        contract,
+        selectedAngle: params.selectedAngle?.trim() || null,
+        concreteSubject,
+        userMessage: params.userMessage,
+        evidencePack: requestAnchors.evidencePack,
+      })
       : [];
   let finalDrafts =
     intent === "ideate"
       ? []
       : rerankDrafts({
-          drafts: sanitizeStringList(critic.finalDrafts, 6, writer.drafts),
-          contract,
-          angleSelection: requestAnchors.angleSelection,
-          selectedAngle: params.selectedAngle?.trim() || null,
-          concreteSubject,
-          userMessage: params.userMessage,
-          formatExemplar: requestAnchors.formatExemplar,
-          blueprintProfile: formatBlueprintProfile,
-          contentSkeleton: formatContentSkeleton,
-          evidencePack: requestAnchors.evidencePack,
-        });
+        drafts: sanitizeStringList(critic.finalDrafts, 6, writer.drafts),
+        contract,
+        angleSelection: requestAnchors.angleSelection,
+        selectedAngle: params.selectedAngle?.trim() || null,
+        concreteSubject,
+        userMessage: params.userMessage,
+        formatExemplar: requestAnchors.formatExemplar,
+        blueprintProfile: formatBlueprintProfile,
+        contentSkeleton: formatContentSkeleton,
+        evidencePack: requestAnchors.evidencePack,
+      });
   const finalWatchOutFor = sanitizeStringList(
     critic.finalWatchOutFor,
     3,
@@ -5219,21 +5654,27 @@ export async function generateCreatorChatReply(params: {
         intent === "ideate"
           ? []
           : buildDraftDiagnostics({
-              drafts: finalDrafts,
-              contract,
-              angleSelection: requestAnchors.angleSelection,
-              selectedAngle: params.selectedAngle?.trim() || null,
-              concreteSubject,
-              userMessage: params.userMessage,
-              formatExemplar: requestAnchors.formatExemplar,
-              blueprintProfile: formatBlueprintProfile,
-              contentSkeleton: formatContentSkeleton,
-              evidencePack: requestAnchors.evidencePack,
-            }),
+            drafts: finalDrafts,
+            contract,
+            angleSelection: requestAnchors.angleSelection,
+            selectedAngle: params.selectedAngle?.trim() || null,
+            concreteSubject,
+            userMessage: params.userMessage,
+            formatExemplar: requestAnchors.formatExemplar,
+            blueprintProfile: formatBlueprintProfile,
+            contentSkeleton: formatContentSkeleton,
+            evidencePack: requestAnchors.evidencePack,
+          }),
     },
     source: writerProvider.provider,
     model: writerProvider.model,
     mode: contract.mode,
+    memory: {
+      ...memory,
+      currentDraftArtifactId: finalDrafts.length > 0
+        ? (memory.currentDraftArtifactId ?? `draft-${Date.now()}`)
+        : memory.currentDraftArtifactId,
+    },
   };
 }
 
