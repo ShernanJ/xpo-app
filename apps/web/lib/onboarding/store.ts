@@ -1,8 +1,7 @@
 import { randomUUID } from "crypto";
-import { access, appendFile, mkdir, readFile } from "fs/promises";
-import path from "path";
-
 import type { OnboardingInput, OnboardingResult } from "./types";
+import { Prisma } from "../generated/prisma/client";
+import { prisma } from "../db";
 
 export interface StoredOnboardingRun {
   runId: string;
@@ -19,53 +18,22 @@ export interface OnboardingRunPersistedRecord {
   persistedAt: string;
 }
 
-function candidateStoreFilePaths(): string[] {
-  if (process.env.ONBOARDING_STORE_PATH) {
-    return [process.env.ONBOARDING_STORE_PATH];
-  }
-
-  const cwd = process.cwd();
-  return [
-    path.resolve(cwd, "db", "onboarding-runs.jsonl"),
-    path.resolve(cwd, "..", "..", "db", "onboarding-runs.jsonl"),
-  ];
-}
-
-async function resolveStoreFilePath(): Promise<string> {
-  const candidates = candidateStoreFilePaths();
-  for (const candidate of candidates) {
-    try {
-      await access(path.dirname(candidate));
-      return candidate;
-    } catch {
-      // Try the next candidate.
-    }
-  }
-
-  return candidates[0];
-}
-
 export async function persistOnboardingRun(params: {
   input: OnboardingInput;
   result: OnboardingResult;
   userAgent: string | null;
 }): Promise<OnboardingRunPersistedRecord> {
-  const storePath = await resolveStoreFilePath();
-  await mkdir(path.dirname(storePath), { recursive: true });
-
   const persistedAt = new Date().toISOString();
   const runId = `or_${randomUUID()}`;
-  const record: StoredOnboardingRun = {
-    runId,
-    persistedAt,
-    input: params.input,
-    result: params.result,
-    metadata: {
-      userAgent: params.userAgent,
-    },
-  };
 
-  await appendFile(storePath, `${JSON.stringify(record)}\n`, "utf8");
+  await prisma.onboardingRun.create({
+    data: {
+      id: runId,
+      input: params.input as unknown as Prisma.InputJsonObject,
+      result: params.result as unknown as Prisma.InputJsonObject,
+      createdAt: new Date(persistedAt),
+    },
+  });
 
   return {
     runId,
@@ -76,20 +44,23 @@ export async function persistOnboardingRun(params: {
 export async function readRecentOnboardingRuns(
   limit = 10,
 ): Promise<StoredOnboardingRun[]> {
-  const storePath = await resolveStoreFilePath();
-
   try {
-    const runs = (await readFile(storePath, "utf8"))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as StoredOnboardingRun);
+    const runs = await prisma.onboardingRun.findMany({
+      orderBy: { createdAt: "desc" },
+      take: Math.max(1, limit),
+    });
 
-    return runs
-      .slice(-Math.max(1, limit))
-      .reverse()
-      .map((run) => run);
-  } catch {
+    return runs.map((run) => ({
+      runId: run.id,
+      persistedAt: run.createdAt.toISOString(),
+      input: run.input as unknown as OnboardingInput,
+      result: run.result as unknown as OnboardingResult,
+      metadata: {
+        userAgent: null,
+      },
+    }));
+  } catch (error) {
+    console.error("Failed to read recent onboarding runs", error);
     return [];
   }
 }
@@ -97,23 +68,26 @@ export async function readRecentOnboardingRuns(
 export async function readOnboardingRunById(
   runId: string,
 ): Promise<StoredOnboardingRun | null> {
-  const storePath = await resolveStoreFilePath();
-
   try {
-    const runs = (await readFile(storePath, "utf8"))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as StoredOnboardingRun);
+    const run = await prisma.onboardingRun.findUnique({
+      where: { id: runId },
+    });
 
-    for (let index = runs.length - 1; index >= 0; index -= 1) {
-      if (runs[index]?.runId === runId) {
-        return runs[index];
-      }
+    if (!run) {
+      return null;
     }
 
-    return null;
-  } catch {
+    return {
+      runId: run.id,
+      persistedAt: run.createdAt.toISOString(),
+      input: run.input as unknown as OnboardingInput,
+      result: run.result as unknown as OnboardingResult,
+      metadata: {
+        userAgent: null,
+      },
+    };
+  } catch (error) {
+    console.error(`Failed to read onboarding run ${runId}`, error);
     return null;
   }
 }
