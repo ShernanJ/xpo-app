@@ -18,6 +18,7 @@ import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
   isCorrectionPrompt,
+  isDraftPushPrompt,
   isMetaClarifyingPrompt,
   isThinCoachInput,
   validateCoachReplyText,
@@ -4437,20 +4438,24 @@ export async function generateCreatorChatReply(params: {
   const normalizedHistory = normalizeHistory(params.history ?? []);
   const broadDraftRequest = isBroadDraftRequest(params.userMessage);
   const concreteHistorySignal = hasConcreteUserSignal(normalizedHistory);
+  const draftPushRequest =
+    isDraftPushPrompt(params.userMessage) && concreteHistorySignal;
+  const explicitDraftRequest =
+    requestedIntent === "draft" || broadDraftRequest || draftPushRequest;
   const shouldForceCoachFromPrompt =
     isCorrectionPrompt(params.userMessage) ||
     isMetaClarifyingPrompt(params.userMessage);
   const shouldCoach =
     !params.selectedAngle &&
     requestedIntent !== "review" &&
+    !explicitDraftRequest &&
     ((requestedIntent === "coach" && !broadDraftRequest) ||
       shouldForceCoachFromPrompt ||
       isThinCoachInput(params.userMessage) ||
-      isBroadDiscoveryPrompt(params.userMessage) ||
-      (broadDraftRequest && !concreteHistorySignal));
+      isBroadDiscoveryPrompt(params.userMessage));
   const effectiveIntent: CreatorChatIntent = shouldCoach
     ? "coach"
-    : broadDraftRequest && requestedIntent === "coach"
+    : explicitDraftRequest && requestedIntent === "coach"
       ? "draft"
       : requestedIntent;
   const context = buildCreatorAgentContext({

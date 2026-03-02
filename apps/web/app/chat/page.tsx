@@ -14,6 +14,7 @@ import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
   isCorrectionPrompt,
+  isDraftPushPrompt,
   isMetaClarifyingPrompt,
   isThinCoachInput,
 } from "@/lib/onboarding/coachReply";
@@ -315,6 +316,10 @@ function inferComposerIntent(input: string): ChatIntent {
   }
 
   if (isBroadDraftRequest(trimmed)) {
+    return "draft";
+  }
+
+  if (isDraftPushPrompt(trimmed)) {
     return "coach";
   }
 

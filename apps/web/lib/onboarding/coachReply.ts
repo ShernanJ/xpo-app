@@ -68,6 +68,25 @@ export function isBroadDraftRequest(value: string): boolean {
   );
 }
 
+export function isDraftPushPrompt(value: string): boolean {
+  const normalized = normalizeCoachInput(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "please" ||
+    normalized === "pls" ||
+    normalized === "pls draft it" ||
+    normalized === "please draft it" ||
+    normalized === "just do it" ||
+    normalized === "go ahead" ||
+    normalized === "draft it" ||
+    normalized === "just write it" ||
+    normalized === "do it"
+  );
+}
+
 export function isCorrectionPrompt(value: string): boolean {
   const normalized = normalizeCoachInput(value);
   if (!normalized) {
