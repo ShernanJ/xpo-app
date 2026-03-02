@@ -1,0 +1,75 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  handle    String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  onboardingRuns OnboardingRun[]
+  posts          Post[]
+  memories       ConversationMemory[]
+  voiceProfiles  VoiceProfile[]
+}
+
+model OnboardingRun {
+  id        String   @id @default(uuid())
+  userId    String?
+  input     Json
+  result    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  memories ConversationMemory[]
+}
+
+model Post {
+  id        String   @id // X Post ID
+  userId    String?
+  text      String
+  lane      String // "original" | "reply" | "quote"
+  metrics   Json // { likeCount, replyCount, repostCount, quoteCount }
+  createdAt DateTime
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConversationMemory {
+  id                  String   @id @default(uuid())
+  userId              String?
+  runId               String
+  topicSummary        String?
+  activeConstraints   Json? // Array of strings
+  concreteAnswerCount Int      @default(0)
+  lastDraftArtifactId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  run  OnboardingRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model VoiceProfile {
+  id        String   @id @default(uuid())
+  userId    String
+  niche     String?
+  styleCard Json // Parsed CreatorStyleCard
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
