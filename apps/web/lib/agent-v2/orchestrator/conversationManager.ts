@@ -5,7 +5,7 @@ import { generateIdeasMenu } from "../agents/ideator";
 import { generateDrafts } from "../agents/writer";
 import { critiqueDrafts } from "../agents/critic";
 
-import { getConversationMemory, updateConversationMemory } from "../memory/memoryStore";
+import { getConversationMemory, createConversationMemory, updateConversationMemory } from "../memory/memoryStore";
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
@@ -16,6 +16,7 @@ export interface OrchestratorInput {
   runId: string;
   userMessage: string;
   recentHistory: string; // Condensed history for LLM context
+  explicitIntent?: "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" | null;
 }
 
 export type OrchestratorResponse = {
@@ -31,19 +32,26 @@ export type OrchestratorResponse = {
 export async function manageConversationTurn(
   input: OrchestratorInput
 ): Promise<OrchestratorResponse> {
-  const { userId, runId, userMessage, recentHistory } = input;
+  const { userId, runId, userMessage, recentHistory, explicitIntent } = input;
 
   // 1. Fetch Memory
-  const memory = await getConversationMemory(runId);
+  let memory = await getConversationMemory(runId);
+  if (!memory) {
+    memory = await createConversationMemory({ runId, userId: userId === "anonymous" ? null : userId });
+  }
   const activeConstraints = memory?.activeConstraints as string[] || [];
   const topicSummary = memory?.topicSummary || null;
   const concreteAnswerCount = memory?.concreteAnswerCount || 0;
 
-  // 2. Classify Intent
-  const classification = await classifyIntent(userMessage, recentHistory);
-
-  if (!classification) {
-    return { mode: "error", response: "Failed to classify intent." };
+  // 2. Classify Intent (Skip if explicitly provided by UI like selecting an angle)
+  let classification;
+  if (!explicitIntent) {
+    classification = await classifyIntent(userMessage, recentHistory);
+    if (!classification) {
+      return { mode: "error", response: "Failed to classify intent." };
+    }
+  } else {
+    classification = { intent: explicitIntent, needs_memory_update: false, confidence: 1 };
   }
 
   // 3. Update Memory Constraints (if requested by classifier)
@@ -62,12 +70,12 @@ export async function manageConversationTurn(
   let mode = classification.intent;
 
   // Rule 4: System may *never* generate a draft if user just says "Hello" or "Help me grow".
-  if (["hello", "hi", "help me grow", "i want to grow"].includes(userMessage.toLowerCase().trim())) {
+  if (!explicitIntent && ["hello", "hi", "help me grow", "i want to grow"].includes(userMessage.toLowerCase().trim())) {
     mode = "coach";
   }
 
   // Rule 2: Switch to Ideate IF broad topic but lacks angle AND concrete answers < 2
-  if (mode === "draft" && !topicSummary && concreteAnswerCount < 2) {
+  if (!explicitIntent && mode === "draft" && !topicSummary && concreteAnswerCount < 2) {
     mode = "ideate";
   }
 

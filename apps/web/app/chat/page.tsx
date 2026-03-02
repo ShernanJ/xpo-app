@@ -1005,7 +1005,7 @@ export default function ChatPage() {
       setErrorMessage(null);
 
       try {
-        const response = await fetch("/api/creator/chat", {
+        const response = await fetch("/api/creator/v2/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
