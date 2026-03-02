@@ -1567,29 +1567,46 @@ export default function ChatPage() {
                         message.outputShape !== "coach_question" &&
                         message.angles?.length ? (
                         <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.angles.map((angle, index) => (
-                            <div
-                              key={`${message.id}-angle-${index}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Angle {index + 1}
-                              </p>
-                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {angle}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void handleAngleSelect(angle);
-                                }}
-                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                          {message.angles.map((angle, index) => {
+                            // Support both old string[] and new structured IdeaSchema objects
+                            const isStructured = typeof angle === "object" && angle !== null;
+                            const title = isStructured ? (angle as Record<string, string>).title : angle as string;
+                            const premise = isStructured ? (angle as Record<string, string>).premise : null;
+                            const format = isStructured ? (angle as Record<string, string>).format : null;
+                            return (
+                              <div
+                                key={`${message.id}-angle-${index}`}
+                                className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
                               >
-                                Turn Into Drafts
-                              </button>
-                            </div>
-                          ))}
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                  Angle {index + 1}
+                                </p>
+                                <p className="mt-2 leading-7 text-zinc-100 font-medium">
+                                  {title}
+                                </p>
+                                {premise && (
+                                  <p className="mt-1 text-xs leading-5 text-zinc-400">
+                                    {premise}
+                                  </p>
+                                )}
+                                {format && (
+                                  <p className="mt-1 text-[10px] text-zinc-600 italic">
+                                    Format: {format}
+                                  </p>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void handleAngleSelect(title);
+                                  }}
+                                  disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                  className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                >
+                                  Turn Into Drafts
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
 
@@ -1701,7 +1718,7 @@ export default function ChatPage() {
                 </>
               )}
             </div>
-          </section>
+          </section >
 
           <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
             <div className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
@@ -1741,287 +1758,291 @@ export default function ChatPage() {
               </form>
             </div>
           </div>
-        </div>
-      </div>
+        </div >
+      </div >
 
-      {selectedDraftArtifact ? (
-        <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl">
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                  {selectedDraftArtifact.title}
-                </p>
-                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
-                    editorDraftText,
-                  )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
-                    editorDraftText,
-                  ) <= selectedDraftArtifact.maxCharacterLimit
-                    ? "Within Limit"
-                    : "Over Limit"}
-                </p>
+      {
+        selectedDraftArtifact ? (
+          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    {selectedDraftArtifact.title}
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
+                      editorDraftText,
+                    )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
+                      editorDraftText,
+                    ) <= selectedDraftArtifact.maxCharacterLimit
+                      ? "Within Limit"
+                      : "Over Limit"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDraftEditor(null)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                >
+                  Close
+                </button>
               </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <textarea
+                  value={editorDraftText}
+                  onChange={(event) => setEditorDraftText(event.target.value)}
+                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                  placeholder="Draft content"
+                />
+
+                {selectedDraftArtifact.supportAsset ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Visual / Demo Ideas
+                    </p>
+                    <p className="mt-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.supportAsset}
+                    </p>
+                  </div>
+                ) : null}
+
+                {selectedDraftArtifact.betterClosers.length ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Better Closers
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.betterClosers.map((closer, index) => (
+                        <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {selectedDraftArtifact.replyPlan.length ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Reply Plan
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.replyPlan.map((step, index) => (
+                        <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    Edit the draft here before you use it.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void copyDraftEditor();
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveDraftEditor}
+                      className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        ) : null
+      }
+
+      {
+        analysisOpen && context ? (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
+            <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
               <button
                 type="button"
-                onClick={() => setActiveDraftEditor(null)}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                onClick={() => setAnalysisOpen(false)}
+                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
               >
                 Close
               </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <textarea
-                value={editorDraftText}
-                onChange={(event) => setEditorDraftText(event.target.value)}
-                className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                placeholder="Draft content"
-              />
-
-              {selectedDraftArtifact.supportAsset ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Visual / Demo Ideas
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
+                    Analysis Drawer
                   </p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.supportAsset}
-                  </p>
-                </div>
-              ) : null}
-
-              {selectedDraftArtifact.betterClosers.length ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Better Closers
-                  </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.betterClosers.map((closer, index) => (
-                      <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {selectedDraftArtifact.replyPlan.length ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Reply Plan
-                  </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.replyPlan.map((step, index) => (
-                      <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="border-t border-white/10 px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  Edit the draft here before you use it.
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void copyDraftEditor();
-                    }}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveDraftEditor}
-                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
-      ) : null}
-
-      {analysisOpen && context ? (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
-          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
-            <button
-              type="button"
-              onClick={() => setAnalysisOpen(false)}
-              className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-            >
-              Close
-            </button>
-
-            <div className="space-y-6">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
-                  Analysis Drawer
-                </p>
-                <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
-                  The full model stays here.
-                </h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatEnumLabel(context.creatorProfile.archetype)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatNicheSummary(context)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {context.readiness.score}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Strategy Delta
-                  </p>
-                  <p className="mt-3 text-sm font-medium text-white">
-                    {context.strategyDelta.primaryGap}
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
-                      <li key={`${item.area}-${item.direction}`}>
-                        {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
-                      </li>
-                    ))}
-                  </ul>
+                  <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
+                    The full model stays here.
+                  </h2>
                 </div>
 
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Confidence
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    <li>Sample: {context.confidence.sampleSize} posts</li>
-                    <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
-                    <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
-                    <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
-                  </ul>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatEnumLabel(context.creatorProfile.archetype)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatNicheSummary(context)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {context.readiness.score}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="border border-white/10 p-5 md:col-span-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                        Pinned References
-                      </p>
-                      <p className="mt-2 text-sm text-zinc-300">
-                        Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
-                      </p>
-                    </div>
-                    <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      <p>{pinnedVoicePostIds.length} / 2 voice</p>
-                      <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
-                    </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Strategy Delta
+                    </p>
+                    <p className="mt-3 text-sm font-medium text-white">
+                      {context.strategyDelta.primaryGap}
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
+                        <li key={`${item.area}-${item.direction}`}>
+                          {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
+                        </li>
+                      ))}
+                    </ul>
                   </div>
 
-                  <ul className="mt-4 grid gap-3 md:grid-cols-2">
-                    {pinnedReferenceCandidates.map((post) => {
-                      const isVoicePinned = pinnedVoicePostIds.includes(post.id);
-                      const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Confidence
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      <li>Sample: {context.confidence.sampleSize} posts</li>
+                      <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
+                      <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
+                      <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
+                    </ul>
+                  </div>
+                </div>
 
-                      return (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="border border-white/10 p-5 md:col-span-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                          Pinned References
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-300">
+                          Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
+                        </p>
+                      </div>
+                      <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        <p>{pinnedVoicePostIds.length} / 2 voice</p>
+                        <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
+                      </div>
+                    </div>
+
+                    <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                      {pinnedReferenceCandidates.map((post) => {
+                        const isVoicePinned = pinnedVoicePostIds.includes(post.id);
+                        const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
+
+                        return (
+                          <li key={post.id} className="border border-white/10 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                                  {formatEnumLabel(post.lane)} | {post.selectionReason}
+                                </p>
+                                <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
+                                  {post.text}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => togglePinnedPostId(post.id, "voice")}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                    }`}
+                                >
+                                  {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => togglePinnedPostId(post.id, "evidence")}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                    }`}
+                                >
+                                  {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
+                                </button>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Positive Anchors
+                    </p>
+                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                      {context.positiveAnchors.slice(0, 4).map((post) => (
                         <li key={post.id} className="border border-white/10 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                                {formatEnumLabel(post.lane)} | {post.selectionReason}
-                              </p>
-                              <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
-                                {post.text}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 flex-col gap-2">
-                              <button
-                                type="button"
-                                onClick={() => togglePinnedPostId(post.id, "voice")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
-                                  ? "border-white/20 bg-white/[0.06] text-white"
-                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                              >
-                                {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => togglePinnedPostId(post.id, "evidence")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
-                                  ? "border-white/20 bg-white/[0.06] text-white"
-                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                              >
-                                {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
-                              </button>
-                            </div>
-                          </div>
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                          </p>
+                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
                         </li>
-                      );
-                    })}
-                  </ul>
-                </div>
+                      ))}
+                    </ul>
+                  </div>
 
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Positive Anchors
-                  </p>
-                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                    {context.positiveAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="border border-white/10 p-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                        </p>
-                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Negative Anchors
-                  </p>
-                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                    {context.negativeAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="border border-white/10 p-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                        </p>
-                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Negative Anchors
+                    </p>
+                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                      {context.negativeAnchors.slice(0, 4).map((post) => (
+                        <li key={post.id} className="border border-white/10 p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                          </p>
+                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
-    </main>
+        ) : null
+      }
+    </main >
   );
 }

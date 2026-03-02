@@ -1,0 +1,31 @@
+{
+  "id": "operator",
+  "label": "Operator / GTM (X-native)",
+  "tone_bounds": {
+    "formality": "mid",
+    "casing": "mixed",
+    "slang_ok": "light",
+    "emoji_level": "low"
+  },
+  "credibility_requirements": [
+    "numbers, funnels, outcomes",
+    "repeatable process",
+    "what changed after X"
+  ],
+  "hook_library": [
+    "We stopped doing X and our conversion went up.",
+    "A simple policy change improved consistency.",
+    "Here’s the operating system we use for Y."
+  ],
+  "structure_library": [
+    "hook",
+    "metric",
+    "what we changed",
+    "replicable step"
+  ],
+  "taboos": [
+    "vague inspiration",
+    "no proof",
+    "generic life story templates"
+  ]
+}

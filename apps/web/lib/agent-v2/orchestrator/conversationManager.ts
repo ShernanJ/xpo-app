@@ -121,7 +121,7 @@ User Profile Summary:
 
       return {
         mode: "ideate",
-        response: "Here are a few angles we could take. Which one feels right?",
+        response: ideas?.close || "here are a few angles — which one feels right?",
         data: ideas,
       };
     }
