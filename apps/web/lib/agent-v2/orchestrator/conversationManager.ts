@@ -129,8 +129,6 @@ User Profile Summary:
     case "draft":
     case "review":
     case "edit": {
-      // Step A: Fetch historical posts for Novelty Gate
-
       // Fetch historical posts for Novelty Gate
       const pastPosts = await prisma.post.findMany({
         where: { userId },
@@ -144,35 +142,20 @@ User Profile Summary:
       const plan = await generatePlan(userMessage, topicSummary, activeConstraints);
       if (!plan) return { mode: "error", response: "Failed to generate strategy plan." };
 
-      // Step C: Generate Drafts
+      // Step C: Generate single draft
       const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints);
-      if (!writerOutput) return { mode: "error", response: "Failed to write drafts." };
+      if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
 
       // Step D: Critique & Refine
       const criticOutput = await critiqueDrafts(writerOutput, activeConstraints);
-      if (!criticOutput) return { mode: "error", response: "Failed to critique drafts." };
+      if (!criticOutput) return { mode: "error", response: "Failed to critique draft." };
 
       // Step E: Novelty Gate
-      const vettedDrafts: string[] = [];
-      const vettedAngles: string[] = [];
-
-      for (let i = 0; i < criticOutput.finalDrafts.length; i++) {
-        const d = criticOutput.finalDrafts[i];
-        const angle = criticOutput.finalAngles[i];
-
-        const noveltyCheck = checkDeterministicNovelty(d, historicalTexts);
-        if (noveltyCheck.isNovel) {
-          vettedDrafts.push(d);
-          vettedAngles.push(angle);
-        } else {
-          console.log(`Draft rejected by novelty gate: ${noveltyCheck.reason}`);
-        }
-      }
-
-      if (vettedDrafts.length === 0) {
+      const noveltyCheck = checkDeterministicNovelty(criticOutput.finalDraft, historicalTexts);
+      if (!noveltyCheck.isNovel) {
         return {
           mode: "coach",
-          response: "I wrote a few drafts, but they sounded too similar to things you've already posted. Can we approach this from a completely new angle?",
+          response: "i wrote a draft but it sounded too similar to something you've already posted. can we approach this from a different angle?",
         };
       }
 
@@ -183,8 +166,8 @@ User Profile Summary:
         mode: "draft",
         response: criticOutput.finalResponse,
         data: {
-          angles: vettedAngles,
-          drafts: vettedDrafts,
+          angle: criticOutput.finalAngle,
+          draft: criticOutput.finalDraft,
           supportAsset: writerOutput.supportAsset,
           issuesFixed: criticOutput.issues,
         },

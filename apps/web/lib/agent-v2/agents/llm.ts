@@ -1,4 +1,7 @@
 import "dotenv/config";
+import Groq from "groq-sdk";
+
+const groq = new Groq();
 
 export interface LlmCompletionOptions {
   model: string;
@@ -6,51 +9,69 @@ export interface LlmCompletionOptions {
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
+  /** Only used for openai/ reasoning models. "low" | "medium" | "high" */
+  reasoning_effort?: "low" | "medium" | "high";
 }
 
 /**
- * Generic fetcher for Groq JSON outputs. Reduces boilerplate across the new agent actions.
+ * Generic fetcher for Groq JSON outputs using the official SDK.
  */
 export async function fetchJsonFromGroq<T>(
   options: LlmCompletionOptions,
 ): Promise<T | null> {
-  const apiKey = process.env.GROQ_API_KEY;
-  const baseUrl = "https://api.groq.com/openai/v1/chat/completions";
-
-  if (!apiKey) {
-    throw new Error("GROQ_API_KEY is not set");
-  }
-
   try {
-    const response = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        ...options,
-        response_format: { type: "json_object" },
-      }),
-    });
+    const isOpenAiModel = options.model.startsWith("openai/");
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Groq API Error:", response.status, errorText);
+    // Build request params matching the official SDK format
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params: any = {
+      model: options.model,
+      messages: options.messages,
+      temperature: options.temperature ?? 1,
+      top_p: options.top_p ?? 1,
+      stream: false,
+      stop: null,
+    };
+
+    if (isOpenAiModel) {
+      // OpenAI-proxied reasoning models use max_completion_tokens + reasoning_effort
+      params.max_completion_tokens = options.max_tokens ?? 8192;
+      params.reasoning_effort = options.reasoning_effort ?? "medium";
+    } else {
+      // Groq-native models (Llama/Mistral) use max_tokens + response_format
+      params.max_tokens = options.max_tokens ?? 1024;
+      params.response_format = { type: "json_object" };
+    }
+
+    console.log(`[LLM] Calling ${options.model} (${isOpenAiModel ? `openai, effort=${params.reasoning_effort}` : "groq-native"})...`);
+
+    const chatCompletion = await groq.chat.completions.create(params);
+
+    const choice = chatCompletion.choices?.[0];
+    if (!choice) {
+      console.error("[LLM] No choices returned from Groq:", JSON.stringify(chatCompletion, null, 2));
       return null;
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = choice.message?.content;
 
     if (!content) {
-      console.error("No content received from Groq");
+      console.error("[LLM] No content in message. Full message:", JSON.stringify(choice.message, null, 2));
       return null;
     }
 
-    return JSON.parse(content) as T;
+    console.log(`[LLM] Got ${content.length} chars back from ${options.model}`);
+
+    // Extract JSON from the response — some models wrap it in markdown code blocks
+    let jsonStr = content.trim();
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    }
+
+    return JSON.parse(jsonStr) as T;
   } catch (err) {
-    console.error("Failed to parse or fetch JSON from Groq:", err);
+    console.error("[LLM] Failed to fetch/parse JSON from Groq:", err);
     return null;
   }
 }

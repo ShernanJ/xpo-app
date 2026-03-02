@@ -101,7 +101,10 @@ export async function POST(request: NextRequest) {
     const mappedData: CreatorChatReplyResult = {
       reply: result.response,
       angles: (result.data as Record<string, unknown>)?.angles as string[] || [],
-      drafts: (result.data as Record<string, unknown>)?.drafts as string[] || [],
+      draft: (result.data as Record<string, unknown>)?.draft as string || null,
+      drafts: (result.data as Record<string, unknown>)?.draft
+        ? [(result.data as Record<string, unknown>).draft as string]
+        : [],
       draftArtifacts: [],
       supportAsset: (result.data as Record<string, unknown>)?.supportAsset as string || null,
       outputShape: isCoach ? "coach_question" : isIdeate ? "ideation_angles" : "short_form_post",

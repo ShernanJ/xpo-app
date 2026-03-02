@@ -73,6 +73,7 @@ interface CreatorChatSuccess {
   data: {
     reply: string;
     angles: string[];
+    draft?: string | null;
     drafts: string[];
     draftArtifacts: DraftArtifact[];
     supportAsset: string | null;
@@ -210,6 +211,7 @@ interface ChatMessage {
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
   angles?: string[];
+  draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
   supportAsset?: string | null;
@@ -1048,6 +1050,7 @@ export default function ChatPage() {
               role: "assistant",
               content: data.data.reply,
               angles: data.data.angles,
+              draft: data.data.draft || null,
               drafts: data.data.drafts,
               draftArtifacts: data.data.draftArtifacts,
               supportAsset: data.data.supportAsset,
@@ -1231,17 +1234,24 @@ export default function ChatPage() {
       return;
     }
 
-    void requestAssistantReply({
-      appendUserMessage: false,
-      intent: "coach",
-      historySeed: [],
-      strategyInputOverride: activeStrategyInputs,
-      toneInputOverride: activeToneInputs,
-      contentFocusOverride: activeContentFocus,
-      fallbackContext: context,
-      fallbackContract: contract,
-    });
+    // Build an instant welcome message from onboarding context — no LLM call
+    const accountName = searchParams.get("account")?.trim() || "there";
+    const topPosts = context.creatorProfile?.examples?.bestPerforming ?? [];
+    const topicHint = topPosts.length > 0
+      ? topPosts[0].text.slice(0, 60).trim()
+      : null;
+
+    const welcomeContent = topicHint
+      ? `yo ${accountName} — i checked out your posts. looks like you've been talking about "${topicHint}..." and some other stuff.\n\nwhat are we working on today? i can help you draft something, figure out what to post, or audit what's been hitting.`
+      : `yo ${accountName} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`;
+
+    setMessages([{
+      id: `assistant-welcome-${Date.now()}`,
+      role: "assistant",
+      content: welcomeContent,
+    }]);
   }, [
+    searchParams,
     activeContentFocus,
     activeStrategyInputs,
     activeToneInputs,
@@ -1249,7 +1259,6 @@ export default function ChatPage() {
     contract,
     isSending,
     messages.length,
-    requestAssistantReply,
   ]);
 
   const handleAngleSelect = useCallback(
@@ -1647,24 +1656,94 @@ export default function ChatPage() {
 
                       {message.role === "assistant" &&
                         message.outputShape !== "coach_question" &&
-                        !message.draftArtifacts?.length &&
-                        message.drafts?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.drafts.map((draft, index) => (
-                            <div
-                              key={`${message.id}-draft-${index}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Draft {index + 1}
-                              </p>
-                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {draft}
-                              </p>
+                        message.draft ? (() => {
+                          const username = context?.creatorProfile?.identity?.username || "user";
+                          const displayName = context?.creatorProfile?.identity?.displayName || username;
+                          const isEditing = activeDraftEditor?.messageId === message.id;
+                          return (
+                            <div className="mt-4 border-t border-white/10 pt-4">
+                              {/* X Post Card */}
+                              <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
+                                {/* Header: avatar + name + handle */}
+                                <div className="flex items-start gap-3">
+                                  <div className="h-10 w-10 flex-shrink-0 rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 flex items-center justify-center text-sm font-bold text-white uppercase">
+                                    {displayName.charAt(0)}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-sm font-bold text-white truncate">{displayName}</span>
+                                      <svg viewBox="0 0 22 22" className="h-4 w-4 flex-shrink-0 text-blue-400" fill="currentColor">
+                                        <path d="M20.396 11c-.018-.646-.215-1.275-.57-1.816-.354-.54-.852-.972-1.438-1.246.223-.607.27-1.264.14-1.897-.131-.634-.437-1.218-.882-1.687-.47-.445-1.053-.75-1.687-.882-.633-.13-1.29-.083-1.897.14-.273-.587-.704-1.086-1.245-1.44S11.647 1.62 11 1.604c-.646.017-1.273.213-1.813.568s-.969.854-1.24 1.44c-.608-.223-1.267-.272-1.902-.14-.635.13-1.22.436-1.69.882-.445.47-.749 1.055-.878 1.688-.13.633-.08 1.29.144 1.896-.587.274-1.087.705-1.443 1.245-.356.54-.555 1.17-.574 1.817.02.647.218 1.276.574 1.817.356.54.856.972 1.443 1.245-.224.606-.274 1.263-.144 1.896.13.634.433 1.218.877 1.688.47.443 1.054.747 1.687.878.633.132 1.29.084 1.897-.136.274.586.705 1.084 1.246 1.439.54.354 1.17.551 1.816.569.647-.016 1.276-.213 1.817-.567s.972-.854 1.245-1.44c.604.239 1.266.296 1.903.164.636-.132 1.22-.447 1.68-.907.46-.46.776-1.044.908-1.681s.075-1.299-.165-1.903c.586-.274 1.084-.705 1.439-1.246.354-.54.551-1.17.569-1.816zM9.662 14.85l-3.429-3.428 1.293-1.302 2.072 2.072 4.4-4.794 1.347 1.246z" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-xs text-zinc-500">@{username}</span>
+                                  </div>
+                                </div>
+
+                                {/* Post Content */}
+                                <div className="mt-3">
+                                  {isEditing ? (
+                                    <textarea
+                                      value={editorDraftText}
+                                      onChange={(e) => setEditorDraftText(e.target.value)}
+                                      className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
+                                      rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
+                                    />
+                                  ) : (
+                                    <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                      {message.draft}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Timestamp */}
+                                <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+                                  <span>Just now</span>
+                                  <span>·</span>
+                                  <span>{(isEditing ? editorDraftText : message.draft || "").split(/\s+/).filter(Boolean).length} words</span>
+                                </div>
+
+                                {/* Divider */}
+                                <div className="mt-3 border-t border-white/[0.06]" />
+
+                                {/* Action Buttons */}
+                                <div className="mt-2 flex items-center justify-between">
+                                  <div className="flex items-center gap-1">
+                                    {/* Edit / Save toggle */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isEditing) {
+                                          setActiveDraftEditor(null);
+                                        } else {
+                                          setActiveDraftEditor({
+                                            messageId: message.id,
+                                            artifactIndex: 0,
+                                          });
+                                          setEditorDraftText(message.draft || "");
+                                        }
+                                      }}
+                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                    >
+                                      {isEditing ? "Done" : "Edit"}
+                                    </button>
+                                    {/* Copy */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const text = isEditing ? editorDraftText : (message.draft || "");
+                                        void navigator.clipboard.writeText(text);
+                                      }}
+                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      ) : null}
+                          );
+                        })() : null}
 
                       {message.role === "assistant" &&
                         message.supportAsset &&
@@ -1856,6 +1935,56 @@ export default function ChatPage() {
                       className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
                     >
                       Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        ) : activeDraftEditor && editorDraftText ? (
+          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Post Draft
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    {editorDraftText.split(/\s+/).filter(Boolean).length} words · {editorDraftText.length} chars
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDraftEditor(null)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <textarea
+                  value={editorDraftText}
+                  onChange={(event) => setEditorDraftText(event.target.value)}
+                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                  placeholder="Draft content"
+                />
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    Edit the draft, then copy it to post.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void copyDraftEditor();
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Copy
                     </button>
                   </div>
                 </div>

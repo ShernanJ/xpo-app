@@ -41,7 +41,7 @@ async function runTest() {
     ["Yesterday I moved 67 records from jsonl to postgres", "I used the neon adapter"],
     ["No emojis"]
   );
-  console.log("-> Writer Output:", writer?.drafts?.length ? `Success (${writer.drafts.length} drafts)` : "Failed");
+  console.log("-> Writer Output:", writer?.draft ? "Success (1 draft)" : "Failed");
 
   if (!writer) {
     throw new Error("Writer failed, skipping Critic test.");

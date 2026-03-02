@@ -4,19 +4,19 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
 
 export const WriterOutputSchema = z.object({
-  response: z.string().describe("A conversational lead-in like 'Here are a few options based on your style:'"),
-  angles: z.array(z.string()).describe("The underlying angle for each draft (e.g., 'Contrarian Take')"),
-  drafts: z.array(z.string()).describe("The actual generated X posts"),
+  response: z.string().describe("A short conversational intro like 'here's what i came up with based on what you told me:'"),
+  angle: z.string().describe("The approach/angle used for this draft"),
+  draft: z.string().describe("The actual generated X post — one single draft"),
   supportAsset: z.string().describe("Idea for what image/video to attach"),
-  whyThisWorks: z.array(z.string()).describe("One-sentence rationale for why each draft works"),
-  watchOutFor: z.array(z.string()).describe("One-sentence warning about risk or tone for each draft"),
+  whyThisWorks: z.string().describe("One-sentence rationale for why this draft works"),
+  watchOutFor: z.string().describe("One-sentence warning about risk or tone"),
 });
 
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
 
 /**
  * High capability draft writer. Takes the constraints from the Planner and the StyleCard
- * from the Profile to generate exactly 3 variants.
+ * from the Profile to generate exactly 1 focused draft.
  */
 export async function generateDrafts(
   plan: PlannerOutput,
@@ -26,7 +26,7 @@ export async function generateDrafts(
 ): Promise<WriterOutput | null> {
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
-Your task is to take a strict Strategy Plan and generate EXACTLY 3 distinct draft variations of a post.
+Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.
 
 STRATEGY PLAN:
 Objective: ${plan.objective}
@@ -47,38 +47,38 @@ USER'S SPECIFIC WRITING STYLE (CRITICAL - YOU MUST FOLLOW THIS EXACTLY):
 - Sentence Closers: ${styleCard.sentenceClosers.join(", ")}
 - Pacing: ${styleCard.pacing}
 - Emojis: ${styleCard.emojiPatterns.join(", ") || "None"}
-- Slang/Vocaubulary: ${styleCard.slangAndVocabulary.join(", ")}
+- Slang/Vocabulary: ${styleCard.slangAndVocabulary.join(", ")}
 - Formatting: ${styleCard.formattingRules.join(", ")}
 `
       : "No style card available. Write in a clean, punchy, conversational tone."
     }
 
 REQUIREMENTS:
-1. Generate exactly 3 text drafts.
-2. Draft 1 should be a direct execution of the plan.
-3. Draft 2 should be a more aggressive/confident execution of the plan.
-4. Draft 3 should be a very concise, punchy execution.
-5. Provide a brief conversational "response" introducing the drafts.
-6. Provide an idea for a "supportAsset" (image/video idea to attach).
+1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
+2. The draft should be the best possible execution of the plan.
+3. Make it sound like the user actually wrote it — match their voice perfectly.
+4. Provide a brief conversational "response" introducing the draft (1 line, casual).
+5. Provide an idea for a "supportAsset" (image/video idea to attach).
 
 Respond ONLY with a valid JSON matching this schema:
 {
   "response": "...",
-  "angles": ["Direct", "Aggressive", "Concise"],
-  "drafts": ["Draft 1 text...", "Draft 2 text...", "Draft 3 text..."],
+  "angle": "...",
+  "draft": "The actual post text...",
   "supportAsset": "...",
-  "whyThisWorks": ["Why 1 works", "Why 2 works", "Why 3 works"],
-  "watchOutFor": ["Risk of 1", "Risk of 2", "Risk of 3"]
+  "whyThisWorks": "...",
+  "watchOutFor": "..."
 }
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({
-    model: "llama-3.3-70b-versatile", // High capability for drafting
-    temperature: 0.6, // Balanced creativity
-    max_tokens: 800,
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    reasoning_effort: "medium",
+    temperature: 0.75,
+    max_tokens: 4096,
     messages: [
       { role: "system", content: instruction },
-      { role: "user", content: "Generate the 3 drafts now." },
+      { role: "user", content: "Generate the draft now." },
     ],
   });
 

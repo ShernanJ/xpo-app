@@ -48,7 +48,8 @@ Respond ONLY with a valid JSON matching this schema:
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({
-    model: "llama-3.1-8b-instant", // Fast analytical planner
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    reasoning_effort: "low",
     temperature: 0.2,
     top_p: 0.9,
     messages: [

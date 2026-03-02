@@ -231,6 +231,7 @@ export interface CreatorChatDebugDraftDiagnostic {
 export interface CreatorChatReplyResult {
   reply: string;
   angles: string[];
+  draft?: string | null;
   drafts: string[];
   draftArtifacts: CreatorDraftArtifact[];
   supportAsset: string | null;
@@ -1460,7 +1461,7 @@ function buildProviderConfig(
       model:
         process.env[stageModelKey]?.trim() ||
         process.env.GROQ_MODEL?.trim() ||
-        "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b",
       baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     };
   }
