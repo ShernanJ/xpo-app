@@ -133,3 +133,76 @@ export function validateCoachReplyText(
     isValid: questionCount === 1 && endsWithQuestion,
   };
 }
+
+/**
+ * If there are multiple questions, keep only the last one (the closing question).
+ * Strips bullet/numbered lists that look like wizard-style option menus.
+ */
+export function enforceOneQuestion(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  // Count question marks
+  const questionMarks = (trimmed.match(/\?/g) ?? []).length;
+  if (questionMarks <= 1) {
+    return trimmed;
+  }
+
+  // Split into sentences, keep everything up to and including the LAST question
+  const sentences = trimmed.split(/(?<=\?)\s+/);
+  const lastQuestionIndex = sentences.findLastIndex((s) => s.includes("?"));
+
+  if (lastQuestionIndex <= 0) {
+    return trimmed;
+  }
+
+  // Keep non-question context sentences before the last question + the last question itself
+  const nonQuestionPrefix = sentences
+    .slice(0, lastQuestionIndex)
+    .filter((s) => !s.includes("?"))
+    .join(" ");
+  const closingQuestion = sentences[lastQuestionIndex];
+
+  const result = nonQuestionPrefix
+    ? `${nonQuestionPrefix} ${closingQuestion}`
+    : closingQuestion;
+
+  return result.trim();
+}
+
+/**
+ * Remove wizard-style language from assistant text:
+ * - "Pick one:", "Which of these:", "Choose from:"
+ * - Numbered/bulleted option lists
+ * - "A few directions:" list patterns
+ */
+export function stripWizardLanguage(text: string): string {
+  let result = text;
+
+  // Remove "pick one:" / "choose from:" / "which of these:" phrases
+  result = result.replace(
+    /\b(pick one|choose (one|from)|which of these|select one|here are your options)\s*[:.]?\s*/gi,
+    "",
+  );
+
+  // Remove "A few easy directions:" / "A few options:" followed by a list
+  result = result.replace(
+    /\b(a few (easy |possible )?(directions|options|choices))\s*[:.]?\s*/gi,
+    "",
+  );
+
+  // Remove bullet-point option lists (lines starting with - or •)
+  // Only if there are 2+ of them (looks like a wizard option list)
+  const lines = result.split("\n");
+  const bulletLines = lines.filter((l) => /^\s*[-•]\s/.test(l));
+  if (bulletLines.length >= 2 && bulletLines.length === lines.filter((l) => l.trim()).length) {
+    // Entire response is a bullet list — this is wizard-like
+    // Keep only the first bullet as a suggestion embedded in prose
+    const firstOption = bulletLines[0].replace(/^\s*[-•]\s*/, "").trim();
+    result = `For example, you could focus on ${firstOption.toLowerCase()}.`;
+  }
+
+  return result.trim();
+}

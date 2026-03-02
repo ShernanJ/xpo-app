@@ -22,6 +22,8 @@ import {
   isMetaClarifyingPrompt,
   isThinCoachInput,
   validateCoachReplyText,
+  enforceOneQuestion,
+  stripWizardLanguage,
 } from "./coachReply";
 import type {
   CreatorRepresentativePost,
@@ -332,6 +334,61 @@ const ACRONYM_CASE_MAP = new Map<string, string>([
   ["urls", "URLs"],
 ]);
 
+/**
+ * Strip THESIS:/PROOF:/MECHANISM:/CTA: section labels from drafts
+ * so they read as natural X posts instead of structured templates.
+ * Also strips any "candidate response package" or QA leakage from draft text.
+ */
+function sanitizeDraftForChat(text: string): string {
+  return text
+    // Remove section labels on their own line
+    .replace(/^(THESIS|PROOF|MECHANISM|CTA)\s*:\s*$/gim, "")
+    // Remove section labels at the start of a line (inline variant)
+    .replace(/^(THESIS|PROOF|MECHANISM|CTA)\s*:\s*/gim, "")
+    // Collapse triple+ blank lines into double
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Detect malformed capitalization patterns like SMAll, BUIlt, etc.
+ * Returns true if any word has mixed upper/lower that isn't a known acronym or standard pattern.
+ */
+function hasMalformedCapitalization(text: string): boolean {
+  // Match words where uppercase letters appear after lowercase within the same word
+  // e.g., "sMAll" / "bUIlt" / "tESt"
+  return /\b[a-z]+[A-Z]{2,}[a-z]*\b/.test(text) || /\b[A-Z]{2,}[a-z]+[A-Z]\b/.test(text);
+}
+
+/**
+ * If malformed capitalization is detected, normalize the word to lowercase.
+ */
+function fixMalformedCapitalization(text: string): string {
+  if (!hasMalformedCapitalization(text)) {
+    return text;
+  }
+
+  return text.replace(/\b([a-z]+[A-Z]{2,}[a-z]*|[A-Z]{2,}[a-z]+[A-Z][a-z]*)\b/g, (match) => {
+    // If it's a known acronym, leave it
+    if (ACRONYM_CASE_MAP.has(match.toLowerCase())) {
+      return ACRONYM_CASE_MAP.get(match.toLowerCase()) ?? match;
+    }
+    return match.toLowerCase();
+  });
+}
+
+/**
+ * Strip internal QA/evaluation artifacts from any user-visible text.
+ */
+function stripInternalArtifacts(text: string): string {
+  return text
+    .replace(/why this works\s*[:.]?\s*/gi, "")
+    .replace(/watch out for\s*[:.]?\s*/gi, "")
+    .replace(/candidate response package[^.]*\./gi, "")
+    .replace(/render contract[^.]*\./gi, "")
+    .trim();
+}
+
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -454,29 +511,16 @@ function buildDeterministicCoachReply(params: {
   const reply =
     isBroadDiscoveryPrompt(params.userMessage) ||
       isBroadDraftRequest(params.userMessage)
-      ? [
-        "Sure, let's figure out what you actually want to write before we force a draft.",
-        "A few easy directions: a project you're building, an update from something you shipped, or something useful you learned while building.",
-        "Which one feels closest to the post you want right now?",
-      ].join(" ")
+      ? "Yeah, let's figure out what to write. What's been on your mind this week — anything you shipped, learned, or noticed that stuck with you?"
       : isMetaClarifyingPrompt(params.userMessage)
-        ? [
-          "You're right, that detail should not be steering the post if it is not actually the point.",
-          `What is the real moment you want the post to revolve around instead of ${conciseSeed}?`,
-        ].join(" ")
+        ? `Fair point, that wasn't the right angle. What's the actual thing you want this post to be about?`
         : isCorrectionPrompt(params.userMessage)
-          ? [
-            "That's fair, we should keep the lesson without forcing the wrong framing.",
-            `What is the version of ${conciseSeed} you actually want to emphasize?`,
-          ].join(" ")
-          : [
-            "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic.",
-            `Tell me the most recent situation where ${conciseSeed} became real in practice?`,
-          ].join(" ");
+          ? `Got it, I'll keep that in mind. What's the version of ${conciseSeed} you actually want to get across?`
+          : `You've got plenty to work with here. What's one specific moment where ${conciseSeed} actually happened — something concrete you could point to?`;
   const validation = validateCoachReplyText(reply);
   const safeReply = validation.isValid
-    ? reply
-    : "You already have enough signal to write something specific, but the next draft will be much better if we anchor it to one real moment instead of a broad topic. Tell me the most recent situation where this became real in practice?";
+    ? enforceOneQuestion(stripWizardLanguage(reply))
+    : "You've got plenty to work with. What's one specific moment that happened recently that you could build a post around?";
 
   return {
     reply: safeReply,
@@ -747,12 +791,10 @@ function buildAnswerQuestionSystemPrompt(params: {
   contract: CreatorGenerationContract;
 }): string {
   return [
-    "You are an X writing coach answering the user's direct question.",
-    "Answer the question concisely in 1-2 sentences.",
-    "After answering, suggest what to do next in one sentence (ideate, draft, or refine), but do not force a direction.",
-    "Do not ask a follow-up question unless genuinely needed for disambiguation.",
-    `Creator archetype: ${params.context.creatorProfile.archetype}.`,
-    `Primary niche: ${params.context.creatorProfile.niche.primaryNiche}.`,
+    "The user asked you a direct question. Answer it straight — no hedging, no coaching speak.",
+    "Keep it to 1-2 sentences. Be honest and specific.",
+    "After answering, you can suggest what to do next, but don't force it.",
+    `They post about: ${params.context.creatorProfile.niche.primaryNiche}.`,
   ].join("\n");
 }
 
@@ -802,22 +844,18 @@ function buildCoachSystemPrompt(params: {
   const { context, contract } = params;
 
   return [
-    "You are an X writing coach.",
-    "Your job is to help the creator get from a broad idea to one concrete post-worthy moment.",
-    "Be concise, human, and specific.",
-    "Do not write drafts.",
-    "If the user asks broadly what to post about, you may give 2-4 broad directions first, then end with one focused follow-up question.",
-    "Do not turn those directions into angle cards or rigid frameworks.",
-    "Respond in 2-3 sentences total.",
-    "Sentence 1 should be a short coaching observation or recommendation.",
-    "The final sentence must be exactly one focused follow-up question and must be the only sentence that ends with a question mark.",
-    "Ask for one concrete episode, proof point, reaction, mistake, or moment the creator can build a post around.",
-    "Do not ask multiple questions.",
-    "If the user gives you a correction or boundary, acknowledge it and keep that boundary active in later turns.",
-    `Creator archetype: ${context.creatorProfile.archetype}.`,
-    `Primary niche: ${context.creatorProfile.niche.primaryNiche}.`,
-    `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
-    `Preferred output shape after enough context: ${contract.planner.outputShape}.`,
+    "You're a sharp friend who helps people figure out what to post on X.",
+    "You've read their recent posts and you know their voice, what they care about, and what their audience responds to.",
+    "Talk like a real person — casual, direct, no fluff. You're texting a friend, not writing a coaching framework.",
+    "Never say things like 'let's unpack that' or 'I'd love to explore' or 'great question'. Just talk normally.",
+    "Keep replies to 2-3 sentences max. Be specific, not generic.",
+    "End with exactly one focused question when you need more info. Never ask multiple questions.",
+    "If they want to write something, help them find one concrete moment or story to build the post around.",
+    "If they give you a correction or pushback, acknowledge it simply and move on. Don't over-apologize.",
+    "If they explicitly ask you to draft something, just draft it — don't ask more questions.",
+    `They tend to post about: ${context.creatorProfile.niche.primaryNiche}.`,
+    `Their style leans: ${contract.writer.toneBlendSummary}.`,
+    `Best format for them right now: ${contract.planner.outputShape}.`,
   ].join("\n");
 }
 
@@ -836,25 +874,23 @@ function buildCoachUserPrompt(params: {
             `${message.role.toUpperCase()}: ${compactTextForPrompt(message.content, 160)}`,
         )
         .join("\n")
-      : "No prior conversation.";
+      : "This is the start of the conversation.";
   const constraints = extractActiveConversationConstraints({
     history: params.history,
     userMessage: params.userMessage,
   });
 
   return [
-    `Current user input: ${params.userMessage}`,
-    params.contentFocus ? `Current focus lane: ${params.contentFocus}` : null,
-    params.selectedAngle ? `Selected angle: ${params.selectedAngle}` : null,
-    "Recent conversation:",
+    `They said: ${params.userMessage}`,
+    params.contentFocus ? `They're interested in: ${params.contentFocus}` : null,
+    params.selectedAngle ? `Angle they picked: ${params.selectedAngle}` : null,
+    "Conversation so far:",
     historyText,
-    constraints.length > 0 ? "Active user constraints to keep:" : null,
+    constraints.length > 0 ? "Things they've asked you to keep in mind:" : null,
     constraints.length > 0 ? constraints.map((item) => `- ${item}`).join("\n") : null,
-    "Ask one focused follow-up question that makes the next draft more specific.",
-    "If the current input is still broad, first acknowledge it casually, offer 2-4 broad directions that fit the creator, then ask for one recent concrete moment.",
-    "If the current input already names a moment, ask for the strongest detail, reaction, or outcome from that moment.",
-    "If the user is correcting your framing or setting a boundary, acknowledge that first in one sentence, then ask one better follow-up question.",
-    "If the user asks why you mentioned something irrelevant, answer that directly in one sentence, then ask one tighter replacement question.",
+    "Respond naturally. If they gave you enough to work with, tell them you're ready to draft.",
+    "If you need one more detail, ask for it — but keep it to one question.",
+    "If they're correcting you or pushing back, just acknowledge it and adjust.",
     'Return JSON only: {"reply":"..."}',
   ]
     .filter(Boolean)
@@ -3532,8 +3568,13 @@ function applyTargetCasing(
   });
 
   const lowered = protectedText.toLowerCase();
-  const withAcronyms = lowered.replace(/\b[a-z][a-z0-9]{1,6}\b/g, (token) => {
-    return ACRONYM_CASE_MAP.get(token) ?? token;
+  // Only restore exact ACRONYM_CASE_MAP keys — avoid partial-word matches
+  const acronymPattern = new RegExp(
+    `\\b(${[...ACRONYM_CASE_MAP.keys()].join("|")})\\b`,
+    "gi",
+  );
+  const withAcronyms = lowered.replace(acronymPattern, (token) => {
+    return ACRONYM_CASE_MAP.get(token.toLowerCase()) ?? token;
   });
   const restoredLabels = withAcronyms.replace(
     /^(thesis:|proof:|mechanism:|cta:)$/gim,
@@ -3567,8 +3608,11 @@ function normalizeTowardSentenceCase(text: string): string {
     );
     const restoredPronouns = capitalizedBody.replace(/\bi\b/g, "I");
     const restoredAcronyms = restoredPronouns.replace(
-      /\b[a-z][a-z0-9]{1,6}\b/g,
-      (token) => ACRONYM_CASE_MAP.get(token) ?? token,
+      new RegExp(
+        `\\b(${[...ACRONYM_CASE_MAP.keys()].join("|")})\\b`,
+        "gi",
+      ),
+      (token) => ACRONYM_CASE_MAP.get(token.toLowerCase()) ?? token,
     );
 
     return `${prefix}${restoredAcronyms}`;
@@ -3603,6 +3647,10 @@ function loosenDraftText(text: string, contract: CreatorGenerationContract): str
   ) {
     next = normalizeTowardSentenceCase(next);
   }
+
+  // Sanitize for chat: strip template labels and fix malformed caps
+  next = sanitizeDraftForChat(next);
+  next = fixMalformedCapitalization(next);
 
   return next;
 }
@@ -4835,7 +4883,7 @@ export async function generateCreatorChatReply(params: {
       const reply = coerceString(coachOutput.reply);
       const validation = validateCoachReplyText(reply);
       const safeReply = validation.isValid
-        ? reply
+        ? enforceOneQuestion(stripWizardLanguage(reply))
         : buildDeterministicCoachReply({
           userMessage: params.userMessage,
           contentFocus: params.contentFocus ?? null,
@@ -5479,8 +5527,9 @@ export async function generateCreatorChatReply(params: {
     finalDrafts.length > 0 &&
     finalDrafts.every((draft) => !hasProofSignal(draft))
   ) {
-    finalWatchOutFor.unshift(
-      "This needs one real receipt: a metric, screenshot, build detail, hard constraint, or explicit example.",
+    // Log server-side only — do not leak QA feedback to user
+    console.warn(
+      "[chat] Drafts lack proof signal: consider adding a metric, screenshot, or example.",
     );
   }
 
@@ -5599,8 +5648,9 @@ export async function generateCreatorChatReply(params: {
     if (passingDrafts.length > 0) {
       finalDrafts = passingDrafts.slice(0, 3);
     } else {
-      finalWatchOutFor.unshift(
-        "The candidate response package does not meet the long-form render contract.",
+      // Log contract failure server-side only — never leak to user
+      console.warn(
+        "[chat] Long-form draft candidates did not meet render contract",
       );
     }
   }
@@ -5613,12 +5663,22 @@ export async function generateCreatorChatReply(params: {
     evidencePack: requestAnchors.evidencePack,
   });
 
+  // Sanitize reply text and drafts for user-visible output
+  const sanitizedReply = fixMalformedCapitalization(
+    stripInternalArtifacts(
+      critic.finalResponse.trim() || writer.response.trim(),
+    ),
+  );
+  const sanitizedDrafts = finalDrafts.map(
+    (draft) => fixMalformedCapitalization(sanitizeDraftForChat(draft)),
+  );
+
   return {
-    reply: critic.finalResponse.trim() || writer.response.trim(),
+    reply: sanitizedReply,
     angles: finalAngles,
-    drafts: finalDrafts,
+    drafts: sanitizedDrafts,
     draftArtifacts: buildDraftArtifacts({
-      drafts: finalDrafts,
+      drafts: sanitizedDrafts,
       outputShape:
         intent === "ideate" ? "ideation_angles" : contract.planner.outputShape,
       supportAsset: normalizedSupportAsset,

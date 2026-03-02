@@ -1059,30 +1059,23 @@ export default function ChatPage() {
               model: data.data.model ?? null,
               quickReplies:
                 current.length === 0 &&
-                  resolvedIntent === "coach" &&
                   !trimmedPrompt &&
                   !options.selectedAngle
                   ? [
                     {
                       kind: "example_reply",
-                      value:
-                        "i shipped something recently and the outcome surprised me",
-                      label: "I shipped something recently",
-                      suggestedFocus: "project_showcase",
+                      value: "write a post in my voice",
+                      label: "Write a post in my voice",
                     },
                     {
                       kind: "example_reply",
-                      value:
-                        "i tried something that failed harder than i expected",
-                      label: "Something failed harder than expected",
-                      suggestedFocus: "build_in_public",
+                      value: "help me figure out what to post about",
+                      label: "Help me figure out what to post",
                     },
                     {
                       kind: "example_reply",
-                      value:
-                        "a user said something that changed what i'm building",
-                      label: "A user changed what I'm building",
-                      suggestedFocus: "social_observation",
+                      value: "analyze my recent posts and tell me what's working",
+                      label: "Analyze my recent posts",
                     },
                   ]
                   : undefined,
@@ -1172,29 +1165,23 @@ export default function ChatPage() {
             model: streamedResult.model ?? null,
             quickReplies:
               current.length === 0 &&
-                resolvedIntent === "coach" &&
                 !trimmedPrompt &&
                 !options.selectedAngle
                 ? [
                   {
                     kind: "example_reply",
-                    value:
-                      "i shipped something recently and the outcome surprised me",
-                    label: "I shipped something recently",
-                    suggestedFocus: "project_showcase",
+                    value: "write a post in my voice",
+                    label: "Write a post in my voice",
                   },
                   {
                     kind: "example_reply",
-                    value: "i tried something that failed harder than i expected",
-                    label: "Something failed harder than expected",
-                    suggestedFocus: "build_in_public",
+                    value: "help me figure out what to post about",
+                    label: "Help me figure out what to post",
                   },
                   {
                     kind: "example_reply",
-                    value:
-                      "a user said something that changed what i'm building",
-                    label: "A user changed what I'm building",
-                    suggestedFocus: "social_observation",
+                    value: "analyze my recent posts and tell me what's working",
+                    label: "Analyze my recent posts",
                   },
                 ]
                 : undefined,
@@ -1536,8 +1523,8 @@ export default function ChatPage() {
                     <div
                       key={message.id}
                       className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
-                          ? "text-zinc-100"
-                          : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
+                        ? "text-zinc-100"
+                        : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
                         }`}
                     >
                       <p className="whitespace-pre-wrap">
@@ -1568,7 +1555,7 @@ export default function ChatPage() {
                                 void handleQuickReplySelect(quickReply);
                               }}
                               disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                              className="rounded-full border border-white/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                              className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                             >
                               {quickReply.label}
                             </button>
@@ -1675,7 +1662,7 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" &&
+                      {showDevTools && message.role === "assistant" &&
                         ((message.whyThisWorks?.length ?? 0) > 0 ||
                           (message.watchOutFor?.length ?? 0) > 0) ? (
                         <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
@@ -1975,8 +1962,8 @@ export default function ChatPage() {
                                 type="button"
                                 onClick={() => togglePinnedPostId(post.id, "voice")}
                                 className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
-                                    ? "border-white/20 bg-white/[0.06] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                  ? "border-white/20 bg-white/[0.06] text-white"
+                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
                                   }`}
                               >
                                 {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
@@ -1985,8 +1972,8 @@ export default function ChatPage() {
                                 type="button"
                                 onClick={() => togglePinnedPostId(post.id, "evidence")}
                                 className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
-                                    ? "border-white/20 bg-white/[0.06] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                  ? "border-white/20 bg-white/[0.06] text-white"
+                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
                                   }`}
                               >
                                 {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}

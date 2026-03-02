@@ -5,6 +5,7 @@ import {
   generateCreatorChatReply,
   type ConversationMemory,
   type UiAction,
+  type CreatorChatReplyResult,
 } from "@/lib/onboarding/chatAgent";
 import {
   applyCreatorToneOverrides,
@@ -50,6 +51,24 @@ function formatProgressMessage(phase: ChatProgressPhase): string {
     default:
       return "Working.";
   }
+}
+
+/**
+ * Strip internal QA fields from chat result unless debug is enabled.
+ * Prevents "Why This Works", "Watch Out For", support assets, and debug
+ * diagnostics from leaking into user-visible responses.
+ */
+function stripQaFieldsFromResult(
+  result: CreatorChatReplyResult,
+): Omit<CreatorChatReplyResult, "whyThisWorks" | "watchOutFor" | "supportAsset" | "debug"> | CreatorChatReplyResult {
+  const isDebug = process.env.CHAT_DEBUG === "true";
+  if (isDebug) {
+    return result;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { whyThisWorks, watchOutFor, supportAsset, debug, ...clean } = result;
+  return clean;
 }
 
 export async function POST(request: Request) {
@@ -284,7 +303,7 @@ export async function POST(request: Request) {
 
             push({
               type: "result",
-              data: result,
+              data: stripQaFieldsFromResult(result),
             });
           } catch {
             const fallback = buildDeterministicCreatorChatReply({
@@ -306,7 +325,7 @@ export async function POST(request: Request) {
             });
             push({
               type: "result",
-              data: fallback,
+              data: stripQaFieldsFromResult(fallback),
             });
           } finally {
             controller.close();
@@ -343,7 +362,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: true,
-        data: result,
+        data: stripQaFieldsFromResult(result),
       },
       { status: 200 },
     );
@@ -364,7 +383,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: true,
-        data: fallback,
+        data: stripQaFieldsFromResult(fallback),
       },
       { status: 200 },
     );
