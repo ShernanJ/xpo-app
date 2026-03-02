@@ -79,15 +79,27 @@ export async function manageConversationTurn(
     mode = "ideate";
   }
 
-  // Pre-fetch style profile if we are drafting
-  const styleCard = mode === "draft" ? await generateStyleProfile(userId, 20) : null;
+  // 5. Pre-fetch context required for generation, regardless of mode (Persona & Retrieval)
+  const styleCard = await generateStyleProfile(userId, 20); // Dynamic profile
+  const anchors = await retrieveAnchors(userId, userMessage || topicSummary || "growth"); // Historical posts
+
+  const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oResult = storedRun?.result as Record<string, any>;
+  const stage = oResult?.growthStage || "Unknown";
+  const goal = oResult?.strategyState?.goal || "Unknown";
+  const userContextString = `
+User Profile Summary:
+- Stage: ${stage}
+- Primary Goal: ${goal}
+`.trim();
 
   // 5. Execute Mode
   switch (mode) {
     case "coach":
     case "answer_question":
     default: {
-      const coachReply = await generateCoachReply(userMessage, recentHistory, topicSummary);
+      const coachReply = await generateCoachReply(userMessage, recentHistory, topicSummary, styleCard, anchors.topicAnchors, userContextString);
 
       // Update memory concrete count if they actually answered something
       if (userMessage.length > 15) {
@@ -102,7 +114,7 @@ export async function manageConversationTurn(
     }
 
     case "ideate": {
-      const ideas = await generateIdeasMenu(userMessage, topicSummary, recentHistory);
+      const ideas = await generateIdeasMenu(userMessage, topicSummary, recentHistory, styleCard, anchors.topicAnchors, userContextString);
 
       // Update memory summary 
       await updateConversationMemory({ runId, topicSummary: userMessage });
@@ -117,8 +129,7 @@ export async function manageConversationTurn(
     case "draft":
     case "review":
     case "edit": {
-      // Step A: Dynamic Retrieval
-      const anchors = await retrieveAnchors(userId, userMessage || topicSummary || "growth");
+      // Step A: Fetch historical posts for Novelty Gate
 
       // Fetch historical posts for Novelty Gate
       const pastPosts = await prisma.post.findMany({

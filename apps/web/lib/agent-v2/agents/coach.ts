@@ -1,5 +1,6 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
+import { VoiceStyleCard } from "../core/styleProfile";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -16,6 +17,9 @@ export async function generateCoachReply(
   userMessage: string,
   recentHistory: string,
   topicSummary: string | null,
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  userContextString: string = "",
 ): Promise<CoachReply | null> {
   const instruction = `
 You are an expert X (Twitter) growth coach. The user is trying to figure out what to tweet about.
@@ -23,11 +27,18 @@ Your goal is to get them to share a CONCRETE memory, story, or specific lesson i
 
 RULES:
 1. Do NOT write a draft for them yet. 
-2. Acknowledge what they said naturally.
+2. Acknowledge what they said naturally, and reflect back their specific niche or style if relevant.
 3. Ask EXACTLY ONE probing question. Never ask two questions.
-4. Keep your tone conversational, direct, and slightly challenging. No fluff.
+4. Keep your tone conversational, direct, and slightly challenging. No fluff or generic corporate advice.
+
+${userContextString}
+
+User's Linguistic Style: ${styleCard ? JSON.stringify(styleCard) : "None established"}
 
 Context Topic so far: ${topicSummary || "None"}
+
+Relevant Past Posts (Anchors):
+${topicAnchors.slice(0, 3).map(a => `- ${a}`).join("\n") || "No relevant anchor posts found."}
 
 Respond ONLY with a valid JSON matching this schema:
 {

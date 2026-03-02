@@ -16,7 +16,7 @@ async function runTest() {
 
   // 2. Test Coach
   console.log("\\n[2/6] Testing Coach...");
-  const coach = await generateCoachReply("I want to talk about growth but I don't know what to specify.", "None", "Growth tactics");
+  const coach = await generateCoachReply("I want to talk about growth but I don't know what to specify.", "None", "Growth tactics", null, []);
   console.log("-> Coach Output:", coach);
 
   // 3. Test Planner
@@ -26,7 +26,7 @@ async function runTest() {
 
   // 4. Test Ideator
   console.log("\\n[4/6] Testing Ideator...");
-  const ideas = await generateIdeasMenu("Migrating flat files to a database", "Database migration", "User struggled with Prisma yesterday");
+  const ideas = await generateIdeasMenu("Migrating flat files to a database", "Database migration", "User struggled with Prisma yesterday", null, []);
   console.log("-> Ideator Output:", ideas?.angles?.length ? `Success (${ideas.angles.length} angles)` : "Failed");
 
   if (!plan) {

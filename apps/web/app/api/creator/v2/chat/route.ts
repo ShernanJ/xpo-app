@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import type { CreatorChatReplyResult } from "@/lib/onboarding/chatAgent";
+import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
@@ -12,7 +13,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   contentFocus?: unknown;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   let body: CreatorChatRequest;
 
   try {
@@ -81,8 +82,13 @@ export async function POST(request: Request) {
     .join("\\n");
 
   try {
+    // Resolve userId from the session cookie (set at onboarding time)
+    const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const session = sessionToken ? await verifySessionToken(sessionToken) : null;
+    const effectiveUserId = session?.userId || storedRun.userId || "anonymous";
+
     const result = await manageConversationTurn({
-      userId: storedRun.userId || "anonymous",
+      userId: effectiveUserId,
       runId: runId,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",

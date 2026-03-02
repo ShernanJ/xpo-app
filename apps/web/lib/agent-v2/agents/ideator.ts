@@ -1,5 +1,6 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
+import { VoiceStyleCard } from "../core/styleProfile";
 
 export const IdeasMenuSchema = z.object({
   angles: z.array(z.string()).describe("A list of 3 specific, distinct ways to frame the topic"),
@@ -16,14 +17,24 @@ export async function generateIdeasMenu(
   userMessage: string,
   topicSummary: string | null,
   recentHistory: string,
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  userContextString: string = "",
 ): Promise<IdeasMenu | null> {
   const instruction = `
 You are an expert X (Twitter) content strategist.
 Your job is to read the user's topic and generate a menu of 3 distinct, compelling angles they could use for a post, 
 plus 3 probing questions to help them unblock if none of those angles hit.
 
+
+${userContextString}
+User's Linguistic Style: ${styleCard ? JSON.stringify(styleCard) : "None established"}
+
 Topic Summary: ${topicSummary || "None"}
 User's Recent Core Message: ${userMessage}
+
+Relevant Past Posts (Anchors):
+${topicAnchors.slice(0, 3).map(a => `- ${a}`).join("\n") || "No relevant anchor posts found."}
 
 Examples of Angles:
 - "Contrarian: Why everyone is doing X wrong, and what you actually built."
