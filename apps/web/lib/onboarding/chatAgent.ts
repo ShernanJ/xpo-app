@@ -25,6 +25,12 @@ import {
   enforceOneQuestion,
   stripWizardLanguage,
 } from "./coachReply";
+import {
+  resolveVoiceFidelity,
+  type VoiceFidelity,
+} from "./voiceFidelity";
+import { shortFormExemplars } from "@/lib/exemplars/shortFormExemplars";
+import { longFormExemplars } from "@/lib/exemplars/longFormExemplars";
 import type {
   CreatorRepresentativePost,
   OnboardingResult,
@@ -42,6 +48,12 @@ interface PlannerOutput {
   targetLane: "original" | "reply" | "quote";
   mustInclude: string[];
   mustAvoid: string[];
+  /** Structural growth fields (strategy layer) */
+  hookType: string;
+  format: string;
+  structureBeats: string[];
+  question: string;
+  growthGoal: string;
 }
 
 interface WriterOutput {
@@ -97,6 +109,11 @@ function normalizePlannerOutput(
     targetLane,
     mustInclude: coerceStringArray(value?.mustInclude, 4),
     mustAvoid: coerceStringArray(value?.mustAvoid, 4),
+    hookType: coerceString(value?.hookType, "observation"),
+    format: coerceString(value?.format, fallback.planner.outputShape === "long_form_post" ? "long_form" : "short"),
+    structureBeats: coerceStringArray(value?.structureBeats, 6),
+    question: coerceString(value?.question, ""),
+    growthGoal: coerceString(value?.growthGoal, "maximize_replies"),
   };
 }
 
@@ -151,6 +168,7 @@ export interface ConversationMemory {
   topicSummary: string | null;
   concreteAnswerCount: number;
   currentDraftArtifactId: string | null;
+  voiceFidelity: VoiceFidelity;
 }
 
 export type UiAction =
@@ -351,29 +369,43 @@ function sanitizeDraftForChat(text: string): string {
 }
 
 /**
- * Detect malformed capitalization patterns like SMAll, BUIlt, etc.
- * Returns true if any word has mixed upper/lower that isn't a known acronym or standard pattern.
+ * Detect malformed capitalization patterns like SMAll, BUIlt, TEAms, FOCus.
+ * These are words where 2+ uppercase chars appear next to lowercase chars
+ * in a way that isn't a known acronym or standard casing.
  */
 function hasMalformedCapitalization(text: string): boolean {
-  // Match words where uppercase letters appear after lowercase within the same word
-  // e.g., "sMAll" / "bUIlt" / "tESt"
-  return /\b[a-z]+[A-Z]{2,}[a-z]*\b/.test(text) || /\b[A-Z]{2,}[a-z]+[A-Z]\b/.test(text);
+  // Pattern: word has 2+ consecutive uppercase followed by 1+ lowercase (SMAll, BUIlt, FOCus)
+  // OR lowercase followed by 2+ uppercase (sMAll, bUILT)
+  return /\b[A-Z]{2,}[a-z]/m.test(text) || /[a-z][A-Z]{2,}/m.test(text);
 }
 
 /**
- * If malformed capitalization is detected, normalize the word to lowercase.
+ * Fix malformed capitalization by normalizing words with mixed-case patterns.
+ * Converts words like SMAll → small, BUIlt → built, FOCus → focus.
+ * Preserves known acronyms (AI, API, ARR, etc.) and normal Title Case.
  */
 function fixMalformedCapitalization(text: string): string {
-  if (!hasMalformedCapitalization(text)) {
-    return text;
-  }
-
-  return text.replace(/\b([a-z]+[A-Z]{2,}[a-z]*|[A-Z]{2,}[a-z]+[A-Z][a-z]*)\b/g, (match) => {
-    // If it's a known acronym, leave it
-    if (ACRONYM_CASE_MAP.has(match.toLowerCase())) {
-      return ACRONYM_CASE_MAP.get(match.toLowerCase()) ?? match;
+  // Match words that have 2+ consecutive uppercase followed by lowercase
+  // e.g., SMAll, TEAms, BUIlt, FOCus, PRIoritize, EXEcute, FOLlow, ENgineers
+  return text.replace(/\b([A-Z]{2,}[a-z]+[a-z]*)\b/g, (match) => {
+    const lower = match.toLowerCase();
+    // Preserve known acronyms
+    if (ACRONYM_CASE_MAP.has(lower)) {
+      return ACRONYM_CASE_MAP.get(lower) ?? match;
     }
-    return match.toLowerCase();
+    // If the entire word is uppercase (like "IN", "HIT"), leave as-is only if it's 2-3 chars
+    if (match === match.toUpperCase() && match.length <= 3) {
+      return match;
+    }
+    // Otherwise normalize: capitalize first letter only (sentence case)
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+    // Also fix the reverse pattern: lowercase then consecutive uppercase
+  }).replace(/\b([a-z]+[A-Z]{2,}[a-z]*)\b/g, (match) => {
+    const lower = match.toLowerCase();
+    if (ACRONYM_CASE_MAP.has(lower)) {
+      return ACRONYM_CASE_MAP.get(lower) ?? match;
+    }
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
   });
 }
 
@@ -742,13 +774,55 @@ export function computeConversationMemory(params: {
     conversationState = "needs_more_context";
   }
 
+  // Resolve voice fidelity
+  const voiceFidelity = resolveVoiceFidelity({
+    userMessage,
+    storedFidelity: previousMemory?.voiceFidelity,
+  });
+
   return {
     conversationState,
     activeConstraints: mergedConstraints,
     topicSummary,
     concreteAnswerCount,
     currentDraftArtifactId: currentDraftArtifactId ?? previousMemory?.currentDraftArtifactId ?? null,
+    voiceFidelity,
   };
+}
+
+/**
+ * Pick 1-2 structure exemplars matched to the user's niche and output shape.
+ * Structure exemplars teach format and pacing, NOT voice.
+ */
+function pickStructureExemplars(params: {
+  niche: string;
+  outputShape: CreatorGenerationOutputShape;
+}): string[] {
+  const { niche, outputShape } = params;
+  const nicheKey = niche.toLowerCase().replace(/[\s-]+/g, "_");
+
+  // Pick from the right bank based on output shape
+  const isLongForm = outputShape === "long_form_post" || outputShape === "thread_seed";
+  const bank = isLongForm ? longFormExemplars : shortFormExemplars;
+
+  // Try exact niche match first
+  let matched = bank.filter((e) => e.niche === nicheKey);
+
+  // Fuzzy match: check if any niche keyword appears in the creator's niche
+  if (matched.length === 0) {
+    matched = bank.filter((e) =>
+      nicheKey.includes(e.niche.replace(/_/g, "")) ||
+      e.niche.replace(/_/g, " ").split(" ").some((word) => nicheKey.includes(word)),
+    );
+  }
+
+  // Fallback: grab first 2 from the bank
+  if (matched.length === 0) {
+    matched = bank.slice(0, 2);
+  }
+
+  // Return 1-2 exemplars
+  return matched.slice(0, 2).map((e) => e.text);
 }
 
 function buildEditingSystemPrompt(params: {
@@ -1585,18 +1659,34 @@ function buildPlannerSystemPrompt(params: {
   const { context, contract } = params;
 
   return [
-    "You are the planner for an X growth assistant.",
-    "You must refine the next message plan without breaking the deterministic contract.",
-    `Generation mode: ${contract.mode}.`,
-    `Goal: ${context.creatorProfile.strategy.primaryGoal}.`,
-    `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
-    `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
-    `Primary loop: ${context.creatorProfile.distribution.primaryLoop}.`,
-    `Primary angle: ${contract.planner.primaryAngle}.`,
-    `Required output shape: ${contract.planner.outputShape}.`,
-    "If the user wants ideas, plan in concrete post premises, not content-marketing category labels.",
-    "When strong retrieved evidence exists, keep the plan anchored to those real facts instead of abstracting into generic domain advice.",
-    "Return only valid JSON that follows the provided schema.",
+    "You are the strategy planner. You decide WHAT the post is — not how it sounds.",
+    "Output a structural plan as JSON. The writer will handle voice and rendering.",
+    "",
+    "Your job:",
+    "- Pick the hook type (observation, contrarian_rule, decision_point, changelog, constraint, question)",
+    "- Pick format (short, long_form, thread)",
+    "- Define 3-6 structure beats (e.g. hook → context → proof → lesson → question)",
+    "- Write one closing question that invites replies (growth is driven by replies)",
+    "- Set the growth goal (maximize_replies, profile_clicks, conversation_depth)",
+    "",
+    "Structural growth rules (NOT tonal):",
+    "- First line: 6-10 words max",
+    "- End with exactly one specific question",
+    "- Use at most 1 metric (only if grounded in real data)",
+    "- No CTA other than the closing question",
+    "- Short form: 2-8 lines. Long form: 3-5 beats with proof.",
+    "",
+    `Creator niche: ${context.creatorProfile.niche.primaryNiche}.`,
+    `Primary goal: ${context.creatorProfile.strategy.primaryGoal}.`,
+    `Distribution loop: ${context.creatorProfile.distribution.primaryLoop}.`,
+    `Required format: ${contract.planner.outputShape}.`,
+    "",
+    "Return valid JSON matching this schema:",
+    '{"objective":"...", "angle":"...", "targetLane":"original|reply|quote",',
+    '"mustInclude":["..."], "mustAvoid":["..."],',
+    '"hookType":"...", "format":"short|long_form|thread",',
+    '"structureBeats":["hook","context","proof","lesson","question"],',
+    '"question":"...", "growthGoal":"maximize_replies|profile_clicks|conversation_depth"}',
   ].join("\n");
 }
 
@@ -3296,6 +3386,8 @@ function buildWriterSystemPrompt(params: {
   userMessage: string;
   requestAnchors: RequestConditionedAnchors;
   pinnedVoiceAnchorCount: number;
+  voiceFidelity: VoiceFidelity;
+  structureExemplars: string[];
 }): string {
   const {
     context,
@@ -3308,124 +3400,129 @@ function buildWriterSystemPrompt(params: {
     userMessage,
     requestAnchors,
     pinnedVoiceAnchorCount,
+    voiceFidelity,
+    structureExemplars,
   } = params;
-  const formFactorGuidance = buildFormFactorGuidance(context, intent);
-  const outputShapeGuidance = buildOutputShapeGuidance(
-    contract.planner.outputShape,
-    intent,
-  );
-  const formatExemplarLine = formatExemplar(requestAnchors.formatExemplar);
-  const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
-  const angleSelectionLine = formatAngleSelection(requestAnchors.angleSelection);
-  const formatBlueprint = buildFormatBlueprint({
-    post: requestAnchors.formatExemplar,
-    outputShape: contract.planner.outputShape,
-  });
-  const formatSkeleton = formatLongFormSkeleton(
-    buildLongFormContentSkeleton(requestAnchors.formatExemplar),
-  );
-  const authorityRenderContract =
-    contract.planner.outputShape === "long_form_post"
-      ? formatAuthorityRenderContract({
-        lane: requestAnchors.angleSelection.inferredLane,
-        goal: requestAnchors.angleSelection.inferredGoal,
-        targetCasing: contract.writer.targetCasing,
-      })
-      : null;
 
-  return [
-    "You are the writer for an X growth assistant.",
-    "Write one high-quality assistant response package for the user.",
-    intent === "ideate"
-      ? "Return a short strategic response, 0-4 angle candidates, why the direction fits, and what to watch out for."
-      : "Return a short strategic response, 4-6 concrete draft candidates, why they fit, and what to watch out for.",
-    "The package must be directly useful, specific, and aligned to the deterministic contract.",
-    "Priority order: selected angle -> concrete subject -> evidence pack -> explicit content focus -> user request.",
-    "The retrieved evidence pack is the concrete topic ground truth. Treat it as the main factual source whenever the request is compatible with it.",
+  const evidencePackLine = formatEvidencePack(requestAnchors.evidencePack);
+
+  // --- STRUCTURE TO FOLLOW (Strategy Layer — from planner) ---
+  const structureSection = [
+    "=== STRUCTURE TO FOLLOW ===",
+    "This decides WHAT the post is. Follow the planner's structural plan.",
+    "",
+    `Hook type: ${planner.hookType}`,
+    `Format: ${planner.format}`,
+    `Growth goal: ${planner.growthGoal}`,
+    planner.structureBeats.length > 0
+      ? `Structure beats: ${planner.structureBeats.join(" → ")}`
+      : "Structure beats: hook → context → proof → question",
+    planner.question
+      ? `Closing question (must end the post): ${planner.question}`
+      : "End with one specific question that invites replies.",
+    `Objective: ${planner.objective}`,
+    `Angle: ${planner.angle}`,
+    "",
+    "Structural growth rules:",
+    "- First line: 6-10 words",
+    "- End with exactly one question",
+    "- Max 1 metric (only if grounded in real evidence)",
+    "- No CTA other than the closing question",
+    "- No THESIS/PROOF/MECHANISM/CTA template labels",
+    contract.planner.outputShape === "long_form_post" || contract.planner.outputShape === "thread_seed"
+      ? "- Long-form: 3-5 distinct beats, spaced with line breaks. Not a single paragraph."
+      : "- Short-form: 2-8 lines max. One thought, not a mini-essay.",
+  ];
+
+  // Structure exemplars (format reference only)
+  if (structureExemplars.length > 0) {
+    structureSection.push(
+      "",
+      "Structure exemplars (imitate FORMAT and PACING, not wording):",
+      ...structureExemplars.map((ex, i) => `[${i + 1}]\n${ex}`),
+    );
+  }
+
+  // --- VOICE TO MATCH (Rendering Layer — from user's posts) ---
+  const voiceSection = [
+    "",
+    "=== VOICE TO MATCH ===",
+    "This decides HOW the post sounds. Match the creator's real voice.",
+    "",
+    `Target casing: ${contract.writer.targetCasing}`,
+    `Tone: ${contract.writer.toneBlendSummary}`,
+    `Signature phrases: ${contract.writer.signaturePhrases.join(" | ") || "none"}`,
+    `Preferred openers: ${contract.writer.preferredOpeners.join(" | ") || "none"}`,
+    `Preferred closers: ${contract.writer.preferredClosers.join(" | ") || "none"}`,
+    `Punctuation: ${contract.writer.punctuationGuidelines.join(" | ") || "none"}`,
+    `Emoji policy: ${contract.writer.emojiPolicy}`,
+    "",
+    pinnedVoiceAnchorCount > 0
+      ? "Pinned voice references are the highest-priority tone source. Follow them."
+      : "No pinned voice references. Use the creator's style notes.",
+    "",
+    `Voice fidelity: ${voiceFidelity}`,
+    voiceFidelity === "high"
+      ? "PRIORITY: Voice fidelity is HIGH. The post must sound like the user wrote it. Sacrifice growth structure if needed."
+      : voiceFidelity === "growth_first"
+        ? "PRIORITY: Voice fidelity is GROWTH-FIRST. Lean into structural patterns that maximize replies. Stretch voice if needed."
+        : "BALANCED: Match the user's voice while following the structural plan.",
+    "",
+    "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
+    "Mirror their actual tone, casing, line breaks, and level of polish.",
+  ];
+
+  // --- CONSTRAINTS ---
+  const constraintSection = [
+    "",
+    "=== CONSTRAINTS ===",
+    planner.mustAvoid.length > 0
+      ? `Must avoid: ${planner.mustAvoid.join(", ")}`
+      : null,
+    planner.mustInclude.length > 0
+      ? `Must include: ${planner.mustInclude.join(", ")}`
+      : null,
+    `Creator-specific forbidden phrases: ${contract.writer.forbiddenPhrases.join(" | ") || "none"}`,
+    "Do not invent metrics or claims. Only use grounded evidence.",
+    "Avoid bland filler: 'major milestone', 'excited to share', 'connect with your audience', 'establish authority'.",
+    "No frameworks unless the user asked for one.",
     selectedAngle
-      ? `Selected angle (highest-priority topic constraint): ${selectedAngle}`
-      : "Selected angle (highest-priority topic constraint): none",
-    `Angle volatility engine:\n${angleSelectionLine}`,
-    buildAngleIsolationLine(requestAnchors.angleSelection),
+      ? `Selected angle (highest-priority topic): ${selectedAngle}`
+      : null,
     concreteSubject
       ? `Concrete subject (keep this wording family): ${concreteSubject}`
-      : "Concrete subject (keep this wording family): none",
-    `Concrete evidence pack (high-salience factual source):\n${evidencePackLine}`,
+      : null,
+    contentFocus
+      ? `Content focus: ${contentFocus}`
+      : null,
+    buildConcreteTopicGuardrail({ selectedAngle, concreteSubject, userMessage }),
+    "",
+    `Evidence pack:\n${evidencePackLine}`,
     requestAnchors.evidencePack.requiredEvidenceCount > 0
-      ? `Reuse at least ${requestAnchors.evidencePack.requiredEvidenceCount} concrete evidence point(s) from the evidence pack when drafting.`
-      : "No minimum evidence reuse requirement is available.",
-    `Reuse at most ${requestAnchors.angleSelection.metricReuseLimit} metric proof point(s) in a single draft.`,
-    `Format exemplar (imitate structure, not topic): ${formatExemplarLine}`,
-    `Structural blueprint: ${formatBlueprint}`,
-    `Long-form content skeleton: ${formatSkeleton}`,
-    authorityRenderContract,
-    `Required output shape: ${contract.planner.outputShape}.`,
-    `Output shape rationale: ${contract.planner.outputShapeRationale}`,
-    "Do not reuse or lightly paraphrase the exemplar's wording. Use it for structure and evidence only.",
-    "Do not copy the anchor first sentence, the first 15 words, or any bullet line verbatim.",
-    "No 5-word sequence from the anchor may appear in the draft.",
-    `The opener must use one of these rotated moves: ${requestAnchors.angleSelection.allowedOpenerTypes.join(" | ")}.`,
-    `The opener must not match the anchor opener type: ${requestAnchors.angleSelection.anchorOpenerType}.`,
-    "Use strategy, niche, goal, and growth-loop guidance as background constraints only. They can shape framing, structure, and proof density, but they must not become the literal topic of the post.",
-    "If the user gave you a concrete subject, keep that exact subject and wording family. Do not swap it for a generic adjacent topic.",
-    buildConcreteTopicGuardrail({
-      selectedAngle,
-      concreteSubject,
-      userMessage,
-    }),
-    "Use the current user message as a voice override only when it is substantive enough to be a real style sample. Thin prompts should not overpower the established creator voice.",
-    pinnedVoiceAnchorCount > 0
-      ? "Pinned voice references are the highest-priority tone source. If they conflict with weaker inferred signals, follow the pinned references."
-      : "No pinned voice references were provided.",
-    `Target casing: ${contract.writer.targetCasing}.`,
-    `Target risk: ${contract.writer.targetRisk}.`,
-    `Tone blend: ${contract.writer.toneBlendSummary}`,
-    `Preferred opener patterns: ${contract.writer.preferredOpeners.join(" | ") || "none"}`,
-    `Preferred closer patterns: ${contract.writer.preferredClosers.join(" | ") || "none"}`,
-    `Signature phrases: ${contract.writer.signaturePhrases.join(" | ") || "none"}`,
-    `Punctuation guidance: ${contract.writer.punctuationGuidelines.join(" | ") || "none"}`,
-    `Emoji policy: ${contract.writer.emojiPolicy}`,
-    "Mirror the user's actual tone, casing, looseness, and level of polish from the voice anchors.",
-    "Do not rewrite the user into polished consultant, corporate, or founder-bro language.",
-    "Prefer concrete first-person observations and natural phrasing over generic engagement-bait questions.",
-    `Authority budget: ${contract.planner.authorityBudget}.`,
-    `Proof requirement: ${contract.writer.proofRequirement}`,
-    "Do not introduce startup, investing, or business tropes unless they are clearly present in the user's request, niche, or anchors.",
+      ? `Include at least ${requestAnchors.evidencePack.requiredEvidenceCount} evidence point(s).`
+      : null,
+    `Max ${requestAnchors.angleSelection.metricReuseLimit} metric(s) per draft.`,
+  ];
+
+  // --- OUTPUT RULES ---
+  const outputSection = [
+    "",
+    "=== OUTPUT RULES ===",
     intent === "ideate"
-      ? "Do not jump straight into finished posts unless the user explicitly asked for full copy. Prioritize 2-4 concrete, X-native angles written in the user's voice, and leave drafts empty."
-      : "If the user is asking for drafting help, the draft candidates must read like actual X posts, not outlines.",
+      ? "Return a short strategic response + 2-4 concrete angle candidates. No full drafts unless explicitly asked."
+      : "Return a short strategic response + 4-6 draft candidates that read like real X posts.",
     intent === "ideate"
-      ? "Each angle should feel like a believable post direction the user could actually say, not a generic instruction like 'share a recent win'."
-      : contract.planner.outputShape === "long_form_post" ||
-        contract.planner.outputShape === "thread_seed"
-        ? "For draft mode, match the creator's natural structure and length. Do not compress long-form or thread-shaped outputs into tweet-sized copy."
-        : "For draft mode, short punchy wording is better than explanatory filler. If a natural ending like 'thoughts?' fits, prefer that over a formal CTA.",
-    intent === "ideate"
-      ? "Angles should read like rough post premises or one-liners. Do not output category labels or gerund openers like 'sharing...', 'discussing...', 'highlighting...', or 'talking about...'."
-      : contract.planner.outputShape === "long_form_post" ||
-        contract.planner.outputShape === "thread_seed"
-        ? "Long-form and thread-shaped drafts should still feel native to X, but they must preserve the creator's natural sections, spacing, and proof density."
-        : "At least one draft should feel blunt and native to X, like something the user would text to the timeline, not a polished content exercise.",
-    "Casual does not mean forced lowercase or one-line output. Preserve the creator's natural casing, line breaks, and structure unless the anchors and exemplar clearly show otherwise.",
-    "When a casual tone fits, prefer direct first-person wording and simple phrasing without flattening the creator's natural formatting.",
-    "Avoid bland filler phrases like 'major milestone', 'currently working on', 'excited to share', 'for a while now', 'valuable insights', 'connect with your audience', or 'establish authority'.",
-    `Creator-specific forbidden phrases: ${contract.writer.forbiddenPhrases.join(" | ") || "none"}`,
-    "Avoid vague motivational framing unless the user explicitly asked for it.",
-    ...formFactorGuidance,
-    ...outputShapeGuidance,
-    `Generation mode: ${contract.mode}.`,
-    `Target lane: ${planner.targetLane}.`,
-    `Objective: ${planner.objective}.`,
-    `Primary angle: ${planner.angle}.`,
-    `Observed niche: ${context.creatorProfile.niche.primaryNiche}.`,
-    `Target niche: ${context.creatorProfile.niche.targetNiche ?? "none"}.`,
-    `Explicit content focus: ${contentFocus ?? "none"}.`,
-    "The supportAsset field must describe 1-3 concrete image, video, or demo ideas that would make the post more believable.",
-    "Never return a URL, raw asset id, or a vague label like 'best asset', 'screenshot', or 'demo' by itself.",
-    "Make 'whyThisWorks' specific to this creator, this subject, and this format. Do not use generic claims like 'it helps you connect with your audience' or 'it establishes authority'.",
-    "Make 'watchOutFor' concrete and tied to the actual draft, not generic reminders like 'keep it concise' unless that is truly the main risk.",
-    "Do not mention internal model fields unless useful to the user.",
-    "Return only valid JSON that follows the provided schema.",
+      ? "Angles should read like rough post premises, not category labels or gerund openers."
+      : "Drafts must read like posts the user would actually type on X — not outlines or content exercises.",
+    "Output only the JSON object. No analysis, no 'why this works', no meta-commentary in the drafts.",
+    "Return valid JSON matching the provided schema.",
+  ];
+
+  return [
+    ...structureSection,
+    ...voiceSection,
+    ...constraintSection.filter(Boolean),
+    ...outputSection,
   ].join("\n");
 }
 
@@ -3648,9 +3745,19 @@ function loosenDraftText(text: string, contract: CreatorGenerationContract): str
     next = normalizeTowardSentenceCase(next);
   }
 
-  // Sanitize for chat: strip template labels and fix malformed caps
+  // Strip template labels FIRST, then fix malformed caps
   next = sanitizeDraftForChat(next);
   next = fixMalformedCapitalization(next);
+
+  // Re-apply sentence case after label stripping (lines may now start lowercase)
+  const lines = next.split("\n");
+  const recased = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    // Capitalize first letter of each non-empty line
+    return line.replace(/[a-z]/, (ch) => ch.toUpperCase());
+  });
+  next = recased.join("\n");
 
   return next;
 }
@@ -5215,6 +5322,11 @@ export async function generateCreatorChatReply(params: {
       userMessage: params.userMessage,
       requestAnchors,
       pinnedVoiceAnchorCount: pinnedVoiceAnchors.length,
+      voiceFidelity: memory.voiceFidelity,
+      structureExemplars: pickStructureExemplars({
+        niche: context.creatorProfile.niche.primaryNiche,
+        outputShape: contract.planner.outputShape,
+      }),
     }),
     user: [
       `User request: ${params.userMessage}`,
