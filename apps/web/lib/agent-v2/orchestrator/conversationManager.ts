@@ -17,6 +17,7 @@ export interface OrchestratorInput {
   userMessage: string;
   recentHistory: string; // Condensed history for LLM context
   explicitIntent?: "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" | null;
+  activeDraft?: string; // Existing draft text to edit
 }
 
 export type OrchestratorResponse = {
@@ -32,7 +33,7 @@ export type OrchestratorResponse = {
 export async function manageConversationTurn(
   input: OrchestratorInput
 ): Promise<OrchestratorResponse> {
-  const { userId, runId, userMessage, recentHistory, explicitIntent } = input;
+  const { userId, runId, userMessage, recentHistory, explicitIntent, activeDraft } = input;
 
   // 1. Fetch Memory
   let memory = await getConversationMemory(runId);
@@ -139,11 +140,11 @@ User Profile Summary:
       const historicalTexts = pastPosts.map(p => p.text);
 
       // Step B: Formulate Strategy Plan
-      const plan = await generatePlan(userMessage, topicSummary, activeConstraints);
+      const plan = await generatePlan(userMessage, topicSummary, activeConstraints, activeDraft);
       if (!plan) return { mode: "error", response: "Failed to generate strategy plan." };
 
       // Step C: Generate single draft
-      const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints);
+      const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints, activeDraft);
       if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
 
       // Step D: Critique & Refine

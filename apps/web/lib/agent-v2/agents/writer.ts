@@ -23,11 +23,15 @@ export async function generateDrafts(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   activeConstraints: string[],
+  activeDraft?: string,
 ): Promise<WriterOutput | null> {
+  const isEditing = !!activeDraft;
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
-Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.
+${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
+      : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
 
+${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${activeDraft}\n\n` : ""}
 STRATEGY PLAN:
 Objective: ${plan.objective}
 Angle: ${plan.angle}
@@ -38,7 +42,7 @@ Must Avoid: ${plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${activeConstraints.join(" | ") || "None"}
 
 USER'S HISTORICAL ANCHORS (Details to weave in if relevant):
-${topicAnchors.join("\\n---") || "None"}
+${topicAnchors.join("\n---") || "None"}
 
 ${styleCard
       ? `
@@ -55,7 +59,7 @@ USER'S SPECIFIC WRITING STYLE (CRITICAL - YOU MUST FOLLOW THIS EXACTLY):
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
-2. The draft should be the best possible execution of the plan.
+${isEditing ? `2. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `2. The draft should be the best possible execution of the plan.`}
 3. Make it sound like the user actually wrote it — match their voice perfectly.
 4. Provide a brief conversational "response" introducing the draft (1 line, casual).
 5. Provide an idea for a "supportAsset" (image/video idea to attach).

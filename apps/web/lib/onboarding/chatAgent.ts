@@ -230,7 +230,7 @@ export interface CreatorChatDebugDraftDiagnostic {
 
 export interface CreatorChatReplyResult {
   reply: string;
-  angles: string[];
+  angles: any[];
   draft?: string | null;
   drafts: string[];
   draftArtifacts: CreatorDraftArtifact[];

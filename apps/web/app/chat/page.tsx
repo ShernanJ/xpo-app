@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -210,7 +210,8 @@ interface ChatMessage {
   content: string;
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
-  angles?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  angles?: any[];
   draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
@@ -221,6 +222,7 @@ interface ChatMessage {
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
+  isStreaming?: boolean;
 }
 
 type ChatProviderPreference = "openai" | "groq";
@@ -443,6 +445,9 @@ export default function ChatPage() {
   const runId = searchParams.get("runId")?.trim() ?? "";
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
 
+  // Guard against double fetching welcome message
+  const welcomeFetchedRef = useRef(false);
+
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -599,10 +604,19 @@ export default function ChatPage() {
       return;
     }
 
-    const targetLength = latestAssistantMessage.content.length;
-    const currentLength = typedAssistantLengths[latestAssistantMessage.id] ?? 0;
+    // Skip the typing animation for the fallback welcome message, but animate the fetched one
+    if (latestAssistantMessage.id === "assistant-welcome-fallback") {
+      setTypedAssistantLengths((current) => ({
+        ...current,
+        [latestAssistantMessage.id]: latestAssistantMessage.content.length,
+      }));
+      return;
+    }
 
-    if (currentLength >= targetLength) {
+    const targetLength = latestAssistantMessage.content.length;
+    const currentLength = typedAssistantLengths[latestAssistantMessage.id];
+
+    if (currentLength !== undefined && currentLength >= targetLength) {
       return;
     }
 
@@ -1234,22 +1248,48 @@ export default function ChatPage() {
       return;
     }
 
-    // Build an instant welcome message from onboarding context — no LLM call
-    const accountName = searchParams.get("account")?.trim() || "there";
-    const topPosts = context.creatorProfile?.examples?.bestPerforming ?? [];
-    const topicHint = topPosts.length > 0
-      ? topPosts[0].text.slice(0, 60).trim()
-      : null;
+    // Prevent double-fetching in React Strict Mode
+    if (welcomeFetchedRef.current) return;
+    welcomeFetchedRef.current = true;
 
-    const welcomeContent = topicHint
-      ? `yo ${accountName} — i checked out your posts. looks like you've been talking about "${topicHint}..." and some other stuff.\n\nwhat are we working on today? i can help you draft something, figure out what to post, or audit what's been hitting.`
-      : `yo ${accountName} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`;
+    async function fetchWelcome() {
+      const accountName = searchParams.get("account")?.trim() || "";
+      try {
+        setMessages([{
+          id: `assistant-welcome-loading`,
+          role: "assistant",
+          content: "",
+          isStreaming: true, // Show typing indicator
+        }]);
 
-    setMessages([{
-      id: `assistant-welcome-${Date.now()}`,
-      role: "assistant",
-      content: welcomeContent,
-    }]);
+        const res = await fetch(`/api/creator/v2/chat/welcome?runId=${runId}&account=${encodeURIComponent(accountName)}`);
+        const data = await res.json();
+
+        if (data.ok && data.data?.response) {
+          setMessages([{
+            id: `assistant-welcome-${Date.now()}`,
+            role: "assistant",
+            content: data.data.response,
+          }]);
+        } else {
+          // Fallback if the LLM fails
+          setMessages([{
+            id: `assistant-welcome-fallback`,
+            role: "assistant",
+            content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+          }]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch welcome message", err);
+        setMessages([{
+          id: `assistant-welcome-fallback`,
+          role: "assistant",
+          content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+        }]);
+      }
+    }
+
+    void fetchWelcome();
   }, [
     searchParams,
     activeContentFocus,
@@ -1575,44 +1615,86 @@ export default function ChatPage() {
                       {message.role === "assistant" &&
                         message.outputShape !== "coach_question" &&
                         message.angles?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
                           {message.angles.map((angle, index) => {
                             // Support both old string[] and new structured IdeaSchema objects
                             const isStructured = typeof angle === "object" && angle !== null;
                             const title = isStructured ? (angle as Record<string, string>).title : angle as string;
+                            const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
+                            const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
+
+                            // Old formats parsing
                             const premise = isStructured ? (angle as Record<string, string>).premise : null;
                             const format = isStructured ? (angle as Record<string, string>).format : null;
+
                             return (
                               <div
                                 key={`${message.id}-angle-${index}`}
-                                className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                                className="rounded-2xl border border-white/10 bg-black/20 px-5 py-5"
                               >
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                  Angle {index + 1}
-                                </p>
-                                <p className="mt-2 leading-7 text-zinc-100 font-medium">
-                                  {title}
-                                </p>
-                                {premise && (
-                                  <p className="mt-1 text-xs leading-5 text-zinc-400">
-                                    {premise}
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <p className="text-sm font-medium leading-6 text-zinc-100">
+                                    {index + 1}. {title}
+                                  </p>
+                                  <div className="flex shrink-0 items-center self-start gap-4 sm:gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDraftInput(title);
+                                      }}
+                                      className="text-xs font-medium text-zinc-400 underline-offset-4 hover:text-white hover:underline sm:text-[11px]"
+                                    >
+                                      edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void handleAngleSelect(title);
+                                      }}
+                                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                      className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Draft this post
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {whyThisWorks && (
+                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
+                                    <strong className="text-zinc-100">Why this works for you:</strong> {whyThisWorks}
                                   </p>
                                 )}
-                                {format && (
-                                  <p className="mt-1 text-[10px] text-zinc-600 italic">
+
+                                {openingLines && Array.isArray(openingLines) && openingLines.length > 0 && (
+                                  <div className="mt-4">
+                                    <p className="mb-2 text-[13px] font-semibold text-zinc-100">Opening lines:</p>
+                                    <ul className="space-y-1.5 pl-2 text-[13px] leading-relaxed text-zinc-300">
+                                      {openingLines.map((line: string, i: number) => (
+                                        <li key={i}>"{line}"</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {subtopics && (
+                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
+                                    <strong className="text-zinc-100">Subtopics:</strong> {subtopics}
+                                  </p>
+                                )}
+
+                                {/* Fallback for older ideator outputs */}
+                                {premise && !whyThisWorks && (
+                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
+                                    <strong className="text-zinc-100">Premise:</strong> {premise}
+                                  </p>
+                                )}
+                                {format && !whyThisWorks && (
+                                  <p className="mt-1 text-[11px] italic text-zinc-500">
                                     Format: {format}
                                   </p>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void handleAngleSelect(title);
-                                  }}
-                                  disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                  className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                >
-                                  Turn Into Drafts
-                                </button>
                               </div>
                             );
                           })}

@@ -3,15 +3,16 @@ import { z } from "zod";
 import { VoiceStyleCard } from "../core/styleProfile";
 
 export const IdeaSchema = z.object({
-  title: z.string().describe("Conversational pitch — what the post is about, max 10 words. Like how a friend would suggest it."),
-  premise: z.string().describe("1 sentence — the specific angle or take within that topic"),
-  format: z.string().describe("short format hint: story, contrast, list, hot take, etc."),
-  proof_needed: z.string().describe("What concrete detail from the user powers this post"),
+  title: z.string().describe("The core topic or hook, e.g. 'Is AI a threat or opportunity?'"),
+  why_this_works: z.string().describe("Conversational explanation of why this fits their profile/audience. e.g. 'Why this works for you: You've lived this...'"),
+  opening_lines: z.array(z.string()).describe("2 distinct options for opening sentences"),
+  subtopics: z.string().describe("Bullet-point-like string of subtopics, e.g. 'How AI changes work • Skills to develop • Builder perspective'"),
 });
 
 export const IdeasMenuSchema = z.object({
-  angles: z.array(IdeaSchema).describe("2-3 ideas, specific to the user's actual topics and niche"),
-  close: z.string().describe("One casual follow-up line after the ideas. Which to pick, or if none fit, ask what they want instead. Max 15 words."),
+  intro: z.string().describe("A conversational intro paragraph evaluating their request/history before listing the ideas."),
+  angles: z.array(IdeaSchema).describe("2-5 highly personalized post ideas"),
+  close: z.string().describe("One casual follow-up asking which idea resonates, e.g. 'Which of these resonates? I can help you draft any of them 🫡'"),
 });
 
 export type IdeasMenu = z.infer<typeof IdeasMenuSchema>;
@@ -40,47 +41,37 @@ export async function generateIdeasMenu(
     : `No post history found yet. Use the topic they gave you: "${topicSummary || userMessage}"`;
 
   const instruction = `
-You are an X (Twitter) content strategist helping a creator come up with post ideas.
-Sound like a friend who knows their stuff — not a template generator.
+You are an elite X (Twitter) content strategist collaborating directly with a creator.
+Your job is to provide highly tailored post ideas based on their history or current request, sounding like an expert peer.
 
-THE MOST IMPORTANT RULE:
-Every idea MUST be grounded in something specific the user actually does or talks about.
-NEVER invent generic topics like "agile methodology", "project management tips", "5 ways to grow".
-If their topic is vague, use their post history to find something real.
-If their post history is empty, stick to what they literally told you and ask for one specific detail.
+THE IDEATION FORMAT (CRITICAL):
+You MUST follow this exact structure for your output:
+1. Provide a conversational "intro" paragraph acknowledging what they asked for or evaluating their recent content trends. 
+2. Provide 2-5 distinct "angles" (ideas). For each angle, you must provide:
+   - title: A punchy topic or hook.
+   - why_this_works: An explanation of why this specific angle fits their authority/niche.
+   - opening_lines: 2 different scroll-stopping first-sentence options.
+   - subtopics: A short list of talking points (e.g. "Point 1 • Point 2 • Point 3").
+3. Provide a "close" sentence asking which one they want to draft.
 
 ${anchorContext}
 
-NICHE ENFORCEMENT (match what user actually does):
-- If they talk about building products / shipping / AI agents → builder-focused angles only
-- If they talk about GTM / VC / distribution → operator angles
-- Never inject unrelated topics (AMPM ≠ growth strategy unless they're literally building for AMPM)
+NICHE ENFORCEMENT:
+- Ideas MUST be highly personalized to what they actually do.
+- NEVER invent generic topics like "5 ways to be productive".
+- If they build AI tools, give them angles about the reality of building AI tools.
 
 ${userContextString || ""}
 
-VOICE:
+VOICE GUIDELINES:
 ${voiceHint}
-
-IDEATION STYLE:
-Suggest ideas the way a friend would: casual, specific, low-pressure.
-NOT: "Authenticity vs Online Persona" (generic angle anyone could write)
-YES: "the part of your build that surprised you most this week" (grounded in their actual work)
-
-After the ideas, say ONE casual closing line. Like: "any of these feel right?" or "id go with the first one tbh"
+Speak directly to them ("You've lived this", "Your audience trusts you"). 
+Limit emojis, unless their stylecard heavily uses them. Be a professional but casual peer.
 
 CONVERSATION SO FAR:
 ${recentHistory}
 
-Respond ONLY with valid JSON:
-{
-  "angles": [
-    { "title": "...", "premise": "...", "format": "...", "proof_needed": "..." },
-    { "title": "...", "premise": "...", "format": "...", "proof_needed": "..." }
-  ],
-  "close": "..."
-}
-
-Keep to 2-3 ideas max. Specific > broad. Grounded > generic.
+Respond ONLY with valid JSON matching the exact schema requirements.
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({

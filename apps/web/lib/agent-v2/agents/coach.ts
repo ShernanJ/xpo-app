@@ -115,3 +115,59 @@ Respond ONLY with valid JSON:
     return null;
   }
 }
+
+export const WelcomeOutputSchema = z.object({
+  response: z.string().describe("A short, dynamic welcome message in the user's voice"),
+});
+
+export type WelcomeOutput = z.infer<typeof WelcomeOutputSchema>;
+
+export async function generateWelcome(
+  accountName: string,
+  topicHint: string | null,
+  toningCues: string,
+): Promise<WelcomeOutput | null> {
+  const instruction = `
+You are the peer-collaborator and ghostwriter for the X (Twitter) creator "${accountName}".
+Your job right now is to write a single, short Welcome Message when they open the app.
+
+USER'S VIBE / TONE INSTRUCTIONS:
+${toningCues || "Mirror a casual, lowercase peer."}
+
+RECENT TOPIC HINT:
+${topicHint ? `They recently posted about: "${topicHint}"` : "None available."}
+
+REQUIREMENTS:
+1. Greet them by name (e.g. "yo ${accountName} —").
+2. Mention the recent topic briefly if available (e.g., "saw you've been posting about X...").
+3. Ask what they want to work on today (drafting, ideating, or auditing).
+4. KEEP IT SHORT. 2-3 sentences max.
+5. NO emojis unless their style explicitly asks for it.
+6. NO robotic enthusiasm ("Welcome to the app!", "I am your AI assistant!"). Act like a human peer opening a Slack thread.
+
+Respond ONLY with valid JSON matching this schema:
+{
+  "response": "..."
+}
+  `.trim();
+
+  const data = await fetchJsonFromGroq<unknown>({
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    reasoning_effort: "low",
+    temperature: 0.6, // slightly more varied
+    max_tokens: 256, // fast response
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content: "Write the welcome message now." },
+    ],
+  });
+
+  if (!data) return null;
+
+  try {
+    return WelcomeOutputSchema.parse(data);
+  } catch (err) {
+    console.error("Welcome validation failed", err);
+    return null;
+  }
+}

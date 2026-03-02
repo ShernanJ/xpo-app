@@ -81,6 +81,13 @@ export async function POST(request: NextRequest) {
     .slice(-10) // Keep last 10 turns for context window management
     .join("\\n");
 
+  // Extract the most recent draft from history to support stateful editing
+  const lastDraftEntry = rawHistory
+    .slice()
+    .reverse()
+    .find((entry: Record<string, unknown>) => typeof entry?.draft === "string" && entry.draft.length > 0);
+  const activeDraft = typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined;
+
   try {
     // Resolve userId from the session cookie (set at onboarding time)
     const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
@@ -93,6 +100,7 @@ export async function POST(request: NextRequest) {
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
       explicitIntent: ["coach", "ideate", "draft", "review", "edit", "answer_question"].includes(intent) ? intent as "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" : null,
+      activeDraft,
     });
 
     const isCoach = result.mode === "coach";
