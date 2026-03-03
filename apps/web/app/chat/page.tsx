@@ -1468,26 +1468,29 @@ function ChatPageContent() {
     });
   }
 
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+
+      if (
+        !context ||
+        !contract ||
+        !activeStrategyInputs ||
+        !activeToneInputs ||
+        !draftInput.trim() ||
+        isSending
+      ) {
+        return;
+      }
+      void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
+    }
+  };
+
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
-      {showDevTools ? (
-        <div className="fixed bottom-24 right-4 z-20 md:bottom-6">
-          <button
-            type="button"
-            onClick={() =>
-              setProviderPreference((current) =>
-                current === "openai" ? "groq" : "openai",
-              )
-            }
-            className="rounded-full border border-white/10 bg-black/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur-xl transition hover:bg-white/[0.04]"
-          >
-            Provider: {providerPreference === "openai" ? "OpenAI" : "Groq"}
-          </button>
-        </div>
-      ) : null}
 
       <div className="relative flex h-full min-h-0">
         <aside
@@ -1732,7 +1735,7 @@ function ChatPageContent() {
           </header>
 
           <section className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24">
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -2003,24 +2006,20 @@ function ChatPageContent() {
             </div>
           </section >
 
-          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
-            <div className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
+          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+            <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
               <form onSubmit={handleComposerSubmit}>
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3">
-                  <div className="flex items-end gap-3">
-                    <button
-                      type="button"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      +
-                    </button>
-                    <textarea
-                      value={draftInput}
-                      onChange={(event) => setDraftInput(event.target.value)}
-                      placeholder="What are we creating today?"
-                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                      className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
-                    />
+                <div className="relative flex w-full items-end overflow-hidden rounded-[1.5rem] bg-[#1a1a1f] p-2 shadow-[0_0_1px_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.5)] transition-all focus-within:ring-1 focus-within:ring-white/20">
+                  <textarea
+                    value={draftInput}
+                    onChange={(event) => setDraftInput(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder="Send a message..."
+                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                    className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
+                    rows={1}
+                  />
+                  <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
                     <button
                       type="submit"
                       disabled={
@@ -2031,10 +2030,16 @@ function ChatPageContent() {
                         !draftInput.trim() ||
                         isSending
                       }
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
+                      className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
                       aria-label="Send message"
                     >
-                      {isSending ? "…" : "↑"}
+                      {isSending ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                          <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
                     </button>
                   </div>
                 </div>
