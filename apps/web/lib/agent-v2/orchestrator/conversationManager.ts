@@ -28,6 +28,7 @@ import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { getXCharacterLimitForAccount } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
+import { inferCorrectionRepairQuestion } from "./correctionRepair";
 import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
@@ -930,6 +931,28 @@ User Profile Summary:
       },
       memory,
     };
+  }
+
+  if (!explicitIntent && activeDraft) {
+    const correctionRepairQuestion = inferCorrectionRepairQuestion(
+      userMessage,
+      memory.topicSummary,
+    );
+
+    if (correctionRepairQuestion) {
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: correctionRepairQuestion,
+        memory,
+      };
+    }
   }
 
   switch (mode) {
