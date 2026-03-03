@@ -1,0 +1,70 @@
+export type V2ChatIntent =
+  | "coach"
+  | "ideate"
+  | "plan"
+  | "planner_feedback"
+  | "draft"
+  | "review"
+  | "edit"
+  | "answer_question";
+
+export type ConversationState =
+  | "collecting_context"
+  | "needs_more_context"
+  | "ready_to_ideate"
+  | "plan_pending_approval"
+  | "draft_ready"
+  | "editing";
+
+export interface StrategyPlan {
+  objective: string;
+  angle: string;
+  targetLane: "original" | "reply" | "quote";
+  mustInclude: string[];
+  mustAvoid: string[];
+  hookType: string;
+  pitchResponse: string;
+}
+
+export type ClarificationBranchKey =
+  | "vague_draft_request"
+  | "lazy_request"
+  | "plan_reject";
+
+export interface CreatorChatQuickReply {
+  kind:
+    | "content_focus"
+    | "example_reply"
+    | "planner_action"
+    | "clarification_choice";
+  value: string;
+  label: string;
+  suggestedFocus?: string;
+  explicitIntent?: V2ChatIntent;
+}
+
+export interface ClarificationState {
+  branchKey: ClarificationBranchKey;
+  stepKey: string;
+  seedTopic: string | null;
+  options: CreatorChatQuickReply[];
+}
+
+export interface V2ConversationMemory {
+  conversationState: ConversationState;
+  activeConstraints: string[];
+  topicSummary: string | null;
+  concreteAnswerCount: number;
+  currentDraftArtifactId: string | null;
+  rollingSummary: string | null;
+  pendingPlan: StrategyPlan | null;
+  clarificationState: ClarificationState | null;
+  assistantTurnCount: number;
+  voiceFidelity: "balanced";
+}
+
+export type V2ChatOutputShape =
+  | "coach_question"
+  | "ideation_angles"
+  | "planning_outline"
+  | "short_form_post";

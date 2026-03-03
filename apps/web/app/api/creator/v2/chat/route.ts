@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
-import type { CreatorChatReplyResult } from "@/lib/onboarding/chatAgent";
-import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
@@ -36,7 +36,6 @@ export async function POST(request: NextRequest) {
 
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
-  const identifier = threadId || runId;
   // If no threadId or runId, we will automatically generate a thread below.
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
@@ -92,12 +91,9 @@ export async function POST(request: NextRequest) {
     });
     console.log("[V2 Chat Checkpoint] New Thread generated:", storedThread.id);
 
-    await prisma.conversationMemory.create({
-      data: {
-        threadId: storedThread.id,
-        userId: session.user.id,
-        activeConstraints: [],
-      }
+    await createConversationMemory({
+      threadId: storedThread.id,
+      userId: session.user.id,
     });
   }
 
@@ -147,24 +143,26 @@ export async function POST(request: NextRequest) {
       runId: storedRun?.id,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
-      explicitIntent: ["coach", "ideate", "draft", "review", "edit", "answer_question"].includes(intent) ? intent as "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" : null,
+      explicitIntent: ["coach", "ideate", "plan", "planner_feedback", "draft", "review", "edit", "answer_question"].includes(intent)
+        ? intent as "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit" | "answer_question"
+        : null,
       activeDraft,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
-    const isCoach = result.mode === "coach";
-    const isIdeate = result.mode === "ideate";
-
-    const mappedData: CreatorChatReplyResult = {
+    const resultData = result.data as Record<string, unknown> | undefined;
+    const mappedData = {
       reply: result.response,
-      angles: (result.data as Record<string, unknown>)?.angles as string[] || [],
-      draft: (result.data as Record<string, unknown>)?.draft as string || null,
-      drafts: (result.data as Record<string, unknown>)?.draft
-        ? [(result.data as Record<string, unknown>).draft as string]
+      angles: resultData?.angles as unknown[] || [],
+      quickReplies: resultData?.quickReplies || [],
+      plan: resultData?.plan || null,
+      draft: resultData?.draft as string || null,
+      drafts: resultData?.draft
+        ? [resultData.draft as string]
         : [],
       draftArtifacts: [],
-      supportAsset: (result.data as Record<string, unknown>)?.supportAsset as string || null,
-      outputShape: isCoach ? "coach_question" : isIdeate ? "ideation_angles" : "short_form_post",
+      supportAsset: resultData?.supportAsset as string || null,
+      outputShape: result.outputShape,
       whyThisWorks: [],
       watchOutFor: [],
       debug: {
@@ -189,14 +187,7 @@ export async function POST(request: NextRequest) {
       source: "deterministic",
       model: "v2-orchestrator",
       mode: "full_generation",
-      memory: {
-        conversationState: isCoach || isIdeate ? "ready_to_ideate" : "editing",
-        activeConstraints: [],
-        topicSummary: null,
-        concreteAnswerCount: 0,
-        currentDraftArtifactId: null,
-        voiceFidelity: "balanced",
-      }
+      memory: result.memory,
     };
 
     if (storedThread) {
@@ -205,11 +196,11 @@ export async function POST(request: NextRequest) {
           threadId: storedThread.id,
           role: "assistant",
           content: mappedData.reply,
-          data: mappedData as any,
+          data: mappedData as unknown as Prisma.InputJsonValue,
         }
       });
 
-      const updateData: any = { updatedAt: new Date() };
+      const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
 
       // Auto-generate title from the first user message if the thread is currently unnamed
       if (!storedThread.title && effectiveMessage) {

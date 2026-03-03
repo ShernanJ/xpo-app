@@ -11,7 +11,7 @@ async function runTest() {
 
   console.log(`Searching for topic: "${focusTopic}"`);
 
-  const result = await retrieveAnchors(dummyUserId, focusTopic);
+  const result = await retrieveAnchors(dummyUserId, "default", focusTopic);
 
   console.log("Results:");
   console.log(JSON.stringify(result, null, 2));

@@ -6,12 +6,35 @@ import { generateDrafts } from "../agents/writer";
 import { critiqueDrafts } from "../agents/critic";
 import { extractStyleRules } from "../agents/styleExtractor";
 import { extractCoreFacts } from "../agents/factExtractor";
-
-import { getConversationMemory, createConversationMemory, updateConversationMemory } from "../memory/memoryStore";
+import {
+  extractAntiPattern,
+  looksLikeMechanicalEdit,
+  looksLikeNegativeFeedback,
+} from "../agents/antiPatternExtractor";
+import {
+  createConversationMemorySnapshot,
+  getConversationMemory,
+  createConversationMemory,
+  updateConversationMemory,
+} from "../memory/memoryStore";
+import { buildEffectiveContext, retrieveRelevantContext } from "../memory/contextRetriever";
+import {
+  buildRollingSummary,
+  shouldRefreshRollingSummary,
+} from "../memory/summaryManager";
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { prisma } from "../../db";
+import { buildClarificationTree } from "./clarificationTree";
+import { interpretPlannerFeedback } from "./plannerFeedback";
+import type {
+  CreatorChatQuickReply,
+  StrategyPlan,
+  V2ChatIntent,
+  V2ChatOutputShape,
+  V2ConversationMemory,
+} from "../contracts/chat";
 
 export interface OrchestratorInput {
   userId: string;
@@ -19,186 +42,817 @@ export interface OrchestratorInput {
   runId?: string;
   threadId?: string;
   userMessage: string;
-  recentHistory: string; // Condensed history for LLM context
-  explicitIntent?: "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" | null;
-  activeDraft?: string; // Existing draft text to edit
+  recentHistory: string;
+  explicitIntent?: V2ChatIntent | null;
+  activeDraft?: string;
+}
+
+export interface OrchestratorData {
+  angles?: unknown[];
+  plan?: StrategyPlan | null;
+  draft?: string | null;
+  supportAsset?: string | null;
+  issuesFixed?: string[];
+  quickReplies?: CreatorChatQuickReply[];
 }
 
 export type OrchestratorResponse = {
-  mode: "coach" | "ideate" | "draft" | "error";
+  mode: "coach" | "ideate" | "plan" | "draft" | "error";
+  outputShape: V2ChatOutputShape;
   response: string;
-  data?: unknown;
+  data?: OrchestratorData;
+  memory: V2ConversationMemory;
 };
 
+function isLazyDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return [
+    "just write anything",
+    "write anything",
+    "idk just write it",
+    "just write it",
+    "whatever works",
+    "anything is fine",
+  ].some((candidate) => normalized.includes(candidate));
+}
+
+function buildPlanQuickReplies(): CreatorChatQuickReply[] {
+  return [
+    {
+      kind: "planner_action",
+      value: "looks good, write it",
+      label: "Looks good",
+      explicitIntent: "planner_feedback",
+    },
+    {
+      kind: "planner_action",
+      value: "make it tighter and more blunt",
+      label: "Tighten it",
+      explicitIntent: "planner_feedback",
+    },
+    {
+      kind: "planner_action",
+      value: "different angle",
+      label: "Different angle",
+      explicitIntent: "planner_feedback",
+    },
+  ];
+}
+
+function applyMemoryPatch(
+  current: V2ConversationMemory,
+  patch: Partial<V2ConversationMemory>,
+): V2ConversationMemory {
+  return {
+    ...current,
+    ...patch,
+    activeConstraints: patch.activeConstraints ?? current.activeConstraints,
+    pendingPlan:
+      patch.pendingPlan === undefined ? current.pendingPlan : patch.pendingPlan,
+    clarificationState:
+      patch.clarificationState === undefined
+        ? current.clarificationState
+        : patch.clarificationState,
+    rollingSummary:
+      patch.rollingSummary === undefined ? current.rollingSummary : patch.rollingSummary,
+  };
+}
+
+async function maybeCaptureAntiPattern(args: {
+  userId: string;
+  userMessage: string;
+  activeDraft?: string;
+  recentHistory: string;
+  styleCard: Awaited<ReturnType<typeof generateStyleProfile>>;
+  xHandle: string;
+}): Promise<string[]> {
+  if (
+    args.userId === "anonymous" ||
+    !args.styleCard ||
+    !args.activeDraft ||
+    !looksLikeNegativeFeedback(args.userMessage) ||
+    looksLikeMechanicalEdit(args.userMessage)
+  ) {
+    return args.styleCard?.customGuidelines?.slice(-2) || [];
+  }
+
+  const extracted = await extractAntiPattern(
+    args.userMessage,
+    args.activeDraft,
+    args.recentHistory,
+  );
+
+  if (!extracted?.shouldCapture || extracted.patternTags.length === 0) {
+    return args.styleCard.customGuidelines.slice(-2);
+  }
+
+  const nextGuidelines = Array.from(
+    new Set([
+      ...(args.styleCard.customGuidelines || []),
+      ...extracted.patternTags.map((tag) => `Avoid ${tag}`),
+    ]),
+  );
+
+  args.styleCard.customGuidelines = nextGuidelines;
+  saveStyleProfile(args.userId, args.xHandle, args.styleCard).catch((error) =>
+    console.error("Failed to save anti-pattern guidance:", error),
+  );
+
+  return nextGuidelines.slice(-2);
+}
+
 /**
- * The V2 State Machine. Replaces `chatAgent.ts`.
- * Wires together memory, retrieval, decoupled prompts, and novelty gating.
+ * The V2 state machine.
  */
 export async function manageConversationTurn(
-  input: OrchestratorInput
+  input: OrchestratorInput,
 ): Promise<OrchestratorResponse> {
-  const { userId, xHandle, runId, threadId, userMessage, recentHistory, explicitIntent, activeDraft } = input;
+  const {
+    userId,
+    xHandle,
+    runId,
+    threadId,
+    userMessage,
+    recentHistory,
+    explicitIntent,
+    activeDraft,
+  } = input;
   const effectiveXHandle = xHandle || "default";
 
-  // 1. Fetch Memory
-  let memory = await getConversationMemory({ runId, threadId });
-  if (!memory) {
-    memory = await createConversationMemory({ runId, threadId, userId: userId === "anonymous" ? null : userId });
+  let memoryRecord = await getConversationMemory({ runId, threadId });
+  if (!memoryRecord) {
+    memoryRecord = await createConversationMemory({
+      runId,
+      threadId,
+      userId: userId === "anonymous" ? null : userId,
+    });
   }
-  const activeConstraints = memory?.activeConstraints as string[] || [];
-  const topicSummary = memory?.topicSummary || null;
-  const concreteAnswerCount = memory?.concreteAnswerCount || 0;
 
-  // 2. Classify Intent (Skip if explicitly provided by UI like selecting an angle)
+  let memory = createConversationMemorySnapshot(
+    memoryRecord as unknown as Record<string, unknown>,
+  );
+
   let classification;
   if (!explicitIntent) {
     classification = await classifyIntent(userMessage, recentHistory);
     if (!classification) {
-      return { mode: "error", response: "Failed to classify intent." };
+      return {
+        mode: "error",
+        outputShape: "coach_question",
+        response: "Failed to classify intent.",
+        memory,
+      };
     }
   } else {
-    classification = { intent: explicitIntent, needs_memory_update: false, confidence: 1 };
+    classification = {
+      intent: explicitIntent,
+      needs_memory_update: false,
+      confidence: 1,
+    };
   }
 
-  // 3. Update Memory Constraints (if requested by classifier)
   if (classification.needs_memory_update) {
-    // For MVP, we just append the user message if it's a constraint, but realistically 
-    // a separate LLM call would condense it. We will append it directly for now.
-    const newConstraints = [...activeConstraints, userMessage];
-    await updateConversationMemory({
+    const nextConstraints = Array.from(
+      new Set([...memory.activeConstraints, userMessage]),
+    );
+    const updated = await updateConversationMemory({
       runId,
       threadId,
-      activeConstraints: newConstraints,
+      activeConstraints: nextConstraints,
     });
-    activeConstraints.push(userMessage); // Update local state for this turn
+    memory = createConversationMemorySnapshot(updated as unknown as Record<string, unknown>);
   }
 
-  // 4. Mode Selection Logic Rules (Deterministic over LLM preference)
   let mode = classification.intent;
 
-  // Rule 4: System may *never* generate a draft if user just says "Hello" or "Help me grow".
-  if (!explicitIntent && ["hello", "hi", "help me grow", "i want to grow"].includes(userMessage.toLowerCase().trim())) {
+  if (
+    !explicitIntent &&
+    ["hello", "hi", "help me grow", "i want to grow"].includes(
+      userMessage.toLowerCase().trim(),
+    )
+  ) {
     mode = "coach";
   }
 
-  // Rule 2: Switch to Ideate IF broad topic but lacks angle AND concrete answers < 2
-  // BUT respect the classifier if it confidently chose draft (e.g. "just write anything")
-  if (!explicitIntent && mode === "draft" && !topicSummary && concreteAnswerCount < 2 && classification.confidence < 0.7) {
-    mode = "ideate";
+  if (!explicitIntent && mode === "draft" && !activeDraft) {
+    mode = "plan";
   }
 
-  // 5. Pre-fetch context required for generation, regardless of mode (Persona & Retrieval)
   const [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
     generateStyleProfile(userId, effectiveXHandle, 20),
-    retrieveAnchors(userId, effectiveXHandle, userMessage || topicSummary || "growth"),
+    retrieveAnchors(userId, effectiveXHandle, userMessage || memory.topicSummary || "growth"),
     userId !== "anonymous" ? extractStyleRules(userMessage, recentHistory) : Promise.resolve(null),
-    userId !== "anonymous" ? extractCoreFacts(userMessage, recentHistory) : Promise.resolve(null)
+    userId !== "anonymous" ? extractCoreFacts(userMessage, recentHistory) : Promise.resolve(null),
   ]);
 
-  // If the user commanded new stylistic rules, permanently apply them to the active profile
   if (styleCard && extractedRules && extractedRules.length > 0) {
-    styleCard.customGuidelines = Array.from(new Set([...(styleCard.customGuidelines || []), ...extractedRules]));
-    saveStyleProfile(userId, effectiveXHandle, styleCard).catch(e => console.error("Failed to save style profile:", e));
+    styleCard.customGuidelines = Array.from(
+      new Set([...(styleCard.customGuidelines || []), ...extractedRules]),
+    );
+    saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+      console.error("Failed to save style profile:", error),
+    );
   }
 
-  // If the user stated explicit new facts, permanently apply them to the active profile context
   if (styleCard && extractedFacts && extractedFacts.length > 0) {
-    styleCard.contextAnchors = Array.from(new Set([...(styleCard.contextAnchors || []), ...extractedFacts]));
-    saveStyleProfile(userId, effectiveXHandle, styleCard).catch(e => console.error("Failed to save style profile:", e));
+    styleCard.contextAnchors = Array.from(
+      new Set([...(styleCard.contextAnchors || []), ...extractedFacts]),
+    );
+    saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+      console.error("Failed to save style profile:", error),
+    );
   }
+
+  const antiPatterns = await maybeCaptureAntiPattern({
+    userId,
+    userMessage,
+    activeDraft,
+    recentHistory,
+    styleCard,
+    xHandle: effectiveXHandle,
+  });
+
+  const relevantTopicAnchors = retrieveRelevantContext({
+    userMessage,
+    topicSummary: memory.topicSummary,
+    rollingSummary: memory.rollingSummary,
+    topicAnchors: anchors.topicAnchors,
+  });
+
+  const effectiveContext = buildEffectiveContext({
+    recentHistory,
+    rollingSummary: memory.rollingSummary,
+    relevantTopicAnchors,
+  });
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const oResult = storedRun?.result as Record<string, any>;
-  const stage = oResult?.growthStage || "Unknown";
-  const goal = oResult?.strategyState?.goal || "Unknown";
-  const contextAnchorsStr = styleCard && styleCard.contextAnchors?.length > 0
-    ? `\n- Known Facts: ${styleCard.contextAnchors.join(" | ")}`
-    : "";
+  const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
+  const stage = typeof onboardingResult?.growthStage === "string"
+    ? onboardingResult.growthStage
+    : "Unknown";
+  const strategyState = onboardingResult?.strategyState as Record<string, unknown> | undefined;
+  const goal = typeof strategyState?.goal === "string" ? strategyState.goal : "Audience growth";
+  const contextAnchorsStr =
+    styleCard && styleCard.contextAnchors?.length > 0
+      ? `\n- Known Facts: ${styleCard.contextAnchors.join(" | ")}`
+      : "";
 
   const userContextString = `
 User Profile Summary:
 - Stage: ${stage}
 - Primary Goal: ${goal}${contextAnchorsStr}
-`.trim();
+  `.trim();
 
-  // 5. Execute Mode
-  switch (mode) {
-    case "coach":
-    case "answer_question":
-    default: {
-      const coachReply = await generateCoachReply(userMessage, recentHistory, topicSummary, styleCard, anchors.topicAnchors, userContextString);
+  const writeMemory = async (
+    patch: Partial<V2ConversationMemory> & {
+      topicSummary?: string | null;
+      concreteAnswerCount?: number;
+      currentDraftArtifactId?: string | null;
+    },
+  ) => {
+    const optimistic = applyMemoryPatch(memory, {
+      conversationState: patch.conversationState,
+      activeConstraints: patch.activeConstraints,
+      pendingPlan: patch.pendingPlan,
+      clarificationState: patch.clarificationState,
+      rollingSummary: patch.rollingSummary,
+      assistantTurnCount: patch.assistantTurnCount,
+      topicSummary: patch.topicSummary ?? memory.topicSummary,
+      concreteAnswerCount:
+        patch.concreteAnswerCount ?? memory.concreteAnswerCount,
+      currentDraftArtifactId:
+        patch.currentDraftArtifactId ?? memory.currentDraftArtifactId,
+    });
 
-      // Update memory concrete count if they actually answered something
-      if (userMessage.length > 15) {
-        await updateConversationMemory({ runId, threadId, concreteAnswerCount: concreteAnswerCount + 1 });
+    const updated = await updateConversationMemory({
+      runId,
+      threadId,
+      topicSummary: patch.topicSummary,
+      activeConstraints: patch.activeConstraints,
+      concreteAnswerCount: patch.concreteAnswerCount,
+      lastDraftArtifactId: patch.currentDraftArtifactId,
+      conversationState: patch.conversationState,
+      pendingPlan: patch.pendingPlan,
+      clarificationState: patch.clarificationState,
+      rollingSummary: patch.rollingSummary,
+      assistantTurnCount: patch.assistantTurnCount,
+    });
+
+    memory = updated
+      ? createConversationMemorySnapshot(updated as unknown as Record<string, unknown>)
+      : optimistic;
+  };
+
+  const nextAssistantTurnCount = memory.assistantTurnCount + 1;
+
+  if (
+    mode === "planner_feedback" &&
+    memory.conversationState === "plan_pending_approval" &&
+    memory.pendingPlan
+  ) {
+    const decision = await interpretPlannerFeedback(userMessage, memory.pendingPlan);
+
+    if (decision === "approve") {
+      const pastPosts = await prisma.post.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: { text: true },
+      });
+      const historicalTexts = pastPosts.map((post) => post.text);
+
+      const writerOutput = await generateDrafts(
+        memory.pendingPlan,
+        styleCard,
+        relevantTopicAnchors,
+        memory.activeConstraints,
+        effectiveContext,
+        activeDraft,
+        {
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      if (!writerOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to write draft.",
+          memory,
+        };
       }
 
+      const criticOutput = await critiqueDrafts(
+        writerOutput,
+        memory.activeConstraints,
+        styleCard,
+        effectiveContext,
+      );
+
+      if (!criticOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to critique draft.",
+          memory,
+        };
+      }
+
+      const noveltyCheck = checkDeterministicNovelty(
+        criticOutput.finalDraft,
+        historicalTexts,
+      );
+      if (!noveltyCheck.isNovel) {
+        const clarification = buildClarificationTree({
+          branchKey: "plan_reject",
+          seedTopic: memory.pendingPlan.objective,
+          styleCard,
+          topicAnchors: relevantTopicAnchors,
+        });
+
+        await writeMemory({
+          conversationState: "needs_more_context",
+          pendingPlan: null,
+          clarificationState: clarification.clarificationState,
+          assistantTurnCount: nextAssistantTurnCount,
+        });
+
+        return {
+          mode: "coach",
+          outputShape: "coach_question",
+          response:
+            "this version felt too close to something you've already posted. let's shift it.",
+          data: { quickReplies: clarification.quickReplies },
+          memory,
+        };
+      }
+
+      const rollingSummary = buildRollingSummary({
+        currentSummary: memory.rollingSummary,
+        topicSummary: memory.pendingPlan.objective,
+        approvedPlan: memory.pendingPlan,
+        activeConstraints: memory.activeConstraints,
+        latestDraftStatus: "Draft delivered",
+      });
+
+      await writeMemory({
+        topicSummary: memory.pendingPlan.objective,
+        conversationState: "draft_ready",
+        pendingPlan: null,
+        clarificationState: null,
+        rollingSummary,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
       return {
-        mode: "coach",
-        response: coachReply?.response || "what's on your mind? i can help you draft, ideate, or figure out what to post.",
-        data: { probingQuestion: coachReply?.probingQuestion },
+        mode: "draft",
+        outputShape: "short_form_post",
+        response: criticOutput.finalResponse,
+        data: {
+          draft: criticOutput.finalDraft,
+          supportAsset: writerOutput.supportAsset,
+          issuesFixed: criticOutput.issues,
+        },
+        memory,
       };
     }
 
-    case "ideate": {
-      const ideas = await generateIdeasMenu(userMessage, topicSummary, recentHistory, styleCard, anchors.topicAnchors, userContextString);
+    if (decision === "revise") {
+      const revisionPrompt = [
+        `Current plan objective: ${memory.pendingPlan.objective}`,
+        `Current plan angle: ${memory.pendingPlan.angle}`,
+        `Requested revision: ${userMessage}`,
+      ].join("\n");
 
-      // Update memory summary 
-      await updateConversationMemory({ runId, threadId, topicSummary: userMessage });
+      const revisedPlan = await generatePlan(
+        revisionPrompt,
+        memory.topicSummary,
+        memory.activeConstraints,
+        effectiveContext,
+        activeDraft,
+        {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      if (!revisedPlan) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to revise the plan.",
+          memory,
+        };
+      }
+
+      await writeMemory({
+        topicSummary: revisedPlan.objective,
+        conversationState: "plan_pending_approval",
+        pendingPlan: revisedPlan,
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "plan",
+        outputShape: "planning_outline",
+        response: revisedPlan.pitchResponse,
+        data: {
+          plan: revisedPlan,
+          quickReplies: buildPlanQuickReplies(),
+        },
+        memory,
+      };
+    }
+
+    if (decision === "reject") {
+      const clarification = buildClarificationTree({
+        branchKey: "plan_reject",
+        seedTopic: memory.pendingPlan.objective,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+      });
+
+      await writeMemory({
+        conversationState: "needs_more_context",
+        pendingPlan: null,
+        clarificationState: clarification.clarificationState,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: clarification.reply,
+        data: {
+          quickReplies: clarification.quickReplies,
+        },
+        memory,
+      };
+    }
+
+    await writeMemory({
+      conversationState: "plan_pending_approval",
+      pendingPlan: memory.pendingPlan,
+      assistantTurnCount: nextAssistantTurnCount,
+    });
+
+    return {
+      mode: "plan",
+      outputShape: "planning_outline",
+      response: "say the word and i'll draft it, or tell me what to tweak.",
+      data: {
+        plan: memory.pendingPlan,
+        quickReplies: buildPlanQuickReplies(),
+      },
+      memory,
+    };
+  }
+
+  if (
+    !explicitIntent &&
+    mode === "plan" &&
+    !memory.topicSummary &&
+    memory.concreteAnswerCount < 2 &&
+    classification.confidence < 0.7
+  ) {
+    const branchKey = isLazyDraftRequest(userMessage)
+      ? "lazy_request"
+      : "vague_draft_request";
+    const clarification = buildClarificationTree({
+      branchKey,
+      seedTopic: userMessage || memory.topicSummary,
+      styleCard,
+      topicAnchors: relevantTopicAnchors,
+    });
+
+    await writeMemory({
+      conversationState: "needs_more_context",
+      clarificationState: clarification.clarificationState,
+      assistantTurnCount: nextAssistantTurnCount,
+    });
+
+    return {
+      mode: "coach",
+      outputShape: "coach_question",
+      response: clarification.reply,
+      data: {
+        quickReplies: clarification.quickReplies,
+      },
+      memory,
+    };
+  }
+
+  switch (mode) {
+    case "ideate": {
+      const ideas = await generateIdeasMenu(
+        userMessage,
+        memory.topicSummary,
+        effectiveContext,
+        styleCard,
+        relevantTopicAnchors,
+        userContextString,
+        {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      await writeMemory({
+        topicSummary: userMessage,
+        conversationState: "ready_to_ideate",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+        rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+          ? buildRollingSummary({
+              currentSummary: memory.rollingSummary,
+              topicSummary: userMessage,
+              approvedPlan: null,
+              activeConstraints: memory.activeConstraints,
+              latestDraftStatus: "Ideation in progress",
+              unresolvedQuestion: ideas?.close || null,
+            })
+          : memory.rollingSummary,
+      });
 
       return {
         mode: "ideate",
+        outputShape: "ideation_angles",
         response: ideas?.close || "here are a few angles — which one feels right?",
-        data: ideas,
+        data: ideas ? { angles: ideas.angles } : undefined,
+        memory,
+      };
+    }
+
+    case "plan": {
+      const plan = await generatePlan(
+        userMessage,
+        memory.topicSummary,
+        memory.activeConstraints,
+        effectiveContext,
+        activeDraft,
+        {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      if (!plan) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to generate strategy plan.",
+          memory,
+        };
+      }
+
+      await writeMemory({
+        topicSummary: plan.objective,
+        conversationState: "plan_pending_approval",
+        pendingPlan: plan,
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "plan",
+        outputShape: "planning_outline",
+        response: plan.pitchResponse || "here's an angle we could take. sound good?",
+        data: {
+          plan,
+          quickReplies: buildPlanQuickReplies(),
+        },
+        memory,
       };
     }
 
     case "draft":
     case "review":
     case "edit": {
-      // Fetch historical posts for Novelty Gate
       const pastPosts = await prisma.post.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
         take: 100,
-        select: { text: true }
+        select: { text: true },
       });
-      const historicalTexts = pastPosts.map(p => p.text);
+      const historicalTexts = pastPosts.map((post) => post.text);
 
-      // Step B: Formulate Strategy Plan
-      const plan = await generatePlan(userMessage, topicSummary, activeConstraints, recentHistory, activeDraft);
-      if (!plan) return { mode: "error", response: "Failed to generate strategy plan." };
+      const plan = await generatePlan(
+        userMessage,
+        memory.topicSummary,
+        memory.activeConstraints,
+        effectiveContext,
+        activeDraft,
+        {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
 
-      // Step C: Generate single draft
-      const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints, recentHistory, activeDraft);
-      if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
-
-      // Step D: Critique & Refine
-      const criticOutput = await critiqueDrafts(writerOutput, activeConstraints, styleCard, recentHistory);
-      if (!criticOutput) return { mode: "error", response: "Failed to critique draft." };
-
-      // Step E: Novelty Gate
-      const noveltyCheck = checkDeterministicNovelty(criticOutput.finalDraft, historicalTexts);
-      if (!noveltyCheck.isNovel) {
+      if (!plan) {
         return {
-          mode: "coach",
-          response: "i wrote a draft but it sounded too similar to something you've already posted. can we approach this from a different angle?",
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to generate strategy plan.",
+          memory,
         };
       }
 
-      // Update memory
-      await updateConversationMemory({ runId, threadId, topicSummary: plan.objective });
+      const writerOutput = await generateDrafts(
+        plan,
+        styleCard,
+        relevantTopicAnchors,
+        memory.activeConstraints,
+        effectiveContext,
+        activeDraft,
+        {
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      if (!writerOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to write draft.",
+          memory,
+        };
+      }
+
+      const criticOutput = await critiqueDrafts(
+        writerOutput,
+        memory.activeConstraints,
+        styleCard,
+        effectiveContext,
+      );
+
+      if (!criticOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to critique draft.",
+          memory,
+        };
+      }
+
+      const noveltyCheck = checkDeterministicNovelty(
+        criticOutput.finalDraft,
+        historicalTexts,
+      );
+      if (!noveltyCheck.isNovel) {
+        const clarification = buildClarificationTree({
+          branchKey: "plan_reject",
+          seedTopic: plan.objective,
+          styleCard,
+          topicAnchors: relevantTopicAnchors,
+        });
+
+        await writeMemory({
+          conversationState: "needs_more_context",
+          pendingPlan: null,
+          clarificationState: clarification.clarificationState,
+          assistantTurnCount: nextAssistantTurnCount,
+        });
+
+        return {
+          mode: "coach",
+          outputShape: "coach_question",
+          response: "that version felt too close to something you've already posted. let's shift it.",
+          data: {
+            quickReplies: clarification.quickReplies,
+          },
+          memory,
+        };
+      }
+
+      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+        ? buildRollingSummary({
+            currentSummary: memory.rollingSummary,
+            topicSummary: plan.objective,
+            approvedPlan: plan,
+            activeConstraints: memory.activeConstraints,
+            latestDraftStatus: "Draft delivered",
+          })
+        : memory.rollingSummary;
+
+      await writeMemory({
+        topicSummary: plan.objective,
+        conversationState: "draft_ready",
+        pendingPlan: null,
+        clarificationState: null,
+        rollingSummary,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
 
       return {
         mode: "draft",
+        outputShape: "short_form_post",
         response: criticOutput.finalResponse,
         data: {
-          angle: criticOutput.finalAngle,
           draft: criticOutput.finalDraft,
           supportAsset: writerOutput.supportAsset,
           issuesFixed: criticOutput.issues,
         },
+        memory,
+      };
+    }
+
+    case "coach":
+    case "answer_question":
+    default: {
+      const coachReply = await generateCoachReply(
+        userMessage,
+        effectiveContext,
+        memory.topicSummary,
+        styleCard,
+        relevantTopicAnchors,
+        userContextString,
+        {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      );
+
+      const nextConcreteAnswerCount =
+        userMessage.length > 15
+          ? memory.concreteAnswerCount + 1
+          : memory.concreteAnswerCount;
+
+      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+        ? buildRollingSummary({
+            currentSummary: memory.rollingSummary,
+            topicSummary: memory.topicSummary,
+            approvedPlan: memory.pendingPlan,
+            activeConstraints: memory.activeConstraints,
+            latestDraftStatus: "Context gathering",
+            unresolvedQuestion: coachReply?.probingQuestion || null,
+          })
+        : memory.rollingSummary;
+
+      await writeMemory({
+        conversationState:
+          memory.pendingPlan && memory.conversationState === "plan_pending_approval"
+            ? "plan_pending_approval"
+            : "needs_more_context",
+        concreteAnswerCount: nextConcreteAnswerCount,
+        rollingSummary,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response:
+          coachReply?.response ||
+          "what's on your mind? i can help you draft, ideate, or figure out what to post.",
+        memory,
       };
     }
   }

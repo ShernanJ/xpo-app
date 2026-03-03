@@ -2,6 +2,12 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
+import type { ConversationState } from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildStateHydrationBlock,
+} from "../prompts/promptHydrator";
 
 export const WriterOutputSchema = z.object({
   response: z.string().describe("A warm, human acknowledgment of what the user just shared, followed by a brief 1-line transition to the draft. NEVER repeat or echo the draft content here."),
@@ -25,12 +31,22 @@ export async function generateDrafts(
   activeConstraints: string[],
   recentHistory: string,
   activeDraft?: string,
+  options?: {
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
 ): Promise<WriterOutput | null> {
   const isEditing = !!activeDraft;
+  const conversationState = options?.conversationState || "draft_ready";
+  const antiPatterns = options?.antiPatterns || [];
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
       : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
+
+${buildConversationToneBlock()}
+${buildStateHydrationBlock(conversationState, "draft")}
+${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${activeDraft}\n\n` : ""}
 

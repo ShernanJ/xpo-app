@@ -1,6 +1,14 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import { VoiceStyleCard } from "../core/styleProfile";
+import type { ConversationState } from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildGoalHydrationBlock,
+  buildStateHydrationBlock,
+  buildVoiceHydrationBlock,
+} from "../prompts/promptHydrator";
 
 export const IdeaSchema = z.object({
   title: z.string().describe("A broad, conversational, open-ended question that prompts the user for a story. Keep it general and simple. e.g. 'Are there any recent projects you worked on that you can talk about?' or 'What is a common misconception about building AI tools?'"),
@@ -28,7 +36,15 @@ export async function generateIdeasMenu(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   userContextString: string = "",
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
 ): Promise<IdeasMenu | null> {
+  const goal = options?.goal || "audience growth";
+  const conversationState = options?.conversationState || "collecting_context";
+  const antiPatterns = options?.antiPatterns || [];
 
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
@@ -43,6 +59,12 @@ export async function generateIdeasMenu(
   const instruction = `
 You are an elite X (Twitter) content strategist collaborating directly with a creator.
 Your job is to provide highly tailored post ideas based on their history or current request, sounding like an expert peer.
+
+${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "ideate")}
+${buildStateHydrationBlock(conversationState, "ideate")}
+${buildVoiceHydrationBlock(styleCard)}
+${buildAntiPatternBlock(antiPatterns)}
 
 THE IDEATION FORMAT (CRITICAL):
 You MUST follow this exact structure for your output:

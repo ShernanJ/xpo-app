@@ -10,7 +10,8 @@ async function run() {
     targetLane: "original",
     mustInclude: [],
     mustAvoid: ["emojis"],
-    hookType: "Direct Action"
+    hookType: "Direct Action",
+    pitchResponse: "Here's the angle I'm thinking..."
   };
 
   const styleCard = {

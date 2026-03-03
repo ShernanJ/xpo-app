@@ -50,7 +50,7 @@ async function runTest() {
 
   // 6. Test Critic
   console.log("\\n[6/6] Testing Critic...");
-  const critic = await critiqueDrafts(writer, ["No emojis", "No buzzwords"]);
+  const critic = await critiqueDrafts(writer, ["No emojis", "No buzzwords"], null);
   console.log("-> Critic Output:", critic?.approved ? "Approved" : "Rejected or Failed");
 
   console.log("\\n=== All Tests Complete ===");

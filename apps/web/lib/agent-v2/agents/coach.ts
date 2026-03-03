@@ -1,6 +1,14 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import { VoiceStyleCard } from "../core/styleProfile";
+import type { ConversationState } from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildGoalHydrationBlock,
+  buildStateHydrationBlock,
+  buildVoiceHydrationBlock,
+} from "../prompts/promptHydrator";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -20,7 +28,15 @@ export async function generateCoachReply(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   userContextString: string = "",
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
 ): Promise<CoachReply | null> {
+  const goal = options?.goal || "audience growth";
+  const conversationState = options?.conversationState || "collecting_context";
+  const antiPatterns = options?.antiPatterns || [];
 
   // Derive tone cues from the style card to mirror the user's energy
   const toningCues = styleCard
@@ -44,6 +60,12 @@ export async function generateCoachReply(
 
   const instruction = `
 You are a sharp, direct X (Twitter) growth coach — like a smart friend who knows content strategy really well.
+
+${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "coach")}
+${buildStateHydrationBlock(conversationState, "coach")}
+${buildVoiceHydrationBlock(styleCard)}
+${buildAntiPatternBlock(antiPatterns)}
 
 PERSONALITY:
 - Sound human. Chill. Direct. Reactive to what they said.

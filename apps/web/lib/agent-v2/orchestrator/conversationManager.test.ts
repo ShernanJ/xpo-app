@@ -57,7 +57,7 @@ async function runTest() {
     console.log("-> Angles provided:", (res2.data as Record<string, unknown>).angles ? (res2.data as { angles: unknown[] }).angles.length : 0);
   }
 
-  // Turn 3: Forcing a draft with explicit constraints
+  // Turn 3: Requesting a draft now yields a plan first
   console.log("\\n[Turn 3] User says: 'Draft this for me. I love Next.js app router. No emojis.'");
   const res3 = await manageConversationTurn({
     userId: testUserId,
@@ -67,9 +67,25 @@ async function runTest() {
   });
   console.log("-> Orchestrator Output Mode:", res3.mode);
   console.log("-> Response:", res3.response);
-  if (res3.mode === "draft") {
-    const data = res3.data as { drafts?: unknown[], issuesFixed?: unknown[] };
-    console.log("-> Drafts generated:", data.drafts?.length || 0);
+  if (res3.mode === "plan") {
+    const data = res3.data as { plan?: { angle?: string } };
+    console.log("-> Planned angle:", data.plan?.angle || "none");
+  }
+
+  // Turn 4: Approve the plan and draft from the stored pending plan
+  console.log("\\n[Turn 4] User says: 'looks good, write it'");
+  const res4 = await manageConversationTurn({
+    userId: testUserId,
+    runId: testRunId,
+    userMessage: "looks good, write it",
+    recentHistory: `User: Draft this for me. I love Next.js app router. No emojis.\\nAgent: ${res3.response}`,
+    explicitIntent: "planner_feedback",
+  });
+  console.log("-> Orchestrator Output Mode:", res4.mode);
+  console.log("-> Response:", res4.response);
+  if (res4.mode === "draft") {
+    const data = res4.data as { draft?: string, issuesFixed?: unknown[] };
+    console.log("-> Draft generated:", data.draft ? "yes" : "no");
     console.log("-> Issues fixed by Critic:", data.issuesFixed);
   }
 

@@ -74,7 +74,17 @@ interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
-    angles: string[];
+    angles: unknown[];
+    quickReplies?: ChatQuickReply[];
+    plan?: {
+      objective: string;
+      angle: string;
+      targetLane: "original" | "reply" | "quote";
+      mustInclude: string[];
+      mustAvoid: string[];
+      hookType: string;
+      pitchResponse: string;
+    } | null;
     draft?: string | null;
     drafts: string[];
     draftArtifacts: DraftArtifact[];
@@ -82,6 +92,7 @@ interface CreatorChatSuccess {
     outputShape:
     | "coach_question"
     | "ideation_angles"
+    | "planning_outline"
     | "short_form_post"
     | "long_form_post"
     | "thread_seed"
@@ -173,6 +184,23 @@ interface CreatorChatSuccess {
       topicSummary: string | null;
       concreteAnswerCount: number;
       currentDraftArtifactId: string | null;
+      rollingSummary?: string | null;
+      pendingPlan?: {
+        objective: string;
+        angle: string;
+        targetLane: "original" | "reply" | "quote";
+        mustInclude: string[];
+        mustAvoid: string[];
+        hookType: string;
+        pitchResponse: string;
+      } | null;
+      clarificationState?: {
+        branchKey: string;
+        stepKey: string;
+        seedTopic: string | null;
+      } | null;
+      assistantTurnCount?: number;
+      voiceFidelity?: "balanced";
     };
   };
 }
@@ -215,6 +243,7 @@ interface ChatMessage {
   quickReplies?: ChatQuickReply[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   angles?: any[];
+  plan?: CreatorChatSuccess["data"]["plan"];
   draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
@@ -229,7 +258,7 @@ interface ChatMessage {
 }
 
 type ChatProviderPreference = "openai" | "groq";
-type ChatIntent = "coach" | "ideate" | "draft" | "review";
+type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review";
 type ChatContentFocus =
   | "project_showcase"
   | "technical_insight"
@@ -238,10 +267,11 @@ type ChatContentFocus =
   | "social_observation";
 
 interface ChatQuickReply {
-  kind: "content_focus" | "example_reply";
+  kind: "content_focus" | "example_reply" | "planner_action" | "clarification_choice";
   value: string;
   label: string;
   suggestedFocus?: ChatContentFocus;
+  explicitIntent?: ChatIntent;
 }
 
 interface ChatStrategyInputs {
@@ -1212,6 +1242,7 @@ function ChatPageContent() {
               role: "assistant",
               content: data.data.reply,
               angles: data.data.angles,
+              plan: data.data.plan ?? null,
               draft: data.data.draft || null,
               drafts: data.data.drafts,
               draftArtifacts: data.data.draftArtifacts,
@@ -1223,27 +1254,29 @@ function ChatPageContent() {
               source: data.data.source,
               model: data.data.model ?? null,
               quickReplies:
-                current.length === 0 &&
-                  !trimmedPrompt &&
-                  !options.selectedAngle
-                  ? [
-                    {
-                      kind: "example_reply",
-                      value: "write a post in my voice",
-                      label: "Write a post in my voice",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "help me figure out what to post about",
-                      label: "Help me figure out what to post",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "analyze my recent posts and tell me what's working",
-                      label: "Analyze my recent posts",
-                    },
-                  ]
-                  : undefined,
+                data.data.quickReplies && data.data.quickReplies.length > 0
+                  ? data.data.quickReplies
+                  : current.length === 0 &&
+                      !trimmedPrompt &&
+                      !options.selectedAngle
+                    ? [
+                      {
+                        kind: "example_reply",
+                        value: "write a post in my voice",
+                        label: "Write a post in my voice",
+                      },
+                      {
+                        kind: "example_reply",
+                        value: "help me figure out what to post about",
+                        label: "Help me figure out what to post",
+                      },
+                      {
+                        kind: "example_reply",
+                        value: "analyze my recent posts and tell me what's working",
+                        label: "Analyze my recent posts",
+                      },
+                    ]
+                    : undefined,
             },
           ]);
 
@@ -1347,6 +1380,8 @@ function ChatPageContent() {
             role: "assistant",
             content: streamedResult.reply,
             angles: streamedResult.angles,
+            plan: streamedResult.plan ?? null,
+            draft: streamedResult.draft || null,
             drafts: streamedResult.drafts,
             draftArtifacts: streamedResult.draftArtifacts,
             supportAsset: streamedResult.supportAsset,
@@ -1357,27 +1392,29 @@ function ChatPageContent() {
             source: streamedResult.source,
             model: streamedResult.model ?? null,
             quickReplies:
-              current.length === 0 &&
-                !trimmedPrompt &&
-                !options.selectedAngle
-                ? [
-                  {
-                    kind: "example_reply",
-                    value: "write a post in my voice",
-                    label: "Write a post in my voice",
-                  },
-                  {
-                    kind: "example_reply",
-                    value: "help me figure out what to post about",
-                    label: "Help me figure out what to post",
-                  },
-                  {
-                    kind: "example_reply",
-                    value: "analyze my recent posts and tell me what's working",
-                    label: "Analyze my recent posts",
-                  },
-                ]
-                : undefined,
+              streamedResult.quickReplies && streamedResult.quickReplies.length > 0
+                ? streamedResult.quickReplies
+                : current.length === 0 &&
+                    !trimmedPrompt &&
+                    !options.selectedAngle
+                  ? [
+                    {
+                      kind: "example_reply",
+                      value: "write a post in my voice",
+                      label: "Write a post in my voice",
+                    },
+                    {
+                      kind: "example_reply",
+                      value: "help me figure out what to post about",
+                      label: "Help me figure out what to post",
+                    },
+                    {
+                      kind: "example_reply",
+                      value: "analyze my recent posts and tell me what's working",
+                      label: "Analyze my recent posts",
+                    },
+                  ]
+                  : undefined,
           },
         ]);
 
@@ -1387,8 +1424,8 @@ function ChatPageContent() {
         }
 
         // Re-map the newly created backend thread if we just instantiated it
-        if ((streamedResult as any).newThreadId) {
-          const generatedId = (streamedResult as any).newThreadId as string;
+        if (streamedResult.newThreadId) {
+          const generatedId = streamedResult.newThreadId;
           setActiveThreadId(generatedId);
           threadCreatedInSessionRef.current = true;
           window.history.replaceState({}, '', `/chat/${generatedId}`);
@@ -1556,7 +1593,7 @@ function ChatPageContent() {
   );
 
   const handleQuickReplySelect = useCallback(
-    (quickReply: ChatQuickReply) => {
+    async (quickReply: ChatQuickReply) => {
       if (isSending) {
         return;
       }
@@ -1568,6 +1605,24 @@ function ChatPageContent() {
         return;
       }
 
+      if (quickReply.explicitIntent) {
+        if (!activeStrategyInputs || !activeToneInputs) {
+          setErrorMessage("The planning model is still loading.");
+          return;
+        }
+
+        await requestAssistantReply({
+          prompt: quickReply.value,
+          displayUserMessage: quickReply.label,
+          appendUserMessage: true,
+          intent: quickReply.explicitIntent,
+          strategyInputOverride: activeStrategyInputs,
+          toneInputOverride: activeToneInputs,
+          contentFocusOverride: activeContentFocus,
+        });
+        return;
+      }
+
       if (quickReply.suggestedFocus) {
         setActiveContentFocus(quickReply.suggestedFocus);
       }
@@ -1575,7 +1630,13 @@ function ChatPageContent() {
       setDraftInput(quickReply.value);
       setErrorMessage(null);
     },
-    [isSending],
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      activeToneInputs,
+      isSending,
+      requestAssistantReply,
+    ],
   );
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2062,6 +2123,41 @@ function ChatPageContent() {
                               </p>
                             </div>
                           ))}
+                        </div>
+                      ) : null}
+
+                      {message.plan ? (
+                        <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
+                          <div className="mb-3 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
+                              S
+                            </span>
+                            <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                              Strategy Outline
+                            </span>
+                          </div>
+                          <div className="space-y-4">
+                            <div>
+                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
+                              <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
+                              <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
+                            </div>
+                            <div className="flex gap-6">
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
+                                <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
+                              </div>
+                              {message.plan.hookType && (
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
+                                  <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ) : null}
 

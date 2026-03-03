@@ -231,6 +231,7 @@ export interface CreatorChatDebugDraftDiagnostic {
 export interface CreatorChatReplyResult {
   reply: string;
   angles: any[];
+  plan?: any;
   draft?: string | null;
   drafts: string[];
   draftArtifacts: CreatorDraftArtifact[];

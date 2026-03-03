@@ -2,7 +2,7 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 
 export const IntentClassificationSchema = z.object({
-  intent: z.enum(["coach", "ideate", "draft", "review", "edit", "answer_question"]),
+  intent: z.enum(["coach", "ideate", "draft", "review", "edit", "answer_question", "planner_feedback"]),
   needs_memory_update: z.boolean(),
   confidence: z.number().min(0).max(1),
 });
@@ -32,6 +32,10 @@ INTENTS (read carefully before deciding):
   4. User has ALREADY provided a topic/angle earlier in the conversation and now says something like "ok write it" or "go ahead" or even just provides a short answer to a probing question — they want a draft.
   NOT: Sending ONLY a quoted question with no actual answer — route to "coach".
   
+- "planner_feedback": User is explicitly responding to a strategy pitch or outline you just proposed.
+  e.g. "yeah that sounds good", "let's do the imposter syndrome angle", "write it", "sounds fire".
+  NOTE: Look at the recent history. If the bot just asked "how about a quick post about X? want me to draft that?", and the user says "yes", this is planner_feedback, NOT coach.
+  
 - "ideate": User asks for post ideas, angles, or inspiration.
   e.g. "give me some ideas", "what should I write about today?", "help me draft some post ideas"
   NOT: "write this post for me" (that is draft)
@@ -51,7 +55,7 @@ GOLDEN RULE: Look at the FULL conversation. If the user has ALREADY discussed a 
 
 Respond ONLY with valid JSON:
 {
-  "intent": "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question",
+  "intent": "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" | "planner_feedback",
   "needs_memory_update": boolean,
   "confidence": number // 0.0 to 1.0
 }

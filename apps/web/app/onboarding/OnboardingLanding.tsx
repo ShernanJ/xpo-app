@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -314,6 +315,12 @@ export default function OnboardingLanding() {
                 {errorMessage}
               </p>
             ) : null}
+
+            <div className="mt-4 text-center">
+              <Link href="/signin" className="text-sm text-zinc-500 hover:text-white transition-colors">
+                or sign in
+              </Link>
+            </div>
           </form>
 
           {isPreviewLoading ? (

@@ -1,5 +1,12 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
+import type { ConversationState, StrategyPlan } from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildGoalHydrationBlock,
+  buildStateHydrationBlock,
+} from "../prompts/promptHydrator";
 
 export const PlannerOutputSchema = z.object({
   objective: z.string(),
@@ -8,9 +15,10 @@ export const PlannerOutputSchema = z.object({
   mustInclude: z.array(z.string()),
   mustAvoid: z.array(z.string()),
   hookType: z.string(),
+  pitchResponse: z.string().describe("A conversational message pitching this outline to the user before we write it. e.g. 'I'm thinking we do an original post focusing on X. Sound good?'")
 });
 
-export type PlannerOutput = z.infer<typeof PlannerOutputSchema>;
+export type PlannerOutput = z.infer<typeof PlannerOutputSchema> & StrategyPlan;
 
 /**
  * High speed strategic planner. Defines exactly HOW a post will be structured
@@ -22,12 +30,25 @@ export async function generatePlan(
   activeConstraints: string[],
   recentHistory: string,
   activeDraft?: string,
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
 ): Promise<PlannerOutput | null> {
   const isEditing = !!activeDraft;
+  const goal = options?.goal || "audience growth";
+  const conversationState = options?.conversationState || "collecting_context";
+  const antiPatterns = options?.antiPatterns || [];
   const instruction = `
 You are the Lead Strategist for an elite X (Twitter) creator.
 ${isEditing ? `Your task is to take the user's request and formulate a precise plan to EDIT their existing draft.`
       : `Your task is to take the user's requested topic (or their answer to your previous question) and formulate a precise plan for a NEW short-form post.`}
+
+${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "plan")}
+${buildStateHydrationBlock(conversationState, "plan")}
+${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${activeDraft}\n\n` : ""}
 
@@ -59,7 +80,8 @@ Respond ONLY with a valid JSON matching this schema:
   "targetLane": "original", // or "reply" or "quote"
   "mustInclude": ["specific detail 1"],
   "mustAvoid": ["generic word 1"],
-  "hookType": "..."
+  "hookType": "...",
+  "pitchResponse": "Conversational pitch to the user..."
 }
   `.trim();
 
