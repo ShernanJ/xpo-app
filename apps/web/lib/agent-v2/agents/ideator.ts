@@ -25,6 +25,159 @@ export const IdeasMenuSchema = z.object({
 
 export type IdeasMenu = z.infer<typeof IdeasMenuSchema>;
 
+const GENERIC_IDEA_QUESTION_FRAGMENTS = [
+  "what project are you building",
+  "what's a project you're building",
+  "what is a project you're building",
+  "what have you worked on recently",
+  "what's something you've worked on recently",
+  "what's a recent win",
+  "what is a recent win",
+  "what's a common misconception",
+  "what is a common misconception",
+  "what's something you've learned",
+  "what is something you've learned",
+  "what's one thing you've learned",
+  "what do beginners get wrong",
+  "what's a hot take",
+  "what is a hot take",
+];
+
+const FOCUS_TOPIC_STOPWORDS = new Set([
+  "about",
+  "around",
+  "with",
+  "into",
+  "from",
+  "that",
+  "this",
+  "your",
+  "their",
+  "what",
+  "when",
+  "where",
+  "why",
+  "how",
+  "help",
+  "pick",
+  "sharper",
+  "angle",
+  "post",
+]);
+
+function cleanFocusTopic(value: string): string {
+  return value
+    .trim()
+    .replace(/^[@#]+/, "")
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+}
+
+function inferFocusTopic(userMessage: string, topicSummary: string | null): string | null {
+  const sources = [userMessage, topicSummary || ""].filter(Boolean);
+
+  for (const source of sources) {
+    const aboutMatch = source.match(
+      /\b(?:about|on|around|regarding|for)\s+([a-z0-9][a-z0-9\s/&'’-]{2,80})/i,
+    );
+
+    if (aboutMatch?.[1]) {
+      const cleaned = cleanFocusTopic(aboutMatch[1]);
+      if (cleaned) {
+        return cleaned;
+      }
+    }
+  }
+
+  const topicCandidate = cleanFocusTopic(topicSummary || "");
+  if (topicCandidate && topicCandidate.split(/\s+/).length <= 10) {
+    return topicCandidate;
+  }
+
+  const messageCandidate = cleanFocusTopic(userMessage);
+  if (messageCandidate && messageCandidate.split(/\s+/).length <= 8) {
+    return messageCandidate;
+  }
+
+  return null;
+}
+
+function extractFocusKeywords(focusTopic: string | null): string[] {
+  if (!focusTopic) {
+    return [];
+  }
+
+  return focusTopic
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((value) => value.trim())
+    .filter(
+      (value) =>
+        value.length > 2 &&
+        !FOCUS_TOPIC_STOPWORDS.has(value),
+    );
+}
+
+function looksGenericIdeaTitle(title: string): boolean {
+  const normalized = title.trim().toLowerCase();
+  return GENERIC_IDEA_QUESTION_FRAGMENTS.some((fragment) =>
+    normalized.includes(fragment),
+  );
+}
+
+function titleTouchesFocusTopic(title: string, focusTopic: string | null): boolean {
+  if (!focusTopic) {
+    return false;
+  }
+
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedFocus = focusTopic.trim().toLowerCase();
+  if (normalizedTitle.includes(normalizedFocus)) {
+    return true;
+  }
+
+  const keywords = extractFocusKeywords(focusTopic);
+  return keywords.some((keyword) => normalizedTitle.includes(keyword));
+}
+
+function buildAnchoredQuestion(focusTopic: string, index: number): string {
+  const patterns = [
+    `what's the biggest tension you see with ${focusTopic}?`,
+    `what do most people get wrong about ${focusTopic}?`,
+    `where does ${focusTopic} break down in real life?`,
+    `what's one thing you've learned the hard way about ${focusTopic}?`,
+    `what part of ${focusTopic} feels most misunderstood?`,
+  ];
+
+  return patterns[index % patterns.length];
+}
+
+function personalizeAngles(
+  angles: IdeasMenu["angles"],
+  focusTopic: string | null,
+): IdeasMenu["angles"] {
+  if (!focusTopic) {
+    return angles;
+  }
+
+  return angles.map((angle, index) => {
+    const cleanTitle = angle.title.trim().replace(/\s+/g, " ");
+
+    if (cleanTitle && titleTouchesFocusTopic(cleanTitle, focusTopic)) {
+      return angle;
+    }
+
+    if (!cleanTitle || looksGenericIdeaTitle(cleanTitle)) {
+      return {
+        ...angle,
+        title: buildAnchoredQuestion(focusTopic, index),
+      };
+    }
+
+    return angle;
+  });
+}
+
 /**
  * Generates post ideas anchored to the user's actual writing, topic, and niche.
  * Sounds like a friend suggesting ideas, not a template machine.
@@ -45,6 +198,7 @@ export async function generateIdeasMenu(
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
+  const focusTopic = inferFocusTopic(userMessage, topicSummary);
 
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
@@ -55,6 +209,15 @@ export async function generateIdeasMenu(
   const anchorContext = hasRealAnchors
     ? `User's recent post topics (use these as the seed):\n${topicAnchors.slice(0, 3).map((a) => `- ${a.slice(0, 120)}`).join("\n")}`
     : `No post history found yet. Use the topic they gave you: "${topicSummary || userMessage}"`;
+  const focusTopicBlock = focusTopic
+    ? `CURRENT FOCUS TOPIC:
+- ${focusTopic}
+- Every angle must stay recognizably inside this topic.
+- Do NOT reset back to generic prompts like "what project are you building?" when a topic is already present.
+- If a question could fit almost any niche, it is too generic.
+- At least 2 angle titles should clearly reference this topic or its core tension.`
+    : `CURRENT FOCUS TOPIC:
+- No tight topic yet. You may stay broader, but still avoid generic filler questions.`;
 
   const instruction = `
 You are an elite X (Twitter) content strategist collaborating directly with a creator.
@@ -76,11 +239,14 @@ You MUST follow this exact structure for your output:
    - subtopics: A short list of talking points they should include in their response.
 3. Provide a "close" sentence asking which one they want to flesh out.
 
+${focusTopicBlock}
+
 ${anchorContext}
 
 NICHE ENFORCEMENT:
 - Ideas MUST be highly personalized to their niche, but keep the questions BROAD enough that anyone in that niche could answer them.
 - NEVER invent generic topics like "5 ways to be productive".
+- If the user already gave a concrete topic, every angle should feel like a sharper slice of that topic, not a total reset.
 - Do not invent hyper-specific emotional scenarios (like "the moment you cried"). Keep it professional but casual.
 
 ${userContextString || ""}
@@ -110,7 +276,12 @@ Respond ONLY with valid JSON matching the exact schema requirements.
   if (!data) return null;
 
   try {
-    return IdeasMenuSchema.parse(data);
+    const parsed = IdeasMenuSchema.parse(data);
+
+    return {
+      ...parsed,
+      angles: personalizeAngles(parsed.angles, focusTopic),
+    };
   } catch (err) {
     console.error("Ideator validation failed.", err);
     console.error("RAW DATA RETURNED:", JSON.stringify(data, null, 2));
