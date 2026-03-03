@@ -1,3 +1,5 @@
+import type { ClarificationState } from "../contracts/chat";
+
 function looksLikeSemanticCorrection(message: string): boolean {
   const normalized = message.trim().toLowerCase();
 
@@ -91,4 +93,36 @@ export function inferCorrectionRepairQuestion(
   }
 
   return `got you. what's the exact point about ${topic} i should lock onto before i rewrite it?`;
+}
+
+function normalizeRepairDetail(message: string): string {
+  return message
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.?!,]+$/, "");
+}
+
+export function buildSemanticRepairState(topicSummary: string | null): ClarificationState {
+  return {
+    branchKey: "semantic_repair",
+    stepKey: "await_exact_fix",
+    seedTopic: topicSummary,
+    options: [],
+  };
+}
+
+export function buildSemanticRepairDirective(
+  userMessage: string,
+  topicSummary: string | null,
+): { constraint: string; rewriteRequest: string } {
+  const detail = normalizeRepairDetail(userMessage);
+  const topic = topicSummary?.trim().replace(/[.?!,]+$/, "") || "the topic";
+  const constraint = `Correction lock: ${detail}`;
+
+  return {
+    constraint,
+    rewriteRequest:
+      `edit the current draft to reflect this exact correction about ${topic}: ${detail}. ` +
+      "remove the old assumption and keep this relationship accurate.",
+  };
 }

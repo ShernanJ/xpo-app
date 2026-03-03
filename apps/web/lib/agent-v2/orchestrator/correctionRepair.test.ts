@@ -1,4 +1,8 @@
-import { inferCorrectionRepairQuestion } from "./correctionRepair";
+import {
+  buildSemanticRepairDirective,
+  buildSemanticRepairState,
+  inferCorrectionRepairQuestion,
+} from "./correctionRepair";
 
 function runTest() {
   console.log(
@@ -21,6 +25,19 @@ function runTest() {
     "skips when the user already corrected the meaning:",
     inferCorrectionRepairQuestion(
       "you flipped it around its my extension that works for stanley",
+      "my extension for stanley",
+    ),
+  );
+
+  console.log(
+    "repair state:",
+    buildSemanticRepairState("my extension for stanley"),
+  );
+
+  console.log(
+    "repair directive:",
+    buildSemanticRepairDirective(
+      "it's my extension that works for stanley and converts the post after stanley writes it",
       "my extension for stanley",
     ),
   );

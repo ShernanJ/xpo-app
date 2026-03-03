@@ -103,6 +103,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 6. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 7. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 8. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target. Stay concise unless the plan clearly calls for more detail.
+9. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
 
 Respond ONLY with a valid JSON matching this schema:
 {

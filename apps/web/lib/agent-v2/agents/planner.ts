@@ -73,7 +73,8 @@ ${isEditing ? `REQUIREMENTS:
 1. Identify EXACTLY what needs to change in the existing draft to satisfy the user's request.
 2. Keep the core angle intact unless the user explicitly asks to change it.
 3. If they ask to remove something (e.g. emojis), put that in "mustAvoid".
-4. If they ask to add something, put that in "mustInclude".` :
+4. If they ask to add something, put that in "mustInclude".
+5. If any active session constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not reintroduce the old assumption.` :
       `REQUIREMENTS:
 1. Identify a compelling, non-obvious angle for this topic.
 2. Choose a target lane (is this an original thought, or pushing back on common advice?)

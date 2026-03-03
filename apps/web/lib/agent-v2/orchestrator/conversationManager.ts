@@ -28,7 +28,11 @@ import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { getXCharacterLimitForAccount } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
-import { inferCorrectionRepairQuestion } from "./correctionRepair";
+import {
+  buildSemanticRepairDirective,
+  buildSemanticRepairState,
+  inferCorrectionRepairQuestion,
+} from "./correctionRepair";
 import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
@@ -622,6 +626,30 @@ User Profile Summary:
     userMessage,
     memory.pendingPlan?.deliveryPreference || "balanced",
   );
+  let draftInstruction = userMessage;
+
+  if (
+    !explicitIntent &&
+    activeDraft &&
+    memory.clarificationState?.branchKey === "semantic_repair"
+  ) {
+    const repairDirective = buildSemanticRepairDirective(
+      userMessage,
+      memory.topicSummary,
+    );
+    const nextConstraints = Array.from(
+      new Set([...memory.activeConstraints, repairDirective.constraint]),
+    );
+
+    await writeMemory({
+      activeConstraints: nextConstraints,
+      clarificationState: null,
+      conversationState: "editing",
+    });
+
+    mode = "edit";
+    draftInstruction = repairDirective.rewriteRequest;
+  }
 
   if (
     mode === "planner_feedback" &&
@@ -942,7 +970,7 @@ User Profile Summary:
     if (correctionRepairQuestion) {
       await writeMemory({
         conversationState: "needs_more_context",
-        clarificationState: null,
+        clarificationState: buildSemanticRepairState(memory.topicSummary),
         assistantTurnCount: nextAssistantTurnCount,
       });
 
@@ -1055,7 +1083,7 @@ User Profile Summary:
       const historicalTexts = pastPosts.map((post) => post.text);
 
       const plan = await generatePlan(
-        userMessage,
+        draftInstruction,
         memory.topicSummary,
         memory.activeConstraints,
         effectiveContext,
