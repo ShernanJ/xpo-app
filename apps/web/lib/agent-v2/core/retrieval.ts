@@ -12,6 +12,7 @@ export interface RetrievalResult {
  */
 export async function retrieveAnchors(
   userId: string,
+  xHandle: string,
   focusTopic: string,
   limit: number = 2
 ): Promise<RetrievalResult> {
@@ -40,6 +41,7 @@ export async function retrieveAnchors(
     const relevantPosts = await prisma.post.findMany({
       where: {
         userId,
+        xHandle,
         OR: orConditions,
       },
       orderBy: { createdAt: "desc" },

@@ -16,9 +16,11 @@ datasource db {
 model User {
   id            String    @id @default(uuid())
   handle        String?   @unique
+  activeXHandle String?
   name          String?
   email         String?   @unique
   emailVerified DateTime?
+  password      String?
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -82,6 +84,7 @@ model OnboardingRun {
 model ChatThread {
   id        String   @id @default(cuid())
   userId    String
+  xHandle   String?
   title     String   @default("New Chat")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -105,6 +108,7 @@ model ChatMessage {
 model Post {
   id        String   @id // X Post ID
   userId    String?
+  xHandle   String?
   text      String
   lane      String // "original" | "reply" | "quote"
   metrics   Json // { likeCount, replyCount, repostCount, quoteCount }
@@ -133,6 +137,7 @@ model ConversationMemory {
 model VoiceProfile {
   id        String   @id @default(uuid())
   userId    String
+  xHandle   String?
   niche     String?
   styleCard Json // Parsed CreatorStyleCard
   createdAt DateTime @default(now())

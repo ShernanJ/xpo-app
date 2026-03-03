@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   });
 
   // 2b. Sync posts to Prisma so retrieval and style profiling can use them
-  await syncOnboardingPostsToDb(userId, result).catch((err) =>
+  await syncOnboardingPostsToDb(userId, parsed.data.account, result).catch((err) =>
     console.error("Failed to sync posts to DB:", err),
   );
   const backfill = await maybeEnqueueOnboardingBackfillJob({

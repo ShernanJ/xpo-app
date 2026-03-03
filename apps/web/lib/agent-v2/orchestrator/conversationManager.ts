@@ -13,7 +13,9 @@ import { prisma } from "../../db";
 
 export interface OrchestratorInput {
   userId: string;
-  runId: string;
+  xHandle?: string | null;
+  runId?: string;
+  threadId?: string;
   userMessage: string;
   recentHistory: string; // Condensed history for LLM context
   explicitIntent?: "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" | null;
@@ -33,12 +35,13 @@ export type OrchestratorResponse = {
 export async function manageConversationTurn(
   input: OrchestratorInput
 ): Promise<OrchestratorResponse> {
-  const { userId, runId, userMessage, recentHistory, explicitIntent, activeDraft } = input;
+  const { userId, xHandle, runId, threadId, userMessage, recentHistory, explicitIntent, activeDraft } = input;
+  const effectiveXHandle = xHandle || "default";
 
   // 1. Fetch Memory
-  let memory = await getConversationMemory(runId);
+  let memory = await getConversationMemory({ runId, threadId });
   if (!memory) {
-    memory = await createConversationMemory({ runId, userId: userId === "anonymous" ? null : userId });
+    memory = await createConversationMemory({ runId, threadId, userId: userId === "anonymous" ? null : userId });
   }
   const activeConstraints = memory?.activeConstraints as string[] || [];
   const topicSummary = memory?.topicSummary || null;
@@ -62,6 +65,7 @@ export async function manageConversationTurn(
     const newConstraints = [...activeConstraints, userMessage];
     await updateConversationMemory({
       runId,
+      threadId,
       activeConstraints: newConstraints,
     });
     activeConstraints.push(userMessage); // Update local state for this turn
@@ -81,8 +85,8 @@ export async function manageConversationTurn(
   }
 
   // 5. Pre-fetch context required for generation, regardless of mode (Persona & Retrieval)
-  const styleCard = await generateStyleProfile(userId, 20); // Dynamic profile
-  const anchors = await retrieveAnchors(userId, userMessage || topicSummary || "growth"); // Historical posts
+  const styleCard = await generateStyleProfile(userId, effectiveXHandle, 20); // Dynamic profile
+  const anchors = await retrieveAnchors(userId, effectiveXHandle, userMessage || topicSummary || "growth"); // Historical posts
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,7 +108,7 @@ User Profile Summary:
 
       // Update memory concrete count if they actually answered something
       if (userMessage.length > 15) {
-        await updateConversationMemory({ runId, concreteAnswerCount: concreteAnswerCount + 1 });
+        await updateConversationMemory({ runId, threadId, concreteAnswerCount: concreteAnswerCount + 1 });
       }
 
       return {
@@ -118,7 +122,7 @@ User Profile Summary:
       const ideas = await generateIdeasMenu(userMessage, topicSummary, recentHistory, styleCard, anchors.topicAnchors, userContextString);
 
       // Update memory summary 
-      await updateConversationMemory({ runId, topicSummary: userMessage });
+      await updateConversationMemory({ runId, threadId, topicSummary: userMessage });
 
       return {
         mode: "ideate",
@@ -161,7 +165,7 @@ User Profile Summary:
       }
 
       // Update memory
-      await updateConversationMemory({ runId, topicSummary: plan.objective });
+      await updateConversationMemory({ runId, threadId, topicSummary: plan.objective });
 
       return {
         mode: "draft",

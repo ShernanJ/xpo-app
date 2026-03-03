@@ -34,7 +34,7 @@ export async function GET(
       : null;
 
     // Get tone guidelines from style card, default gracefully
-    const styleCard = await generateStyleProfile("anonymous", 20);
+    const styleCard = await generateStyleProfile("anonymous", accountName, 20);
     const toningCues = styleCard
       ? `Pacing: ${styleCard.pacing}. Formatting: ${styleCard.formattingRules.join(", ")}`
       : "Mirror a casual, lowercase peer.";

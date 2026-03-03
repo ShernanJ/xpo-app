@@ -1,8 +1,10 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import { ChevronUp, Check, LogOut, Plus } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -441,9 +443,28 @@ function AssistantTypingBubble(props: { status?: string | null }) {
 }
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center bg-black text-white">
+        <div className="animate-pulse text-zinc-500">Loading workspace...</div>
+      </div>
+    }>
+      <ChatPageContent />
+    </Suspense>
+  );
+}
+
+function ChatPageContent() {
+  const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId")?.trim() ?? "";
+  const threadIdParam = searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
+
+  const accountName = session?.user?.activeXHandle ?? null;
+
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
+  const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
 
   // Guard against double fetching welcome message
   const welcomeFetchedRef = useRef(false);
@@ -454,6 +475,42 @@ export default function ChatPage() {
   const [draftInput, setDraftInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountName) return;
+    fetch(`/api/creator/v2/threads?xHandle=${encodeURIComponent(accountName)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok && data.data?.threads) {
+          setChatThreads(data.data.threads);
+        }
+      })
+      .catch(err => console.error("Failed to fetch threads:", err));
+  }, [accountName]);
+
+  const handleNewChat = useCallback(async () => {
+    if (!accountName) return;
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/creator/v2/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ xHandle: accountName })
+      });
+      const data = await res.json();
+      if (data.ok && data.data?.thread) {
+        setChatThreads((prev) => [data.data.thread, ...prev]);
+        setActiveThreadId(data.data.thread.id);
+        setMessages([]); // Clear chat history for the new thread
+        setDraftInput("");
+        // Optionally update URL: window.history.pushState(null, '', `?threadId=${data.data.thread.id}&account=${accountName}`)
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accountName]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [providerPreference, setProviderPreference] =
@@ -487,6 +544,46 @@ export default function ChatPage() {
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
     Record<string, number>
   >({});
+
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [availableHandles, setAvailableHandles] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/creator/profile/handles")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && data.data?.handles) {
+          setAvailableHandles(data.data.handles);
+        }
+      })
+      .catch((err) => console.error("Failed to load available handles:", err));
+  }, []);
+
+  const switchActiveHandle = useCallback(async (handle: string) => {
+    if (handle === accountName) return;
+
+    setAccountMenuOpen(false);
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const resp = await fetch("/api/creator/profile/handles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle }),
+      });
+      if (!resp.ok) {
+        throw new Error("Failed to switch handle");
+      }
+
+      // Let reload clear state natively. Reusing load workspace breaks the NextAuth context boundary without a hard reload.
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Could not switch to account @" + handle);
+      setIsLoading(false);
+    }
+  }, [accountName]);
 
   const loadWorkspace = useCallback(
     async (
@@ -807,6 +904,12 @@ export default function ChatPage() {
       return [];
     }
 
+    const recentItems = chatThreads.slice(0, 10).map((t) => ({
+      id: t.id,
+      label: t.title || "Chat",
+      meta: new Date(t.updatedAt).toLocaleDateString(),
+    }));
+
     const strategyItems = context.strategyDelta.adjustments.slice(0, 3).map((item) => ({
       id: `${item.area}-${item.direction}`,
       label: `${formatEnumLabel(item.direction)} ${formatAreaLabel(item.area)}`,
@@ -821,12 +924,12 @@ export default function ChatPage() {
 
     return [
       {
-        section: "Active",
-        items: [
+        section: "Chats",
+        items: recentItems.length > 0 ? recentItems : [
           {
-            id: "current-workspace",
+            id: activeThreadId ?? "current-workspace",
             label: contract.planner.primaryAngle,
-            meta: formatEnumLabel(contract.planner.targetLane),
+            meta: "Active",
           },
         ],
       },
@@ -1028,6 +1131,7 @@ export default function ChatPage() {
           },
           body: JSON.stringify({
             runId,
+            threadId: activeThreadId,
             ...(trimmedPrompt ? { message: trimmedPrompt } : {}),
             history,
             provider: providerPreference,
@@ -1240,7 +1344,6 @@ export default function ChatPage() {
     if (
       !context ||
       !contract ||
-      messages.length > 0 ||
       isSending ||
       !activeStrategyInputs ||
       !activeToneInputs
@@ -1248,49 +1351,73 @@ export default function ChatPage() {
       return;
     }
 
-    // Prevent double-fetching in React Strict Mode
-    if (welcomeFetchedRef.current) return;
-    welcomeFetchedRef.current = true;
+    async function initializeThread() {
+      // If we have an active thread, try loading its history
+      if (activeThreadId) {
+        try {
+          const res = await fetch(`/api/creator/v2/threads/${activeThreadId}`);
+          const data = await res.json();
+          if (data.ok && data.data?.messages?.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const mappedMessages: ChatMessage[] = data.data.messages.map((m: any) => ({
+              id: m.id,
+              role: m.role as "assistant" | "user",
+              content: m.content,
+              ...(m.data || {}),
+            }));
+            setMessages(mappedMessages);
+            return;
+          }
+        } catch (e) {
+          console.error("Failed to fetch historical messages", e);
+        }
+      }
 
-    async function fetchWelcome() {
-      const accountName = searchParams.get("account")?.trim() || "";
-      try {
-        setMessages([{
-          id: `assistant-welcome-loading`,
-          role: "assistant",
-          content: "",
-          isStreaming: true, // Show typing indicator
-        }]);
+      // If no history was loaded, and the screen is blank, fetch the Welcome message
+      if (messages.length === 0) {
+        if (welcomeFetchedRef.current) return;
+        welcomeFetchedRef.current = true;
 
-        const res = await fetch(`/api/creator/v2/chat/welcome?runId=${runId}&account=${encodeURIComponent(accountName)}`);
-        const data = await res.json();
-
-        if (data.ok && data.data?.response) {
+        const accountName = searchParams.get("account")?.trim() || "";
+        try {
           setMessages([{
-            id: `assistant-welcome-${Date.now()}`,
+            id: `assistant-welcome-loading`,
             role: "assistant",
-            content: data.data.response,
+            content: "",
+            isStreaming: true, // Show typing indicator
           }]);
-        } else {
-          // Fallback if the LLM fails
+
+          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${runId}&account=${encodeURIComponent(accountName)}`);
+          const data = await res.json();
+
+          if (data.ok && data.data?.response) {
+            setMessages([{
+              id: `assistant-welcome-${Date.now()}`,
+              role: "assistant",
+              content: data.data.response,
+            }]);
+          } else {
+            // Fallback if the LLM fails
+            setMessages([{
+              id: `assistant-welcome-fallback`,
+              role: "assistant",
+              content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+            }]);
+          }
+        } catch (err) {
+          console.error("Failed to fetch welcome message", err);
           setMessages([{
             id: `assistant-welcome-fallback`,
             role: "assistant",
             content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
           }]);
         }
-      } catch (err) {
-        console.error("Failed to fetch welcome message", err);
-        setMessages([{
-          id: `assistant-welcome-fallback`,
-          role: "assistant",
-          content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
-        }]);
       }
     }
 
-    void fetchWelcome();
+    void initializeThread();
   }, [
+    activeThreadId,
     searchParams,
     activeContentFocus,
     activeStrategyInputs,
@@ -1457,6 +1584,7 @@ export default function ChatPage() {
           <div className="px-3 pt-3">
             <button
               type="button"
+              onClick={handleNewChat}
               className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${sidebarOpen ? "justify-start" : "justify-center"
                 }`}
             >
@@ -1479,7 +1607,12 @@ export default function ChatPage() {
                       <button
                         key={item.id}
                         type="button"
-                        className="block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03]"
+                        onClick={() => {
+                          if (section.section === "Chats" && item.id !== "current-workspace") {
+                            setActiveThreadId(item.id);
+                          }
+                        }}
+                        className={`block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
                       >
                         <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
                           {item.label}
@@ -1498,7 +1631,12 @@ export default function ChatPage() {
                   <button
                     key={item.id}
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                    onClick={() => {
+                      if (item.id !== "current-workspace") {
+                        setActiveThreadId(item.id);
+                      }
+                    }}
+                    className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white ${activeThreadId === item.id ? "ring-1 ring-white/20" : ""}`}
                     title={item.label}
                   >
                     {item.label.slice(0, 2)}
@@ -1508,19 +1646,81 @@ export default function ChatPage() {
             )}
           </div>
 
-          <div className="border-t border-white/10 px-3 py-4">
-            {sidebarOpen && context ? (
-              <div className="rounded-2xl border border-white/10 px-3 py-3">
-                <p className="text-sm font-semibold text-white">@{context.account}</p>
-                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                </p>
-              </div>
+          <div className="relative border-t border-white/10 px-3 py-4">
+            {sidebarOpen ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                  className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold">
+                      {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
+                    </div>
+                    <div className="flex flex-col items-start overflow-hidden text-left">
+                      <span className="truncate text-xs font-semibold text-zinc-100 w-full">
+                        {session?.user?.email ?? "Loading..."}
+                      </span>
+                      {accountName ? (
+                        <span className="truncate text-[10px] text-zinc-500 w-full">
+                          @{accountName}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
+                </button>
+
+                {accountMenuOpen && (
+                  <div className="absolute bottom-[calc(100%+8px)] left-2 right-2 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl">
+                    <div className="max-h-[200px] overflow-y-auto px-1 py-1">
+                      <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                        X Accounts
+                      </p>
+                      {availableHandles.map((handleStr) => (
+                        <button
+                          key={handleStr}
+                          onClick={() => switchActiveHandle(handleStr)}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                        >
+                          <span className="truncate">@{handleStr}</span>
+                          {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
+                        </button>
+                      ))}
+                      <Link
+                        href="/onboarding"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white mt-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>Add Account</span>
+                      </Link>
+                    </div>
+
+                    <div className="my-1 h-px bg-white/10" />
+
+                    <div className="px-1 py-1">
+                      <button
+                        onClick={() => signOut({ callbackUrl: "/" })}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        <span>Sign out</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="flex justify-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-sm font-semibold text-white">
-                  {context?.account.slice(0, 2).toUpperCase() ?? "X"}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black text-sm font-bold transition hover:opacity-80"
+                  aria-label="Open account menu"
+                >
+                  {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
+                </button>
               </div>
             )}
           </div>

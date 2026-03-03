@@ -4,7 +4,11 @@ import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversation
 import type { CreatorChatReplyResult } from "@/lib/onboarding/chatAgent";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/authOptions";
+
 interface CreatorChatRequest extends Record<string, unknown> {
+  threadId?: unknown;
   runId?: unknown;
   message?: unknown;
   history?: unknown;
@@ -14,26 +18,34 @@ interface CreatorChatRequest extends Record<string, unknown> {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
+  }
+
   let body: CreatorChatRequest;
 
   try {
     body = (await request.json()) as CreatorChatRequest;
   } catch {
     return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "Request body must be valid JSON." }] },
+      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
       { status: 400 },
     );
   }
 
+  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
-  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const identifier = threadId || runId;
 
-  if (!runId) {
+  if (!identifier) {
     return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "runId is required." }] },
+      { ok: false, errors: [{ field: "threadId", message: "threadId is required." }] },
       { status: 400 },
     );
   }
+
+  const message = typeof body.message === "string" ? body.message.trim() : "";
 
   const intent = typeof body.intent === "string" ? body.intent.trim() : "";
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
@@ -65,12 +77,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-  if (!storedRun) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "Onboarding run not found." }] },
-      { status: 404 },
-    );
+  let storedThread = null;
+  let storedRun = null;
+
+  if (threadId) {
+    storedThread = await prisma.chatThread.findUnique({ where: { id: threadId } });
+    if (!storedThread || storedThread.userId !== session.user.id) {
+      return NextResponse.json(
+        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
+        { status: 404 },
+      );
+    }
+  } else if (runId) {
+    storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+    if (!storedRun) {
+      return NextResponse.json(
+        { ok: false, errors: [{ field: "runId", message: "Onboarding run not found." }] },
+        { status: 404 },
+      );
+    }
   }
 
   // Format recent history for V2 Orchestrator
@@ -89,14 +114,23 @@ export async function POST(request: NextRequest) {
   const activeDraft = typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined;
 
   try {
-    // Resolve userId from the session cookie (set at onboarding time)
-    const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    const session = sessionToken ? await verifySessionToken(sessionToken) : null;
-    const effectiveUserId = session?.userId || storedRun.userId || "anonymous";
+    const effectiveUserId = session.user.id;
+
+    if (storedThread) {
+      await prisma.chatMessage.create({
+        data: {
+          threadId: storedThread.id,
+          role: "user",
+          content: effectiveMessage,
+        }
+      });
+    }
 
     const result = await manageConversationTurn({
       userId: effectiveUserId,
-      runId: runId,
+      xHandle: storedThread?.xHandle || null, // Pipeline context isolation
+      threadId: storedThread?.id,
+      runId: storedRun?.id,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
       explicitIntent: ["coach", "ideate", "draft", "review", "edit", "answer_question"].includes(intent) ? intent as "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" : null,
@@ -149,6 +183,22 @@ export async function POST(request: NextRequest) {
         voiceFidelity: "balanced",
       }
     };
+
+    if (storedThread) {
+      await prisma.chatMessage.create({
+        data: {
+          threadId: storedThread.id,
+          role: "assistant",
+          content: mappedData.reply,
+          data: mappedData as any,
+        }
+      });
+
+      await prisma.chatThread.update({
+        where: { id: storedThread.id },
+        data: { updatedAt: new Date() }
+      });
+    }
 
     return NextResponse.json(
       {

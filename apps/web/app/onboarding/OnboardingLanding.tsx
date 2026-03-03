@@ -44,9 +44,11 @@ interface OnboardingPreviewFailure {
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
 
 const LOADING_STEPS = [
-  "Finding profile",
-  "Reading recent posts",
-  "Building your growth snapshot",
+  "collecting your posts...",
+  "understanding how you speak...",
+  "mapping your audience...",
+  "analyzing your performance...",
+  "setting up your workspace...",
 ] as const;
 
 function normalizeHandle(value: string): string {
@@ -172,134 +174,55 @@ export default function OnboardingLanding() {
     setIsLoading(true);
     setErrorMessage(null);
 
-    const payload: OnboardingInput = {
-      account: trimmedAccount,
-      goal: "followers",
-      timeBudgetMinutes: 30,
-      tone: {
-        casing: "normal",
-        risk: "safe",
-      },
-      transformationMode: "optimize",
-      transformationModeSource: "default",
-      postingCadenceCapacity: "1_per_day",
-      replyBudgetPerDay: "5_15",
-      scrapeFreshness: "always",
-    };
-
-    try {
-      const response = await fetch("/api/onboarding/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data: OnboardingRunResponse = await response.json();
-      if (!response.ok || !data.ok) {
-        setErrorMessage(
-          data.ok ? "Could not analyze this account." : (data.errors[0]?.message ?? "Could not analyze this account."),
-        );
-        return;
-      }
-
-      const params = new URLSearchParams({
-        runId: data.runId,
-        account: trimmedAccount,
-      });
-
-      if (data.backfill?.jobId) {
-        params.set("backfillJobId", data.backfill.jobId);
-      }
-
-      router.push(`/chat?${params.toString()}`);
-    } catch {
-      setErrorMessage("Network error. Check that the app is running.");
-    } finally {
-      setIsLoading(false);
-    }
+    // Instead of actually pinging the backend scraper, we just play the satisfying animation 
+    // for a few seconds to build anticipation, then pass the handle to `/login` to secure the account.
+    setTimeout(() => {
+      const params = new URLSearchParams({ xHandle: trimmedAccount });
+      router.push(`/login?${params.toString()}`);
+    }, 6000);
   }
 
   if (isLoading) {
     return (
       <XShell>
-        <section className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-center px-6 py-12 sm:py-20">
-          <div className="space-y-2 text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-zinc-500">
-              X Growth Engine
-            </p>
-            <h1 className="font-mono text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-              Analyzing @{account.trim()}
-            </h1>
-            <p className="mx-auto max-w-xl text-sm leading-7 text-zinc-400">
-              Pulling the signal from recent posts and building the working model.
-            </p>
-          </div>
-
-          <div className="mt-10 rounded-[1.75rem] border border-white/10 bg-white/[0.03] px-6 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-            <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full border border-white/10 bg-white/[0.04]">
-              <svg viewBox="0 0 120 120" className="h-16 w-16" aria-hidden="true">
-                <circle
-                  cx="60"
-                  cy="60"
-                  r="42"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.12)"
-                  strokeWidth="10"
+        <section className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-6 py-12 sm:py-20 animate-in fade-in duration-700">
+          <div className="flex flex-col items-center space-y-6">
+            <div className="relative flex h-32 w-32 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-white/20 bg-white/5 text-sm font-semibold text-white shadow-[0_0_40px_rgba(255,255,255,0.1)] transition-transform duration-1000 scale-110">
+              {preview?.avatarUrl ? (
+                <div
+                  className="h-full w-full bg-cover bg-center"
+                  style={{ backgroundImage: `url(${preview.avatarUrl})` }}
+                  role="img"
+                  aria-label={`${preview.name} profile photo`}
                 />
-                <circle
-                  cx="60"
-                  cy="60"
-                  r="42"
-                  fill="none"
-                  stroke="#ffffff"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                  strokeDasharray="160 264"
-                >
-                  <animateTransform
-                    attributeName="transform"
-                    type="rotate"
-                    from="0 60 60"
-                    to="360 60 60"
-                    dur="1.2s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
-              </svg>
+              ) : (
+                preview?.name?.slice(0, 2).toUpperCase() || account.slice(0, 2).toUpperCase()
+              )}
             </div>
 
-            <ol className="mt-8 space-y-3">
-              {LOADING_STEPS.map((step, index) => {
-                const isActive = index === loadingStepIndex;
-                const isComplete = index < loadingStepIndex;
+            <div className="text-center space-y-2">
+              <h1 className="font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                {preview?.name || account.trim()}
+              </h1>
+              <p className="text-lg font-medium tracking-[0.1em] text-zinc-400">
+                @{preview?.username || normalizedAccount}
+              </p>
+            </div>
+          </div>
 
-                return (
-                  <li
-                    key={step}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3"
-                  >
-                    <span
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                        isComplete || isActive
-                          ? "bg-white text-black"
-                          : "bg-white/5 text-zinc-500"
-                      }`}
-                    >
-                      {isComplete ? "✓" : index + 1}
-                    </span>
-                    <span
-                      className={`text-sm ${
-                        isActive ? "font-medium text-white" : "text-zinc-500"
-                      }`}
-                    >
-                      {step}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
+          <div className="mt-14 w-full max-w-md text-center">
+            <div className="h-8 transition-all duration-500 ease-in-out">
+              <p className="text-sm font-medium tracking-[0.1em] text-white animate-pulse">
+                {LOADING_STEPS[loadingStepIndex]}
+              </p>
+            </div>
+
+            <div className="mx-auto mt-6 h-1 w-48 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full bg-white transition-all duration-[1400ms] ease-linear"
+                style={{ width: `${((loadingStepIndex + 1) / LOADING_STEPS.length) * 100}%` }}
+              />
+            </div>
           </div>
         </section>
         {autofillStyles}

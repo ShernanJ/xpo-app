@@ -37,7 +37,7 @@ async function runTest() {
   console.log("Updated memory constraints:", updated?.activeConstraints);
 
   console.log("3. Fetching memory...");
-  const fetched = await getConversationMemory(testRunId);
+  const fetched = await getConversationMemory({ runId: testRunId });
   console.log("Fetched memory concreteAnswerCount:", fetched?.concreteAnswerCount);
 
   console.log("4. Cleaning up test data...");

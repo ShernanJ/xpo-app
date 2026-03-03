@@ -2,26 +2,29 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 
 export interface CreateMemoryArgs {
-  runId: string;
+  runId?: string;
+  threadId?: string;
   userId?: string | null;
 }
 
 export interface UpdateMemoryArgs {
-  runId: string;
+  runId?: string;
+  threadId?: string;
   topicSummary?: string | null;
   activeConstraints?: string[];
   concreteAnswerCount?: number;
   lastDraftArtifactId?: string | null;
 }
 
-export async function getConversationMemory(runId: string) {
+export async function getConversationMemory({ runId, threadId }: { runId?: string, threadId?: string }) {
+  if (!runId && !threadId) return null;
   try {
     const memory = await prisma.conversationMemory.findFirst({
-      where: { runId },
+      where: threadId ? { threadId } : { runId },
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to fetch memory for runId ${runId}:`, error);
+    console.error(`Failed to fetch memory for thread ${threadId} / run ${runId}:`, error);
     return null;
   }
 }
@@ -31,6 +34,7 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
     const memory = await prisma.conversationMemory.create({
       data: {
         runId: args.runId,
+        threadId: args.threadId,
         userId: args.userId,
         activeConstraints: [] as unknown as Prisma.InputJsonValue,
         concreteAnswerCount: 0,
@@ -38,20 +42,20 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to create memory for runId ${args.runId}:`, error);
+    console.error(`Failed to create memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;
   }
 }
 
 export async function updateConversationMemory(args: UpdateMemoryArgs) {
+  if (!args.runId && !args.threadId) return null;
   try {
-    // Find first since runId isn't marked @unique in the prisma schema
     const existing = await prisma.conversationMemory.findFirst({
-      where: { runId: args.runId },
+      where: args.threadId ? { threadId: args.threadId } : { runId: args.runId },
     });
 
     if (!existing) {
-      console.warn(`Attempted to update non-existent memory for runId ${args.runId}`);
+      console.warn(`Attempted to update non-existent memory for thread ${args.threadId} / run ${args.runId}`);
       return null;
     }
 
@@ -67,7 +71,8 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to update memory for runId ${args.runId}:`, error);
+    console.error(`Failed to update memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;
   }
 }
+

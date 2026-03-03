@@ -67,6 +67,7 @@ export async function upsertUserByHandle(handle: string): Promise<string> {
  */
 export async function syncOnboardingPostsToDb(
   userId: string,
+  xHandle: string,
   result: OnboardingResult,
 ): Promise<void> {
   const postsToUpsert: XPublicPost[] = [
@@ -77,6 +78,7 @@ export async function syncOnboardingPostsToDb(
 
   if (postsToUpsert.length === 0) return;
 
+  const normalizedXHandle = xHandle.replace(/^@/, "").toLowerCase();
   let lane: "original" | "reply" | "quote" = "original";
   const upsertOps = postsToUpsert.map((post) => {
     if (result.recentReplyPosts?.some((r) => r.id === post.id)) lane = "reply";
@@ -85,10 +87,11 @@ export async function syncOnboardingPostsToDb(
 
     return prisma.post.upsert({
       where: { id: post.id },
-      update: { userId, metrics: post.metrics as unknown as Prisma.InputJsonObject },
+      update: { userId, xHandle: normalizedXHandle, metrics: post.metrics as unknown as Prisma.InputJsonObject },
       create: {
         id: post.id,
         userId,
+        xHandle: normalizedXHandle,
         text: post.text,
         lane,
         metrics: post.metrics as unknown as Prisma.InputJsonObject,

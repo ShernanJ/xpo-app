@@ -13,10 +13,10 @@ export const StyleCardSchema = z.object({
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
 
-export async function generateStyleProfile(userId: string, limit: number = 50): Promise<VoiceStyleCard | null> {
+export async function generateStyleProfile(userId: string, xHandle: string, limit: number = 50): Promise<VoiceStyleCard | null> {
   try {
     const recentPosts = await prisma.post.findMany({
-      where: { userId },
+      where: { userId, xHandle },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: { text: true },
@@ -90,7 +90,7 @@ Respond ONLY with a valid JSON object matching this schema:
     const validatedCard = StyleCardSchema.parse(parsedJson);
 
     // Save or update the profile in the DB
-    await saveStyleProfile(userId, validatedCard);
+    await saveStyleProfile(userId, xHandle, validatedCard);
 
     return validatedCard;
   } catch (error) {
@@ -100,9 +100,9 @@ Respond ONLY with a valid JSON object matching this schema:
 }
 
 // Safer database upsert wrapper specifically for the schema structure
-export async function saveStyleProfile(userId: string, styleCard: VoiceStyleCard) {
+export async function saveStyleProfile(userId: string, xHandle: string, styleCard: VoiceStyleCard) {
   const existing = await prisma.voiceProfile.findFirst({
-    where: { userId }
+    where: { userId, xHandle }
   });
 
   if (existing) {
@@ -115,6 +115,7 @@ export async function saveStyleProfile(userId: string, styleCard: VoiceStyleCard
   return prisma.voiceProfile.create({
     data: {
       userId,
+      xHandle,
       styleCard: styleCard as unknown as Prisma.InputJsonObject
     }
   });
