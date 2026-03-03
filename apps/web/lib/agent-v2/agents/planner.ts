@@ -71,7 +71,9 @@ ${isEditing ? `REQUIREMENTS:
 2. Choose a target lane (is this an original thought, or pushing back on common advice?)
 3. Determine what must be included (proof points) and avoided (cliches).
 4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
-5. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").`}
+5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
+6. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
+7. Keep "pitchResponse" short, lowercase, and natural. Never start with "got it", "let's", or corporate framing.`}
 
 Respond ONLY with a valid JSON matching this schema:
 {

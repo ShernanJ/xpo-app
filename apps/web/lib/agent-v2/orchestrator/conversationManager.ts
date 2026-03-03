@@ -76,6 +76,118 @@ function isLazyDraftRequest(message: string): boolean {
   ].some((candidate) => normalized.includes(candidate));
 }
 
+function inferMissingSpecificQuestion(message: string): string | null {
+  const normalized = message.trim().toLowerCase();
+
+  const comparisonOnly = [
+    "rebuild",
+    "rebuilding",
+    "like stanley",
+    "but for x",
+    "for x",
+    "for twitter",
+    "for linkedin",
+  ].some((cue) => normalized.includes(cue));
+
+  const isBuildingSomething =
+    ["building", "making", "working on", "creating", "shipping"].some((cue) =>
+      normalized.includes(cue),
+    ) &&
+    ["extension", "plugin", "tool", "app", "product"].some((cue) =>
+      normalized.includes(cue),
+    ) ||
+    comparisonOnly;
+
+  if (!isBuildingSomething) {
+    return null;
+  }
+
+  const hasFunctionalDetail = [
+    "it helps",
+    "it does",
+    "it lets",
+    "it converts",
+    "it turns",
+    "it rewrites",
+    "it automates",
+    "it syncs",
+    "it takes",
+    "that helps",
+    "that converts",
+    "that turns",
+    "to help",
+    "to convert",
+    "to turn",
+    "to rewrite",
+    "because",
+  ].some((cue) => normalized.includes(cue));
+
+  if (hasFunctionalDetail) {
+    const hasProblemDetail = [
+      "because",
+      "so that",
+      "so you can",
+      "which means",
+      "the problem",
+      "the issue",
+      "pain",
+      "friction",
+      "slow",
+      "clunky",
+      "manual",
+      "doesn't",
+      "doesnt",
+      "hard",
+      "different writing styles",
+      "different styles",
+      "different culture",
+      "doesn't work",
+      "doesnt work",
+    ].some((cue) => normalized.includes(cue));
+
+    if (!hasProblemDetail) {
+      return "nice. what's the actual problem it fixes, or why does it matter enough to post about?";
+    }
+
+    return null;
+  }
+
+  const targetMatch = message.match(/\bfor\s+([a-z0-9][a-z0-9\s'-]{1,30})/i);
+  const rawTarget = targetMatch?.[1]?.trim().replace(/[.,!?]+$/, "") || "";
+
+  if (comparisonOnly) {
+    if (rawTarget) {
+      return `quick check: what does your version actually do on ${rawTarget}, and what's different about it?`;
+    }
+    return "quick check: what does your version actually do, and what's different about it?";
+  }
+
+  if (normalized.includes("extension") || normalized.includes("plugin")) {
+    if (rawTarget) {
+      return `quick check: what does the extension do, and what should someone know about ${rawTarget}?`;
+    }
+    return "quick check: what does the extension actually do?";
+  }
+
+  if (rawTarget) {
+    return `quick check: what does it do, and what should someone know about ${rawTarget}?`;
+  }
+
+  return "quick check: what does it actually do?";
+}
+
+function buildPlanPitch(plan: StrategyPlan): string {
+  const laneLabel =
+    plan.targetLane === "reply"
+      ? "a reply"
+      : plan.targetLane === "quote"
+        ? "a quote post"
+        : "an original post";
+  const hookLabel = plan.hookType.trim().toLowerCase() || "clear";
+
+  return `i'm thinking we make this ${laneLabel} with a ${hookLabel} angle. want me to draft it?`;
+}
+
 function buildPlanQuickReplies(): CreatorChatQuickReply[] {
   return [
     {
@@ -498,7 +610,7 @@ User Profile Summary:
       return {
         mode: "plan",
         outputShape: "planning_outline",
-        response: revisedPlan.pitchResponse,
+        response: buildPlanPitch(revisedPlan),
         data: {
           plan: revisedPlan,
           quickReplies: buildPlanQuickReplies(),
@@ -549,6 +661,28 @@ User Profile Summary:
       },
       memory,
     };
+  }
+
+  if (
+    !explicitIntent &&
+    mode === "plan"
+  ) {
+    const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
+
+    if (clarificationQuestion) {
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: clarificationQuestion,
+        memory,
+      };
+    }
   }
 
   if (
@@ -661,7 +795,7 @@ User Profile Summary:
       return {
         mode: "plan",
         outputShape: "planning_outline",
-        response: plan.pitchResponse || "here's an angle we could take. sound good?",
+        response: buildPlanPitch(plan),
         data: {
           plan,
           quickReplies: buildPlanQuickReplies(),

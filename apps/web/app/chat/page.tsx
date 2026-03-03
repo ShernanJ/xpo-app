@@ -178,6 +178,7 @@ interface CreatorChatSuccess {
     model: string | null;
     mode: CreatorGenerationContract["mode"];
     newThreadId?: string;
+    threadTitle?: string;
     memory?: {
       conversationState: string;
       activeConstraints: string[];
@@ -584,6 +585,25 @@ function ChatPageContent() {
       })
       .catch(err => console.error("Failed to fetch threads:", err));
   }, [accountName]);
+
+  const syncThreadTitle = useCallback((threadId: string, title: string) => {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) {
+      return;
+    }
+
+    setChatThreads((current) =>
+      current.map((thread) =>
+        thread.id === threadId
+          ? {
+            ...thread,
+            title: cleanTitle,
+            updatedAt: new Date().toISOString(),
+          }
+          : thread,
+      ),
+    );
+  }, []);
 
   const handleNewChat = useCallback(() => {
     if (!accountName) return;
@@ -1170,29 +1190,6 @@ function ChatPageContent() {
         }
       }
 
-      // If we are in the default "New Chat" thread state, auto-adopt the first message as the title locally
-      setChatThreads((currentThreads) => {
-        const activeThreadIndex = currentThreads.findIndex((t) => t.id === activeThreadId);
-        if (activeThreadIndex !== -1) {
-          const activeThread = currentThreads[activeThreadIndex];
-          if (!activeThread?.title && trimmedPrompt) {
-            const newTitleLine = trimmedPrompt.replace(/\n/g, " ").trim();
-            const newTitle = newTitleLine.length > 40
-              ? newTitleLine.slice(0, 40) + "..."
-              : newTitleLine;
-
-            const nextThreads = [...currentThreads];
-            nextThreads[activeThreadIndex] = {
-              ...activeThread,
-              title: newTitle,
-              updatedAt: new Date().toISOString()
-            };
-            return nextThreads;
-          }
-        }
-        return currentThreads;
-      });
-
       setIsSending(true);
       setStreamStatus("Planning the next move.");
       setErrorMessage(null);
@@ -1285,6 +1282,11 @@ function ChatPageContent() {
             setConversationMemory(data.data.memory);
           }
 
+          const responseThreadId = data.data.newThreadId ?? activeThreadId;
+          if (responseThreadId && data.data.threadTitle) {
+            syncThreadTitle(responseThreadId, data.data.threadTitle);
+          }
+
           // Re-map the newly created backend thread if we just instantiated it
           if (data.data.newThreadId) {
             const newId = data.data.newThreadId as string;
@@ -1302,9 +1304,7 @@ function ChatPageContent() {
                 );
               }
               // Otherwise, insert the new thread at the top
-              const newTitle = trimmedPrompt
-                ? (trimmedPrompt.replace(/\n/g, ' ').trim().slice(0, 40) || 'New Chat')
-                : 'New Chat';
+              const newTitle = data.data.threadTitle?.trim() || "New Chat";
               return [
                 { id: newId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
                 ...current
@@ -1423,6 +1423,11 @@ function ChatPageContent() {
           setConversationMemory(streamedResult.memory);
         }
 
+        const responseThreadId = streamedResult.newThreadId ?? activeThreadId;
+        if (responseThreadId && streamedResult.threadTitle) {
+          syncThreadTitle(responseThreadId, streamedResult.threadTitle);
+        }
+
         // Re-map the newly created backend thread if we just instantiated it
         if (streamedResult.newThreadId) {
           const generatedId = streamedResult.newThreadId;
@@ -1438,9 +1443,7 @@ function ChatPageContent() {
                   : t
               );
             }
-            const newTitle = trimmedPrompt
-              ? (trimmedPrompt.replace(/\n/g, ' ').trim().slice(0, 40) || 'New Chat')
-              : 'New Chat';
+            const newTitle = streamedResult.threadTitle?.trim() || "New Chat";
             return [
               { id: generatedId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
               ...current
@@ -1471,6 +1474,8 @@ function ChatPageContent() {
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
       accountName,
+      activeThreadId,
+      syncThreadTitle,
     ],
   );
 

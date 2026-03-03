@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
 
 import { getServerSession } from "next-auth";
@@ -15,6 +16,62 @@ interface CreatorChatRequest extends Record<string, unknown> {
   intent?: unknown;
   selectedAngle?: unknown;
   contentFocus?: unknown;
+}
+
+const DEFAULT_THREAD_TITLE = "New Chat";
+
+function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
+  const normalized = title?.trim() || "";
+  return !normalized || normalized === DEFAULT_THREAD_TITLE;
+}
+
+function isGenericThreadPrompt(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return [
+    "give me some ideas",
+    "i need some ideas",
+    "brainstorm with me",
+    "brainstorm",
+    "ideas",
+    "write me a post",
+    "write a post",
+    "write me something",
+    "write something",
+    "help me write",
+    "help me figure out what to post",
+    "what should i post",
+    "what do i post",
+    "write it",
+    "looks good",
+    "sounds good",
+    "ok",
+    "okay",
+  ].some((candidate) => normalized === candidate);
+}
+
+function canPromoteThreadTitle(args: {
+  currentTitle: string | null | undefined;
+  conversationState: string | null | undefined;
+  topicSummary: string | null | undefined;
+}): boolean {
+  const canPromote =
+    args.conversationState === "ready_to_ideate" ||
+    args.conversationState === "plan_pending_approval" ||
+    args.conversationState === "draft_ready";
+
+  if (!canPromote) {
+    return false;
+  }
+
+  if (!args.topicSummary?.trim()) {
+    return false;
+  }
+
+  if (isGenericThreadPrompt(args.topicSummary)) {
+    return false;
+  }
+
+  return isPlaceholderThreadTitle(args.currentTitle) || isGenericThreadPrompt(args.currentTitle || "");
 }
 
 export async function POST(request: NextRequest) {
@@ -151,6 +208,45 @@ export async function POST(request: NextRequest) {
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
     const resultData = result.data as Record<string, unknown> | undefined;
+    const plan = (resultData?.plan || null) as {
+      objective?: string;
+      angle?: string;
+      targetLane?: "original" | "reply" | "quote";
+      mustInclude?: string[];
+      mustAvoid?: string[];
+      hookType?: string;
+      pitchResponse?: string;
+    } | null;
+    const shouldPromoteThreadTitle = canPromoteThreadTitle({
+      currentTitle: storedThread?.title,
+      topicSummary: result.memory.topicSummary,
+      conversationState: result.memory.conversationState,
+    });
+    const contextualThreadTitle = shouldPromoteThreadTitle
+      ? await generateThreadTitle({
+          topicSummary: result.memory.topicSummary,
+          recentHistory: recentHistoryStr || "None",
+          plan:
+            plan &&
+            typeof plan.objective === "string" &&
+            typeof plan.angle === "string" &&
+            (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
+            Array.isArray(plan.mustInclude) &&
+            Array.isArray(plan.mustAvoid) &&
+            typeof plan.hookType === "string" &&
+            typeof plan.pitchResponse === "string"
+              ? {
+                  objective: plan.objective,
+                  angle: plan.angle,
+                  targetLane: plan.targetLane,
+                  mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
+                  mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
+                  hookType: plan.hookType,
+                  pitchResponse: plan.pitchResponse,
+                }
+              : null,
+        })
+      : null;
     const mappedData = {
       reply: result.response,
       angles: resultData?.angles as unknown[] || [],
@@ -188,6 +284,7 @@ export async function POST(request: NextRequest) {
       model: "v2-orchestrator",
       mode: "full_generation",
       memory: result.memory,
+      threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
     };
 
     if (storedThread) {
@@ -202,18 +299,16 @@ export async function POST(request: NextRequest) {
 
       const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
 
-      // Auto-generate title from the first user message if the thread is currently unnamed
-      if (!storedThread.title && effectiveMessage) {
-        const cleanMessage = effectiveMessage.replace(/\n/g, " ").trim();
-        updateData.title = cleanMessage.length > 40
-          ? cleanMessage.slice(0, 40) + "..."
-          : cleanMessage;
+      if (shouldPromoteThreadTitle && contextualThreadTitle) {
+        updateData.title = contextualThreadTitle;
       }
 
-      await prisma.chatThread.update({
+      const updatedThread = await prisma.chatThread.update({
         where: { id: storedThread.id },
         data: updateData
       });
+
+      mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
     }
 
     return NextResponse.json(
