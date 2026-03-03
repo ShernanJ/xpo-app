@@ -1,6 +1,7 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
+import type { VoiceStyleCard } from "../core/styleProfile";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
@@ -19,6 +20,7 @@ export type CriticOutput = z.infer<typeof CriticOutputSchema>;
 export async function critiqueDrafts(
   writerOutput: WriterOutput,
   activeConstraints: string[],
+  styleCard: VoiceStyleCard | null,
 ): Promise<CriticOutput | null> {
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
@@ -36,6 +38,7 @@ ${writerOutput.draft}
 
 ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}
+${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MUST OBEY): ${styleCard.customGuidelines.join(" | ")}` : ""}
 
 Respond ONLY with a valid JSON matching this schema:
 {

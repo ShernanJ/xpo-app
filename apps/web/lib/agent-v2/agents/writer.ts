@@ -59,6 +59,7 @@ USER'S SPECIFIC WRITING STYLE:
 - Emojis: IF the user rarely uses emojis, DO NOT USE THEM. If they do, use them sparingly. (Pattern: ${styleCard.emojiPatterns.join(", ") || "None"})
 - Slang/Vocabulary: ${styleCard.slangAndVocabulary.join(", ")}
 - Formatting: ${styleCard.formattingRules.join(", ")}
+${styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRITICAL): ${styleCard.customGuidelines.join(" | ")}` : ""}
 `
       : "No style card available. Write in a clean, punchy, conversational tone."
     }

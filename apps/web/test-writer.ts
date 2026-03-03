@@ -19,7 +19,9 @@ async function run() {
     pacing: "fast, lowercase, stream of consciousness",
     emojiPatterns: [],
     slangAndVocabulary: ["stanley", "xpo", "cto"],
-    formattingRules: ["all lowercase always", "no punctuation"]
+    formattingRules: ["all lowercase always", "no punctuation"],
+    customGuidelines: [],
+    contextAnchors: []
   };
 
   const topicAnchors = [
@@ -28,7 +30,7 @@ async function run() {
   ];
 
   console.log("Generating draft...");
-  
+
   const result = await generateDrafts(
     mockPlan,
     styleCard,
@@ -36,7 +38,7 @@ async function run() {
     [],
     "ideator: what project have you worked on recently?\nuser: im building xpo, which is basically stanley for x, to try to impress stan's cto to hire me"
   );
-  
+
   console.log(result?.draft);
 }
 

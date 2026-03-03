@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     .filter((entry: Record<string, unknown>) => typeof entry?.content === "string")
     .map((entry: Record<string, unknown>) => `${entry.role}: ${entry.content}`)
     .slice(-10) // Keep last 10 turns for context window management
-    .join("\\n");
+    .join("\n");
 
   // Extract the most recent draft from history to support stateful editing
   const lastDraftEntry = rawHistory

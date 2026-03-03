@@ -4,10 +4,12 @@ import { generatePlan } from "../agents/planner";
 import { generateIdeasMenu } from "../agents/ideator";
 import { generateDrafts } from "../agents/writer";
 import { critiqueDrafts } from "../agents/critic";
+import { extractStyleRules } from "../agents/styleExtractor";
+import { extractCoreFacts } from "../agents/factExtractor";
 
 import { getConversationMemory, createConversationMemory, updateConversationMemory } from "../memory/memoryStore";
 import { retrieveAnchors } from "../core/retrieval";
-import { generateStyleProfile } from "../core/styleProfile";
+import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { prisma } from "../../db";
 
@@ -85,18 +87,38 @@ export async function manageConversationTurn(
   }
 
   // 5. Pre-fetch context required for generation, regardless of mode (Persona & Retrieval)
-  const styleCard = await generateStyleProfile(userId, effectiveXHandle, 20); // Dynamic profile
-  const anchors = await retrieveAnchors(userId, effectiveXHandle, userMessage || topicSummary || "growth"); // Historical posts
+  const [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
+    generateStyleProfile(userId, effectiveXHandle, 20),
+    retrieveAnchors(userId, effectiveXHandle, userMessage || topicSummary || "growth"),
+    userId !== "anonymous" ? extractStyleRules(userMessage, recentHistory) : Promise.resolve(null),
+    userId !== "anonymous" ? extractCoreFacts(userMessage, recentHistory) : Promise.resolve(null)
+  ]);
+
+  // If the user commanded new stylistic rules, permanently apply them to the active profile
+  if (styleCard && extractedRules && extractedRules.length > 0) {
+    styleCard.customGuidelines = Array.from(new Set([...(styleCard.customGuidelines || []), ...extractedRules]));
+    saveStyleProfile(userId, effectiveXHandle, styleCard).catch(e => console.error("Failed to save style profile:", e));
+  }
+
+  // If the user stated explicit new facts, permanently apply them to the active profile context
+  if (styleCard && extractedFacts && extractedFacts.length > 0) {
+    styleCard.contextAnchors = Array.from(new Set([...(styleCard.contextAnchors || []), ...extractedFacts]));
+    saveStyleProfile(userId, effectiveXHandle, styleCard).catch(e => console.error("Failed to save style profile:", e));
+  }
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const oResult = storedRun?.result as Record<string, any>;
   const stage = oResult?.growthStage || "Unknown";
   const goal = oResult?.strategyState?.goal || "Unknown";
+  const contextAnchorsStr = styleCard && styleCard.contextAnchors?.length > 0
+    ? `\n- Known Facts: ${styleCard.contextAnchors.join(" | ")}`
+    : "";
+
   const userContextString = `
 User Profile Summary:
 - Stage: ${stage}
-- Primary Goal: ${goal}
+- Primary Goal: ${goal}${contextAnchorsStr}
 `.trim();
 
   // 5. Execute Mode
@@ -152,7 +174,7 @@ User Profile Summary:
       if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
 
       // Step D: Critique & Refine
-      const criticOutput = await critiqueDrafts(writerOutput, activeConstraints);
+      const criticOutput = await critiqueDrafts(writerOutput, activeConstraints, styleCard);
       if (!criticOutput) return { mode: "error", response: "Failed to critique draft." };
 
       // Step E: Novelty Gate

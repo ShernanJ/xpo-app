@@ -533,6 +533,8 @@ function ChatPageContent() {
 
   // Guard against double fetching welcome message
   const welcomeFetchedRef = useRef(false);
+  // Guard against initializeThread re-fetching when we just created a thread in-session
+  const threadCreatedInSessionRef = useRef(false);
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -558,6 +560,7 @@ function ChatPageContent() {
 
     setActiveThreadId(null);
     welcomeFetchedRef.current = false;
+    threadCreatedInSessionRef.current = false;
     setMessages([]);
     setDraftInput("");
 
@@ -1251,13 +1254,29 @@ function ChatPageContent() {
 
           // Re-map the newly created backend thread if we just instantiated it
           if (data.data.newThreadId) {
-            setActiveThreadId(data.data.newThreadId);
-            window.history.replaceState({}, '', `/chat/${data.data.newThreadId}`);
-            setChatThreads((current) => current.map(t =>
-              t.id === "current-workspace" || t.id === activeThreadId
-                ? { ...t, id: data.data.newThreadId as string }
-                : t
-            ));
+            const newId = data.data.newThreadId as string;
+            setActiveThreadId(newId);
+            threadCreatedInSessionRef.current = true;
+            window.history.replaceState({}, '', `/chat/${newId}`);
+            setChatThreads((current) => {
+              // If the thread is already in the list (remapping), update it
+              const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
+              if (exists) {
+                return current.map(t =>
+                  t.id === "current-workspace" || t.id === activeThreadId
+                    ? { ...t, id: newId }
+                    : t
+                );
+              }
+              // Otherwise, insert the new thread at the top
+              const newTitle = trimmedPrompt
+                ? (trimmedPrompt.replace(/\n/g, ' ').trim().slice(0, 40) || 'New Chat')
+                : 'New Chat';
+              return [
+                { id: newId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+                ...current
+              ];
+            });
           }
 
           return;
@@ -1371,12 +1390,25 @@ function ChatPageContent() {
         if ((streamedResult as any).newThreadId) {
           const generatedId = (streamedResult as any).newThreadId as string;
           setActiveThreadId(generatedId);
+          threadCreatedInSessionRef.current = true;
           window.history.replaceState({}, '', `/chat/${generatedId}`);
-          setChatThreads((current) => current.map(t =>
-            t.id === "current-workspace" || t.id === activeThreadId
-              ? { ...t, id: generatedId }
-              : t
-          ));
+          setChatThreads((current) => {
+            const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
+            if (exists) {
+              return current.map(t =>
+                t.id === "current-workspace" || t.id === activeThreadId
+                  ? { ...t, id: generatedId }
+                  : t
+              );
+            }
+            const newTitle = trimmedPrompt
+              ? (trimmedPrompt.replace(/\n/g, ' ').trim().slice(0, 40) || 'New Chat')
+              : 'New Chat';
+            return [
+              { id: generatedId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+              ...current
+            ];
+          });
         }
       } catch (error) {
         setErrorMessage(
@@ -1419,6 +1451,10 @@ function ChatPageContent() {
     async function initializeThread() {
       // If we have an active thread, try loading its history
       if (activeThreadId) {
+        // Skip re-fetch if this thread was just created in the current session
+        if (threadCreatedInSessionRef.current) {
+          return;
+        }
         try {
           const res = await fetch(`/api/creator/v2/threads/${activeThreadId}`);
           const data = await res.json();
