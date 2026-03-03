@@ -986,7 +986,7 @@ export default function ChatPage() {
       }
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
-      const resolvedIntent = options.intent ?? "draft";
+      const resolvedIntent = options.intent;
       const hasStructuredIntent =
         !!options.selectedAngle ||
         (resolvedIntent === "coach" &&
@@ -1632,69 +1632,75 @@ export default function ChatPage() {
                             return (
                               <div
                                 key={`${message.id}-angle-${index}`}
-                                className="rounded-2xl border border-white/10 bg-black/20 px-5 py-5"
+                                className="group relative rounded-lg py-3 hover:bg-white/[0.02] transition-colors"
                               >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <p className="text-sm font-medium leading-6 text-zinc-100">
-                                    {index + 1}. {title}
-                                  </p>
-                                  <div className="flex shrink-0 items-center self-start gap-4 sm:gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDraftInput(title);
-                                      }}
-                                      className="text-xs font-medium text-zinc-400 underline-offset-4 hover:text-white hover:underline sm:text-[11px]"
-                                    >
-                                      edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void handleAngleSelect(title);
-                                      }}
-                                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                      className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      Draft this post
-                                    </button>
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3">
+                                      <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
+                                      <p className="text-sm font-medium leading-relaxed text-zinc-100">
+                                        {title}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 items-center self-start gap-4">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDraftInput(title);
+                                        }}
+                                        className="text-xs font-medium text-zinc-500 underline-offset-4 hover:text-white hover:underline transition-colors"
+                                      >
+                                        edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void handleAngleSelect(title);
+                                        }}
+                                        disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                        className="text-xs font-medium text-emerald-400 underline-offset-4 hover:text-emerald-300 hover:underline disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+                                      >
+                                        Draft this post
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="pl-6 text-[13px] leading-relaxed text-zinc-400">
+                                    {whyThisWorks && (
+                                      <p className="mb-2">
+                                        <strong className="font-semibold text-zinc-300">Why this works:</strong> {whyThisWorks}
+                                      </p>
+                                    )}
+
+                                    {openingLines && Array.isArray(openingLines) && openingLines.length > 0 && (
+                                      <div className="mb-2">
+                                        <strong className="font-semibold text-zinc-300">Opening lines:</strong>
+                                        <ul className="mt-1 list-inside list-disc space-y-1 pl-1">
+                                          {openingLines.map((line: string, i: number) => (
+                                            <li key={i}>"{line}"</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {typeof openingLines === "string" && (
+                                      <div className="mb-2">
+                                        <strong className="font-semibold text-zinc-300">Opening lines:</strong> {openingLines}
+                                      </div>
+                                    )}
+
+                                    {subtopics && (
+                                      <p className="mb-2">
+                                        <strong className="font-semibold text-zinc-300">Subtopics:</strong> {subtopics}
+                                      </p>
+                                    )}
+
+                                    {/* Fallback for older formats */}
+                                    {premise && !whyThisWorks && (
+                                      <p className="mb-2 text-zinc-300">{premise}</p>
+                                    )}
                                   </div>
                                 </div>
-
-                                {whyThisWorks && (
-                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
-                                    <strong className="text-zinc-100">Why this works for you:</strong> {whyThisWorks}
-                                  </p>
-                                )}
-
-                                {openingLines && Array.isArray(openingLines) && openingLines.length > 0 && (
-                                  <div className="mt-4">
-                                    <p className="mb-2 text-[13px] font-semibold text-zinc-100">Opening lines:</p>
-                                    <ul className="space-y-1.5 pl-2 text-[13px] leading-relaxed text-zinc-300">
-                                      {openingLines.map((line: string, i: number) => (
-                                        <li key={i}>"{line}"</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-
-                                {subtopics && (
-                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
-                                    <strong className="text-zinc-100">Subtopics:</strong> {subtopics}
-                                  </p>
-                                )}
-
-                                {/* Fallback for older ideator outputs */}
-                                {premise && !whyThisWorks && (
-                                  <p className="mt-4 text-[13px] leading-relaxed text-zinc-300">
-                                    <strong className="text-zinc-100">Premise:</strong> {premise}
-                                  </p>
-                                )}
-                                {format && !whyThisWorks && (
-                                  <p className="mt-1 text-[11px] italic text-zinc-500">
-                                    Format: {format}
-                                  </p>
-                                )}
                               </div>
                             );
                           })}

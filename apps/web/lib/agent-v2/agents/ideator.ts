@@ -5,7 +5,7 @@ import { VoiceStyleCard } from "../core/styleProfile";
 export const IdeaSchema = z.object({
   title: z.string().describe("The core topic or hook, e.g. 'Is AI a threat or opportunity?'"),
   why_this_works: z.string().describe("Conversational explanation of why this fits their profile/audience. e.g. 'Why this works for you: You've lived this...'"),
-  opening_lines: z.array(z.string()).describe("2 distinct options for opening sentences"),
+  opening_lines: z.any().describe("2 distinct options for opening sentences"),
   subtopics: z.string().describe("Bullet-point-like string of subtopics, e.g. 'How AI changes work • Skills to develop • Builder perspective'"),
 });
 
@@ -90,7 +90,8 @@ Respond ONLY with valid JSON matching the exact schema requirements.
   try {
     return IdeasMenuSchema.parse(data);
   } catch (err) {
-    console.error("Ideator validation failed", err);
+    console.error("Ideator validation failed.", err);
+    console.error("RAW DATA RETURNED:", JSON.stringify(data, null, 2));
     return null;
   }
 }
