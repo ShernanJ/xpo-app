@@ -37,6 +37,7 @@ export type ClarificationBranchKey =
   | "lazy_request"
   | "plan_reject"
   | "topic_known_but_direction_missing"
+  | "abstract_topic_focus_pick"
   | "semantic_repair";
 
 export interface CreatorChatQuickReply {

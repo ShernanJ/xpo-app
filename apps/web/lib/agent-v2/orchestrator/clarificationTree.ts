@@ -136,6 +136,41 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     };
   }
 
+  if (args.branchKey === "abstract_topic_focus_pick") {
+    const topicLabel = args.seedTopic?.trim() || "this";
+    const quickReplies: CreatorChatQuickReply[] = [
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post with my actual take on it. keep it natural and opinionated.`,
+        label: "My take",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post around a mistake people make.`,
+        label: "A mistake",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post around something i learned the hard way.`,
+        label: "Something learned",
+        explicitIntent: "plan",
+      },
+    ];
+
+    return {
+      reply: `quick one: what part of ${topicLabel} do you actually want to hit?`,
+      quickReplies,
+      clarificationState: {
+        branchKey: args.branchKey,
+        stepKey: "pick_focus",
+        seedTopic: args.seedTopic,
+        options: quickReplies,
+      },
+    };
+  }
+
   const quickReplies = buildSeededChoices(args.styleCard, args.topicAnchors, args.seedTopic);
 
   const reply =

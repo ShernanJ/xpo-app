@@ -237,7 +237,7 @@ function inferMissingSpecificQuestion(message: string): string | null {
   return "quick check: what does it actually do?";
 }
 
-function inferAbstractTopicFollowUp(
+function inferAbstractTopicSeed(
   message: string,
   memory: Pick<V2ConversationMemory, "conversationState" | "concreteAnswerCount" | "topicSummary">,
 ): string | null {
@@ -287,8 +287,7 @@ function inferAbstractTopicFollowUp(
     return null;
   }
 
-  const topic = trimmed.replace(/[.?!,]+$/, "") || memory.topicSummary || "this";
-  return `quick one: what part of ${topic} do you actually want to hit - your take, a mistake, or something you learned?`;
+  return trimmed.replace(/[.?!,]+$/, "") || memory.topicSummary || "this";
 }
 
 function inferBroadTopicDraftRequest(message: string): string | null {
@@ -1069,19 +1068,30 @@ User Profile Summary:
   }
 
   if (!explicitIntent && mode === "plan") {
-    const abstractTopicFollowUp = inferAbstractTopicFollowUp(userMessage, memory);
+    const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
 
-    if (abstractTopicFollowUp) {
+    if (abstractTopicSeed) {
+      const clarification = buildClarificationTree({
+        branchKey: "abstract_topic_focus_pick",
+        seedTopic: abstractTopicSeed,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+      });
+
       await writeMemory({
+        topicSummary: abstractTopicSeed,
         conversationState: "needs_more_context",
-        clarificationState: null,
+        clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
       });
 
       return {
         mode: "coach",
         outputShape: "coach_question",
-        response: abstractTopicFollowUp,
+        response: clarification.reply,
+        data: {
+          quickReplies: clarification.quickReplies,
+        },
         memory,
       };
     }
