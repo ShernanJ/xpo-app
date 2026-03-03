@@ -86,11 +86,11 @@ function LoginFormContent() {
         disabled={loading}
         className="w-full mt-4 bg-white text-black font-semibold py-3 rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-50"
       >
-        {loading ? "Signing in..." : (xHandle ? `Continue as @${xHandle}` : "Continue to XPO")}
+        {loading ? "Signing in..." : (xHandle ? `Continue as @${xHandle}` : "Login")}
       </button>
 
       <p className="text-xs text-zinc-500 text-center mt-4">
-        Don't have an account? Just enter a new email and password to auto-register.
+        Don&apos;t have an account? Just enter a new email and password to auto-register.
       </p>
     </form>
   );

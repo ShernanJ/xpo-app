@@ -2,6 +2,10 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import {
+  computeXWeightedCharacterCount,
+  trimToXCharacterLimit,
+} from "../../onboarding/draftArtifacts";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
@@ -22,7 +26,11 @@ export async function critiqueDrafts(
   activeConstraints: string[],
   styleCard: VoiceStyleCard | null,
   recentHistory?: string,
+  options?: {
+    maxCharacterLimit?: number;
+  },
 ): Promise<CriticOutput | null> {
+  const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
 Your job is to take a draft and ruthlessly enforce constraints.
@@ -33,6 +41,7 @@ RULES:
 3. If the draft uses the words "Delve", "Unlock", "Testament", or "Embark", you MUST replace them.
 4. If the draft contains obvious AI-isms (like "Here are 3 reasons why", "Let's dive in", "A story in 3 parts"), you MUST delete those phrases.
 5. If the draft fails fundamentally, set "approved" to false. Otherwise, return true.
+6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
 
 DRAFT TO REVIEW:
 ${writerOutput.draft}
@@ -68,7 +77,21 @@ Respond ONLY with a valid JSON matching this schema:
   if (!data) return null;
 
   try {
-    return CriticOutputSchema.parse(data);
+    const parsed = CriticOutputSchema.parse(data);
+    const normalizedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
+    const wasTrimmed = normalizedDraft !== parsed.finalDraft;
+    const nextIssues = wasTrimmed
+      ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
+      : parsed.issues;
+
+    return {
+      ...parsed,
+      finalDraft: normalizedDraft,
+      approved:
+        parsed.approved &&
+        computeXWeightedCharacterCount(normalizedDraft) <= maxCharacterLimit,
+      issues: nextIssues,
+    };
   } catch (err) {
     console.error("Critic validation failed", err);
     return null;

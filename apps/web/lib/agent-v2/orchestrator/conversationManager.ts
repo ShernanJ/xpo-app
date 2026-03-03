@@ -25,6 +25,7 @@ import {
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
+import { getXCharacterLimitForAccount } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import { interpretPlannerFeedback } from "./plannerFeedback";
@@ -174,6 +175,95 @@ function inferMissingSpecificQuestion(message: string): string | null {
   }
 
   return "quick check: what does it actually do?";
+}
+
+function inferBroadTopicDraftRequest(message: string): string | null {
+  const normalized = message.trim().toLowerCase();
+  const isDraftRequest = [
+    "write me a post",
+    "write a post",
+    "draft a post",
+    "draft me a post",
+    "make a post",
+    "make me a post",
+    "give me a post",
+  ].some((cue) => normalized.includes(cue));
+
+  if (!isDraftRequest) {
+    return null;
+  }
+
+  const hasDirectionCue = [
+    "in my voice",
+    "my voice",
+    "random",
+    "whatever",
+    "optimized for growth",
+    "optimize it for growth",
+    "optimize for growth",
+    "for reach",
+    "for engagement",
+    "to grow",
+    "viral",
+    "hook",
+    "hot take",
+    "story",
+    "lesson",
+    "mistake",
+    "opinion",
+    "personal",
+    "thread",
+    "announcement",
+    "launch",
+    "tips",
+    "how to",
+    "why ",
+    "vs ",
+    "versus",
+    "counter-",
+    "contrarian",
+  ].some((cue) => normalized.includes(cue));
+
+  if (hasDirectionCue) {
+    return null;
+  }
+
+  const topicMatch = message.match(/\b(?:about|on)\s+([a-z0-9][a-z0-9\s/&'’-]{1,80})$/i);
+  const topic = topicMatch?.[1]?.trim().replace(/[.?!,]+$/, "").replace(/\s+/g, " ") || "";
+
+  if (!topic) {
+    return null;
+  }
+
+  const normalizedTopic = topic.toLowerCase();
+  if (
+    ["it", "this", "that", "something", "anything", "stuff"].includes(normalizedTopic) ||
+    topic.split(/\s+/).length > 5
+  ) {
+    return null;
+  }
+
+  if (
+    [
+      "why ",
+      "how ",
+      "when ",
+      "mistake",
+      "lesson",
+      "story",
+      "hot take",
+      "opinion",
+      "tips",
+      "launch",
+      "announcement",
+      "review",
+      "breakdown",
+    ].some((cue) => normalizedTopic.includes(cue))
+  ) {
+    return null;
+  }
+
+  return topic;
 }
 
 function buildPlanPitch(plan: StrategyPlan): string {
@@ -399,6 +489,10 @@ export async function manageConversationTurn(
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
+  const onboardingProfile = onboardingResult?.profile as Record<string, unknown> | undefined;
+  const maxCharacterLimit = getXCharacterLimitForAccount(
+    onboardingProfile?.isVerified === true,
+  );
   const stage = typeof onboardingResult?.growthStage === "string"
     ? onboardingResult.growthStage
     : "Unknown";
@@ -483,6 +577,7 @@ User Profile Summary:
         {
           conversationState: memory.conversationState,
           antiPatterns,
+          maxCharacterLimit,
         },
       );
 
@@ -500,6 +595,9 @@ User Profile Summary:
         memory.activeConstraints,
         styleCard,
         effectiveContext,
+        {
+          maxCharacterLimit,
+        },
       );
 
       if (!criticOutput) {
@@ -685,6 +783,36 @@ User Profile Summary:
     }
   }
 
+  if (!explicitIntent && mode === "plan") {
+    const broadTopic = inferBroadTopicDraftRequest(userMessage);
+
+    if (broadTopic) {
+      const clarification = buildClarificationTree({
+        branchKey: "topic_known_but_direction_missing",
+        seedTopic: broadTopic,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+      });
+
+      await writeMemory({
+        topicSummary: broadTopic,
+        conversationState: "needs_more_context",
+        clarificationState: clarification.clarificationState,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: clarification.reply,
+        data: {
+          quickReplies: clarification.quickReplies,
+        },
+        memory,
+      };
+    }
+  }
+
   if (
     !explicitIntent &&
     mode === "plan" &&
@@ -847,6 +975,7 @@ User Profile Summary:
         {
           conversationState: memory.conversationState,
           antiPatterns,
+          maxCharacterLimit,
         },
       );
 
@@ -864,6 +993,9 @@ User Profile Summary:
         memory.activeConstraints,
         styleCard,
         effectiveContext,
+        {
+          maxCharacterLimit,
+        },
       );
 
       if (!criticOutput) {

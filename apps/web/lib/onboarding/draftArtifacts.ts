@@ -22,12 +22,17 @@ export interface DraftArtifactInput {
   supportAsset: string | null;
 }
 
+export const SHORT_FORM_X_LIMIT = 280;
 export const LONG_FORM_X_LIMIT = 25_000;
 
 export function getXCharacterLimitForShape(
   outputShape: CreatorGenerationOutputShape,
 ): number {
-  return outputShape === "long_form_post" ? LONG_FORM_X_LIMIT : 280;
+  return outputShape === "long_form_post" ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT;
+}
+
+export function getXCharacterLimitForAccount(isVerified: boolean): number {
+  return isVerified ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT;
 }
 
 export function buildDraftArtifacts(params: {
@@ -106,6 +111,43 @@ export function computeXWeightedCharacterCount(text: string): number {
   return weighted;
 }
 
+export function trimToXCharacterLimit(text: string, maxCharacterLimit: number): string {
+  if (computeXWeightedCharacterCount(text) <= maxCharacterLimit) {
+    return text;
+  }
+
+  const urlRegex = /https?:\/\/\S+/gi;
+  let remaining = maxCharacterLimit;
+  let result = "";
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlRegex)) {
+    const start = match.index ?? 0;
+    const segment = text.slice(lastIndex, start);
+    const trimmedSegment = trimSegmentToWeightedLimit(segment, remaining);
+
+    result += trimmedSegment.value;
+    remaining -= trimmedSegment.weightUsed;
+
+    if (trimmedSegment.wasTrimmed || remaining <= 0) {
+      return result.trimEnd();
+    }
+
+    if (remaining < 23) {
+      return result.trimEnd();
+    }
+
+    result += match[0];
+    remaining -= 23;
+    lastIndex = start + match[0].length;
+  }
+
+  const finalSegment = trimSegmentToWeightedLimit(text.slice(lastIndex), remaining);
+  result += finalSegment.value;
+
+  return result.trimEnd();
+}
+
 function countWeightedSegment(value: string): number {
   let total = 0;
 
@@ -114,6 +156,40 @@ function countWeightedSegment(value: string): number {
   }
 
   return total;
+}
+
+function trimSegmentToWeightedLimit(value: string, limit: number): {
+  value: string;
+  weightUsed: number;
+  wasTrimmed: boolean;
+} {
+  if (limit <= 0 || !value) {
+    return {
+      value: "",
+      weightUsed: 0,
+      wasTrimmed: value.length > 0,
+    };
+  }
+
+  let total = 0;
+  let endIndex = 0;
+
+  for (const char of Array.from(value)) {
+    const charWeight = isWideCharacter(char) ? 2 : 1;
+    if (total + charWeight > limit) {
+      break;
+    }
+    total += charWeight;
+    endIndex += char.length;
+  }
+
+  const sliced = value.slice(0, endIndex);
+
+  return {
+    value: sliced,
+    weightUsed: total,
+    wasTrimmed: endIndex < value.length,
+  };
 }
 
 function isWideCharacter(char: string): boolean {

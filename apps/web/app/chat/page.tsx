@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams, useRouter, useParams } from "next/navigation";
+import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
@@ -10,6 +11,7 @@ import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
+  getXCharacterLimitForAccount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import {
@@ -22,6 +24,7 @@ import {
 } from "@/lib/onboarding/coachReply";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
+  XPublicProfile,
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
   ToneCasing,
@@ -34,6 +37,39 @@ interface ValidationError {
   field: string;
   message: string;
 }
+
+interface OnboardingPreviewSuccess {
+  ok: true;
+  account: string;
+  preview: XPublicProfile | null;
+}
+
+interface OnboardingPreviewFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+
+interface OnboardingRunSuccess {
+  ok: true;
+  runId: string;
+}
+
+interface OnboardingRunFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
+
+const CHAT_ONBOARDING_LOADING_STEPS = [
+  "collecting the account...",
+  "reading how they write...",
+  "mapping the growth signals...",
+  "building the workspace...",
+  "locking in the new profile...",
+] as const;
 
 interface CreatorAgentContextSuccess {
   ok: true;
@@ -316,6 +352,10 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
+function normalizeAccountHandle(value: string): string {
+  return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
 function inferInitialToneInputs(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -351,6 +391,23 @@ function inferInitialToneInputs(params: {
   return {
     toneCasing: shouldUseLowercase ? "lowercase" : "normal",
     toneRisk: contract.writer.targetRisk,
+  };
+}
+
+function getComposerCharacterLimit(context: CreatorAgentContext | null): number {
+  return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
+}
+
+function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
+  label: string;
+  toneClassName: string;
+} {
+  const usedCharacterCount = computeXWeightedCharacterCount(text);
+  const isNearLimit = usedCharacterCount >= Math.floor(maxCharacterLimit * 0.9);
+
+  return {
+    label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
+    toneClassName: isNearLimit ? "text-red-400" : "text-zinc-500",
   };
 }
 
@@ -487,12 +544,11 @@ export default function ChatPage() {
 }
 
 function ChatPageContent() {
-  const { data: session, status } = useSession();
+  const { data: session, update: refreshSession } = useSession();
   const searchParams = useSearchParams();
   const params = useParams();
   const threadIdRaw = params?.threadId as string | string[] | undefined;
 
-  const runId = searchParams.get("runId")?.trim() ?? "";
   const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
 
@@ -507,7 +563,19 @@ function ChatPageContent() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [threadToDelete, setThreadToDelete] = useState<{ id: string, title: string } | null>(null);
+  const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
+  const [addAccountInput, setAddAccountInput] = useState("");
+  const [addAccountPreview, setAddAccountPreview] = useState<XPublicProfile | null>(null);
+  const [isAddAccountPreviewLoading, setIsAddAccountPreviewLoading] = useState(false);
+  const [isAddAccountSubmitting, setIsAddAccountSubmitting] = useState(false);
+  const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
+  const [addAccountError, setAddAccountError] = useState<string | null>(null);
+  const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
+  const hasValidAddAccountPreview =
+    Boolean(addAccountPreview) &&
+    normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -518,6 +586,87 @@ function ChatPageContent() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isAddAccountSubmitting) {
+      setAddAccountLoadingStepIndex(0);
+      return;
+    }
+
+    setAddAccountLoadingStepIndex(0);
+    const interval = window.setInterval(() => {
+      setAddAccountLoadingStepIndex((current) =>
+        Math.min(current + 1, CHAT_ONBOARDING_LOADING_STEPS.length - 1),
+      );
+    }, 1200);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isAddAccountSubmitting]);
+
+  useEffect(() => {
+    if (!isAddAccountModalOpen) {
+      setAddAccountPreview(null);
+      setIsAddAccountPreviewLoading(false);
+      return;
+    }
+
+    const trimmed = addAccountInput.trim();
+    if (!trimmed || trimmed.length < 2 || readyAccountHandle) {
+      if (!readyAccountHandle) {
+        setAddAccountPreview(null);
+      }
+      setIsAddAccountPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsAddAccountPreviewLoading(true);
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
+          {
+            method: "GET",
+            signal: controller.signal,
+          },
+        );
+
+        const text = await response.text();
+        let data: OnboardingPreviewResponse | null = null;
+
+        try {
+          data = JSON.parse(text) as OnboardingPreviewResponse;
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok || !data || !data.ok) {
+          setAddAccountPreview(null);
+          return;
+        }
+
+        setAddAccountPreview(data.preview);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        setAddAccountPreview(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsAddAccountPreviewLoading(false);
+        }
+      }
+    }, 650);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [addAccountInput, isAddAccountModalOpen, readyAccountHandle]);
 
   const handleRenameSubmit = async (threadId: string) => {
     if (!editingTitle.trim()) {
@@ -649,6 +798,15 @@ function ChatPageContent() {
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
     Record<string, number>
   >({});
+  const composerCharacterLimit = useMemo(
+    () => getComposerCharacterLimit(context),
+    [context],
+  );
+  const editorDraftCounter = useMemo(
+    () => getXCharacterCounterMeta(editorDraftText, composerCharacterLimit),
+    [editorDraftText, composerCharacterLimit],
+  );
+  const isVerifiedAccount = Boolean(context?.creatorProfile?.identity?.isVerified);
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
@@ -689,6 +847,120 @@ function ChatPageContent() {
       setIsLoading(false);
     }
   }, [accountName]);
+
+  const closeAddAccountModal = useCallback(() => {
+    if (isAddAccountSubmitting) {
+      return;
+    }
+
+    setIsAddAccountModalOpen(false);
+    setAddAccountInput("");
+    setAddAccountPreview(null);
+    setAddAccountError(null);
+    setReadyAccountHandle(null);
+    setIsAddAccountPreviewLoading(false);
+  }, [isAddAccountSubmitting]);
+
+  const finalizeAddedAccount = useCallback(async () => {
+    if (!readyAccountHandle) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      await refreshSession();
+      closeAddAccountModal();
+      window.location.href = "/chat";
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(`Could not switch to @${readyAccountHandle}`);
+      setIsLoading(false);
+    }
+  }, [closeAddAccountModal, readyAccountHandle, refreshSession]);
+
+  const handleAddAccountSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (readyAccountHandle) {
+      await finalizeAddedAccount();
+      return;
+    }
+
+    if (!normalizedAddAccount) {
+      setAddAccountError("Enter an X username first.");
+      return;
+    }
+
+    if (normalizedAddAccount === accountName) {
+      setAddAccountError("That account is already active.");
+      return;
+    }
+
+    if (isAddAccountPreviewLoading) {
+      setAddAccountError("Wait for the profile preview to finish loading.");
+      return;
+    }
+
+    if (!hasValidAddAccountPreview) {
+      setAddAccountError("Enter an active X account that resolves in preview first.");
+      return;
+    }
+
+    setIsAddAccountSubmitting(true);
+    setAddAccountError(null);
+
+    try {
+      const startedAt = Date.now();
+      const response = await fetch("/api/onboarding/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          account: normalizedAddAccount,
+          goal: "followers",
+          timeBudgetMinutes: 30,
+          tone: { casing: "lowercase", risk: "safe" },
+        }),
+      });
+
+      const data = (await response.json()) as OnboardingRunResponse;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.ok ? "Failed to add account." : (data.errors[0]?.message ?? "Failed to add account."),
+        );
+      }
+
+      const remainingDelay = Math.max(0, 2600 - (Date.now() - startedAt));
+      if (remainingDelay > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingDelay));
+      }
+
+      setAvailableHandles((current) =>
+        current.includes(normalizedAddAccount)
+          ? current
+          : [...current, normalizedAddAccount],
+      );
+      setReadyAccountHandle(normalizedAddAccount);
+    } catch (error) {
+      console.error(error);
+      setAddAccountError(
+        error instanceof Error ? error.message : "Failed to analyze account. Please try again.",
+      );
+    } finally {
+      setIsAddAccountSubmitting(false);
+    }
+  }, [
+    accountName,
+    finalizeAddedAccount,
+    hasValidAddAccountPreview,
+    isAddAccountPreviewLoading,
+    normalizedAddAccount,
+    readyAccountHandle,
+  ]);
 
   const loadWorkspace = useCallback(
     async (
@@ -1936,13 +2208,19 @@ function ChatPageContent() {
                           {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
                         </button>
                       ))}
-                      <Link
-                        href="/onboarding"
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white mt-1"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          setIsAddAccountModalOpen(true);
+                          setAddAccountError(null);
+                          setReadyAccountHandle(null);
+                        }}
+                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
                       >
                         <Plus className="h-4 w-4" />
                         <span>Add Account</span>
-                      </Link>
+                      </button>
                     </div>
 
                     <div className="my-1 h-px bg-white/10" />
@@ -2172,6 +2450,10 @@ function ChatPageContent() {
                           const username = context?.creatorProfile?.identity?.username || "user";
                           const displayName = context?.creatorProfile?.identity?.displayName || username;
                           const isEditing = activeDraftEditor?.messageId === message.id;
+                          const draftCounter = getXCharacterCounterMeta(
+                            isEditing ? editorDraftText : message.draft || "",
+                            composerCharacterLimit,
+                          );
                           return (
                             <div className="mt-4 border-t border-white/10 pt-4">
                               {/* X Post Card */}
@@ -2184,9 +2466,15 @@ function ChatPageContent() {
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1">
                                       <span className="text-sm font-bold text-white truncate">{displayName}</span>
-                                      <svg viewBox="0 0 22 22" className="h-4 w-4 flex-shrink-0 text-blue-400" fill="currentColor">
-                                        <path d="M20.396 11c-.018-.646-.215-1.275-.57-1.816-.354-.54-.852-.972-1.438-1.246.223-.607.27-1.264.14-1.897-.131-.634-.437-1.218-.882-1.687-.47-.445-1.053-.75-1.687-.882-.633-.13-1.29-.083-1.897.14-.273-.587-.704-1.086-1.245-1.44S11.647 1.62 11 1.604c-.646.017-1.273.213-1.813.568s-.969.854-1.24 1.44c-.608-.223-1.267-.272-1.902-.14-.635.13-1.22.436-1.69.882-.445.47-.749 1.055-.878 1.688-.13.633-.08 1.29.144 1.896-.587.274-1.087.705-1.443 1.245-.356.54-.555 1.17-.574 1.817.02.647.218 1.276.574 1.817.356.54.856.972 1.443 1.245-.224.606-.274 1.263-.144 1.896.13.634.433 1.218.877 1.688.47.443 1.054.747 1.687.878.633.132 1.29.084 1.897-.136.274.586.705 1.084 1.246 1.439.54.354 1.17.551 1.816.569.647-.016 1.276-.213 1.817-.567s.972-.854 1.245-1.44c.604.239 1.266.296 1.903.164.636-.132 1.22-.447 1.68-.907.46-.46.776-1.044.908-1.681s.075-1.299-.165-1.903c.586-.274 1.084-.705 1.439-1.246.354-.54.551-1.17.569-1.816zM9.662 14.85l-3.429-3.428 1.293-1.302 2.072 2.072 4.4-4.794 1.347 1.246z" />
-                                      </svg>
+                                      {isVerifiedAccount ? (
+                                        <Image
+                                          src="/x-verified.svg"
+                                          alt="Verified account"
+                                          width={16}
+                                          height={16}
+                                          className="h-4 w-4 shrink-0"
+                                        />
+                                      ) : null}
                                     </div>
                                     <span className="text-xs text-zinc-500">@{username}</span>
                                   </div>
@@ -2212,7 +2500,7 @@ function ChatPageContent() {
                                 <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
                                   <span>Just now</span>
                                   <span>·</span>
-                                  <span>{(isEditing ? editorDraftText : message.draft || "").split(/\s+/).filter(Boolean).length} words</span>
+                                  <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
                                 </div>
 
                                 {/* Divider */}
@@ -2463,8 +2751,8 @@ function ChatPageContent() {
                   <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
                     Post Draft
                   </p>
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    {editorDraftText.split(/\s+/).filter(Boolean).length} words · {editorDraftText.length} chars
+                  <p className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${editorDraftCounter.toneClassName}`}>
+                    {editorDraftCounter.label}
                   </p>
                 </div>
                 <button
@@ -2687,13 +2975,218 @@ function ChatPageContent() {
         ) : null
       }
 
+      {isAddAccountModalOpen && (
+        <div
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeAddAccountModal();
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-[1.75rem] border border-white/10 bg-zinc-950 shadow-2xl animate-in fade-in zoom-in-95 duration-300"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {isAddAccountSubmitting ? (
+              <div className="px-6 py-8 sm:px-8 sm:py-10">
+                <div className="flex flex-col items-center text-center">
+                  <div className="relative flex h-24 w-24 items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border border-white/10" />
+                    <div className="absolute inset-2 rounded-full border border-white/15 animate-ping" />
+                    <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
+                      {addAccountPreview?.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${addAccountPreview.name} profile photo`}
+                        />
+                      ) : (
+                        (addAccountPreview?.name?.slice(0, 2) || normalizedAddAccount.slice(0, 2) || "X").toUpperCase()
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Mapping Account
+                  </p>
+                  <p className="mt-3 text-lg font-semibold text-white">
+                    @{normalizedAddAccount}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    {CHAT_ONBOARDING_LOADING_STEPS[addAccountLoadingStepIndex]}
+                  </p>
+
+                  <div className="mt-6 h-1 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-white transition-all duration-[1200ms] ease-linear"
+                      style={{
+                        width: `${((addAccountLoadingStepIndex + 1) / CHAT_ONBOARDING_LOADING_STEPS.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleAddAccountSubmit} className="px-6 py-6 sm:px-8 sm:py-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Add X Account
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">
+                      Pull another profile into this workspace
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-zinc-400">
+                      Preview the account, run the scrape, then switch over without leaving chat.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeAddAccountModal}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <span className="mr-2 text-lg font-medium text-zinc-600">@</span>
+                    <input
+                      value={addAccountInput}
+                      onChange={(event) => {
+                        if (readyAccountHandle) {
+                          return;
+                        }
+                        setAddAccountInput(event.target.value);
+                        setAddAccountError(null);
+                      }}
+                      placeholder="username"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      disabled={Boolean(readyAccountHandle)}
+                      className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed disabled:text-zinc-500"
+                      aria-label="Add X account"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      isAddAccountSubmitting ||
+                      (!readyAccountHandle &&
+                        (!hasValidAddAccountPreview || isAddAccountPreviewLoading || !normalizedAddAccount))
+                    }
+                    className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {readyAccountHandle
+                      ? `Continue as @${readyAccountHandle}`
+                      : "Analyze Account"}
+                  </button>
+                </div>
+
+                {addAccountError ? (
+                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-rose-400">
+                    {addAccountError}
+                  </p>
+                ) : readyAccountHandle ? (
+                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-emerald-400">
+                    all set. the profile is ready to switch into.
+                  </p>
+                ) : null}
+
+                <div className="mt-5 min-h-[112px]">
+                  {isAddAccountPreviewLoading ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Loading Preview
+                      </p>
+                    </div>
+                  ) : addAccountPreview ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
+                          {addAccountPreview.avatarUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
+                              role="img"
+                              aria-label={`${addAccountPreview.name} profile photo`}
+                            />
+                          ) : (
+                            addAccountPreview.name.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-base font-semibold text-white">
+                              {addAccountPreview.name}
+                            </p>
+                            {addAccountPreview.isVerified ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
+                          </div>
+                          <p className="truncate text-sm text-zinc-500">
+                            @{addAccountPreview.username}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-semibold text-white">
+                            {new Intl.NumberFormat("en-US", {
+                              notation: "compact",
+                              maximumFractionDigits: 1,
+                            }).format(addAccountPreview.followersCount)}
+                          </p>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Followers
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : normalizedAddAccount ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        No Account Found
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        Enter an active X account that resolves in preview first.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/[0.02] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Waiting For Handle
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Type an X username to preview it before you map it into this workspace.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       {threadToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-white mb-2">Delete chat?</h3>
               <p className="text-sm text-zinc-400">
-                This will delete <strong className="text-zinc-200">"{threadToDelete.title}"</strong>.
+                This will delete <strong className="text-zinc-200">&quot;{threadToDelete.title}&quot;</strong>.
               </p>
             </div>
             <div className="flex gap-2 border-t border-white/10 bg-zinc-900/50 p-4 justify-end">

@@ -7,30 +7,12 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 import { XShell } from "@/components/x-shell";
-import type { OnboardingInput, XPublicProfile } from "@/lib/onboarding/types";
+import type { XPublicProfile } from "@/lib/onboarding/types";
 
 interface ValidationError {
   field: string;
   message: string;
 }
-
-interface OnboardingBackfillState {
-  queued: boolean;
-  jobId: string | null;
-}
-
-interface OnboardingRunSuccess {
-  ok: true;
-  runId: string;
-  backfill?: OnboardingBackfillState;
-}
-
-interface OnboardingRunFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
 
 interface OnboardingPreviewSuccess {
   ok: true;
@@ -317,7 +299,7 @@ export default function OnboardingLanding() {
             ) : null}
 
             <div className="mt-4 text-center">
-              <Link href="/signin" className="text-sm text-zinc-500 hover:text-white transition-colors">
+              <Link href="/login" className="text-sm text-zinc-500 hover:text-white transition-colors">
                 or sign in
               </Link>
             </div>

@@ -34,11 +34,13 @@ export async function generateDrafts(
   options?: {
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    maxCharacterLimit?: number;
   },
 ): Promise<WriterOutput | null> {
   const isEditing = !!activeDraft;
   const conversationState = options?.conversationState || "draft_ready";
   const antiPatterns = options?.antiPatterns || [];
+  const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
@@ -89,6 +91,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 6. Provide an idea for a "supportAsset" (image/video idea to attach).
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
+9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target. Stay concise unless the plan clearly calls for more detail.
 
 Respond ONLY with a valid JSON matching this schema:
 {

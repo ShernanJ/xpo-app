@@ -29,7 +29,8 @@ export interface StrategyPlan {
 export type ClarificationBranchKey =
   | "vague_draft_request"
   | "lazy_request"
-  | "plan_reject";
+  | "plan_reject"
+  | "topic_known_but_direction_missing";
 
 export interface CreatorChatQuickReply {
   kind:

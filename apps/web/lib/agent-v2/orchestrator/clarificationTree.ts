@@ -100,6 +100,42 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     };
   }
 
+  if (args.branchKey === "topic_known_but_direction_missing") {
+    const topicLabel = args.seedTopic?.trim() || "this";
+    const quickReplies: CreatorChatQuickReply[] = [
+      {
+        kind: "clarification_choice",
+        value: `draft a solid ${topicLabel} post in my voice. keep it natural, not growth-hacky.`,
+        label: "Random in my voice",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post optimized for growth and reach.`,
+        label: "Optimize for growth",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `help me pick a sharper angle for ${topicLabel}`,
+        label: "Pick an angle first",
+        explicitIntent: "ideate",
+      },
+    ];
+
+    return {
+      reply:
+        "got it. want to pick a specific angle, have me draft a solid one in your voice, or optimize it for growth?",
+      quickReplies,
+      clarificationState: {
+        branchKey: args.branchKey,
+        stepKey: "pick_direction",
+        seedTopic: args.seedTopic,
+        options: quickReplies,
+      },
+    };
+  }
+
   const quickReplies = buildSeededChoices(args.styleCard, args.topicAnchors, args.seedTopic);
 
   const reply =
