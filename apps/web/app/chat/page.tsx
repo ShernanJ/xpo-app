@@ -501,6 +501,7 @@ function ChatPageContent() {
       if (data.ok && data.data?.thread) {
         setChatThreads((prev) => [data.data.thread, ...prev]);
         setActiveThreadId(data.data.thread.id);
+        welcomeFetchedRef.current = false;
         setMessages([]); // Clear chat history for the new thread
         setDraftInput("");
         // Optionally update URL: window.history.pushState(null, '', `?threadId=${data.data.thread.id}&account=${accountName}`)
@@ -590,18 +591,12 @@ function ChatPageContent() {
       overrides: ChatStrategyInputs | null = activeStrategyInputs,
       toneOverrides: ChatToneInputs | null = activeToneInputs,
     ): Promise<WorkspaceLoadResult> => {
-      if (!runId) {
-        setErrorMessage("Missing runId. Start from the landing page.");
-        setIsLoading(false);
-        return { ok: false };
-      }
 
       setIsLoading(true);
       setErrorMessage(null);
 
       try {
         const requestBody = {
-          runId,
           ...(overrides ?? {}),
           ...(toneOverrides ?? {}),
         };
@@ -661,7 +656,7 @@ function ChatPageContent() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, activeToneInputs, runId],
+    [activeStrategyInputs, activeToneInputs, accountName],
   );
 
   useEffect(() => {
@@ -669,7 +664,7 @@ function ChatPageContent() {
   }, [loadWorkspace]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!accountName) {
       return;
     }
 
@@ -690,7 +685,7 @@ function ChatPageContent() {
     setPinnedVoicePostIds([]);
     setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
-  }, [runId]);
+  }, [accountName]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -701,14 +696,7 @@ function ChatPageContent() {
       return;
     }
 
-    // Skip the typing animation for the fallback welcome message, but animate the fetched one
-    if (latestAssistantMessage.id === "assistant-welcome-fallback") {
-      setTypedAssistantLengths((current) => ({
-        ...current,
-        [latestAssistantMessage.id]: latestAssistantMessage.content.length,
-      }));
-      return;
-    }
+
 
     const targetLength = latestAssistantMessage.content.length;
     const currentLength = typedAssistantLengths[latestAssistantMessage.id];
@@ -738,7 +726,7 @@ function ChatPageContent() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [messages, typedAssistantLengths]);
+  }, [messages]);
 
   useEffect(() => {
     if (!backfillJobId) {
@@ -910,18 +898,6 @@ function ChatPageContent() {
       meta: new Date(t.updatedAt).toLocaleDateString(),
     }));
 
-    const strategyItems = context.strategyDelta.adjustments.slice(0, 3).map((item) => ({
-      id: `${item.area}-${item.direction}`,
-      label: `${formatEnumLabel(item.direction)} ${formatAreaLabel(item.area)}`,
-      meta: formatEnumLabel(item.priority),
-    }));
-
-    const anchorItems = context.positiveAnchors.slice(0, 3).map((post) => ({
-      id: post.id,
-      label: post.text.length > 50 ? `${post.text.slice(0, 50)}...` : post.text,
-      meta: `${formatEnumLabel(post.lane)} · ${post.goalFitScore}`,
-    }));
-
     return [
       {
         section: "Chats",
@@ -932,14 +908,6 @@ function ChatPageContent() {
             meta: "Active",
           },
         ],
-      },
-      {
-        section: "Strategy",
-        items: strategyItems,
-      },
-      {
-        section: "Anchors",
-        items: anchorItems,
       },
     ].filter((section) => section.items.length > 0);
   }, [context, contract]);
@@ -1078,8 +1046,7 @@ function ChatPageContent() {
         options.contentFocusOverride ?? activeContentFocus;
 
       if (
-        !runId ||
-        !resolvedContext ||
+        !resolvedContext?.runId ||
         !resolvedContract ||
         !resolvedStrategyInputs ||
         !resolvedToneInputs ||
@@ -1130,7 +1097,7 @@ function ChatPageContent() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            runId,
+            runId: resolvedContext.runId,
             threadId: activeThreadId,
             ...(trimmedPrompt ? { message: trimmedPrompt } : {}),
             history,
@@ -1336,7 +1303,7 @@ function ChatPageContent() {
       providerPreference,
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
-      runId,
+      accountName,
     ],
   );
 
@@ -1378,7 +1345,6 @@ function ChatPageContent() {
         if (welcomeFetchedRef.current) return;
         welcomeFetchedRef.current = true;
 
-        const accountName = searchParams.get("account")?.trim() || "";
         try {
           setMessages([{
             id: `assistant-welcome-loading`,
@@ -1387,7 +1353,7 @@ function ChatPageContent() {
             isStreaming: true, // Show typing indicator
           }]);
 
-          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${runId}&account=${encodeURIComponent(accountName)}`);
+          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${context!.runId}&account=${encodeURIComponent(accountName ?? "there")}`);
           const data = await res.json();
 
           if (data.ok && data.data?.response) {
@@ -1401,7 +1367,7 @@ function ChatPageContent() {
             setMessages([{
               id: `assistant-welcome-fallback`,
               role: "assistant",
-              content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+              content: `yo @${accountName ?? "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
             }]);
           }
         } catch (err) {
@@ -1409,7 +1375,7 @@ function ChatPageContent() {
           setMessages([{
             id: `assistant-welcome-fallback`,
             role: "assistant",
-            content: `yo ${accountName ? accountName : "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+            content: `yo @${accountName ?? "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
           }]);
         }
       }
@@ -1655,16 +1621,25 @@ function ChatPageContent() {
                   className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
                 >
                   <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold">
-                      {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold overflow-hidden">
+                      {context?.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${accountName} profile photo`}
+                        />
+                      ) : (
+                        accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"
+                      )}
                     </div>
                     <div className="flex flex-col items-start overflow-hidden text-left">
                       <span className="truncate text-xs font-semibold text-zinc-100 w-full">
-                        {session?.user?.email ?? "Loading..."}
+                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
                       </span>
                       {accountName ? (
                         <span className="truncate text-[10px] text-zinc-500 w-full">
-                          @{accountName}
+                          {session?.user?.email ?? ""}
                         </span>
                       ) : null}
                     </div>

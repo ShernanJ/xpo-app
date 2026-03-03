@@ -65,6 +65,7 @@ export interface CreatorAgentContext {
   evaluationRubricVersion: string;
   runId: string;
   account: string;
+  avatarUrl?: string | null;
   source: OnboardingResult["source"];
   creatorProfile: CreatorProfile;
   performanceModel: ReturnType<typeof buildPerformanceModel>;
@@ -273,6 +274,7 @@ export function buildCreatorAgentContext(params: {
     evaluationRubricVersion: CREATOR_EVALUATION_RUBRIC_VERSION,
     runId: params.runId,
     account: params.onboarding.account,
+    avatarUrl: params.onboarding.profile.avatarUrl,
     source: params.onboarding.source,
     creatorProfile,
     performanceModel,

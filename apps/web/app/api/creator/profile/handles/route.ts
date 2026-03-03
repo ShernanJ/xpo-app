@@ -11,13 +11,29 @@ export async function GET() {
 
   try {
     // Determine the handles this user has engaged with based on Voice Profiles
+    // 1. Fetch from VoiceProfiles
     const userProfiles = await prisma.voiceProfile.findMany({
       where: { userId: session.user.id },
       select: { xHandle: true },
     });
 
-    // Create a distinct list of strings, filtering out nulls
-    const handles = Array.from(new Set(userProfiles.map(p => p.xHandle).filter((h): h is string => h !== null)));
+    // 2. Fetch from OnboardingRuns (since users might have scraped without chatting yet)
+    const onboardingRuns = await prisma.onboardingRun.findMany({
+      where: { userId: session.user.id },
+      select: { input: true },
+    });
+
+    // Extract handles from Onboarding JSON inputs
+    const onboardingHandles = onboardingRuns
+      .map(run => {
+        const input = run.input as any;
+        return input?.account ? input.account.replace(/^@/, "").toLowerCase() : null;
+      })
+      .filter(Boolean);
+
+    // Create a distinct list combining both sources
+    const profileHandles = userProfiles.map(p => p.xHandle).filter((h): h is string => h !== null);
+    const handles = Array.from(new Set([...profileHandles, ...onboardingHandles]));
 
     return NextResponse.json({ ok: true, data: { handles } });
   } catch (error) {

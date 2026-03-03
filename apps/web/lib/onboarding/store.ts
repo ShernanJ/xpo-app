@@ -153,3 +153,33 @@ export async function readOnboardingRunById(
     return null;
   }
 }
+
+export async function readLatestOnboardingRunByHandle(
+  userId: string,
+  handle: string,
+): Promise<StoredOnboardingRun | null> {
+  try {
+    const runs = await prisma.onboardingRun.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const match = runs.find((r) => {
+      const input = r.input as any;
+      return input?.account?.toLowerCase() === handle.toLowerCase();
+    });
+
+    if (!match) return null;
+
+    return {
+      runId: match.id,
+      persistedAt: match.createdAt.toISOString(),
+      input: match.input as unknown as OnboardingInput,
+      result: match.result as unknown as OnboardingResult,
+      metadata: { userAgent: null },
+    };
+  } catch (error) {
+    console.error(`Failed to read latest run for user ${userId} handle ${handle}`, error);
+    return null;
+  }
+}

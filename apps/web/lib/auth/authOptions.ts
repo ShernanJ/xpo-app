@@ -56,11 +56,21 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.activeXHandle = user.activeXHandle;
       }
-      if (trigger === "update" && session?.handle) {
-        token.handle = session.handle;
-      }
-      if (trigger === "update" && session?.activeXHandle !== undefined) {
-        token.activeXHandle = session.activeXHandle;
+      if (trigger === "update" && token.id) {
+        // When session.update() is called from the client, fetch the freshest User state from Prisma.
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.id as string },
+          select: { activeXHandle: true, handle: true },
+        });
+        if (dbUser) {
+          token.activeXHandle = dbUser.activeXHandle ?? undefined;
+          token.handle = dbUser.handle ?? undefined;
+        }
+
+        // Allow explicit string overwrites passing from `update({ activeXHandle: 'test' })`
+        if (session?.activeXHandle !== undefined) {
+          token.activeXHandle = session.activeXHandle;
+        }
       }
       return token;
     },

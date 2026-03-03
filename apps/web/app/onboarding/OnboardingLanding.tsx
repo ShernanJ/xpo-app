@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 import { XShell } from "@/components/x-shell";
 import type { OnboardingInput, XPublicProfile } from "@/lib/onboarding/types";
@@ -57,6 +58,7 @@ function normalizeHandle(value: string): string {
 
 export default function OnboardingLanding() {
   const router = useRouter();
+  const { status, update } = useSession();
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
@@ -174,12 +176,40 @@ export default function OnboardingLanding() {
     setIsLoading(true);
     setErrorMessage(null);
 
-    // Instead of actually pinging the backend scraper, we just play the satisfying animation 
-    // for a few seconds to build anticipation, then pass the handle to `/login` to secure the account.
-    setTimeout(() => {
-      const params = new URLSearchParams({ xHandle: trimmedAccount });
-      router.push(`/login?${params.toString()}`);
-    }, 6000);
+    if (status === "authenticated") {
+      // Authenticated users run the scrape natively and skip login
+      try {
+        const resp = await fetch("/api/onboarding/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account: trimmedAccount,
+            goal: "followers",
+            timeBudgetMinutes: 30,
+            tone: { casing: "lowercase", risk: "safe" }
+          }),
+        });
+
+        if (!resp.ok) {
+          throw new Error("Failed to map account");
+        }
+
+        // Force a session refresh so the next page load has the new JWT activeXHandle,
+        // then hard reload to /chat
+        await update();
+        window.location.href = "/chat";
+      } catch (err) {
+        console.error(err);
+        setErrorMessage("Failed to analyze account. Please try again.");
+        setIsLoading(false);
+      }
+    } else {
+      // Anonymous users play the animation then flow into the auth wall
+      setTimeout(() => {
+        const params = new URLSearchParams({ xHandle: trimmedAccount });
+        router.push(`/login?${params.toString()}`);
+      }, 6000);
+    }
   }
 
   if (isLoading) {

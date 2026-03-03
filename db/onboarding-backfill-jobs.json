@@ -1,0 +1,54 @@
+[
+  {
+    "jobId": "bf_d0ac0223-bc50-40b7-ac78-2f2bbc9347f0",
+    "createdAt": "2026-02-28T07:56:31.902Z",
+    "updatedAt": "2026-02-28T07:56:31.902Z",
+    "status": "pending",
+    "account": "shernanjavier",
+    "sourceRunId": "or_c804fa00-2275-400c-b947-cadad2f33319",
+    "targetPostCount": 80,
+    "attempts": 0,
+    "lastError": null,
+    "lastCaptureId": null,
+    "completedAt": null
+  },
+  {
+    "jobId": "bf_eead68fa-958d-4b22-9797-96e65e55cc3d",
+    "createdAt": "2026-02-28T08:02:25.069Z",
+    "updatedAt": "2026-02-28T08:02:25.069Z",
+    "status": "pending",
+    "account": "mccauleycodes",
+    "sourceRunId": "or_746ae630-ecae-4fa7-a35c-8292f8405b2f",
+    "targetPostCount": 80,
+    "attempts": 0,
+    "lastError": null,
+    "lastCaptureId": null,
+    "completedAt": null
+  },
+  {
+    "jobId": "bf_a9bbd851-e9a5-436f-b3d6-631f75e0dad8",
+    "createdAt": "2026-02-28T09:07:36.744Z",
+    "updatedAt": "2026-02-28T09:07:36.744Z",
+    "status": "pending",
+    "account": "nicholaschen__",
+    "sourceRunId": "or_42691c7e-912b-478a-ac28-ccb2fb26619f",
+    "targetPostCount": 80,
+    "attempts": 0,
+    "lastError": null,
+    "lastCaptureId": null,
+    "completedAt": null
+  },
+  {
+    "jobId": "bf_814dbf33-a633-45a8-bf43-7fc7ae5b87de",
+    "createdAt": "2026-02-28T17:55:48.730Z",
+    "updatedAt": "2026-02-28T17:55:48.730Z",
+    "status": "pending",
+    "account": "vitddnv",
+    "sourceRunId": "or_fbdb10ec-ca57-4ea1-9a29-29928605a4c4",
+    "targetPostCount": 80,
+    "attempts": 0,
+    "lastError": null,
+    "lastCaptureId": null,
+    "completedAt": null
+  }
+]
