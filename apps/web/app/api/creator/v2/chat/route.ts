@@ -37,13 +37,7 @@ export async function POST(request: NextRequest) {
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
   const identifier = threadId || runId;
-
-  if (!identifier) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "threadId", message: "threadId is required." }] },
-      { status: 400 },
-    );
-  }
+  // If no threadId or runId, we will automatically generate a thread below.
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
 
@@ -88,7 +82,26 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
     }
-  } else if (runId) {
+  } else {
+    const xHandle = session.user.activeXHandle || undefined;
+    storedThread = await prisma.chatThread.create({
+      data: {
+        userId: session.user.id,
+        ...(xHandle ? { xHandle } : {}),
+      }
+    });
+    console.log("[V2 Chat Checkpoint] New Thread generated:", storedThread.id);
+
+    await prisma.conversationMemory.create({
+      data: {
+        threadId: storedThread.id,
+        userId: session.user.id,
+        activeConstraints: [],
+      }
+    });
+  }
+
+  if (runId) {
     storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
     if (!storedRun) {
       return NextResponse.json(
@@ -126,6 +139,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
     const result = await manageConversationTurn({
       userId: effectiveUserId,
       xHandle: storedThread?.xHandle || null, // Pipeline context isolation
@@ -137,6 +151,7 @@ export async function POST(request: NextRequest) {
       activeDraft,
     });
 
+    console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
     const isCoach = result.mode === "coach";
     const isIdeate = result.mode === "ideate";
 
@@ -194,16 +209,29 @@ export async function POST(request: NextRequest) {
         }
       });
 
+      const updateData: any = { updatedAt: new Date() };
+
+      // Auto-generate title from the first user message if the thread is currently unnamed
+      if (!storedThread.title && effectiveMessage) {
+        const cleanMessage = effectiveMessage.replace(/\n/g, " ").trim();
+        updateData.title = cleanMessage.length > 40
+          ? cleanMessage.slice(0, 40) + "..."
+          : cleanMessage;
+      }
+
       await prisma.chatThread.update({
         where: { id: storedThread.id },
-        data: { updatedAt: new Date() }
+        data: updateData
       });
     }
 
     return NextResponse.json(
       {
         ok: true,
-        data: mappedData,
+        data: {
+          ...mappedData,
+          newThreadId: !threadId && storedThread ? storedThread.id : undefined
+        }
       },
       { status: 200 },
     );

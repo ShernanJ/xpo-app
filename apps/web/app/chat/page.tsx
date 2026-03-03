@@ -2,9 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChevronUp, Check, LogOut, Plus } from "lucide-react";
+import { ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -166,6 +166,7 @@ interface CreatorChatSuccess {
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
+    newThreadId?: string;
     memory?: {
       conversationState: string;
       activeConstraints: string[];
@@ -457,14 +458,78 @@ export default function ChatPage() {
 function ChatPageContent() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
+  const params = useParams();
+  const threadIdRaw = params?.threadId as string | string[] | undefined;
+
   const runId = searchParams.get("runId")?.trim() ?? "";
-  const threadIdParam = searchParams.get("threadId")?.trim() ?? null;
+  const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
 
   const accountName = session?.user?.activeXHandle ?? null;
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
+
+  // Sidebar Edit States
+  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  const [menuOpenThreadId, setMenuOpenThreadId] = useState<string | null>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [threadToDelete, setThreadToDelete] = useState<{ id: string, title: string } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpenThreadId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleRenameSubmit = async (threadId: string) => {
+    if (!editingTitle.trim()) {
+      setEditingThreadId(null);
+      return;
+    }
+    const cleanTitle = editingTitle.trim();
+    setChatThreads(current => current.map(t => t.id === threadId ? { ...t, title: cleanTitle } : t));
+    setEditingThreadId(null);
+
+    try {
+      await fetch(`/api/creator/v2/threads/${threadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cleanTitle })
+      });
+    } catch (e) {
+      console.error("Failed to rename thread", e);
+    }
+  };
+
+  const requestDeleteThread = (id: string, title: string) => {
+    setThreadToDelete({ id, title });
+    setMenuOpenThreadId(null);
+  }
+
+  const confirmDeleteThread = async () => {
+    if (!threadToDelete) return;
+
+    setChatThreads(current => current.filter(t => t.id !== threadToDelete.id));
+    if (activeThreadId === threadToDelete.id) {
+      setActiveThreadId(null);
+      window.history.replaceState({}, '', '/chat');
+    }
+
+    try {
+      await fetch(`/api/creator/v2/threads/${threadToDelete.id}`, { method: "DELETE" });
+    } catch (e) {
+      console.error("Failed to delete thread", e);
+    } finally {
+      setThreadToDelete(null);
+    }
+  };
 
   // Guard against double fetching welcome message
   const welcomeFetchedRef = useRef(false);
@@ -488,29 +553,15 @@ function ChatPageContent() {
       .catch(err => console.error("Failed to fetch threads:", err));
   }, [accountName]);
 
-  const handleNewChat = useCallback(async () => {
+  const handleNewChat = useCallback(() => {
     if (!accountName) return;
-    try {
-      setIsLoading(true);
-      const res = await fetch("/api/creator/v2/threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ xHandle: accountName })
-      });
-      const data = await res.json();
-      if (data.ok && data.data?.thread) {
-        setChatThreads((prev) => [data.data.thread, ...prev]);
-        setActiveThreadId(data.data.thread.id);
-        welcomeFetchedRef.current = false;
-        setMessages([]); // Clear chat history for the new thread
-        setDraftInput("");
-        // Optionally update URL: window.history.pushState(null, '', `?threadId=${data.data.thread.id}&account=${accountName}`)
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
+
+    setActiveThreadId(null);
+    welcomeFetchedRef.current = false;
+    setMessages([]);
+    setDraftInput("");
+
+    window.history.pushState({}, '', '/chat');
   }, [accountName]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
@@ -904,7 +955,7 @@ function ChatPageContent() {
         items: recentItems.length > 0 ? recentItems : [
           {
             id: activeThreadId ?? "current-workspace",
-            label: contract.planner.primaryAngle,
+            label: "New Chat",
             meta: "Active",
           },
         ],
@@ -1086,6 +1137,29 @@ function ChatPageContent() {
         }
       }
 
+      // If we are in the default "New Chat" thread state, auto-adopt the first message as the title locally
+      setChatThreads((currentThreads) => {
+        const activeThreadIndex = currentThreads.findIndex((t) => t.id === activeThreadId);
+        if (activeThreadIndex !== -1) {
+          const activeThread = currentThreads[activeThreadIndex];
+          if (!activeThread?.title && trimmedPrompt) {
+            const newTitleLine = trimmedPrompt.replace(/\n/g, " ").trim();
+            const newTitle = newTitleLine.length > 40
+              ? newTitleLine.slice(0, 40) + "..."
+              : newTitleLine;
+
+            const nextThreads = [...currentThreads];
+            nextThreads[activeThreadIndex] = {
+              ...activeThread,
+              title: newTitle,
+              updatedAt: new Date().toISOString()
+            };
+            return nextThreads;
+          }
+        }
+        return currentThreads;
+      });
+
       setIsSending(true);
       setStreamStatus("Planning the next move.");
       setErrorMessage(null);
@@ -1174,6 +1248,18 @@ function ChatPageContent() {
           if (data.data.memory) {
             setConversationMemory(data.data.memory);
           }
+
+          // Re-map the newly created backend thread if we just instantiated it
+          if (data.data.newThreadId) {
+            setActiveThreadId(data.data.newThreadId);
+            window.history.replaceState({}, '', `/chat/${data.data.newThreadId}`);
+            setChatThreads((current) => current.map(t =>
+              t.id === "current-workspace" || t.id === activeThreadId
+                ? { ...t, id: data.data.newThreadId as string }
+                : t
+            ));
+          }
+
           return;
         }
 
@@ -1279,6 +1365,18 @@ function ChatPageContent() {
         // Store returned memory blob from stream
         if (streamedResult.memory) {
           setConversationMemory(streamedResult.memory);
+        }
+
+        // Re-map the newly created backend thread if we just instantiated it
+        if ((streamedResult as any).newThreadId) {
+          const generatedId = (streamedResult as any).newThreadId as string;
+          setActiveThreadId(generatedId);
+          window.history.replaceState({}, '', `/chat/${generatedId}`);
+          setChatThreads((current) => current.map(t =>
+            t.id === "current-workspace" || t.id === activeThreadId
+              ? { ...t, id: generatedId }
+              : t
+          ));
         }
       } catch (error) {
         setErrorMessage(
@@ -1573,23 +1671,92 @@ function ChatPageContent() {
                       {section.section}
                     </p>
                     {section.items.map((item) => (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
-                        onClick={() => {
-                          if (section.section === "Chats" && item.id !== "current-workspace") {
-                            setActiveThreadId(item.id);
-                          }
-                        }}
-                        className={`block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
+                        className="relative"
+                        onMouseEnter={() => setHoveredThreadId(item.id)}
+                        onMouseLeave={() => setHoveredThreadId(null)}
                       >
-                        <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
-                          {item.label}
-                        </span>
-                        <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                          {item.meta}
-                        </span>
-                      </button>
+                        {editingThreadId === item.id ? (
+                          <div className={`flex w-full items-center rounded-2xl px-2 py-2 ${activeThreadId === item.id ? "bg-white/[0.04]" : "hover:bg-white/[0.03]"}`}>
+                            <input
+                              autoFocus
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleRenameSubmit(item.id);
+                                if (e.key === "Escape") setEditingThreadId(null);
+                              }}
+                              onBlur={() => handleRenameSubmit(item.id)}
+                              className="w-full bg-transparent text-sm leading-6 text-zinc-200 outline-none"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (section.section === "Chats" && item.id !== "current-workspace") {
+                                setActiveThreadId(item.id);
+                                window.history.pushState({}, '', `/chat/${item.id}`);
+                              }
+                            }}
+                            className={`group block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 pr-4">
+                                <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
+                                  {item.label}
+                                </span>
+                                <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                  {item.meta}
+                                </span>
+                              </div>
+
+                              {section.section === "Chats" && item.id !== "current-workspace" && (hoveredThreadId === item.id || menuOpenThreadId === item.id) && (
+                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? menuRef : null}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
+                                    }}
+                                    className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-white"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </button>
+
+                                  {menuOpenThreadId === item.id && (
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-32 rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-xl">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingTitle(item.label);
+                                          setEditingThreadId(item.id);
+                                          setMenuOpenThreadId(null);
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/10 hover:text-white"
+                                      >
+                                        <Edit3 className="h-3 w-3" />
+                                        Rename
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          requestDeleteThread(item.id, item.label);
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ))}
@@ -1603,6 +1770,7 @@ function ChatPageContent() {
                     onClick={() => {
                       if (item.id !== "current-workspace") {
                         setActiveThreadId(item.id);
+                        window.history.pushState({}, '', `/chat/${item.id}`);
                       }
                     }}
                     className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white ${activeThreadId === item.id ? "ring-1 ring-white/20" : ""}`}
@@ -2381,6 +2549,35 @@ function ChatPageContent() {
           </div>
         ) : null
       }
+
+      {threadToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-white mb-2">Delete chat?</h3>
+              <p className="text-sm text-zinc-400">
+                This will delete <strong className="text-zinc-200">"{threadToDelete.title}"</strong>.
+              </p>
+            </div>
+            <div className="flex gap-2 border-t border-white/10 bg-zinc-900/50 p-4 justify-end">
+              <button
+                type="button"
+                onClick={() => setThreadToDelete(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteThread}
+                className="rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-500 transition hover:bg-red-500 flex items-center gap-2 hover:text-white"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main >
   );
 }
