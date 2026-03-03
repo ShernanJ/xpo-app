@@ -1,5 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { ConversationState } from "../contracts/chat";
+import type { ConversationState, DraftPreference } from "../contracts/chat";
 
 function normalizeList(values: string[], fallback: string): string {
   const filtered = values.map((value) => value.trim()).filter(Boolean);
@@ -93,4 +93,32 @@ export function buildAntiPatternBlock(antiPatterns: string[]): string {
     "ANTI-PATTERNS:",
     `- Avoid: ${antiPatterns.map((pattern) => pattern.trim()).filter(Boolean).join(" | ")}`,
   ].join("\n");
+}
+
+export function buildDraftPreferenceBlock(
+  draftPreference: DraftPreference,
+  mode: "plan" | "draft" | "critic",
+): string {
+  switch (draftPreference) {
+    case "voice_first":
+      return [
+        `DELIVERY BIAS (${mode}):`,
+        "- Prioritize sounding like the user over maximizing reach.",
+        "- Avoid growth-hack framing, forced hooks, and obvious engagement bait unless explicitly requested.",
+        "- Keep the wording natural, plainspoken, and close to how the user would actually post.",
+      ].join("\n");
+    case "growth_first":
+      return [
+        `DELIVERY BIAS (${mode}):`,
+        "- Prioritize clarity, hook strength, and early retention.",
+        "- Keep it in the user's voice, but allow sharper framing that is more discoverable and shareable.",
+        "- Favor concise, high-contrast phrasing over softer meandering setup.",
+      ].join("\n");
+    default:
+      return [
+        `DELIVERY BIAS (${mode}):`,
+        "- Balance voice fidelity with post performance.",
+        "- Keep it natural first, but still make the framing easy to grasp quickly.",
+      ].join("\n");
+  }
 }

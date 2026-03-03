@@ -2,10 +2,12 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { DraftPreference } from "../contracts/chat";
 import {
   computeXWeightedCharacterCount,
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
+import { buildDraftPreferenceBlock } from "../prompts/promptHydrator";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
@@ -28,14 +30,17 @@ export async function critiqueDrafts(
   recentHistory?: string,
   options?: {
     maxCharacterLimit?: number;
+    draftPreference?: DraftPreference;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
+  const draftPreference = options?.draftPreference || "balanced";
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
 Your job is to take a draft and ruthlessly enforce constraints.
 
 RULES:
+${buildDraftPreferenceBlock(draftPreference, "critic")}
 1. Do NOT change the meaning or the core angle of the draft.
 2. If the draft uses emojis and the constraints explicitly say "no emojis", you MUST remove them.
 3. If the draft uses the words "Delve", "Unlock", "Testament", or "Embark", you MUST replace them.

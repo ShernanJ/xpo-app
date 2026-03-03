@@ -1,9 +1,14 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
-import type { ConversationState, StrategyPlan } from "../contracts/chat";
+import type {
+  ConversationState,
+  DraftPreference,
+  StrategyPlan,
+} from "../contracts/chat";
 import {
   buildAntiPatternBlock,
   buildConversationToneBlock,
+  buildDraftPreferenceBlock,
   buildGoalHydrationBlock,
   buildStateHydrationBlock,
 } from "../prompts/promptHydrator";
@@ -34,12 +39,14 @@ export async function generatePlan(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    draftPreference?: DraftPreference;
   },
 ): Promise<PlannerOutput | null> {
   const isEditing = !!activeDraft;
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
+  const draftPreference = options?.draftPreference || "balanced";
   const instruction = `
 You are the Lead Strategist for an elite X (Twitter) creator.
 ${isEditing ? `Your task is to take the user's request and formulate a precise plan to EDIT their existing draft.`
@@ -48,6 +55,7 @@ ${isEditing ? `Your task is to take the user's request and formulate a precise p
 ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "plan")}
 ${buildStateHydrationBlock(conversationState, "plan")}
+${buildDraftPreferenceBlock(draftPreference, "plan")}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${activeDraft}\n\n` : ""}

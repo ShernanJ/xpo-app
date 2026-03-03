@@ -16,6 +16,11 @@ export type ConversationState =
   | "draft_ready"
   | "editing";
 
+export type DraftPreference =
+  | "balanced"
+  | "voice_first"
+  | "growth_first";
+
 export interface StrategyPlan {
   objective: string;
   angle: string;
@@ -24,6 +29,7 @@ export interface StrategyPlan {
   mustAvoid: string[];
   hookType: string;
   pitchResponse: string;
+  deliveryPreference?: DraftPreference;
 }
 
 export type ClarificationBranchKey =

@@ -2,11 +2,17 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
-import type { ConversationState } from "../contracts/chat";
+import type {
+  ConversationState,
+  DraftPreference,
+} from "../contracts/chat";
 import {
   buildAntiPatternBlock,
   buildConversationToneBlock,
+  buildDraftPreferenceBlock,
+  buildGoalHydrationBlock,
   buildStateHydrationBlock,
+  buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
 
 export const WriterOutputSchema = z.object({
@@ -35,19 +41,26 @@ export async function generateDrafts(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     maxCharacterLimit?: number;
+    goal?: string;
+    draftPreference?: DraftPreference;
   },
 ): Promise<WriterOutput | null> {
   const isEditing = !!activeDraft;
   const conversationState = options?.conversationState || "draft_ready";
   const antiPatterns = options?.antiPatterns || [];
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
+  const goal = options?.goal || "audience growth";
+  const draftPreference = options?.draftPreference || "balanced";
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
       : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
 
 ${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
+${buildDraftPreferenceBlock(draftPreference, "draft")}
+${buildVoiceHydrationBlock(styleCard)}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${activeDraft}\n\n` : ""}
