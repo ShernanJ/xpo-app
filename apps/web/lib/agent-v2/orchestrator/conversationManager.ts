@@ -28,6 +28,7 @@ import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { getXCharacterLimitForAccount } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
+import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
   CreatorChatQuickReply,
@@ -666,7 +667,6 @@ User Profile Summary:
         writerOutput,
         memory.activeConstraints,
         styleCard,
-        effectiveContext,
         {
           maxCharacterLimit,
           draftPreference: memory.pendingPlan.deliveryPreference || turnDraftPreference,
@@ -731,7 +731,13 @@ User Profile Summary:
       return {
         mode: "draft",
         outputShape: "short_form_post",
-        response: criticOutput.finalResponse,
+        response: buildDraftReply({
+          userMessage,
+          draftPreference:
+            memory.pendingPlan.deliveryPreference || turnDraftPreference,
+          isEdit: Boolean(activeDraft),
+          issuesFixed: criticOutput.issues,
+        }),
         data: {
           draft: criticOutput.finalDraft,
           supportAsset: writerOutput.supportAsset,
@@ -1079,7 +1085,6 @@ User Profile Summary:
         writerOutput,
         memory.activeConstraints,
         styleCard,
-        effectiveContext,
         {
           maxCharacterLimit,
           draftPreference: planWithPreference.deliveryPreference || turnDraftPreference,
@@ -1147,7 +1152,13 @@ User Profile Summary:
       return {
         mode: "draft",
         outputShape: "short_form_post",
-        response: criticOutput.finalResponse,
+        response: buildDraftReply({
+          userMessage,
+          draftPreference:
+            planWithPreference.deliveryPreference || turnDraftPreference,
+          isEdit: Boolean(activeDraft),
+          issuesFixed: criticOutput.issues,
+        }),
         data: {
           draft: criticOutput.finalDraft,
           supportAsset: writerOutput.supportAsset,
