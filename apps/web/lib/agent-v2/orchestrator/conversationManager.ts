@@ -765,6 +765,7 @@ User Profile Summary:
     const decision = await interpretPlannerFeedback(userMessage, memory.pendingPlan);
 
     if (decision === "approve") {
+      const approvedPlan = memory.pendingPlan;
       const pastPosts = await prisma.post.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
@@ -774,7 +775,7 @@ User Profile Summary:
       const historicalTexts = pastPosts.map((post) => post.text);
 
       const writerOutput = await generateDrafts(
-        memory.pendingPlan,
+        approvedPlan,
         styleCard,
         relevantTopicAnchors,
         memory.activeConstraints,
@@ -785,7 +786,7 @@ User Profile Summary:
           antiPatterns,
           maxCharacterLimit,
           goal,
-          draftPreference: memory.pendingPlan.deliveryPreference || turnDraftPreference,
+          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -804,7 +805,7 @@ User Profile Summary:
         styleCard,
         {
           maxCharacterLimit,
-          draftPreference: memory.pendingPlan.deliveryPreference || turnDraftPreference,
+          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -824,7 +825,7 @@ User Profile Summary:
       if (!noveltyCheck.isNovel) {
         const clarification = buildClarificationTree({
           branchKey: "plan_reject",
-          seedTopic: memory.pendingPlan.objective,
+          seedTopic: approvedPlan.objective,
           styleCard,
           topicAnchors: relevantTopicAnchors,
         });
@@ -848,14 +849,14 @@ User Profile Summary:
 
       const rollingSummary = buildRollingSummary({
         currentSummary: memory.rollingSummary,
-        topicSummary: memory.pendingPlan.objective,
-        approvedPlan: memory.pendingPlan,
+        topicSummary: approvedPlan.objective,
+        approvedPlan,
         activeConstraints: memory.activeConstraints,
         latestDraftStatus: "Draft delivered",
       });
 
       await writeMemory({
-        topicSummary: memory.pendingPlan.objective,
+        topicSummary: approvedPlan.objective,
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
@@ -868,8 +869,7 @@ User Profile Summary:
         outputShape: "short_form_post",
         response: buildDraftReply({
           userMessage,
-          draftPreference:
-            memory.pendingPlan.deliveryPreference || turnDraftPreference,
+          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
           isEdit: Boolean(activeDraft),
           issuesFixed: criticOutput.issues,
         }),

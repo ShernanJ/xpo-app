@@ -74,6 +74,61 @@ function canPromoteThreadTitle(args: {
   return isPlaceholderThreadTitle(args.currentTitle) || isGenericThreadPrompt(args.currentTitle || "");
 }
 
+function looksLikeDraftHandoff(reply: string): boolean {
+  const normalized = reply.trim().toLowerCase();
+
+  return [
+    "here's the draft. take a look.",
+    "here's a draft. take a look.",
+    "made the edit. take a look.",
+    "made the edit and kept it close to your voice. take a look.",
+    "made the edit and kept the hook sharper. take a look.",
+    "made the edit and tightened it to fit. take a look.",
+    "kept it natural and close to your voice. take a look.",
+    "leaned into a sharper hook for growth. take a look.",
+    "kept it tight enough to post. take a look.",
+  ].includes(normalized);
+}
+
+function normalizeDraftPayload(args: {
+  reply: string;
+  draft: string | null;
+  drafts: string[];
+  outputShape: string;
+}): {
+  reply: string;
+  draft: string | null;
+  drafts: string[];
+} {
+  let reply = args.reply;
+  let draft = args.draft;
+  let drafts = args.drafts;
+
+  if (!draft && drafts.length > 0) {
+    draft = drafts[0] || null;
+  }
+
+  if (args.outputShape === "short_form_post") {
+    const trimmedReply = reply.trim();
+    const replyLooksLikeDraft =
+      trimmedReply.length > 40 && !looksLikeDraftHandoff(trimmedReply);
+
+    if (!draft && replyLooksLikeDraft) {
+      draft = trimmedReply;
+      drafts = [trimmedReply];
+      reply = "here's the draft. take a look.";
+    } else if (draft) {
+      drafts = drafts.length > 0 ? drafts : [draft];
+
+      if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
+        reply = "here's the draft. take a look.";
+      }
+    }
+  }
+
+  return { reply, draft, drafts };
+}
+
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -247,15 +302,21 @@ export async function POST(request: NextRequest) {
               : null,
         })
       : null;
-    const mappedData = {
+    const normalizedDraftPayload = normalizeDraftPayload({
       reply: result.response,
-      angles: resultData?.angles as unknown[] || [],
-      quickReplies: resultData?.quickReplies || [],
-      plan: resultData?.plan || null,
       draft: resultData?.draft as string || null,
       drafts: resultData?.draft
         ? [resultData.draft as string]
         : [],
+      outputShape: result.outputShape,
+    });
+    const mappedData = {
+      reply: normalizedDraftPayload.reply,
+      angles: resultData?.angles as unknown[] || [],
+      quickReplies: resultData?.quickReplies || [],
+      plan: resultData?.plan || null,
+      draft: normalizedDraftPayload.draft,
+      drafts: normalizedDraftPayload.drafts,
       draftArtifacts: [],
       supportAsset: resultData?.supportAsset as string || null,
       outputShape: result.outputShape,
