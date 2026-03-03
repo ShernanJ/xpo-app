@@ -31,6 +31,7 @@ import { buildClarificationTree } from "./clarificationTree";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
   CreatorChatQuickReply,
+  DraftPreference,
   StrategyPlan,
   V2ChatIntent,
   V2ChatOutputShape,
@@ -264,6 +265,71 @@ function inferBroadTopicDraftRequest(message: string): string | null {
   }
 
   return topic;
+}
+
+function inferDraftPreference(
+  message: string,
+  fallback: DraftPreference = "balanced",
+): DraftPreference {
+  const normalized = message.trim().toLowerCase();
+
+  const voiceFirst = [
+    "in my voice",
+    "my voice",
+    "sound like me",
+    "sounds like me",
+    "keep it natural",
+    "natural, not growth-hacky",
+    "not growth-hacky",
+    "not growth hacky",
+    "not too growthy",
+    "less growthy",
+    "less optimized",
+    "more natural",
+    "more casual",
+    "more like me",
+  ].some((cue) => normalized.includes(cue));
+
+  if (voiceFirst) {
+    return "voice_first";
+  }
+
+  const growthFirst = [
+    "optimized for growth",
+    "optimize it for growth",
+    "optimize for growth",
+    "for growth and reach",
+    "for growth",
+    "for reach",
+    "for engagement",
+    "for impressions",
+    "more viral",
+    "make it punchier",
+    "stronger hook",
+    "growth-focused",
+  ].some((cue) => normalized.includes(cue));
+
+  if (growthFirst) {
+    return "growth_first";
+  }
+
+  return fallback;
+}
+
+function withDraftPreference(
+  plan: StrategyPlan,
+  draftPreference: DraftPreference,
+): StrategyPlan {
+  if (draftPreference === "balanced") {
+    const nextPlan = { ...plan };
+    delete nextPlan.deliveryPreference;
+    return nextPlan;
+  }
+
+  return {
+    ...plan,
+    deliveryPreference: draftPreference,
+  };
 }
 
 function buildPlanPitch(plan: StrategyPlan): string {
@@ -550,6 +616,10 @@ User Profile Summary:
   };
 
   const nextAssistantTurnCount = memory.assistantTurnCount + 1;
+  const turnDraftPreference = inferDraftPreference(
+    userMessage,
+    memory.pendingPlan?.deliveryPreference || "balanced",
+  );
 
   if (
     mode === "planner_feedback" &&
@@ -578,6 +648,8 @@ User Profile Summary:
           conversationState: memory.conversationState,
           antiPatterns,
           maxCharacterLimit,
+          goal,
+          draftPreference: memory.pendingPlan.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -597,6 +669,7 @@ User Profile Summary:
         effectiveContext,
         {
           maxCharacterLimit,
+          draftPreference: memory.pendingPlan.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -685,6 +758,7 @@ User Profile Summary:
           goal,
           conversationState: memory.conversationState,
           antiPatterns,
+          draftPreference: turnDraftPreference,
         },
       );
 
@@ -697,10 +771,15 @@ User Profile Summary:
         };
       }
 
+      const revisedPlanWithPreference = withDraftPreference(
+        revisedPlan,
+        turnDraftPreference,
+      );
+
       await writeMemory({
-        topicSummary: revisedPlan.objective,
+        topicSummary: revisedPlanWithPreference.objective,
         conversationState: "plan_pending_approval",
-        pendingPlan: revisedPlan,
+        pendingPlan: revisedPlanWithPreference,
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
       });
@@ -708,9 +787,9 @@ User Profile Summary:
       return {
         mode: "plan",
         outputShape: "planning_outline",
-        response: buildPlanPitch(revisedPlan),
+        response: buildPlanPitch(revisedPlanWithPreference),
         data: {
-          plan: revisedPlan,
+          plan: revisedPlanWithPreference,
           quickReplies: buildPlanQuickReplies(),
         },
         memory,
@@ -900,6 +979,7 @@ User Profile Summary:
           goal,
           conversationState: memory.conversationState,
           antiPatterns,
+          draftPreference: turnDraftPreference,
         },
       );
 
@@ -912,10 +992,12 @@ User Profile Summary:
         };
       }
 
+      const planWithPreference = withDraftPreference(plan, turnDraftPreference);
+
       await writeMemory({
-        topicSummary: plan.objective,
+        topicSummary: planWithPreference.objective,
         conversationState: "plan_pending_approval",
-        pendingPlan: plan,
+        pendingPlan: planWithPreference,
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
       });
@@ -923,9 +1005,9 @@ User Profile Summary:
       return {
         mode: "plan",
         outputShape: "planning_outline",
-        response: buildPlanPitch(plan),
+        response: buildPlanPitch(planWithPreference),
         data: {
-          plan,
+          plan: planWithPreference,
           quickReplies: buildPlanQuickReplies(),
         },
         memory,
@@ -953,6 +1035,7 @@ User Profile Summary:
           goal,
           conversationState: memory.conversationState,
           antiPatterns,
+          draftPreference: turnDraftPreference,
         },
       );
 
@@ -965,8 +1048,10 @@ User Profile Summary:
         };
       }
 
+      const planWithPreference = withDraftPreference(plan, turnDraftPreference);
+
       const writerOutput = await generateDrafts(
-        plan,
+        planWithPreference,
         styleCard,
         relevantTopicAnchors,
         memory.activeConstraints,
@@ -976,6 +1061,8 @@ User Profile Summary:
           conversationState: memory.conversationState,
           antiPatterns,
           maxCharacterLimit,
+          goal,
+          draftPreference: planWithPreference.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -995,6 +1082,7 @@ User Profile Summary:
         effectiveContext,
         {
           maxCharacterLimit,
+          draftPreference: planWithPreference.deliveryPreference || turnDraftPreference,
         },
       );
 
@@ -1040,15 +1128,15 @@ User Profile Summary:
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
         ? buildRollingSummary({
             currentSummary: memory.rollingSummary,
-            topicSummary: plan.objective,
-            approvedPlan: plan,
+            topicSummary: planWithPreference.objective,
+            approvedPlan: planWithPreference,
             activeConstraints: memory.activeConstraints,
             latestDraftStatus: "Draft delivered",
           })
         : memory.rollingSummary;
 
       await writeMemory({
-        topicSummary: plan.objective,
+        topicSummary: planWithPreference.objective,
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
