@@ -82,7 +82,8 @@ export async function manageConversationTurn(
   }
 
   // Rule 2: Switch to Ideate IF broad topic but lacks angle AND concrete answers < 2
-  if (!explicitIntent && mode === "draft" && !topicSummary && concreteAnswerCount < 2) {
+  // BUT respect the classifier if it confidently chose draft (e.g. "just write anything")
+  if (!explicitIntent && mode === "draft" && !topicSummary && concreteAnswerCount < 2 && classification.confidence < 0.7) {
     mode = "ideate";
   }
 
@@ -135,7 +136,7 @@ User Profile Summary:
 
       return {
         mode: "coach",
-        response: coachReply?.response || "I hear you. Can you tell me more?",
+        response: coachReply?.response || "what's on your mind? i can help you draft, ideate, or figure out what to post.",
         data: { probingQuestion: coachReply?.probingQuestion },
       };
     }
@@ -174,7 +175,7 @@ User Profile Summary:
       if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
 
       // Step D: Critique & Refine
-      const criticOutput = await critiqueDrafts(writerOutput, activeConstraints, styleCard);
+      const criticOutput = await critiqueDrafts(writerOutput, activeConstraints, styleCard, recentHistory);
       if (!criticOutput) return { mode: "error", response: "Failed to critique draft." };
 
       // Step E: Novelty Gate

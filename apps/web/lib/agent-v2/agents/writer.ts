@@ -4,7 +4,7 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
 
 export const WriterOutputSchema = z.object({
-  response: z.string().describe("A short conversational intro like 'here's what i came up with based on what you told me:'"),
+  response: z.string().describe("A warm, human acknowledgment of what the user just shared, followed by a brief 1-line transition to the draft. NEVER repeat or echo the draft content here."),
   angle: z.string().describe("The approach/angle used for this draft"),
   draft: z.string().describe("The actual generated X post — one single draft"),
   supportAsset: z.string().describe("Idea for what image/video to attach"),
@@ -69,8 +69,10 @@ REQUIREMENTS:
 2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
 4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
-5. Provide a brief conversational "response" introducing the draft (1 line, casual).
+5. For the "response" field: Write a brief, warm, human acknowledgment of the user's contribution. Validate what they shared (e.g., "vulnerability is relatable and respectable", "that's a great angle"). Then add a SHORT transition like "here's a draft that might fit — let me know if you want any edits." NEVER copy, echo, or paraphrase the draft text in the response field — the draft will be shown separately.
 6. Provide an idea for a "supportAsset" (image/video idea to attach).
+7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
+8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 
 Respond ONLY with a valid JSON matching this schema:
 {

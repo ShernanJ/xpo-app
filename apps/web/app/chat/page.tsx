@@ -964,7 +964,7 @@ function ChatPageContent() {
         ],
       },
     ].filter((section) => section.items.length > 0);
-  }, [context, contract]);
+  }, [context, contract, chatThreads, activeThreadId]);
   const selectedDraftArtifact = useMemo(() => {
     if (!activeDraftEditor) {
       return null;

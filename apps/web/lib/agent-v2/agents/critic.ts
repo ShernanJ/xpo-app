@@ -5,7 +5,7 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
-  finalResponse: z.string().describe("The final conversational response introducing the draft"),
+  finalResponse: z.string().describe("A warm, human acknowledgment of what the user shared, plus a brief transition to the draft. NEVER echo or repeat the draft text here."),
   finalAngle: z.string().describe("The final underlying angle for the draft"),
   finalDraft: z.string().describe("The final, corrected draft ready for the user"),
   issues: z.array(z.string()).describe("Any minor or major issues found during critique"),
@@ -21,6 +21,7 @@ export async function critiqueDrafts(
   writerOutput: WriterOutput,
   activeConstraints: string[],
   styleCard: VoiceStyleCard | null,
+  recentHistory?: string,
 ): Promise<CriticOutput | null> {
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
@@ -40,10 +41,13 @@ ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}
 ${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MUST OBEY): ${styleCard.customGuidelines.join(" | ")}` : ""}
 
+RECENT CONVERSATION (use this to write a warm, contextual acknowledgment in finalResponse):
+${recentHistory || "No recent history available."}
+
 Respond ONLY with a valid JSON matching this schema:
 {
   "approved": boolean,
-  "finalResponse": "...",
+  "finalResponse": "A warm human reply acknowledging what the user shared + a brief transition like 'here's a draft — let me know if you want changes.' NEVER echo the draft content here.",
   "finalAngle": "...",
   "finalDraft": "The corrected draft text...",
   "issues": ["Issue 1 found and fixed", "Issue 2 found and fixed"]
