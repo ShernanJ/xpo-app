@@ -140,11 +140,11 @@ User Profile Summary:
       const historicalTexts = pastPosts.map(p => p.text);
 
       // Step B: Formulate Strategy Plan
-      const plan = await generatePlan(userMessage, topicSummary, activeConstraints, activeDraft);
+      const plan = await generatePlan(userMessage, topicSummary, activeConstraints, recentHistory, activeDraft);
       if (!plan) return { mode: "error", response: "Failed to generate strategy plan." };
 
       // Step C: Generate single draft
-      const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints, activeDraft);
+      const writerOutput = await generateDrafts(plan, styleCard, anchors.topicAnchors, activeConstraints, recentHistory, activeDraft);
       if (!writerOutput) return { mode: "error", response: "Failed to write draft." };
 
       // Step D: Critique & Refine

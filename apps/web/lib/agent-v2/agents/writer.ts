@@ -23,6 +23,7 @@ export async function generateDrafts(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   activeConstraints: string[],
+  recentHistory: string,
   activeDraft?: string,
 ): Promise<WriterOutput | null> {
   const isEditing = !!activeDraft;
@@ -32,6 +33,10 @@ ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an exis
       : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${activeDraft}\n\n` : ""}
+
+RECENT CHAT HISTORY (Provides context on what the user is replying to):
+${recentHistory}
+
 STRATEGY PLAN:
 Objective: ${plan.objective}
 Angle: ${plan.angle}
@@ -41,16 +46,17 @@ Must Include: ${plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${activeConstraints.join(" | ") || "None"}
 
-USER'S HISTORICAL ANCHORS (Details to weave in if relevant):
+USER'S HISTORICAL POSTS (FOR VIBE AND TONE REFERENCE ONLY):
 ${topicAnchors.join("\n---") || "None"}
+CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them ONLY to understand their voice and pacing.
 
 ${styleCard
       ? `
-USER'S SPECIFIC WRITING STYLE (CRITICAL - YOU MUST FOLLOW THIS EXACTLY):
+USER'S SPECIFIC WRITING STYLE:
 - Sentence Openings: ${styleCard.sentenceOpenings.join(", ")}
 - Sentence Closers: ${styleCard.sentenceClosers.join(", ")}
 - Pacing: ${styleCard.pacing}
-- Emojis: ${styleCard.emojiPatterns.join(", ") || "None"}
+- Emojis: IF the user rarely uses emojis, DO NOT USE THEM. If they do, use them sparingly. (Pattern: ${styleCard.emojiPatterns.join(", ") || "None"})
 - Slang/Vocabulary: ${styleCard.slangAndVocabulary.join(", ")}
 - Formatting: ${styleCard.formattingRules.join(", ")}
 `
@@ -59,10 +65,11 @@ USER'S SPECIFIC WRITING STYLE (CRITICAL - YOU MUST FOLLOW THIS EXACTLY):
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
-${isEditing ? `2. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `2. The draft should be the best possible execution of the plan.`}
-3. Make it sound like the user actually wrote it — match their voice perfectly.
-4. Provide a brief conversational "response" introducing the draft (1 line, casual).
-5. Provide an idea for a "supportAsset" (image/video idea to attach).
+2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
+${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
+4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
+5. Provide a brief conversational "response" introducing the draft (1 line, casual).
+6. Provide an idea for a "supportAsset" (image/video idea to attach).
 
 Respond ONLY with a valid JSON matching this schema:
 {

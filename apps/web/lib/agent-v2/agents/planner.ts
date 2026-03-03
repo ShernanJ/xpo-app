@@ -20,16 +20,21 @@ export async function generatePlan(
   userMessage: string,
   topicSummary: string | null,
   activeConstraints: string[],
+  recentHistory: string,
   activeDraft?: string,
 ): Promise<PlannerOutput | null> {
   const isEditing = !!activeDraft;
   const instruction = `
 You are the Lead Strategist for an elite X (Twitter) creator.
 ${isEditing ? `Your task is to take the user's request and formulate a precise plan to EDIT their existing draft.`
-      : `Your task is to take the user's requested topic and formulate a precise plan for a NEW short-form post.`}
+      : `Your task is to take the user's requested topic (or their answer to your previous question) and formulate a precise plan for a NEW short-form post.`}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${activeDraft}\n\n` : ""}
-USER'S REQUEST:
+
+RECENT CHAT HISTORY (For context on what they are replying to):
+${recentHistory}
+
+USER'S REQUEST (Their idea or direct answer):
 ${userMessage}
 
 ACTIVE SESSION CONSTRAINTS (Rules the user has previously set):
@@ -44,7 +49,8 @@ ${isEditing ? `REQUIREMENTS:
 1. Identify a compelling, non-obvious angle for this topic.
 2. Choose a target lane (is this an original thought, or pushing back on common advice?)
 3. Determine what must be included (proof points) and avoided (cliches).
-4. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").`}
+4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
+5. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").`}
 
 Respond ONLY with a valid JSON matching this schema:
 {

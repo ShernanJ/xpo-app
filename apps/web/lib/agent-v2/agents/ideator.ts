@@ -3,10 +3,10 @@ import { z } from "zod";
 import { VoiceStyleCard } from "../core/styleProfile";
 
 export const IdeaSchema = z.object({
-  title: z.string().describe("The core topic or hook, e.g. 'Is AI a threat or opportunity?'"),
-  why_this_works: z.string().describe("Conversational explanation of why this fits their profile/audience. e.g. 'Why this works for you: You've lived this...'"),
-  opening_lines: z.any().describe("2 distinct options for opening sentences"),
-  subtopics: z.string().describe("Bullet-point-like string of subtopics, e.g. 'How AI changes work • Skills to develop • Builder perspective'"),
+  title: z.string().describe("A broad, conversational, open-ended question that prompts the user for a story. Keep it general and simple. e.g. 'Are there any recent projects you worked on that you can talk about?' or 'What is a common misconception about building AI tools?'"),
+  why_this_works: z.string().describe("Conversational explanation of why this fits their profile/audience. e.g. 'Your audience loves raw, behind-the-scenes building stories...'"),
+  opening_lines: z.any().describe("2 distinct options for opening sentences to show them how it could start"),
+  subtopics: z.any().describe("What they should talk about in the reply, e.g. 'The specific bug • The frustrated caffeine-fueled moment • The fix'"),
 });
 
 export const IdeasMenuSchema = z.object({
@@ -47,19 +47,19 @@ Your job is to provide highly tailored post ideas based on their history or curr
 THE IDEATION FORMAT (CRITICAL):
 You MUST follow this exact structure for your output:
 1. Provide a conversational "intro" paragraph acknowledging what they asked for or evaluating their recent content trends. 
-2. Provide 2-5 distinct "angles" (ideas). For each angle, you must provide:
-   - title: A punchy topic or hook.
+2. Provide 2-5 distinct "angles" (ideas). For each angle, you must NOT write a formal post title or hook. Instead, you must provide:
+   - title: A very SIMPLE, broad, conversational QUESTION to ask the user. Do not make hyper-specific assumptions about them crying or quitting. (e.g. "What is a project you've worked on recently?" or "What's a common mistake you see beginners make?")
    - why_this_works: An explanation of why this specific angle fits their authority/niche.
-   - opening_lines: 2 different scroll-stopping first-sentence options.
-   - subtopics: A short list of talking points (e.g. "Point 1 • Point 2 • Point 3").
-3. Provide a "close" sentence asking which one they want to draft.
+   - opening_lines: 2 different scroll-stopping first-sentence options to give them a taste of the final post.
+   - subtopics: A short list of talking points they should include in their response.
+3. Provide a "close" sentence asking which one they want to flesh out.
 
 ${anchorContext}
 
 NICHE ENFORCEMENT:
-- Ideas MUST be highly personalized to what they actually do.
+- Ideas MUST be highly personalized to their niche, but keep the questions BROAD enough that anyone in that niche could answer them.
 - NEVER invent generic topics like "5 ways to be productive".
-- If they build AI tools, give them angles about the reality of building AI tools.
+- Do not invent hyper-specific emotional scenarios (like "the moment you cried"). Keep it professional but casual.
 
 ${userContextString || ""}
 
@@ -78,7 +78,7 @@ Respond ONLY with valid JSON matching the exact schema requirements.
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     reasoning_effort: "medium",
     temperature: 0.65,
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [
       { role: "system", content: instruction },
       { role: "user", content: `Topic/message: ${userMessage}` },

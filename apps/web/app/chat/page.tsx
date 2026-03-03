@@ -1630,78 +1630,19 @@ export default function ChatPage() {
                             const format = isStructured ? (angle as Record<string, string>).format : null;
 
                             return (
-                              <div
+                              <button
+                                type="button"
+                                onClick={() => setDraftInput(`> ${title}\n\n`)}
                                 key={`${message.id}-angle-${index}`}
-                                className="group relative rounded-lg py-3 hover:bg-white/[0.02] transition-colors"
+                                className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
                               >
-                                <div className="flex flex-col gap-2">
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="flex items-start gap-3">
-                                      <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
-                                      <p className="text-sm font-medium leading-relaxed text-zinc-100">
-                                        {title}
-                                      </p>
-                                    </div>
-                                    <div className="flex shrink-0 items-center self-start gap-4">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setDraftInput(title);
-                                        }}
-                                        className="text-xs font-medium text-zinc-500 underline-offset-4 hover:text-white hover:underline transition-colors"
-                                      >
-                                        edit
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          void handleAngleSelect(title);
-                                        }}
-                                        disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                        className="text-xs font-medium text-emerald-400 underline-offset-4 hover:text-emerald-300 hover:underline disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-                                      >
-                                        Draft this post
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="pl-6 text-[13px] leading-relaxed text-zinc-400">
-                                    {whyThisWorks && (
-                                      <p className="mb-2">
-                                        <strong className="font-semibold text-zinc-300">Why this works:</strong> {whyThisWorks}
-                                      </p>
-                                    )}
-
-                                    {openingLines && Array.isArray(openingLines) && openingLines.length > 0 && (
-                                      <div className="mb-2">
-                                        <strong className="font-semibold text-zinc-300">Opening lines:</strong>
-                                        <ul className="mt-1 list-inside list-disc space-y-1 pl-1">
-                                          {openingLines.map((line: string, i: number) => (
-                                            <li key={i}>"{line}"</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-
-                                    {typeof openingLines === "string" && (
-                                      <div className="mb-2">
-                                        <strong className="font-semibold text-zinc-300">Opening lines:</strong> {openingLines}
-                                      </div>
-                                    )}
-
-                                    {subtopics && (
-                                      <p className="mb-2">
-                                        <strong className="font-semibold text-zinc-300">Subtopics:</strong> {subtopics}
-                                      </p>
-                                    )}
-
-                                    {/* Fallback for older formats */}
-                                    {premise && !whyThisWorks && (
-                                      <p className="mb-2 text-zinc-300">{premise}</p>
-                                    )}
-                                  </div>
+                                <div className="flex items-start gap-3">
+                                  <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
+                                  <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
+                                    {title}
+                                  </p>
                                 </div>
-                              </div>
+                              </button>
                             );
                           })}
                         </div>

@@ -21,7 +21,7 @@ async function runTest() {
 
   // 3. Test Planner
   console.log("\\n[3/6] Testing Planner...");
-  const plan = await generatePlan("I want to tweet about how hard it was to migrate JSONL to Postgres yesterday.", "Database migration", ["No emojis"]);
+  const plan = await generatePlan("I want to tweet about how hard it was to migrate JSONL to Postgres yesterday.", "Database migration", ["No emojis"], "User just answered a question about their database.");
   console.log("-> Planner Output:", plan?.objective ? "Success (Plan generated)" : "Failed");
 
   // 4. Test Ideator
@@ -39,7 +39,8 @@ async function runTest() {
     plan,
     null, // No style card for simple test
     ["Yesterday I moved 67 records from jsonl to postgres", "I used the neon adapter"],
-    ["No emojis"]
+    ["No emojis"],
+    "User just answered a question about their database"
   );
   console.log("-> Writer Output:", writer?.draft ? "Success (1 draft)" : "Failed");
 
