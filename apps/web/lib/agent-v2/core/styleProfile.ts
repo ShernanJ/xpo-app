@@ -2,6 +2,16 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { z } from "zod";
 
+export const UserPreferencesSchema = z.object({
+  casing: z.enum(["auto", "normal", "lowercase", "uppercase"]).default("auto"),
+  bulletStyle: z.enum(["auto", "dash", "angle"]).default("auto"),
+  emojiUsage: z.enum(["auto", "on", "off"]).default("auto"),
+  profanity: z.enum(["auto", "on", "off"]).default("auto"),
+  blacklist: z.array(z.string()).default([]),
+  writingGoal: z.enum(["voice_first", "balanced", "growth_first"]).default("balanced"),
+  verifiedMaxChars: z.number().int().min(250).max(25000).nullable().optional(),
+});
+
 export const StyleCardSchema = z.object({
   sentenceOpenings: z.array(z.string()).describe("Typical ways the user starts sentences or posts (e.g. 'Hot take:', 'Unpopular opinion:', 'Here is why...')"),
   sentenceClosers: z.array(z.string()).describe("Typical ways the user ends sentences or posts (e.g. 'Thoughts?', 'Let that sink in.', 'Do you agree?')"),
@@ -22,9 +32,11 @@ export const StyleCardSchema = z.object({
     )
     .default([])
     .describe("Recent rejected style patterns to avoid repeating"),
+  userPreferences: UserPreferencesSchema.optional().describe("Durable profile-level writing preferences set by the user"),
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
+export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
 export async function generateStyleProfile(userId: string, xHandle: string, limit: number = 50): Promise<VoiceStyleCard | null> {
   try {

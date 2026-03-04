@@ -4,6 +4,12 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
+import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
+import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
+import {
+  buildPreferenceConstraintsFromPreferences,
+  normalizeUserPreferences,
+} from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import {
   buildDraftArtifact,
   buildDraftArtifactTitle,
@@ -25,6 +31,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   selectedDraftContext?: unknown;
   formatPreference?: unknown;
   preferenceConstraints?: unknown;
+  preferenceSettings?: unknown;
 }
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
@@ -365,6 +372,10 @@ export async function POST(request: NextRequest) {
         .map((value) => value.trim())
         .filter(Boolean)
     : [];
+  const transientPreferenceSettings =
+    body.preferenceSettings && typeof body.preferenceSettings === "object" && !Array.isArray(body.preferenceSettings)
+      ? normalizeUserPreferences(body.preferenceSettings as Partial<UserPreferences>)
+      : null;
 
   const effectiveMessage = (() => {
     if (message) return message;
@@ -429,6 +440,41 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const onboardingResult = (storedRun?.result || null) as
+    | {
+        profile?: {
+          isVerified?: boolean;
+        };
+      }
+    | null;
+  const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
+  const activeHandle = storedThread?.xHandle || session.user.activeXHandle || null;
+  const persistedVoiceProfile = activeHandle
+    ? await prisma.voiceProfile.findFirst({
+        where: {
+          userId: session.user.id,
+          xHandle: activeHandle,
+        },
+      })
+    : null;
+  const parsedPersistedStyleCard = persistedVoiceProfile?.styleCard
+    ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
+    : null;
+  const storedUserPreferences = normalizeUserPreferences(
+    parsedPersistedStyleCard?.success
+      ? parsedPersistedStyleCard.data.userPreferences
+      : null,
+  );
+  const effectiveUserPreferences = transientPreferenceSettings || storedUserPreferences;
+  const mergedPreferenceConstraints = Array.from(
+    new Set([
+      ...buildPreferenceConstraintsFromPreferences(effectiveUserPreferences, {
+        isVerifiedAccount,
+      }),
+      ...preferenceConstraints,
+    ]),
+  );
+
   // Format recent history for V2 Orchestrator
   const rawHistory = Array.isArray(body.history) ? body.history : [];
   const recentHistoryStr = rawHistory
@@ -476,7 +522,7 @@ export async function POST(request: NextRequest) {
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
       formatPreference,
-      preferenceConstraints,
+      preferenceConstraints: mergedPreferenceConstraints,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
@@ -530,8 +576,25 @@ export async function POST(request: NextRequest) {
         : [],
       outputShape: result.outputShape,
     });
+    const effectiveFormatPreference =
+      plan?.formatPreference ||
+      formatPreference ||
+      result.memory.formatPreference ||
+      (result.outputShape === "long_form_post" ? "longform" : "shortform");
+    const policyDraft =
+      normalizedDraftPayload.draft && (
+        result.outputShape === "short_form_post" || result.outputShape === "long_form_post"
+      )
+        ? applyFinalDraftPolicy({
+            draft: normalizedDraftPayload.draft,
+            formatPreference: effectiveFormatPreference,
+            isVerifiedAccount,
+            userPreferences: effectiveUserPreferences,
+          })
+        : normalizedDraftPayload.draft;
+    const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
     const draftVersionPayload = buildInitialDraftVersionPayload({
-      draft: normalizedDraftPayload.draft,
+      draft: policyDraft,
       outputShape: result.outputShape,
       supportAsset: (resultData?.supportAsset as string) || null,
       selectedDraftContext,
@@ -541,8 +604,8 @@ export async function POST(request: NextRequest) {
       angles: resultData?.angles as unknown[] || [],
       quickReplies: resultData?.quickReplies || [],
       plan: resultData?.plan || null,
-      draft: normalizedDraftPayload.draft,
-      drafts: normalizedDraftPayload.drafts,
+      draft: policyDraft,
+      drafts: policyDrafts,
       draftArtifacts: draftVersionPayload.draftArtifacts,
       draftVersions: draftVersionPayload.draftVersions,
       activeDraftVersionId: draftVersionPayload.activeDraftVersionId,

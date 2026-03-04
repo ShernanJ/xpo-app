@@ -28,6 +28,8 @@ import {
   buildDraftReviewLoadingLabel,
   buildDraftReviewPrompt,
 } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
+import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
+import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -163,6 +165,20 @@ interface DraftPromotionFailure {
 }
 
 type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
+
+interface PreferencesSuccess {
+  ok: true;
+  data: {
+    preferences: UserPreferences;
+  };
+}
+
+interface PreferencesFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type PreferencesResponse = PreferencesSuccess | PreferencesFailure;
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -1477,6 +1493,8 @@ function ChatPageContent() {
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [isPreferencesLoading, setIsPreferencesLoading] = useState(false);
+  const [isPreferencesSaving, setIsPreferencesSaving] = useState(false);
   const [preferenceCasing, setPreferenceCasing] = useState<
     "auto" | "normal" | "lowercase" | "uppercase"
   >("auto");
@@ -1700,72 +1718,47 @@ function ChatPageContent() {
       ),
     [effectivePreferenceMaxCharacters, preferencesPreviewDraft],
   );
-  const preferenceConstraintRules = useMemo(() => {
-    const nextConstraints: string[] = [];
-
-    if (preferenceCasing === "normal") {
-      nextConstraints.push("Use normal capitalization.");
-    } else if (preferenceCasing === "lowercase") {
-      nextConstraints.push("Write in all lowercase.");
-    } else if (preferenceCasing === "uppercase") {
-      nextConstraints.push("Write in uppercase.");
-    }
-
-    if (preferenceBulletStyle !== "auto") {
-      nextConstraints.push(
-        `When using lists, use "${preferenceBulletStyle}" as the list marker.`,
-      );
-    }
-
-    if (preferenceWritingMode === "voice") {
-      nextConstraints.push(
-        "Prioritize sounding closest to how I would organically post over growth optimization.",
-      );
-    } else if (preferenceWritingMode === "growth") {
-      nextConstraints.push(
-        "Optimize for growth while staying recognizably in my voice.",
-      );
-    } else {
-      nextConstraints.push(
-        "Keep a balance between sounding like me and optimizing for growth.",
-      );
-    }
-
-    if (preferenceUseEmojis) {
-      nextConstraints.push("Emojis are allowed, but keep them light and intentional.");
-    } else {
-      nextConstraints.push("Do not use emojis.");
-    }
-
-    if (preferenceAllowProfanity) {
-      nextConstraints.push("Profanity is allowed if it fits the voice.");
-    } else {
-      nextConstraints.push("Avoid profanity.");
-    }
-
-    if (preferenceBlacklistedTerms.length > 0) {
-      nextConstraints.push(
-        `Never use these words or emojis: ${preferenceBlacklistedTerms.join(", ")}.`,
-      );
-    }
-
-    if (isVerifiedAccount) {
-      nextConstraints.push(
-        `Prefer staying under ${effectivePreferenceMaxCharacters.toLocaleString()} characters unless the user explicitly asks for longer.`,
-      );
-    }
-
-    return nextConstraints;
-  }, [
-    effectivePreferenceMaxCharacters,
-    isVerifiedAccount,
-    preferenceAllowProfanity,
-    preferenceBlacklistedTerms,
-    preferenceBulletStyle,
-    preferenceCasing,
-    preferenceUseEmojis,
-    preferenceWritingMode,
-  ]);
+  const currentPreferencePayload = useMemo<UserPreferences>(
+    () => ({
+      casing: preferenceCasing,
+      bulletStyle:
+        preferenceBulletStyle === "auto"
+          ? "auto"
+          : preferenceBulletStyle === "-"
+            ? "dash"
+            : "angle",
+      emojiUsage: preferenceUseEmojis ? "on" : "off",
+      profanity: preferenceAllowProfanity ? "on" : "off",
+      blacklist: preferenceBlacklistedTerms,
+      writingGoal:
+        preferenceWritingMode === "voice"
+          ? "voice_first"
+          : preferenceWritingMode === "growth"
+            ? "growth_first"
+            : "balanced",
+      verifiedMaxChars: isVerifiedAccount ? effectivePreferenceMaxCharacters : null,
+    }),
+    [
+      effectivePreferenceMaxCharacters,
+      isVerifiedAccount,
+      preferenceAllowProfanity,
+      preferenceBlacklistedTerms,
+      preferenceBulletStyle,
+      preferenceCasing,
+      preferenceUseEmojis,
+      preferenceWritingMode,
+    ],
+  );
+  const preferenceConstraintRules = useMemo(
+    () =>
+      buildPreferenceConstraintsFromPreferences(currentPreferencePayload, {
+        isVerifiedAccount,
+      }),
+    [
+      currentPreferencePayload,
+      isVerifiedAccount,
+    ],
+  );
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
@@ -1780,6 +1773,90 @@ function ChatPageContent() {
       })
       .catch((err) => console.error("Failed to load available handles:", err));
   }, []);
+
+  const applyPersistedPreferences = useCallback((preferences: UserPreferences) => {
+    setPreferenceCasing(preferences.casing);
+    setPreferenceBulletStyle(
+      preferences.bulletStyle === "dash"
+        ? "-"
+        : preferences.bulletStyle === "angle"
+          ? ">"
+          : "auto",
+    );
+    setPreferenceWritingMode(
+      preferences.writingGoal === "voice_first"
+        ? "voice"
+        : preferences.writingGoal === "growth_first"
+          ? "growth"
+          : "balanced",
+    );
+    setPreferenceUseEmojis(preferences.emojiUsage === "on");
+    setPreferenceAllowProfanity(preferences.profanity === "on");
+    setPreferenceBlacklistedTerms(preferences.blacklist);
+    setPreferenceBlacklistInput("");
+    setPreferenceMaxCharacters(preferences.verifiedMaxChars ?? 25000);
+  }, []);
+
+  useEffect(() => {
+    if (!accountName) {
+      return;
+    }
+
+    let isMounted = true;
+    setIsPreferencesLoading(true);
+
+    fetch("/api/creator/v2/preferences")
+      .then((res) => res.json())
+      .then((data: PreferencesResponse) => {
+        if (!isMounted || !data.ok) {
+          return;
+        }
+
+        applyPersistedPreferences(data.data.preferences);
+      })
+      .catch((err) => console.error("Failed to load profile preferences:", err))
+      .finally(() => {
+        if (isMounted) {
+          setIsPreferencesLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [accountName, applyPersistedPreferences]);
+
+  const savePreferences = useCallback(async () => {
+    setIsPreferencesSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/creator/v2/preferences", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          preferences: currentPreferencePayload,
+        }),
+      });
+
+      const data: PreferencesResponse = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.ok ? "Failed to save preferences." : (data.errors[0]?.message ?? "Failed to save preferences."),
+        );
+      }
+
+      applyPersistedPreferences(data.data.preferences);
+      setPreferencesOpen(false);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(error instanceof Error ? error.message : "Failed to save preferences.");
+    } finally {
+      setIsPreferencesSaving(false);
+    }
+  }, [applyPersistedPreferences, currentPreferencePayload]);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
     const normalizedHandle = normalizeAccountHandle(handle);
@@ -2997,6 +3074,7 @@ function ChatPageContent() {
             ...(effectiveSelectedDraftContext
               ? { selectedDraftContext: effectiveSelectedDraftContext }
               : {}),
+            preferenceSettings: currentPreferencePayload,
             ...(preferenceConstraintRules.length > 0
               ? { preferenceConstraints: preferenceConstraintRules }
               : {}),
@@ -3301,6 +3379,7 @@ function ChatPageContent() {
       contract,
       context,
       conversationMemory,
+      currentPreferencePayload,
       isMainChatLocked,
       messages,
       providerPreference,
@@ -4943,13 +5022,23 @@ function ChatPageContent() {
                     Set defaults for formatting, tone, and verified-only character controls. The preview updates instantly and does not need the model.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPreferencesOpen(false)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-                >
-                  Close
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={savePreferences}
+                    disabled={isPreferencesLoading || isPreferencesSaving}
+                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                  >
+                    {isPreferencesSaving ? "Saving" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreferencesOpen(false)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
