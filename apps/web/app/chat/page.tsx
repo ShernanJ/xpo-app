@@ -605,28 +605,27 @@ function isClearlyCasualGreetingProfile(
   ]
     .join(" ")
     .toLowerCase();
+  const explicitPreferredOpener = profile.styleCard.preferredOpeners
+    .map((value) => value.trim().toLowerCase())
+    .find((value) => /^(yo|sup|ay)\b/.test(value));
 
   const hasFormalSignal =
     /\b(formal|professional|polished|executive|authoritative|analytical|structured)\b/.test(
       voiceSignals,
     );
   const hasCasualSignal =
-    /\b(casual|playful|relaxed|direct|conversational|unfiltered|fun|raw|loose)\b/.test(
+    /\b(casual|playful|relaxed|unfiltered|fun|raw|loose|internet-native)\b/.test(
       voiceSignals,
     );
-  const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
-  const isLowercaseHeavy =
-    profile.voice.primaryCasing === "lowercase" &&
-    profile.voice.lowercaseSharePercent >= 82;
-  const isShortFormLeaning =
-    profile.voice.averageLengthBand === "short" ||
-    profile.voice.averageLengthBand === "medium";
+  const hasSlangSignal = /\b(yo|sup|ay|dawg|nah|bro|haha|lol|lmao)\b/.test(
+    voiceSignals,
+  );
 
   if (hasFormalSignal) {
     return false;
   }
 
-  return hasCasualSignal || hasSlangSignal || (isLowercaseHeavy && isShortFormLeaning);
+  return Boolean(explicitPreferredOpener) || hasSlangSignal || hasCasualSignal;
 }
 
 function buildHeroGreeting(params: {
