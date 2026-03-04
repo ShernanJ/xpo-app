@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  evaluateDraftContextSlots,
+} from "./draftContextSlots.ts";
+import {
   isBareDraftRequest,
   resolveConversationMode,
   resolveDraftOutputShape,
@@ -88,4 +91,30 @@ test("career prompts are routed into the career clarification gate", () => {
     }),
     false,
   );
+});
+
+test("slot evaluator treats concrete career prompts as career and not entity-definition gaps", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage:
+      "write a post for me for my internship hunt, taiv requested an interview",
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  assert.equal(slots.domainHint, "career");
+  assert.equal(slots.behaviorKnown, true);
+  assert.equal(slots.stakesKnown, true);
+  assert.equal(slots.entityNeedsDefinition, false);
+});
+
+test("slot evaluator treats undefined product references as entity-definition gaps", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage: "i'm building an extension for stanley",
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  assert.equal(slots.domainHint, "product");
+  assert.equal(slots.entityNeedsDefinition, true);
+  assert.equal(slots.namedEntity, "stanley");
 });
