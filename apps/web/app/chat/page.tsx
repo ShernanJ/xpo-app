@@ -1619,7 +1619,7 @@ function ChatPageContent() {
         ? [
             "building xpo in public means shipping what feels real, not what sounds polished.",
             preferenceAllowProfanity
-              ? "this fucking grind gets real, but the reps are worth it."
+              ? "this grind gets fucking real, but the reps are worth it."
               : "this grind gets real, but the reps are worth it.",
             `${bullet} sharing what i'm learning as it happens`,
             `${bullet} keeping the rough edges in instead of over-polishing`,
@@ -1630,7 +1630,7 @@ function ChatPageContent() {
           ? [
               "most people wait too long to ship. building xpo in public keeps the loop tight.",
               preferenceAllowProfanity
-                ? "this fucking grind gets real, but the reps are worth it."
+                ? "this grind gets fucking real, but the reps are worth it."
                 : "this grind gets real, but the reps are worth it.",
               `${bullet} ship faster`,
               `${bullet} learn what people actually care about`,
@@ -1640,7 +1640,7 @@ function ChatPageContent() {
           : [
               "building xpo in public means shipping before it feels perfect.",
               preferenceAllowProfanity
-                ? "this fucking grind gets real, but the reps are worth it."
+                ? "this grind gets fucking real, but the reps are worth it."
                 : "this grind gets real, but the reps are worth it.",
               `${bullet} testing ideas fast`,
               `${bullet} listening to what people actually need`,
