@@ -1613,54 +1613,6 @@ function ChatPageContent() {
       ) ?? selectedDraftBundle.activeVersion
     );
   }, [activeDraftEditor, selectedDraftBundle]);
-  const selectedDraftArtifact = useMemo(() => {
-    if (!selectedDraftMessage || !selectedDraftVersion) {
-      return null;
-    }
-
-    const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
-
-    return buildDraftArtifactWithLimit({
-      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
-      title: sourceArtifact?.title ?? "Draft",
-      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
-      content: selectedDraftVersion.content,
-      supportAsset:
-        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-    });
-  }, [selectedDraftMessage, selectedDraftVersion]);
-  const selectedPreviousDraftSnapshot = useMemo(() => {
-    if (!selectedDraftVersion || !selectedDraftBundle) {
-      return null;
-    }
-
-    const selectedIndex = selectedDraftBundle.versions.findIndex(
-      (version) => version.id === selectedDraftVersion.id,
-    );
-    const previousVersion =
-      (selectedDraftVersion.basedOnVersionId
-        ? selectedDraftBundle.versions.find(
-            (version) => version.id === selectedDraftVersion.basedOnVersionId,
-          ) ?? null
-        : null) ?? (selectedIndex > 0 ? selectedDraftBundle.versions[selectedIndex - 1] : null);
-
-    if (!previousVersion || !selectedDraftMessage) {
-      return selectedDraftBundle.previousSnapshot &&
-        selectedDraftBundle.previousSnapshot.versionId !== selectedDraftVersion.id
-        ? selectedDraftBundle.previousSnapshot
-        : null;
-    }
-
-    return {
-      messageId: selectedDraftMessage.id,
-      versionId: previousVersion.id,
-      content: previousVersion.content,
-      source: previousVersion.source,
-      createdAt: previousVersion.createdAt,
-      maxCharacterLimit: previousVersion.maxCharacterLimit,
-    };
-  }, [selectedDraftBundle, selectedDraftMessage, selectedDraftVersion]);
   const selectedDraftContext = useMemo(() => {
     if (!activeDraftEditor || !selectedDraftVersion) {
       return null;
@@ -2515,6 +2467,11 @@ function ChatPageContent() {
     ? "pointer-events-none opacity-0 -translate-y-[14.5rem] sm:-translate-y-[17rem]"
     : "pointer-events-auto opacity-100 translate-y-0"
     }`;
+  const isInlineDraftEditorOpen = Boolean(
+    selectedDraftVersion && selectedDraftBundle,
+  );
+  const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${shouldCenterHero ? "justify-center" : ""
+    } ${isInlineDraftEditorOpen ? "max-w-[92rem] lg:pr-[31rem]" : "max-w-4xl"}`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -2841,10 +2798,7 @@ function ChatPageContent() {
           </header>
 
           <section className="min-h-0 flex-1 overflow-y-auto">
-            <div
-              className={`relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${shouldCenterHero ? "justify-center" : ""
-                }`}
-            >
+            <div className={chatCanvasClassName}>
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -3138,7 +3092,7 @@ function ChatPageContent() {
                                         openDraftEditor(message.id);
                                       }
                                     }}
-                                    className="rounded-2xl border border-white/[0.08] bg-black/30 p-4 transition hover:border-white/15 hover:bg-black/35"
+                                    className="rounded-2xl border border-white/[0.08] bg-[#0F0F0F] p-4 transition hover:border-white/15 hover:bg-[#151515]"
                                   >
                                     {/* Header: avatar + name + handle */}
                                     <div className="flex items-start gap-3">
@@ -3321,122 +3275,210 @@ function ChatPageContent() {
       </div >
 
       {
-        selectedDraftArtifact && selectedDraftVersion && selectedDraftBundle ? (
-          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Post Draft
-                  </p>
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    Version {selectedDraftBundle.versions.findIndex(
-                      (version) => version.id === selectedDraftVersion.id,
-                    ) + 1}
-                    {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
-                      editorDraftText,
-                    )}/{selectedDraftVersion.maxCharacterLimit} · {computeXWeightedCharacterCount(
-                      editorDraftText,
-                    ) <= selectedDraftVersion.maxCharacterLimit
-                      ? "Within Limit"
-                      : "Over Limit"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveDraftEditor(null)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                >
-                  Close
-                </button>
-              </div>
+        selectedDraftVersion && selectedDraftBundle ? (
+          <>
+            <div className="pointer-events-none fixed inset-0 z-20 hidden lg:block">
+              <div className="mx-auto flex h-full w-full max-w-[92rem] justify-end px-6 pb-32 pt-24">
+                <div className="pointer-events-auto flex w-[28rem] max-w-[28rem] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+                  <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-5">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${heroIdentityLabel} profile photo`}
+                          />
+                        ) : (
+                          heroInitials.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-[15px] font-semibold text-white">
+                            {context?.creatorProfile.identity.displayName ??
+                              context?.creatorProfile.identity.username ??
+                              accountName ??
+                              "You"}
+                          </p>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={16}
+                              height={16}
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
+                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                        </p>
+                        <p className="mt-1 text-[11px] font-medium text-zinc-500">
+                          Version {selectedDraftBundle.versions.findIndex(
+                            (version) => version.id === selectedDraftVersion.id,
+                          ) + 1}
+                          {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
+                            editorDraftText,
+                          )}/{selectedDraftVersion.maxCharacterLimit}
+                        </p>
+                      </div>
+                    </div>
 
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <textarea
-                  value={editorDraftText}
-                  onChange={(event) => setEditorDraftText(event.target.value)}
-                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                  placeholder="Draft content"
-                />
-
-                {selectedPreviousDraftSnapshot ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Previous Version
-                    </p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-zinc-300">
-                      {selectedPreviousDraftSnapshot.content}
-                    </p>
-                  </div>
-                ) : null}
-
-                {selectedDraftArtifact.supportAsset ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Visual / Demo Ideas
-                    </p>
-                    <p className="mt-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.supportAsset}
-                    </p>
-                  </div>
-                ) : null}
-
-                {selectedDraftArtifact.betterClosers.length ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Better Closers
-                    </p>
-                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.betterClosers.map((closer, index) => (
-                        <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {selectedDraftArtifact.replyPlan.length ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Reply Plan
-                    </p>
-                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.replyPlan.map((step, index) => (
-                        <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="border-t border-white/10 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    Edit the draft here before you use it.
-                  </p>
-                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        void copyDraftEditor();
-                      }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
                     >
-                      Copy
+                      ×
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void saveDraftEditor();
-                      }}
-                      className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
-                    >
-                      Save As New Version
-                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-5 pb-5">
+                    <div className="p-0">
+                      <textarea
+                        value={editorDraftText}
+                        onChange={(event) => setEditorDraftText(event.target.value)}
+                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
+                        placeholder="Draft content"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 px-5 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-zinc-500">
+                        {computeXWeightedCharacterCount(editorDraftText) <=
+                        selectedDraftVersion.maxCharacterLimit
+                          ? "Ready to revise or save."
+                          : "This version is over the X limit."}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void copyDraftEditor();
+                          }}
+                          className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void saveDraftEditor();
+                          }}
+                          className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                        >
+                          Save As New Version
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </aside>
+
+            <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
+              <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+                <div className="flex items-start justify-between gap-4 px-4 pb-3 pt-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                      {context?.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${heroIdentityLabel} profile photo`}
+                        />
+                      ) : (
+                        heroInitials.charAt(0)
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {context?.creatorProfile.identity.displayName ??
+                            context?.creatorProfile.identity.username ??
+                            accountName ??
+                            "You"}
+                        </p>
+                        {isVerifiedAccount ? (
+                          <Image
+                            src="/x-verified.svg"
+                            alt="Verified account"
+                            width={14}
+                            height={14}
+                            className="h-3.5 w-3.5 shrink-0"
+                          />
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-zinc-400">
+                        @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                      </p>
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Version {selectedDraftBundle.versions.findIndex(
+                          (version) => version.id === selectedDraftVersion.id,
+                        ) + 1}
+                        {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
+                          editorDraftText,
+                        )}/{selectedDraftVersion.maxCharacterLimit}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveDraftEditor(null)}
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                    aria-label="Close draft editor"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 pb-4">
+                  <div className="p-0">
+                    <textarea
+                      value={editorDraftText}
+                      onChange={(event) => setEditorDraftText(event.target.value)}
+                      className="min-h-[15rem] w-full resize-none bg-transparent text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600"
+                      placeholder="Draft content"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 px-4 py-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-zinc-500">
+                      {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void copyDraftEditor();
+                        }}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Copy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void saveDraftEditor();
+                        }}
+                        className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         ) : null
       }
 
