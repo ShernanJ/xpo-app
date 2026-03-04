@@ -340,22 +340,25 @@ function buildLooseFallbackChoices(args: {
     ? [buildTopicDraftChip(args.primaryTopic, args.styleCard)]
     : [];
 
-  return [
-    ...topicChoices,
-    {
-      kind: "clarification_choice" as const,
-      value: `draft something in my usual lane. keep it natural and close to my normal topics. ${buildPacingHint(args.styleCard)}`,
-      label: "my usual lane",
-      explicitIntent: "plan" as const,
-    },
-    {
-      kind: "clarification_choice" as const,
-      value: `draft something recent i could realistically post. keep it in my voice, make it feel current, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`,
-      label: "something recent",
-      explicitIntent: "plan" as const,
-    },
-    buildAngleChip(args.primaryTopic),
-  ].slice(0, 3);
+  const usualLaneChoice: CreatorChatQuickReply = {
+    kind: "clarification_choice",
+    value: `draft something in my usual lane. keep it natural and close to my normal topics. ${buildPacingHint(args.styleCard)}`,
+    label: "my usual lane",
+    explicitIntent: "plan",
+  };
+  const recentChoice: CreatorChatQuickReply = {
+    kind: "clarification_choice",
+    value: `draft something recent i could realistically post. keep it in my voice, make it feel current, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`,
+    label: "something recent",
+    explicitIntent: "plan",
+  };
+  const angleChoice = buildAngleChip(args.primaryTopic);
+
+  if (args.primaryTopic) {
+    return [topicChoices[0], usualLaneChoice, angleChoice];
+  }
+
+  return [usualLaneChoice, recentChoice, angleChoice];
 }
 
 function buildDynamicDraftChoices(args: {
