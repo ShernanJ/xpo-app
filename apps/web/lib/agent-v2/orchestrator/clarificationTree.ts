@@ -165,6 +165,28 @@ function scoreTopicCandidate(
   return score;
 }
 
+function isHumanSafeTopicLabel(value: string): boolean {
+  const label = compactTopicLabel(value).toLowerCase();
+
+  if (!label || label === "your usual lane" || JUNK_TOPIC_VALUES.has(label)) {
+    return false;
+  }
+
+  if (label.includes("...")) {
+    return false;
+  }
+
+  if (label.split(/\s+/).length > 5) {
+    return false;
+  }
+
+  if (/\d/.test(label)) {
+    return false;
+  }
+
+  return true;
+}
+
 function collectDraftTopicCandidates(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
@@ -343,11 +365,24 @@ function buildDynamicDraftChoices(args: {
   isVerifiedAccount: boolean,
   mode: "topic_known" | "loose",
 }): CreatorChatQuickReply[] {
-  const topicalChoices = collectDraftTopicCandidates(
+  const collectedChoices = collectDraftTopicCandidates(
     args.styleCard,
     args.topicAnchors,
     args.seedTopic,
   );
+  const topicalChoices = collectedChoices.filter((topic) => {
+    const score = scoreTopicCandidate(topic, {
+      seedTopic: args.seedTopic,
+      styleCard: args.styleCard,
+      topicAnchors: args.topicAnchors,
+    });
+
+    if (!isHumanSafeTopicLabel(topic)) {
+      return false;
+    }
+
+    return args.mode === "topic_known" ? score >= 4 : score >= 5;
+  });
   const primaryTopic = topicalChoices[0] || null;
 
   if (args.mode === "topic_known" && args.isVerifiedAccount) {
