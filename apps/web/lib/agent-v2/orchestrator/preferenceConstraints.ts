@@ -64,6 +64,62 @@ export function normalizeUserPreferences(
   };
 }
 
+export function mergeUserPreferences(
+  base: Partial<UserPreferences> | null | undefined,
+  overrides: Partial<UserPreferences> | null | undefined,
+): UserPreferences {
+  const normalizedBase = normalizeUserPreferences(base);
+  if (!overrides || typeof overrides !== "object") {
+    return normalizedBase;
+  }
+
+  const nextBlacklist = Object.prototype.hasOwnProperty.call(overrides, "blacklist")
+    ? Array.isArray(overrides.blacklist)
+      ? overrides.blacklist
+      : []
+    : normalizedBase.blacklist;
+
+  const hasVerifiedMaxChars = Object.prototype.hasOwnProperty.call(overrides, "verifiedMaxChars");
+
+  return normalizeUserPreferences({
+    casing:
+      overrides.casing === "auto" ||
+      overrides.casing === "normal" ||
+      overrides.casing === "lowercase" ||
+      overrides.casing === "uppercase"
+        ? overrides.casing
+        : normalizedBase.casing,
+    bulletStyle:
+      overrides.bulletStyle === "auto" ||
+      overrides.bulletStyle === "dash" ||
+      overrides.bulletStyle === "angle"
+        ? overrides.bulletStyle
+        : normalizedBase.bulletStyle,
+    emojiUsage:
+      overrides.emojiUsage === "auto" ||
+      overrides.emojiUsage === "on" ||
+      overrides.emojiUsage === "off"
+        ? overrides.emojiUsage
+        : normalizedBase.emojiUsage,
+    profanity:
+      overrides.profanity === "auto" ||
+      overrides.profanity === "on" ||
+      overrides.profanity === "off"
+        ? overrides.profanity
+        : normalizedBase.profanity,
+    blacklist: nextBlacklist,
+    writingGoal:
+      overrides.writingGoal === "voice_first" ||
+      overrides.writingGoal === "balanced" ||
+      overrides.writingGoal === "growth_first"
+        ? overrides.writingGoal
+        : normalizedBase.writingGoal,
+    verifiedMaxChars: hasVerifiedMaxChars
+      ? overrides.verifiedMaxChars ?? null
+      : normalizedBase.verifiedMaxChars,
+  });
+}
+
 export function buildPreferenceConstraintsFromPreferences(
   preferences: UserPreferences,
   options?: {

@@ -8,6 +8,7 @@ import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/style
 import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
   buildPreferenceConstraintsFromPreferences,
+  mergeUserPreferences,
   normalizeUserPreferences,
 } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import {
@@ -411,7 +412,7 @@ export async function POST(request: NextRequest) {
     : [];
   const transientPreferenceSettings =
     body.preferenceSettings && typeof body.preferenceSettings === "object" && !Array.isArray(body.preferenceSettings)
-      ? normalizeUserPreferences(body.preferenceSettings as Partial<UserPreferences>)
+      ? (body.preferenceSettings as Partial<UserPreferences>)
       : null;
 
   const effectiveMessage = (() => {
@@ -502,7 +503,10 @@ export async function POST(request: NextRequest) {
       ? parsedPersistedStyleCard.data.userPreferences
       : null,
   );
-  const effectiveUserPreferences = transientPreferenceSettings || storedUserPreferences;
+  const effectiveUserPreferences = mergeUserPreferences(
+    storedUserPreferences,
+    transientPreferenceSettings,
+  );
   const mergedPreferenceConstraints = Array.from(
     new Set([
       ...buildPreferenceConstraintsFromPreferences(effectiveUserPreferences, {
