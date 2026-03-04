@@ -2093,8 +2093,6 @@ function ChatPageContent() {
     setActiveStrategyInputs(DEFAULT_CHAT_STRATEGY_INPUTS);
     setActiveDraftEditor(null);
     setEditorDraftText("");
-    setPinnedVoicePostIds([]);
-    setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
     setIsLeavingHero(false);
   }, [accountName]);
