@@ -2118,15 +2118,21 @@ function ChatPageContent() {
     .replace(/^@+/, "")
     .slice(0, 2)
     .toUpperCase();
-  const composerSurfaceClassName =
-    "relative flex w-full items-end overflow-hidden rounded-[1.4rem] border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-300 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15 sm:p-2";
+  const composerChromeClassName =
+    "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
+  const heroComposerSurfaceClassName = `${composerChromeClassName} ${isLeavingHero
+    ? "rounded-[1.12rem] p-1.5"
+    : "rounded-[1.4rem] p-1.5 sm:p-2"
+    }`;
+  const dockComposerSurfaceClassName =
+    `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;
   const shouldCenterHero = isNewChatHero || isLeavingHero;
   const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${isLeavingHero
     ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
     : "translate-y-0 scale-100 opacity-100 blur-0"
     }`;
   const heroComposerMotionClassName = `w-full transition-all duration-500 ease-out ${isLeavingHero
-    ? "translate-y-20 scale-[0.985] opacity-40"
+    ? "translate-y-28 sm:translate-y-36 scale-[0.985] opacity-100"
     : "translate-y-0 scale-100 opacity-100"
     }`;
   const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${isLeavingHero
@@ -2510,7 +2516,7 @@ function ChatPageContent() {
                           onSubmit={handleComposerSubmit}
                           className={`${heroComposerMotionClassName} mt-3`}
                         >
-                            <div className={composerSurfaceClassName}>
+                            <div className={heroComposerSurfaceClassName}>
                               <textarea
                                 value={draftInput}
                                 onChange={(event) => setDraftInput(event.target.value)}
@@ -2885,20 +2891,11 @@ function ChatPageContent() {
             </div>
           </section >
 
-          {!isNewChatHero ? (
-            <div
-              className={`shrink-0 pb-[env(safe-area-inset-bottom)] ${isLeavingHero
-                ? "pointer-events-none translate-y-6 opacity-0"
-                : "translate-y-0 opacity-100"
-                }`}
-              style={{
-                transition:
-                  "transform 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 520ms ease-out",
-              }}
-            >
+          {!isNewChatHero && !isLeavingHero ? (
+            <div className="shrink-0 pb-[env(safe-area-inset-bottom)]">
               <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
                 <form onSubmit={handleComposerSubmit}>
-                  <div className={composerSurfaceClassName}>
+                  <div className={dockComposerSurfaceClassName}>
                     <textarea
                       value={draftInput}
                       onChange={(event) => setDraftInput(event.target.value)}
