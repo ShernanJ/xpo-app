@@ -1530,10 +1530,6 @@ function ChatPageContent() {
   const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
-  const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
-  const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
-    [],
-  );
   const [conversationMemory, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
@@ -2303,22 +2299,6 @@ function ChatPageContent() {
     }).slice(0, 6);
   }, [context]);
 
-  useEffect(() => {
-    if (pinnedReferenceCandidates.length === 0) {
-      setPinnedVoicePostIds([]);
-      setPinnedEvidencePostIds([]);
-      return;
-    }
-
-    const availableIds = new Set(pinnedReferenceCandidates.map((post) => post.id));
-    setPinnedVoicePostIds((current) =>
-      current.filter((postId) => availableIds.has(postId)),
-    );
-    setPinnedEvidencePostIds((current) =>
-      current.filter((postId) => availableIds.has(postId)),
-    );
-  }, [pinnedReferenceCandidates]);
-
   const sidebarThreads = useMemo(() => {
     if (!context || !contract) {
       return [];
@@ -2509,26 +2489,6 @@ function ChatPageContent() {
       });
     },
     [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
-  );
-
-  const togglePinnedPostId = useCallback(
-    (postId: string, kind: "voice" | "evidence") => {
-      const setPins =
-        kind === "voice" ? setPinnedVoicePostIds : setPinnedEvidencePostIds;
-
-      setPins((current) => {
-        if (current.includes(postId)) {
-          return current.filter((value) => value !== postId);
-        }
-
-        if (current.length >= 2) {
-          return [...current.slice(1), postId];
-        }
-
-        return [...current, postId];
-      });
-    },
-    [],
   );
 
   const openDraftEditor = useCallback((messageId: string, versionId?: string) => {
@@ -3078,8 +3038,6 @@ function ChatPageContent() {
             ...(preferenceConstraintRules.length > 0
               ? { preferenceConstraints: preferenceConstraintRules }
               : {}),
-            pinnedVoicePostIds,
-            pinnedEvidencePostIds,
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
             ...(conversationMemory ? { memory: conversationMemory } : {}),
@@ -3383,8 +3341,6 @@ function ChatPageContent() {
       isMainChatLocked,
       messages,
       providerPreference,
-      pinnedEvidencePostIds,
-      pinnedVoicePostIds,
       preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
@@ -5637,62 +5593,25 @@ function ChatPageContent() {
                       <div>
                         <p className="text-sm font-semibold text-white">Reference posts</p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Pin up to 2 for voice and 2 for evidence. Voice shapes tone. Evidence keeps claims grounded.
+                          A quick read on the strongest examples xpo is using to understand this profile.
                         </p>
-                      </div>
-                      <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        <p>{pinnedVoicePostIds.length} / 2 voice</p>
-                        <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
                       </div>
                     </div>
 
                     <ul className="mt-4 grid gap-3 lg:grid-cols-2">
-                      {pinnedReferenceCandidates.slice(0, 4).map((post) => {
-                        const isVoicePinned = pinnedVoicePostIds.includes(post.id);
-                        const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
-
-                        return (
-                          <li
-                            key={post.id}
-                            className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                  {formatEnumLabel(post.lane)} · {post.selectionReason}
-                                </p>
-                                <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
-                                  {post.text}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 flex-col gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => togglePinnedPostId(post.id, "voice")}
-                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                    isVoicePinned
-                                      ? "border-white/20 bg-white/[0.06] text-white"
-                                      : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                                >
-                                  {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => togglePinnedPostId(post.id, "evidence")}
-                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                    isEvidencePinned
-                                      ? "border-white/20 bg-white/[0.06] text-white"
-                                      : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                                >
-                                  {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
-                                </button>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
+                      {pinnedReferenceCandidates.slice(0, 4).map((post) => (
+                        <li
+                          key={post.id}
+                          className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                            {formatEnumLabel(post.lane)} · {post.selectionReason}
+                          </p>
+                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
+                            {post.text}
+                          </p>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 </div>
