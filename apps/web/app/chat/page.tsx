@@ -4251,41 +4251,6 @@ function ChatPageContent() {
                             </div>
                           ) : null}
 
-                          {message.plan ? (
-                            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
-                              <div className="mb-3 flex items-center gap-2">
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
-                                  S
-                                </span>
-                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
-                                  Strategy Outline
-                                </span>
-                              </div>
-                              <div className="space-y-4">
-                                <div>
-                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
-                                  <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
-                                  <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
-                                </div>
-                                <div className="flex gap-6">
-                                  <div>
-                                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
-                                    <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
-                                  </div>
-                                  {message.plan.hookType && (
-                                    <div>
-                                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
-                                      <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ) : null}
-
                           {message.role === "assistant" &&
                             message.outputShape !== "coach_question" &&
                             message.draft ? (() => {

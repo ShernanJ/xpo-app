@@ -607,17 +607,37 @@ function withPlanPreferences(
 }
 
 function buildPlanPitch(plan: StrategyPlan): string {
-  const laneLabel =
-    plan.targetLane === "reply"
-      ? "a reply"
-      : plan.targetLane === "quote"
-        ? "a quote post"
-        : "an original post";
-  const formatLabel =
-    plan.formatPreference === "longform" ? "longform " : "shortform ";
-  const hookLabel = plan.hookType.trim().toLowerCase() || "clear";
+  const normalizeLine = (value: string): string =>
+    value
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/[.?!,;:]+$/, "");
 
-  return `i'm thinking we make this ${formatLabel}${laneLabel} with a ${hookLabel} angle. want me to draft it?`;
+  const toSentence = (value: string): string => {
+    const normalized = normalizeLine(value);
+    if (!normalized) {
+      return "";
+    }
+
+    return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}.`;
+  };
+
+  const angleLine = toSentence(plan.angle);
+  const objectiveLine = toSentence(plan.objective);
+
+  if (angleLine && objectiveLine && angleLine !== objectiveLine) {
+    return `i'd frame it like this:\n\n${angleLine}\n\n${objectiveLine}`;
+  }
+
+  if (angleLine) {
+    return `i'd frame it like this:\n\n${angleLine}`;
+  }
+
+  if (objectiveLine) {
+    return `i'd frame it like this:\n\n${objectiveLine}`;
+  }
+
+  return "i'd frame it like this.";
 }
 
 function resolveDraftOutputShape(
