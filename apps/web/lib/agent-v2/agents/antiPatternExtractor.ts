@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { fetchJsonFromGroq } from "./llm";
 
 const AntiPatternSchema = z.object({
   shouldCapture: z.boolean(),
@@ -49,6 +48,7 @@ export async function extractAntiPattern(
   activeDraft: string,
   recentHistory: string,
 ): Promise<AntiPatternExtraction | null> {
+  const { fetchJsonFromGroq } = await import("./llm");
   const data = await fetchJsonFromGroq<unknown>({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     reasoning_effort: "low",
