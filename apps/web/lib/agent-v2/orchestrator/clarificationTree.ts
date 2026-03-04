@@ -10,6 +10,7 @@ interface ClarificationTreeArgs {
   seedTopic: string | null;
   styleCard: VoiceStyleCard | null;
   topicAnchors: string[];
+  isVerifiedAccount?: boolean;
 }
 
 interface ClarificationTreeResult {
@@ -102,6 +103,41 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
 
   if (args.branchKey === "topic_known_but_direction_missing") {
     const topicLabel = args.seedTopic?.trim() || "this";
+    if (args.isVerifiedAccount) {
+      const quickReplies: CreatorChatQuickReply[] = [
+        {
+          kind: "clarification_choice",
+          value: `draft a shortform x post about ${topicLabel}. keep it tight and in my voice.`,
+          label: "Shortform",
+          explicitIntent: "plan",
+        },
+        {
+          kind: "clarification_choice",
+          value: `draft a longform x post about ${topicLabel}. use the extra room and keep it in my voice.`,
+          label: "Longform",
+          explicitIntent: "plan",
+        },
+        {
+          kind: "clarification_choice",
+          value: `help me pick a sharper angle for ${topicLabel}`,
+          label: "Pick an angle first",
+          explicitIntent: "ideate",
+        },
+      ];
+
+      return {
+        reply:
+          "got it. do you want this as a shortform post, a longform post, or do you want to sharpen the angle first?",
+        quickReplies,
+        clarificationState: {
+          branchKey: args.branchKey,
+          stepKey: "pick_length",
+          seedTopic: args.seedTopic,
+          options: quickReplies,
+        },
+      };
+    }
+
     const quickReplies: CreatorChatQuickReply[] = [
       {
         kind: "clarification_choice",

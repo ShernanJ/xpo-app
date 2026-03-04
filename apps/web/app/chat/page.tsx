@@ -687,10 +687,11 @@ function normalizeDraftVersionBundle(
 
   const mappedVersions = rawVersions.map((version) => {
     const content = typeof version.content === "string" ? version.content : "";
-    const maxCharacterLimit =
+    const storedMaxCharacterLimit =
       typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
         ? version.maxCharacterLimit
         : fallbackCharacterLimit;
+    const maxCharacterLimit = Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
 
     return {
       id: version.id,
@@ -3472,8 +3473,19 @@ function ChatPageContent() {
                     )}
                   </div>
                   <div className="flex flex-col items-start overflow-hidden text-left">
-                    <span className="w-full truncate text-xs font-semibold text-zinc-100">
-                      {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
+                    <span className="flex w-full items-center gap-1 truncate text-xs font-semibold text-zinc-100">
+                      <span className="truncate">
+                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
+                      </span>
+                      {isVerifiedAccount ? (
+                        <Image
+                          src="/x-verified.svg"
+                          alt="Verified account"
+                          width={14}
+                          height={14}
+                          className="h-3.5 w-3.5 shrink-0"
+                        />
+                      ) : null}
                     </span>
                     {accountName ? (
                       <span className="w-full truncate text-[10px] text-zinc-500">
@@ -3786,7 +3798,7 @@ function ChatPageContent() {
                                       </p>
                                       <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
                                         {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                        {artifact.maxCharacterLimit}
+                                        {Math.max(artifact.maxCharacterLimit, composerCharacterLimit)}
                                       </p>
                                     </div>
                                     <button

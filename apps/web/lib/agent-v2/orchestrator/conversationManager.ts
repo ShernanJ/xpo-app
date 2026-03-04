@@ -670,9 +670,8 @@ export async function manageConversationTurn(
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
   const onboardingProfile = onboardingResult?.profile as Record<string, unknown> | undefined;
-  const maxCharacterLimit = getXCharacterLimitForAccount(
-    onboardingProfile?.isVerified === true,
-  );
+  const isVerifiedAccount = onboardingProfile?.isVerified === true;
+  const maxCharacterLimit = getXCharacterLimitForAccount(isVerifiedAccount);
   const stage = typeof onboardingResult?.growthStage === "string"
     ? onboardingResult.growthStage
     : "Unknown";
@@ -1014,6 +1013,7 @@ User Profile Summary:
         seedTopic: broadTopic,
         styleCard,
         topicAnchors: relevantTopicAnchors,
+        isVerifiedAccount,
       });
 
       await writeMemory({
