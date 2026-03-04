@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
@@ -1164,7 +1163,8 @@ function ChatPageContent() {
   const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const threadMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
@@ -1172,8 +1172,14 @@ function ChatPageContent() {
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+
+      if (threadMenuRef.current && !threadMenuRef.current.contains(target)) {
         setMenuOpenThreadId(null);
+      }
+
+      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
+        setAccountMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -1391,8 +1397,10 @@ function ChatPageContent() {
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
@@ -1904,7 +1912,13 @@ function ChatPageContent() {
       return [];
     }
 
-    const recentItems = chatThreads.slice(0, 10).map((t) => ({
+    const trimmedQuery = sidebarSearchQuery.trim().toLowerCase();
+    const filteredThreads = trimmedQuery
+      ? chatThreads.filter((thread) =>
+          (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
+        )
+      : chatThreads;
+    const recentItems = filteredThreads.slice(0, 10).map((t) => ({
       id: t.id,
       label: t.title || "Chat",
       meta: new Date(t.updatedAt).toLocaleDateString(),
@@ -1913,16 +1927,19 @@ function ChatPageContent() {
     return [
       {
         section: "Chats",
-        items: recentItems.length > 0 ? recentItems : [
-          {
-            id: activeThreadId ?? "current-workspace",
-            label: "New Chat",
-            meta: "Active",
-          },
-        ],
+        items:
+          trimmedQuery || recentItems.length > 0
+            ? recentItems
+            : [
+                {
+                  id: activeThreadId ?? "current-workspace",
+                  label: "New Chat",
+                  meta: "Active",
+                },
+              ],
       },
-    ].filter((section) => section.items.length > 0);
-  }, [context, contract, chatThreads, activeThreadId]);
+    ];
+  }, [context, contract, chatThreads, activeThreadId, sidebarSearchQuery]);
   const selectedDraftMessage = useMemo(
     () =>
       activeDraftEditor
@@ -3163,6 +3180,11 @@ function ChatPageContent() {
     .replace(/^@+/, "")
     .slice(0, 2)
     .toUpperCase();
+  const accountAvatarFallback =
+    accountName?.slice(0, 1).toUpperCase() ??
+    session?.user?.email?.slice(0, 1).toUpperCase() ??
+    "X";
+  const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
   const shouldCenterHero = isNewChatHero || isLeavingHero;
   const composerChromeClassName =
     "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
@@ -3199,24 +3221,7 @@ function ChatPageContent() {
           className={`sticky top-0 hidden h-full min-h-0 shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
             }`}
         >
-          <div className="px-3 pt-3">
-            <Link
-              href="/"
-              className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition hover:bg-white/[0.04] ${sidebarOpen ? "justify-start" : "justify-center"
-                }`}
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-sm font-semibold tracking-[0.18em] text-white">
-                X
-              </span>
-              {sidebarOpen ? (
-                <span className="text-sm font-semibold tracking-[0.18em] text-white">
-                  Xpo
-                </span>
-              ) : null}
-            </Link>
-          </div>
-
-          <div className="flex items-center justify-between px-4 py-4">
+          <div className={`flex items-center px-3 ${sidebarOpen ? "py-4" : "py-3"}`}>
             <button
               type="button"
               onClick={() => setSidebarOpen((current) => !current)}
@@ -3225,46 +3230,35 @@ function ChatPageContent() {
             >
               {sidebarOpen ? "×" : "≡"}
             </button>
-            {sidebarOpen ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void loadWorkspace();
-                }}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.04]"
-              >
-                Refresh
-              </button>
-            ) : null}
           </div>
 
-          <div className="px-3">
-            <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
-              <span className="text-sm text-zinc-500">⌕</span>
-              {sidebarOpen ? (
-                <>
-                  <span className="text-sm text-zinc-400">Search</span>
-                  <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-                    ⌘K
-                  </span>
-                </>
-              ) : null}
-            </div>
-          </div>
+          {sidebarOpen ? (
+            <>
+              <div className="px-3">
+                <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
+                  <span className="text-sm text-zinc-500">⌕</span>
+                  <input
+                    type="text"
+                    value={sidebarSearchQuery}
+                    onChange={(event) => setSidebarSearchQuery(event.target.value)}
+                    placeholder="Search chats"
+                    className="w-full bg-transparent text-sm text-zinc-300 outline-none placeholder:text-zinc-500"
+                  />
+                </div>
+              </div>
 
-          <div className="px-3 pt-3">
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${sidebarOpen ? "justify-start" : "justify-center"
-                }`}
-            >
-              <span className="text-sm text-white">✎</span>
-              {sidebarOpen ? (
-                <span className="text-sm font-medium text-white">New Chat</span>
-              ) : null}
-            </button>
-          </div>
+              <div className="px-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[0.03]"
+                >
+                  <span className="text-sm text-zinc-400">✎</span>
+                  <span className="text-sm font-medium text-white">New Chat</span>
+                </button>
+              </div>
+            </>
+          ) : null}
 
           <div className="flex-1 overflow-y-auto px-3 py-4">
             {sidebarOpen ? (
@@ -3318,7 +3312,7 @@ function ChatPageContent() {
                               </div>
 
                               {section.section === "Chats" && item.id !== "current-workspace" && (hoveredThreadId === item.id || menuOpenThreadId === item.id) && (
-                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? menuRef : null}>
+                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? threadMenuRef : null}>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3362,121 +3356,124 @@ function ChatPageContent() {
                         )}
                       </div>
                     ))}
+                    {section.items.length === 0 && sidebarSearchQuery.trim() ? (
+                      <div className="rounded-2xl px-2 py-3 text-sm text-zinc-500">
+                        No matching chats
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-3 pt-2">
-                {sidebarThreads.flatMap((section) => section.items).slice(0, 6).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      if (item.id !== "current-workspace") {
-                        setActiveThreadId(item.id);
-                        window.history.pushState({}, '', `/chat/${item.id}`);
-                      }
-                    }}
-                    className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white ${activeThreadId === item.id ? "ring-1 ring-white/20" : ""}`}
-                    title={item.label}
-                  >
-                    {item.label.slice(0, 2)}
-                  </button>
-                ))}
-              </div>
+              <div className="h-full" />
             )}
           </div>
 
-          <div className="relative border-t border-white/10 px-3 py-4">
-            {sidebarOpen ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
-                  className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
-                >
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold overflow-hidden">
-                      {context?.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${accountName} profile photo`}
-                        />
-                      ) : (
-                        accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"
-                      )}
-                    </div>
-                    <div className="flex flex-col items-start overflow-hidden text-left">
-                      <span className="truncate text-xs font-semibold text-zinc-100 w-full">
-                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
-                      </span>
-                      {accountName ? (
-                        <span className="truncate text-[10px] text-zinc-500 w-full">
-                          {session?.user?.email ?? ""}
+          <div ref={accountMenuRef} className="relative border-t border-white/10 px-3 py-4">
+            <div className={sidebarOpen ? "" : "flex justify-center"}>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpenThreadId(null);
+                  setAccountMenuOpen((current) => !current);
+                }}
+                className={sidebarOpen
+                  ? "flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
+                  : "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white text-black text-sm font-bold transition hover:opacity-80"}
+                aria-label="Open account menu"
+              >
+                {sidebarOpen ? (
+                  <>
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black">
+                        {context?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={accountProfileAriaLabel}
+                          />
+                        ) : (
+                          accountAvatarFallback
+                        )}
+                      </div>
+                      <div className="flex flex-col items-start overflow-hidden text-left">
+                        <span className="w-full truncate text-xs font-semibold text-zinc-100">
+                          {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
                         </span>
-                      ) : null}
+                        {accountName ? (
+                          <span className="w-full truncate text-[10px] text-zinc-500">
+                            {session?.user?.email ?? ""}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                  <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
-                </button>
-
-                {accountMenuOpen && (
-                  <div className="absolute bottom-[calc(100%+8px)] left-2 right-2 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl">
-                    <div className="max-h-[200px] overflow-y-auto px-1 py-1">
-                      <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                        X Accounts
-                      </p>
-                      {availableHandles.map((handleStr) => (
-                        <button
-                          key={handleStr}
-                          onClick={() => switchActiveHandle(handleStr)}
-                          className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-                        >
-                          <span className="truncate">@{handleStr}</span>
-                          {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAccountMenuOpen(false);
-                          setIsAddAccountModalOpen(true);
-                          setAddAccountError(null);
-                          setReadyAccountHandle(null);
-                        }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                      >
-                        <Plus className="h-4 w-4" />
-                        <span>Add Account</span>
-                      </button>
-                    </div>
-
-                    <div className="my-1 h-px bg-white/10" />
-
-                    <div className="px-1 py-1">
-                      <button
-                        onClick={() => signOut({ callbackUrl: "/" })}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        <span>Sign out</span>
-                      </button>
-                    </div>
+                    <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
+                  </>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                    {context?.avatarUrl ? (
+                      <div
+                        className="h-full w-full bg-cover bg-center"
+                        style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                        role="img"
+                        aria-label={accountProfileAriaLabel}
+                      />
+                    ) : (
+                      accountAvatarFallback
+                    )}
                   </div>
                 )}
-              </>
-            ) : (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black text-sm font-bold transition hover:opacity-80"
-                  aria-label="Open account menu"
-                >
-                  {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
-                </button>
+              </button>
+            </div>
+
+            {accountMenuOpen && (
+              <div
+                className={`absolute z-20 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl ${sidebarOpen
+                  ? "bottom-[calc(100%+8px)] left-2 right-2"
+                  : "bottom-[calc(100%+8px)] left-3 w-64"
+                  }`}
+              >
+                <div className="max-h-[200px] overflow-y-auto px-1 py-1">
+                  <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    X Accounts
+                  </p>
+                  {availableHandles.map((handleStr) => (
+                    <button
+                      key={handleStr}
+                      onClick={() => switchActiveHandle(handleStr)}
+                      className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                    >
+                      <span className="truncate">@{handleStr}</span>
+                      {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      setIsAddAccountModalOpen(true);
+                      setAddAccountError(null);
+                      setReadyAccountHandle(null);
+                    }}
+                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Account</span>
+                  </button>
+                </div>
+
+                <div className="my-1 h-px bg-white/10" />
+
+                <div className="px-1 py-1">
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/" })}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign out</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -3496,17 +3493,24 @@ function ChatPageContent() {
               <div className="flex justify-center md:justify-start">
                 <div className="rounded-full border border-white/10 px-5 py-2">
                   <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
-                    X Strategy Chat
+                    Xpo
                   </p>
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setAnalysisOpen(true)}
                   className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.04]"
                 >
-                  View Analysis
+                  View Profile Analysis
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExtensionModalOpen(true)}
+                  className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Get the Companion Browser Extension
                 </button>
               </div>
             </div>
@@ -4311,6 +4315,51 @@ function ChatPageContent() {
               </div>
             </div>
           </>
+        ) : null
+      }
+
+      {
+        extensionModalOpen ? (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setExtensionModalOpen(false);
+              }
+            }}
+          >
+            <div className="relative w-full max-w-xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setExtensionModalOpen(false)}
+                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+              >
+                Close
+              </button>
+
+              <div className="space-y-6">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Companion Extension
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Get the Companion Browser Extension
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-zinc-400">
+                    We&apos;ll wire the real extension flow next. For now, this is the placeholder entry point.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {}}
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.04]"
+                >
+                  Link to download
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null
       }
 
