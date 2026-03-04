@@ -5406,92 +5406,238 @@ function ChatPageContent() {
 
       {
         analysisOpen && context ? (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
-            <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
-              <button
-                type="button"
-                onClick={() => setAnalysisOpen(false)}
-                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-              >
-                Close
-              </button>
-
-              <div className="space-y-6">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
-                    Analysis Drawer
-                  </p>
-                  <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
-                    The full model stays here.
-                  </h2>
+          <div
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setAnalysisOpen(false);
+              }
+            }}
+          >
+            <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div className="flex min-w-0 items-start gap-4">
+                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-base font-semibold text-white uppercase">
+                    {context.avatarUrl ? (
+                      <div
+                        className="h-full w-full bg-cover bg-center"
+                        style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                        role="img"
+                        aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
+                      />
+                    ) : (
+                      (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Profile Analysis
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-2xl font-semibold text-white">
+                        {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
+                      </h2>
+                      {isVerifiedAccount ? (
+                        <Image
+                          src="/x-verified.svg"
+                          alt="Verified account"
+                          width={18}
+                          height={18}
+                          className="h-[18px] w-[18px] shrink-0"
+                        />
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-7 text-zinc-400">
+                      xpo sees a{" "}
+                      <span className="font-medium text-zinc-200">
+                        {formatEnumLabel(context.creatorProfile.archetype).toLowerCase()}
+                      </span>{" "}
+                      creator in{" "}
+                      <span className="font-medium text-zinc-200">
+                        {formatNicheSummary(context).toLowerCase()}
+                      </span>{" "}
+                      with a{" "}
+                      <span className="font-medium text-zinc-200">
+                        {formatEnumLabel(context.creatorProfile.distribution.primaryLoop).toLowerCase()}
+                      </span>{" "}
+                      distribution loop. the biggest gap right now is{" "}
+                      <span className="font-medium text-zinc-200">
+                        {context.strategyDelta.primaryGap}
+                      </span>
+                      .
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="border border-white/10 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {formatEnumLabel(context.creatorProfile.archetype)}
-                    </p>
-                  </div>
-                  <div className="border border-white/10 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {formatNicheSummary(context)}
-                    </p>
-                  </div>
-                  <div className="border border-white/10 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                    </p>
-                  </div>
-                  <div className="border border-white/10 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {context.readiness.score}
-                    </p>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisOpen(false)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
+              </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="border border-white/10 p-5">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                      Strategy Delta
-                    </p>
-                    <p className="mt-3 text-sm font-medium text-white">
-                      {context.strategyDelta.primaryGap}
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
-                        <li key={`${item.area}-${item.direction}`}>
-                          {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
+              <div className="overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {formatEnumLabel(context.creatorProfile.archetype)}
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Niche</p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {formatNicheSummary(context)}
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Loop</p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {context.readiness.score}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        sample {context.confidence.sampleSize} posts
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <BarChart3 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">What Xpo sees</p>
+                          <p className="text-xs text-zinc-500">Top strategic moves based on recent signals.</p>
+                        </div>
+                      </div>
+
+                      <ul className="mt-4 space-y-3 text-sm text-zinc-300">
+                        {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
+                          <li
+                            key={`${item.area}-${item.direction}`}
+                            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium text-white">
+                                {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)}
+                              </p>
+                              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                {formatEnumLabel(item.priority)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <Settings2 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Confidence snapshot</p>
+                          <p className="text-xs text-zinc-500">How strong the current profile read is.</p>
+                        </div>
+                      </div>
+
+                      <ul className="mt-4 space-y-3 text-sm text-zinc-300">
+                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                          <span>Overall evaluation</span>
+                          <span className="font-medium text-white">{context.confidence.evaluationOverallScore}</span>
                         </li>
-                      ))}
-                    </ul>
+                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                          <span>Anchor quality</span>
+                          <span className="font-medium text-white">{context.anchorSummary.anchorQualityScore ?? "N/A"}</span>
+                        </li>
+                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                          <span>Needs backfill</span>
+                          <span className="font-medium text-white">{context.confidence.needsBackfill ? "Yes" : "No"}</span>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
 
-                  <div className="border border-white/10 p-5">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                      Confidence
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      <li>Sample: {context.confidence.sampleSize} posts</li>
-                      <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
-                      <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
-                      <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
-                    </ul>
-                  </div>
-                </div>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <Edit3 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Voice signals</p>
+                          <p className="text-xs text-zinc-500">How this account tends to sound and structure posts.</p>
+                        </div>
+                      </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="border border-white/10 p-5 md:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {[
+                          ...context.creatorProfile.voice.styleNotes.slice(0, 3),
+                          ...context.creatorProfile.styleCard.signaturePhrases.slice(0, 2),
+                          ...context.creatorProfile.styleCard.preferredOpeners.slice(0, 1),
+                        ]
+                          .filter(Boolean)
+                          .slice(0, 5)
+                          .map((item, index) => (
+                            <span
+                              key={`${item}-${index}`}
+                              className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                            >
+                              {item}
+                            </span>
+                          ))}
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
+                        {context.positiveAnchors[0]?.text ? (
+                          <p className="line-clamp-4 leading-6">{context.positiveAnchors[0].text}</p>
+                        ) : (
+                          <p className="text-zinc-500">Not enough positive anchor data yet.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <BookOpen className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">What to keep / what to avoid</p>
+                          <p className="text-xs text-zinc-500">Fast reference from strong and weak examples.</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Positive anchor
+                          </p>
+                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
+                            {context.positiveAnchors[1]?.text || context.positiveAnchors[0]?.text || "No standout positive anchor yet."}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Negative anchor
+                          </p>
+                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
+                            {context.negativeAnchors[0]?.text || "No standout negative anchor yet."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                          Pinned References
-                        </p>
-                        <p className="mt-2 text-sm text-zinc-300">
-                          Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
+                        <p className="text-sm font-semibold text-white">Reference posts</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Pin up to 2 for voice and 2 for evidence. Voice shapes tone. Evidence keeps claims grounded.
                         </p>
                       </div>
                       <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -5500,17 +5646,20 @@ function ChatPageContent() {
                       </div>
                     </div>
 
-                    <ul className="mt-4 grid gap-3 md:grid-cols-2">
-                      {pinnedReferenceCandidates.map((post) => {
+                    <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+                      {pinnedReferenceCandidates.slice(0, 4).map((post) => {
                         const isVoicePinned = pinnedVoicePostIds.includes(post.id);
                         const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
 
                         return (
-                          <li key={post.id} className="border border-white/10 p-3">
+                          <li
+                            key={post.id}
+                            className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                          >
                             <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                                  {formatEnumLabel(post.lane)} | {post.selectionReason}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                  {formatEnumLabel(post.lane)} · {post.selectionReason}
                                 </p>
                                 <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
                                   {post.text}
@@ -5520,20 +5669,22 @@ function ChatPageContent() {
                                 <button
                                   type="button"
                                   onClick={() => togglePinnedPostId(post.id, "voice")}
-                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
-                                    ? "border-white/20 bg-white/[0.06] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                    }`}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                    isVoicePinned
+                                      ? "border-white/20 bg-white/[0.06] text-white"
+                                      : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                  }`}
                                 >
                                   {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => togglePinnedPostId(post.id, "evidence")}
-                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
-                                    ? "border-white/20 bg-white/[0.06] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                    }`}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+                                    isEvidencePinned
+                                      ? "border-white/20 bg-white/[0.06] text-white"
+                                      : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                  }`}
                                 >
                                   {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
                                 </button>
@@ -5542,38 +5693,6 @@ function ChatPageContent() {
                           </li>
                         );
                       })}
-                    </ul>
-                  </div>
-
-                  <div className="border border-white/10 p-5">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                      Positive Anchors
-                    </p>
-                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                      {context.positiveAnchors.slice(0, 4).map((post) => (
-                        <li key={post.id} className="border border-white/10 p-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                          </p>
-                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="border border-white/10 p-5">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                      Negative Anchors
-                    </p>
-                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                      {context.negativeAnchors.slice(0, 4).map((post) => (
-                        <li key={post.id} className="border border-white/10 p-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                          </p>
-                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                        </li>
-                      ))}
                     </ul>
                   </div>
                 </div>
