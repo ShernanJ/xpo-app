@@ -9,10 +9,10 @@ export type DraftInspectorMode = "analyze" | "compare";
 
 function buildFallbackSummary(mode: DraftInspectorMode): string {
   if (mode === "compare") {
-    return "I couldn't run a full comparison just now. In general, keep the version that stays factually correct, lands the hook faster, and makes the value clearer in the first beat.";
+    return "Couldn't run the full comparison just now. Keep the version that stays factually correct, lands the hook faster, and makes the value clearer in the first beat.";
   }
 
-  return "I couldn't run a full draft analysis just now. Focus on whether the first line earns the scroll stop, whether the payoff is obvious fast, and whether any extra wording weakens the punch.";
+  return "Couldn't run the full draft review just now. Check whether the first line earns the scroll stop, whether the payoff lands fast, and whether extra wording weakens the punch.";
 }
 
 export async function inspectDraft(args: {

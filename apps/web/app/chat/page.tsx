@@ -24,6 +24,11 @@ import {
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import {
+  buildDraftReviewFailureLabel,
+  buildDraftReviewLoadingLabel,
+  buildDraftReviewPrompt,
+} from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
+import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
   isCorrectionPrompt,
@@ -2775,9 +2780,7 @@ function ChatPageContent() {
       return;
     }
 
-    const prompt = shouldCompare
-      ? "compare this to the current version"
-      : "what do you think about this post?";
+    const prompt = buildDraftReviewPrompt(shouldCompare ? "compare" : "analyze");
     const nowIso = new Date().toISOString();
     const temporaryUserMessageId = `draft-inspector-user-${Date.now()}`;
     const temporaryAssistantMessageId = `draft-inspector-assistant-${Date.now() + 1}`;
@@ -2793,7 +2796,7 @@ function ChatPageContent() {
       {
         id: temporaryAssistantMessageId,
         role: "assistant",
-        content: shouldCompare ? "Comparing versions." : "Analyzing this draft.",
+        content: buildDraftReviewLoadingLabel(shouldCompare ? "compare" : "analyze"),
         createdAt: nowIso,
         isStreaming: true,
       },
@@ -2824,7 +2827,7 @@ function ChatPageContent() {
             message.id === temporaryAssistantMessageId
               ? {
                   ...message,
-                  content: "I couldn't analyze that draft just now.",
+                  content: buildDraftReviewFailureLabel(),
                   isStreaming: false,
                 }
               : message,
@@ -2866,7 +2869,7 @@ function ChatPageContent() {
           message.id === temporaryAssistantMessageId
             ? {
                 ...message,
-                content: "I couldn't analyze that draft just now.",
+                content: buildDraftReviewFailureLabel(),
                 isStreaming: false,
               }
             : message,
@@ -3985,10 +3988,15 @@ function ChatPageContent() {
                 </button>
               </div>
               <div className="flex justify-center">
-                <div className="rounded-full border border-white/10 px-5 py-2">
-                  <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
-                    Xpo
-                  </p>
+                <div className="rounded-full border border-white/10 px-4 py-2">
+                  <Image
+                    src="/xpo-logo-white.svg"
+                    alt="Xpo"
+                    width={846}
+                    height={834}
+                    className="h-5 w-auto"
+                    priority
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-end gap-3">

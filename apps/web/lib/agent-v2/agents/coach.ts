@@ -13,6 +13,7 @@ import {
   buildWelcomeFallbackMessage,
   isTemplateyWelcomeMessage,
 } from "../welcomeMessage";
+import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../orchestrator/assistantReplyStyle";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -129,20 +130,6 @@ function buildSharperCoachQuestion(
   return null;
 }
 
-function buildCoachFallbackResponse(userMessage: string, question: string): string {
-  const normalized = userMessage.trim().toLowerCase();
-
-  if (normalized.startsWith(">")) {
-    return `love that angle. ${question}`;
-  }
-
-  if (looksLikeBuildMessage(normalized)) {
-    return `nice. ${question}`;
-  }
-
-  return `got it. ${question}`;
-}
-
 function normalizeCoachReply(
   reply: CoachReply,
   userMessage: string,
@@ -158,7 +145,10 @@ function normalizeCoachReply(
   }
 
   return {
-    response: buildCoachFallbackResponse(userMessage, sharperQuestion),
+    response: buildNormalizedCoachFallbackResponse({
+      userMessage,
+      question: sharperQuestion,
+    }),
     probingQuestion: sharperQuestion,
   };
 }

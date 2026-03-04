@@ -4,6 +4,13 @@ import type {
   ClarificationState,
   CreatorChatQuickReply,
 } from "../contracts/chat";
+import {
+  buildDirectionChoiceReply,
+  buildEntityContextReply,
+  buildLooseDirectionReply,
+  buildPlanRejectReply,
+  buildTopicFocusReply,
+} from "./assistantReplyStyle";
 
 interface ClarificationTreeArgs {
   branchKey: ClarificationBranchKey;
@@ -98,7 +105,7 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     ];
 
     return {
-      reply: "fair. want me to tighten it up, make it more personal, or take a different angle?",
+      reply: buildPlanRejectReply(),
       quickReplies,
       clarificationState: {
         branchKey: args.branchKey,
@@ -136,8 +143,7 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
       ];
 
       return {
-        reply:
-          "got it. do you want this as a shortform post, a longform post, or do you want to sharpen the angle first?",
+        reply: buildDirectionChoiceReply({ verified: true }),
         quickReplies,
         clarificationState: {
           branchKey: args.branchKey,
@@ -170,8 +176,7 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     ];
 
     return {
-      reply:
-        "got it. want to pick a specific angle, have me draft a solid one in your voice, or optimize it for growth?",
+      reply: buildDirectionChoiceReply({ verified: false }),
       quickReplies,
       clarificationState: {
         branchKey: args.branchKey,
@@ -206,7 +211,7 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     ];
 
     return {
-      reply: `quick one: what part of ${topicLabel} do you actually want to hit?`,
+      reply: buildTopicFocusReply(topicLabel),
       quickReplies,
       clarificationState: {
         branchKey: args.branchKey,
@@ -222,7 +227,7 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
       ? "that tool"
       : args.seedTopic?.trim() || "that tool";
     return {
-      reply: `quick check: what is ${entityLabel} in one line, and what does your thing actually do with it?`,
+      reply: buildEntityContextReply(entityLabel),
       quickReplies: [],
       clarificationState: {
         branchKey: args.branchKey,
@@ -237,8 +242,8 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
 
   const reply =
     args.branchKey === "lazy_request"
-      ? "cool. pick one lane and i'll run with it."
-      : "we're close. pick one concrete direction and i'll build from there.";
+      ? buildLooseDirectionReply({ almostReady: false })
+      : buildLooseDirectionReply({ almostReady: true });
 
   return {
     reply,

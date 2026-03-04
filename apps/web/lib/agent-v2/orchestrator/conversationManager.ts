@@ -37,6 +37,11 @@ import {
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
+import {
+  buildComparisonRelationshipQuestion,
+  buildProblemStakeQuestion,
+  buildProductCapabilityQuestion,
+} from "./assistantReplyStyle";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -219,11 +224,11 @@ function inferMissingSpecificQuestion(message: string): string | null {
   if (hasFunctionalDetail(normalized)) {
     if (comparisonOnly && !hasRelationshipDetail(normalized)) {
       const reference = comparisonReference || "the original tool";
-      return `one more thing: how does it relate to ${reference} exactly - replacement, extension, or something that works alongside it?`;
+      return buildComparisonRelationshipQuestion(reference);
     }
 
     if (!hasProblemDetail(normalized)) {
-      return "nice. what's the actual problem it fixes, or why does it matter enough to post about?";
+      return buildProblemStakeQuestion();
     }
 
     return null;
@@ -233,24 +238,23 @@ function inferMissingSpecificQuestion(message: string): string | null {
   const rawTarget = targetMatch?.[1]?.trim().replace(/[.,!?]+$/, "") || "";
 
   if (comparisonOnly) {
-    if (rawTarget) {
-      return `quick check: what does your version actually do on ${rawTarget}, and what's different about it?`;
-    }
-    return "quick check: what does your version actually do, and what's different about it?";
+    return buildProductCapabilityQuestion({
+      kind: "comparison",
+      target: rawTarget || null,
+    });
   }
 
   if (normalized.includes("extension") || normalized.includes("plugin")) {
-    if (rawTarget) {
-      return `quick check: what does the extension do, and what should someone know about ${rawTarget}?`;
-    }
-    return "quick check: what does the extension actually do?";
+    return buildProductCapabilityQuestion({
+      kind: "extension",
+      target: rawTarget || null,
+    });
   }
 
-  if (rawTarget) {
-    return `quick check: what does it do, and what should someone know about ${rawTarget}?`;
-  }
-
-  return "quick check: what does it actually do?";
+  return buildProductCapabilityQuestion({
+    kind: "generic",
+    target: rawTarget || null,
+  });
 }
 
 function inferNamedEntity(message: string): string | null {

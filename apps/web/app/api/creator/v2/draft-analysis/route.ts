@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
 import { inspectDraft, type DraftInspectorMode } from "@/lib/agent-v2/agents/draftInspector";
+import { buildDraftReviewPrompt } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { prisma } from "@/lib/db";
 
 interface DraftAnalysisRequest extends Record<string, unknown> {
@@ -82,10 +83,7 @@ export async function POST(request: NextRequest) {
       currentDraft: currentDraft || null,
     });
 
-    const prompt =
-      mode === "compare"
-        ? "compare this to the current version"
-        : "what do you think about this post?";
+    const prompt = buildDraftReviewPrompt(mode);
 
     const [userMessage, assistantMessage] = await prisma.$transaction([
       prisma.chatMessage.create({
