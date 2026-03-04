@@ -94,7 +94,7 @@ function isLazyDraftRequest(message: string): boolean {
   ].some((candidate) => normalized.includes(candidate));
 }
 
-function isBareDraftRequest(message: string): boolean {
+export function isBareDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase().replace(/[.?!,]+$/, "");
   return [
     "write me a post",
@@ -329,7 +329,7 @@ function inferNamedEntity(message: string): string | null {
   );
 }
 
-function evaluateDraftContextSlots(args: {
+export function evaluateDraftContextSlots(args: {
   userMessage: string;
   topicSummary: string | null;
   contextAnchors: string[];
@@ -340,6 +340,7 @@ function evaluateDraftContextSlots(args: {
   externalContextKnown: boolean;
   namedEntity: string | null;
   isProductLike: boolean;
+  domainHint: "product" | "career" | "creator" | "general";
 } {
   const trimmed = args.userMessage.trim();
   const normalized = trimmed.toLowerCase();
@@ -347,6 +348,16 @@ function evaluateDraftContextSlots(args: {
   const hasProductCue = ["tool", "app", "product", "extension", "plugin"].some((cue) =>
     normalized.includes(cue),
   );
+  const hasCareerCue = [
+    "internship",
+    "interview",
+    "job hunt",
+    "job search",
+    "recruiter",
+    "application",
+    "offer",
+    "resume",
+  ].some((cue) => normalized.includes(cue));
   const looksLikeComparison = Boolean(inferComparisonReference(trimmed));
   const isProductLike =
     looksLikeBuildMessage(normalized) ||
@@ -362,6 +373,13 @@ function evaluateDraftContextSlots(args: {
     args.contextAnchors.some((anchor) =>
       anchor.toLowerCase().includes(namedEntity.toLowerCase()),
     );
+  const domainHint = isProductLike
+    ? "product"
+    : hasCareerCue
+      ? "career"
+      : subjectKnown
+        ? "creator"
+        : "general";
 
   return {
     subjectKnown,
@@ -370,6 +388,7 @@ function evaluateDraftContextSlots(args: {
     externalContextKnown,
     namedEntity,
     isProductLike,
+    domainHint,
   };
 }
 
@@ -1265,6 +1284,35 @@ User Profile Summary:
       topicSummary: memory.topicSummary,
       contextAnchors: styleCard?.contextAnchors || [],
     });
+
+    if (
+      contextSlots.domainHint === "career" &&
+      (!contextSlots.behaviorKnown || !contextSlots.stakesKnown)
+    ) {
+      const clarification = buildClarificationTree({
+        branchKey: "career_context_missing",
+        seedTopic: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+        isVerifiedAccount,
+      });
+
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: clarification.clarificationState,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: clarification.reply,
+        data: {
+          quickReplies: clarification.quickReplies,
+        },
+        memory,
+      };
+    }
 
     if (
       contextSlots.isProductLike &&

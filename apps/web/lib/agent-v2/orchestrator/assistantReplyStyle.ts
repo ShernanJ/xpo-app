@@ -22,6 +22,10 @@ export function buildEntityContextReply(entityLabel: string): string {
   return `what is ${entityLabel} in one line, and what does your thing actually do with it?`;
 }
 
+export function buildCareerDirectionReply(): string {
+  return "what tone feels right for this - grateful, ambitious, or reflective?";
+}
+
 export function buildLooseDirectionReply(args: {
   almostReady: boolean;
 }): string {

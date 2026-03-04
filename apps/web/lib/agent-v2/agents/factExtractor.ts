@@ -19,6 +19,17 @@ function extractDeterministicFacts(userMessage: string): string[] {
     facts.push(`${namedToolMatch[1].trim()} is ${namedToolMatch[2].trim().replace(/[.?!,]+$/, "")}`);
   }
 
+  const namedCapabilityMatch = trimmed.match(
+    /\b([a-z0-9][a-z0-9'’-]{1,30})\s+(?:does|helps|lets)\s+([a-z0-9][a-z0-9\s,&/'’()-]{4,140})/i,
+  );
+  if (namedCapabilityMatch) {
+    facts.push(
+      `${namedCapabilityMatch[1].trim()} does ${namedCapabilityMatch[2]
+        .trim()
+        .replace(/[.?!,]+$/, "")}`,
+    );
+  }
+
   const buildMatch = trimmed.match(
     /\bi['’]m\s+(?:building|making|creating)\s+(?:an?\s+)?([a-z0-9][a-z0-9\s'’-]{2,80})/i,
   );

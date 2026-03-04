@@ -42,7 +42,8 @@ export type ClarificationBranchKey =
   | "topic_known_but_direction_missing"
   | "abstract_topic_focus_pick"
   | "semantic_repair"
-  | "entity_context_missing";
+  | "entity_context_missing"
+  | "career_context_missing";
 
 export interface CreatorChatQuickReply {
   kind:

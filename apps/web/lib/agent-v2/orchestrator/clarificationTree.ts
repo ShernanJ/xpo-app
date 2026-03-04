@@ -5,6 +5,7 @@ import type {
   CreatorChatQuickReply,
 } from "../contracts/chat";
 import {
+  buildCareerDirectionReply,
   buildDirectionChoiceReply,
   buildEntityContextReply,
   buildLooseDirectionReply,
@@ -138,6 +139,43 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
         stepKey: "define_entity_context",
         seedTopic: args.seedTopic,
         options: [],
+      },
+    };
+  }
+
+  if (args.branchKey === "career_context_missing") {
+    const topicLabel = hasWeakSeed(args.seedTopic)
+      ? "this"
+      : args.seedTopic?.trim() || "this";
+    const quickReplies: CreatorChatQuickReply[] = [
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post that sounds grateful and grounded.`,
+        label: "Grateful",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post that sounds ambitious and determined.`,
+        label: "Ambitious",
+        explicitIntent: "plan",
+      },
+      {
+        kind: "clarification_choice",
+        value: `draft a ${topicLabel} post that sounds reflective and honest.`,
+        label: "Reflective",
+        explicitIntent: "plan",
+      },
+    ];
+
+    return {
+      reply: buildCareerDirectionReply(),
+      quickReplies,
+      clarificationState: {
+        branchKey: args.branchKey,
+        stepKey: "pick_career_tone",
+        seedTopic: args.seedTopic,
+        options: quickReplies,
       },
     };
   }
