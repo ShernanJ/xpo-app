@@ -3092,7 +3092,7 @@ function ChatPageContent() {
                                         openDraftEditor(message.id);
                                       }
                                     }}
-                                    className="rounded-2xl border border-white/[0.08] bg-[#0F0F0F] p-4 transition hover:border-white/15 hover:bg-[#151515]"
+                                    className="rounded-2xl border border-white/[0.08] bg-[#000000] p-4 transition hover:border-white/15 hover:bg-[#0F0F0F] cursor-pointer"
                                   >
                                     {/* Header: avatar + name + handle */}
                                     <div className="flex items-start gap-3">
