@@ -97,6 +97,20 @@ type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
 
+interface DraftInspectorSuccess {
+  ok: true;
+  data: {
+    summary: string;
+  };
+}
+
+interface DraftInspectorFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type DraftInspectorResponse = DraftInspectorSuccess | DraftInspectorFailure;
+
 interface BackfillJobStatusResponse {
   ok: true;
   job: {
@@ -302,6 +316,7 @@ interface DraftVersionSnapshot {
 interface DraftDrawerSelection {
   messageId: string;
   versionId: string;
+  revisionChainId?: string;
 }
 
 interface DraftTimelineEntry {
@@ -773,12 +788,13 @@ function buildDraftRevisionTimeline(args: {
   }
 
   const resolvedChainId =
+    args.activeDraftSelection.revisionChainId?.trim() ||
     selectedMessage.revisionChainId?.trim() ||
     selectedMessage.previousVersionSnapshot?.revisionChainId?.trim() ||
     `legacy-chain-${selectedMessage.id}`;
 
-  if (selectedMessage.revisionChainId?.trim()) {
-    const chainedEntries = args.messages
+  const chainedEntries = resolvedChainId
+    ? args.messages
       .filter(
         (message) =>
           message.role === "assistant" &&
@@ -804,19 +820,39 @@ function buildDraftRevisionTimeline(args: {
           maxCharacterLimit: version.maxCharacterLimit,
           isCurrentMessageVersion: message.id === selectedMessage.id,
         }));
-      });
+      })
+    : [];
+
+  if (chainedEntries.length > 0) {
+    const selectedMessageEntries = chainedEntries.some(
+      (entry) => entry.messageId === selectedMessage.id,
+    )
+      ? []
+      : selectedBundle.versions.map((version) => ({
+          messageId: selectedMessage.id,
+          versionId: version.id,
+          content: version.content,
+          createdAt: version.createdAt,
+          source: version.source,
+          revisionChainId: resolvedChainId,
+          maxCharacterLimit: version.maxCharacterLimit,
+          isCurrentMessageVersion: true,
+        }));
+    const combinedEntries = [...selectedMessageEntries, ...chainedEntries].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    );
     const previousSnapshot = selectedBundle.previousSnapshot;
     if (!previousSnapshot) {
-      return chainedEntries;
+      return combinedEntries;
     }
 
-    const snapshotAlreadyPresent = chainedEntries.some(
+    const snapshotAlreadyPresent = combinedEntries.some(
       (entry) =>
         entry.messageId === previousSnapshot.messageId &&
         entry.versionId === previousSnapshot.versionId,
     );
     if (snapshotAlreadyPresent) {
-      return chainedEntries;
+      return combinedEntries;
     }
 
     return [
@@ -831,8 +867,50 @@ function buildDraftRevisionTimeline(args: {
           previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
         isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
       },
-      ...chainedEntries,
+      ...combinedEntries,
     ];
+  }
+
+  const legacyChainSourceId =
+    args.activeDraftSelection.revisionChainId?.startsWith("legacy-chain-")
+      ? args.activeDraftSelection.revisionChainId.slice("legacy-chain-".length)
+      : "";
+  const legacyChainSource =
+    legacyChainSourceId && legacyChainSourceId !== selectedMessage.id
+      ? args.messages.find((message) => message.id === legacyChainSourceId) ?? null
+      : null;
+
+  if (legacyChainSource) {
+    const legacySourceBundle = normalizeDraftVersionBundle(
+      legacyChainSource,
+      args.fallbackCharacterLimit,
+    );
+    if (legacySourceBundle) {
+      const currentEntries = selectedBundle.versions.map((version) => ({
+        messageId: selectedMessage.id,
+        versionId: version.id,
+        content: version.content,
+        createdAt: version.createdAt,
+        source: version.source,
+        revisionChainId: resolvedChainId,
+        maxCharacterLimit: version.maxCharacterLimit,
+        isCurrentMessageVersion: true,
+      }));
+      const anchorEntries = legacySourceBundle.versions.map((version) => ({
+        messageId: legacyChainSource.id,
+        versionId: version.id,
+        content: version.content,
+        createdAt: version.createdAt,
+        source: version.source,
+        revisionChainId: resolvedChainId,
+        maxCharacterLimit: version.maxCharacterLimit,
+        isCurrentMessageVersion: false,
+      }));
+
+      return [...currentEntries, ...anchorEntries].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      );
+    }
   }
 
   const fallbackEntries = selectedBundle.versions.map((version) => ({
@@ -1277,6 +1355,8 @@ function ChatPageContent() {
   );
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
+  const [draftInspectorSummary, setDraftInspectorSummary] = useState<string | null>(null);
+  const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
@@ -1829,7 +1909,8 @@ function ChatPageContent() {
       source: selectedDraftVersion.source,
       createdAt: selectedDraftVersion.createdAt,
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      revisionChainId: selectedDraftMessage.revisionChainId,
+      revisionChainId:
+        activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
     };
   }, [activeDraftEditor, editorDraftText, selectedDraftMessage, selectedDraftVersion]);
   const selectedDraftTimeline = useMemo(
@@ -1846,18 +1927,37 @@ function ChatPageContent() {
       selectedDraftTimeline.findIndex(
         (entry) =>
           entry.messageId === activeDraftEditor?.messageId &&
-          entry.versionId === selectedDraftVersion?.id,
+          entry.versionId === activeDraftEditor?.versionId,
       ),
-    [activeDraftEditor, selectedDraftTimeline, selectedDraftVersion],
+    [activeDraftEditor, selectedDraftTimeline],
   );
   const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
   const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
   const selectedDraftTimelinePosition =
     selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
+  const latestDraftTimelineEntry =
+    selectedDraftTimeline.length > 0
+      ? selectedDraftTimeline[selectedDraftTimeline.length - 1]
+      : null;
   const canNavigateDraftBack = selectedDraftTimelineIndex > 0;
   const canNavigateDraftForward =
     selectedDraftTimelineIndex >= 0 &&
     selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
+  const isViewingHistoricalDraftVersion =
+    selectedDraftTimelineIndex >= 0 &&
+    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
+  const hasDraftEditorChanges =
+    selectedDraftVersion !== null &&
+    editorDraftText.trim().length > 0 &&
+    editorDraftText.trim() !== selectedDraftVersion.content.trim();
+  const shouldShowRevertDraftCta =
+    isViewingHistoricalDraftVersion && !hasDraftEditorChanges;
+  const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
+    ? "Revert to this Version"
+    : "Save As New Version";
+  const draftInspectorActionLabel = isViewingHistoricalDraftVersion
+    ? "Compare to Current"
+    : "Analyze this Draft";
 
   const latestAssistantMessageId = useMemo(
     () =>
@@ -1871,10 +1971,12 @@ function ChatPageContent() {
   useEffect(() => {
     if (!selectedDraftVersionId) {
       setEditorDraftText("");
+      setDraftInspectorSummary(null);
       return;
     }
 
     setEditorDraftText(selectedDraftVersionContent);
+    setDraftInspectorSummary(null);
   }, [
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
@@ -1900,6 +2002,7 @@ function ChatPageContent() {
       setActiveDraftEditor({
         messageId: targetEntry.messageId,
         versionId: targetEntry.versionId,
+        revisionChainId: targetEntry.revisionChainId,
       });
 
       if (targetEntry.messageId !== activeDraftEditor?.messageId) {
@@ -1951,6 +2054,7 @@ function ChatPageContent() {
         versionId && bundle.versions.some((version) => version.id === versionId)
           ? versionId
           : bundle.activeVersionId,
+      revisionChainId: message.revisionChainId ?? undefined,
     });
   }, [composerCharacterLimit, messages]);
 
@@ -2019,6 +2123,7 @@ function ChatPageContent() {
     setActiveDraftEditor({
       messageId: activeDraftEditor.messageId,
       versionId: nextVersion.id,
+      revisionChainId,
     });
 
     if (!activeThreadId) {
@@ -2064,6 +2169,144 @@ function ChatPageContent() {
     selectedDraftVersion,
   ]);
 
+  const revertToSelectedDraftVersion = useCallback(async () => {
+    if (!selectedDraftVersion || selectedDraftTimeline.length === 0) {
+      return;
+    }
+
+    const nextContent = selectedDraftVersion.content.trim();
+    if (!nextContent) {
+      return;
+    }
+
+    const latestTimelineEntry = selectedDraftTimeline[selectedDraftTimeline.length - 1];
+    if (!latestTimelineEntry) {
+      return;
+    }
+
+    const targetMessage =
+      messages.find((message) => message.id === latestTimelineEntry.messageId) ?? null;
+    if (!targetMessage) {
+      return;
+    }
+
+    const targetBundle = normalizeDraftVersionBundle(targetMessage, composerCharacterLimit);
+    if (!targetBundle) {
+      return;
+    }
+
+    if (targetBundle.activeVersion.content.trim() === nextContent) {
+      setActiveDraftEditor({
+        messageId: targetMessage.id,
+        versionId: targetBundle.activeVersionId,
+        revisionChainId:
+          targetMessage.revisionChainId ??
+          activeDraftEditor?.revisionChainId ??
+          `revision-chain-${targetMessage.id}`,
+      });
+      return;
+    }
+
+    const revisionChainId =
+      targetMessage.revisionChainId ??
+      activeDraftEditor?.revisionChainId ??
+      `revision-chain-${targetMessage.id}`;
+    const nextVersion: DraftVersionEntry = {
+      id: buildDraftVersionId(),
+      content: nextContent,
+      source: "manual_save",
+      createdAt: new Date().toISOString(),
+      basedOnVersionId: targetBundle.activeVersionId,
+      weightedCharacterCount: computeXWeightedCharacterCount(nextContent),
+      maxCharacterLimit:
+        selectedDraftVersion.maxCharacterLimit || targetBundle.activeVersion.maxCharacterLimit,
+      supportAsset:
+        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(targetMessage),
+    };
+    const nextVersions = [...targetBundle.versions, nextVersion];
+    const sourceArtifact = targetMessage.draftArtifacts?.[0];
+    const activeDraftArtifact = buildDraftArtifactWithLimit({
+      id: sourceArtifact?.id ?? `${targetMessage.id}-${nextVersion.id}`,
+      title: sourceArtifact?.title ?? "Draft",
+      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(targetMessage.outputShape),
+      content: nextContent,
+      supportAsset: nextVersion.supportAsset,
+      maxCharacterLimit: nextVersion.maxCharacterLimit,
+    });
+
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id !== targetMessage.id) {
+          return message;
+        }
+
+        return {
+          ...message,
+          draft: nextContent,
+          drafts:
+            message.drafts && message.drafts.length > 1
+              ? [nextContent, ...message.drafts.slice(1)]
+              : [nextContent],
+          draftArtifacts:
+            message.draftArtifacts && message.draftArtifacts.length > 1
+              ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
+              : [activeDraftArtifact],
+          draftVersions: nextVersions,
+          activeDraftVersionId: nextVersion.id,
+          revisionChainId,
+        };
+      }),
+    );
+
+    setActiveDraftEditor({
+      messageId: targetMessage.id,
+      versionId: nextVersion.id,
+      revisionChainId,
+    });
+
+    if (!activeThreadId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(targetMessage.id)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            draftVersions: nextVersions,
+            activeDraftVersionId: nextVersion.id,
+            draft: nextContent,
+            drafts:
+              targetMessage.drafts && targetMessage.drafts.length > 1
+                ? [nextContent, ...targetMessage.drafts.slice(1)]
+                : [nextContent],
+            draftArtifacts:
+              targetMessage.draftArtifacts && targetMessage.draftArtifacts.length > 1
+                ? [activeDraftArtifact, ...targetMessage.draftArtifacts.slice(1)]
+                : [activeDraftArtifact],
+            revisionChainId,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("persist failed");
+      }
+    } catch {
+      setErrorMessage("The reverted version saved locally, but it could not be persisted yet.");
+    }
+  }, [
+    activeDraftEditor?.revisionChainId,
+    activeThreadId,
+    composerCharacterLimit,
+    messages,
+    selectedDraftTimeline,
+    selectedDraftVersion,
+  ]);
+
   const copyDraftEditor = useCallback(async () => {
     if (!editorDraftText.trim()) {
       return;
@@ -2075,6 +2318,73 @@ function ChatPageContent() {
       setErrorMessage("Copy failed. Try selecting the text manually.");
     }
   }, [editorDraftText]);
+
+  const runDraftInspector = useCallback(async () => {
+    if (!selectedDraftVersion) {
+      return;
+    }
+
+    const inspectedDraft = editorDraftText.trim() || selectedDraftVersion.content.trim();
+    if (!inspectedDraft) {
+      return;
+    }
+
+    const shouldCompare =
+      isViewingHistoricalDraftVersion &&
+      !!latestDraftTimelineEntry &&
+      (latestDraftTimelineEntry.messageId !== activeDraftEditor?.messageId ||
+        latestDraftTimelineEntry.versionId !== activeDraftEditor?.versionId);
+    const currentDraft =
+      shouldCompare && latestDraftTimelineEntry
+        ? latestDraftTimelineEntry.content.trim()
+        : "";
+
+    if (shouldCompare && !currentDraft) {
+      setErrorMessage("There isn't a current draft version to compare against yet.");
+      return;
+    }
+
+    setIsDraftInspectorLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/creator/v2/draft-analysis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: shouldCompare ? "compare" : "analyze",
+          draft: inspectedDraft,
+          ...(shouldCompare ? { currentDraft } : {}),
+        }),
+      });
+
+      const data = (await response.json()) as DraftInspectorResponse;
+
+      if (!response.ok || !data.ok) {
+        setErrorMessage(
+          data.ok
+            ? "The draft analysis failed."
+            : (data.errors[0]?.message ?? "The draft analysis failed."),
+        );
+        return;
+      }
+
+      setDraftInspectorSummary(data.data.summary.trim());
+    } catch {
+      setErrorMessage("The draft analysis failed.");
+    } finally {
+      setIsDraftInspectorLoading(false);
+    }
+  }, [
+    activeDraftEditor?.messageId,
+    activeDraftEditor?.versionId,
+    editorDraftText,
+    isViewingHistoricalDraftVersion,
+    latestDraftTimelineEntry,
+    selectedDraftVersion,
+  ]);
 
   const requestAssistantReply = useCallback(
     async (options: {
@@ -2256,11 +2566,12 @@ function ChatPageContent() {
             data.data.activeDraftVersionId &&
             data.data.draft
           ) {
-            setActiveDraftEditor({
-              messageId: data.data.messageId,
-              versionId: data.data.activeDraftVersionId,
-            });
-          }
+          setActiveDraftEditor({
+            messageId: data.data.messageId,
+            versionId: data.data.activeDraftVersionId,
+            revisionChainId: data.data.revisionChainId,
+          });
+        }
 
           // Store returned memory blob
           if (data.data.memory) {
@@ -2417,6 +2728,7 @@ function ChatPageContent() {
           setActiveDraftEditor({
             messageId: streamedResult.messageId,
             versionId: streamedResult.activeDraftVersionId,
+            revisionChainId: streamedResult.revisionChainId,
           });
         }
 
@@ -3591,43 +3903,45 @@ function ChatPageContent() {
                         <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
                           @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                         </p>
-                        <p className="mt-1 text-[11px] font-medium text-zinc-500">
-                          Version {selectedDraftTimelinePosition}
-                          {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
-                            editorDraftText,
-                          )}/{selectedDraftVersion.maxCharacterLimit}
-                        </p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => navigateDraftTimeline("back")}
+                              disabled={!canNavigateDraftBack}
+                              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              aria-label="Previous draft version"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => navigateDraftTimeline("forward")}
+                              disabled={!canNavigateDraftForward}
+                              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              aria-label="Next draft version"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <p className="text-[11px] font-medium text-zinc-500">
+                            Version {selectedDraftTimelinePosition}
+                            {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
+                              editorDraftText,
+                            )}/{selectedDraftVersion.maxCharacterLimit} chars
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => navigateDraftTimeline("back")}
-                        disabled={!canNavigateDraftBack}
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Previous draft version"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigateDraftTimeline("forward")}
-                        disabled={!canNavigateDraftForward}
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Next draft version"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveDraftEditor(null)}
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                        aria-label="Close draft editor"
-                      >
-                        ×
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
+                    >
+                      ×
+                    </button>
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-5 pb-5">
@@ -3639,16 +3953,30 @@ function ChatPageContent() {
                         placeholder="Draft content"
                       />
                     </div>
+                    {draftInspectorSummary ? (
+                      <div className="mt-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          {isViewingHistoricalDraftVersion ? "Comparison" : "Draft Analysis"}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-zinc-300">
+                          {draftInspectorSummary}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="border-t border-white/10 px-5 py-4">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs text-zinc-500">
-                        {computeXWeightedCharacterCount(editorDraftText) <=
-                        selectedDraftVersion.maxCharacterLimit
-                          ? "Ready to revise or save."
-                          : "This version is over the X limit."}
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runDraftInspector();
+                        }}
+                        disabled={isDraftInspectorLoading}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                      </button>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -3662,11 +3990,13 @@ function ChatPageContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            void saveDraftEditor();
+                            void (shouldShowRevertDraftCta
+                              ? revertToSelectedDraftVersion()
+                              : saveDraftEditor());
                           }}
                           className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
                         >
-                          Save As New Version
+                          {draftEditorPrimaryActionLabel}
                         </button>
                       </div>
                     </div>
@@ -3712,42 +4042,44 @@ function ChatPageContent() {
                       <p className="mt-0.5 text-[11px] text-zinc-400">
                         @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                       </p>
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        Version {selectedDraftTimelinePosition}
-                        {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
-                          editorDraftText,
-                        )}/{selectedDraftVersion.maxCharacterLimit}
-                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => navigateDraftTimeline("back")}
+                            disabled={!canNavigateDraftBack}
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label="Previous draft version"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigateDraftTimeline("forward")}
+                            disabled={!canNavigateDraftForward}
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label="Next draft version"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          Version {selectedDraftTimelinePosition}
+                          {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
+                            editorDraftText,
+                          )}/{selectedDraftVersion.maxCharacterLimit} chars
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => navigateDraftTimeline("back")}
-                      disabled={!canNavigateDraftBack}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label="Previous draft version"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigateDraftTimeline("forward")}
-                      disabled={!canNavigateDraftForward}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label="Next draft version"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveDraftEditor(null)}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                      aria-label="Close draft editor"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveDraftEditor(null)}
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                    aria-label="Close draft editor"
+                  >
+                    ×
+                  </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -3759,13 +4091,30 @@ function ChatPageContent() {
                       placeholder="Draft content"
                     />
                   </div>
+                  {draftInspectorSummary ? (
+                    <div className="mt-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        {isViewingHistoricalDraftVersion ? "Comparison" : "Draft Analysis"}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-300">
+                        {draftInspectorSummary}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="border-t border-white/10 px-4 py-4">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-zinc-500">
-                      {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runDraftInspector();
+                      }}
+                      disabled={isDraftInspectorLoading}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                    </button>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -3779,14 +4128,19 @@ function ChatPageContent() {
                       <button
                         type="button"
                         onClick={() => {
-                          void saveDraftEditor();
+                          void (shouldShowRevertDraftCta
+                            ? revertToSelectedDraftVersion()
+                            : saveDraftEditor());
                         }}
                         className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
                       >
-                        Save
+                        {shouldShowRevertDraftCta ? "Revert to this Version" : "Save As New Version"}
                       </button>
                     </div>
                   </div>
+                  <p className="mt-3 text-xs text-zinc-500">
+                    {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                  </p>
                 </div>
               </div>
             </div>
