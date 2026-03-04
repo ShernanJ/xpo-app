@@ -139,7 +139,7 @@ function looksLikeDraftHandoff(reply: string): boolean {
   ].includes(normalized);
 }
 
-function normalizeDraftPayload(args: {
+export function normalizeDraftPayload(args: {
   reply: string;
   draft: string | null;
   drafts: string[];
@@ -187,7 +187,7 @@ function buildRevisionChainId(seed?: string): string {
   return `revision-chain-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null {
+export function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -235,7 +235,7 @@ function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null 
   };
 }
 
-function resolveDraftArtifactKind(
+export function resolveDraftArtifactKind(
   outputShape: string,
 ): DraftArtifactDetails["kind"] | null {
   switch (outputShape) {
@@ -250,7 +250,7 @@ function resolveDraftArtifactKind(
   }
 }
 
-function buildInitialDraftVersionPayload(args: {
+export function buildInitialDraftVersionPayload(args: {
   draft: string | null;
   outputShape: string;
   supportAsset: string | null;
@@ -333,6 +333,43 @@ function buildInitialDraftVersionPayload(args: {
     revisionChainId,
     ...(previousVersionSnapshot ? { previousVersionSnapshot } : {}),
   };
+}
+
+export function resolveEffectiveExplicitIntent(args: {
+  intent: string;
+  selectedDraftContext: SelectedDraftContext | null;
+}):
+  | "coach"
+  | "ideate"
+  | "plan"
+  | "planner_feedback"
+  | "draft"
+  | "review"
+  | "edit"
+  | "answer_question"
+  | null {
+  return [
+    "coach",
+    "ideate",
+    "plan",
+    "planner_feedback",
+    "draft",
+    "review",
+    "edit",
+    "answer_question",
+  ].includes(args.intent)
+    ? (args.intent as
+        | "coach"
+        | "ideate"
+        | "plan"
+        | "planner_feedback"
+        | "draft"
+        | "review"
+        | "edit"
+        | "answer_question")
+    : args.selectedDraftContext
+      ? "edit"
+      : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -491,12 +528,10 @@ export async function POST(request: NextRequest) {
   const activeDraft =
     selectedDraftContext?.content ||
     (typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined);
-  const effectiveExplicitIntent =
-    ["coach", "ideate", "plan", "planner_feedback", "draft", "review", "edit", "answer_question"].includes(intent)
-      ? (intent as "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit" | "answer_question")
-      : selectedDraftContext
-        ? "edit"
-        : null;
+  const effectiveExplicitIntent = resolveEffectiveExplicitIntent({
+    intent,
+    selectedDraftContext,
+  });
 
   try {
     const effectiveUserId = session.user.id;

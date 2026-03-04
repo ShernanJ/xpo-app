@@ -42,6 +42,14 @@ import {
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
 } from "./assistantReplyStyle";
+import {
+  isBareDraftRequest,
+  resolveConversationMode,
+  resolveDraftOutputShape,
+  shouldRouteCareerClarification,
+  shouldUsePendingPlanApprovalPath,
+  shouldUseRevisionDraftPath,
+} from "./conversationManagerLogic";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -82,6 +90,67 @@ export type OrchestratorResponse = {
   memory: V2ConversationMemory;
 };
 
+export interface ConversationServices {
+  classifyIntent: typeof classifyIntent;
+  generateCoachReply: typeof generateCoachReply;
+  generatePlan: typeof generatePlan;
+  generateIdeasMenu: typeof generateIdeasMenu;
+  generateDrafts: typeof generateDrafts;
+  critiqueDrafts: typeof critiqueDrafts;
+  generateRevisionDraft: typeof generateRevisionDraft;
+  extractStyleRules: typeof extractStyleRules;
+  extractCoreFacts: typeof extractCoreFacts;
+  extractAntiPattern: typeof extractAntiPattern;
+  getConversationMemory: typeof getConversationMemory;
+  createConversationMemory: typeof createConversationMemory;
+  updateConversationMemory: typeof updateConversationMemory;
+  retrieveAnchors: typeof retrieveAnchors;
+  generateStyleProfile: typeof generateStyleProfile;
+  saveStyleProfile: typeof saveStyleProfile;
+  checkDeterministicNovelty: typeof checkDeterministicNovelty;
+  getOnboardingRun: (runId?: string) => Promise<Record<string, unknown> | null>;
+  getHistoricalPosts: (userId: string) => Promise<string[]>;
+}
+
+export function createDefaultConversationServices(): ConversationServices {
+  return {
+    classifyIntent,
+    generateCoachReply,
+    generatePlan,
+    generateIdeasMenu,
+    generateDrafts,
+    critiqueDrafts,
+    generateRevisionDraft,
+    extractStyleRules,
+    extractCoreFacts,
+    extractAntiPattern,
+    getConversationMemory,
+    createConversationMemory,
+    updateConversationMemory,
+    retrieveAnchors,
+    generateStyleProfile,
+    saveStyleProfile,
+    checkDeterministicNovelty,
+    async getOnboardingRun(runId?: string) {
+      if (!runId) {
+        return null;
+      }
+
+      const record = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+      return (record as unknown as Record<string, unknown> | null) || null;
+    },
+    async getHistoricalPosts(userId: string) {
+      const posts = await prisma.post.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: { text: true },
+      });
+      return posts.map((post) => post.text);
+    },
+  };
+}
+
 function isLazyDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   return [
@@ -92,23 +161,6 @@ function isLazyDraftRequest(message: string): boolean {
     "whatever works",
     "anything is fine",
   ].some((candidate) => normalized.includes(candidate));
-}
-
-export function isBareDraftRequest(message: string): boolean {
-  const normalized = message.trim().toLowerCase().replace(/[.?!,]+$/, "");
-  return [
-    "write me a post",
-    "write a post for me",
-    "write me a post for me",
-    "draft a post",
-    "draft a post for me",
-    "draft me a post",
-    "make a post",
-    "make me a post",
-    "give me a post",
-    "give me a post to use",
-    "give me a random post",
-  ].includes(normalized);
 }
 
 function inferComparisonReference(message: string): string | null {
@@ -680,12 +732,6 @@ function buildPlanPitch(plan: StrategyPlan): string {
   return "i'd frame it like this.";
 }
 
-function resolveDraftOutputShape(
-  formatPreference: DraftFormatPreference,
-): V2ChatOutputShape {
-  return formatPreference === "longform" ? "long_form_post" : "short_form_post";
-}
-
 function buildPlanQuickReplies(): CreatorChatQuickReply[] {
   return [
     {
@@ -739,7 +785,9 @@ async function maybeCaptureAntiPattern(args: {
   recentHistory: string;
   styleCard: Awaited<ReturnType<typeof generateStyleProfile>>;
   xHandle: string;
-}): Promise<string[]> {
+},
+services: Pick<ConversationServices, "extractAntiPattern" | "saveStyleProfile">,
+): Promise<string[]> {
   const antiExamples = args.styleCard?.antiExamples || [];
   const currentGuidance =
     antiExamples.length > 0
@@ -759,7 +807,7 @@ async function maybeCaptureAntiPattern(args: {
     return currentGuidance;
   }
 
-  const extracted = await extractAntiPattern(
+  const extracted = await services.extractAntiPattern(
     args.userMessage,
     args.activeDraft,
     args.recentHistory,
@@ -791,7 +839,7 @@ async function maybeCaptureAntiPattern(args: {
 
   args.styleCard.customGuidelines = nextGuidelines;
   args.styleCard.antiExamples = nextAntiExamples;
-  saveStyleProfile(args.userId, args.xHandle, args.styleCard).catch((error) =>
+  services.saveStyleProfile(args.userId, args.xHandle, args.styleCard).catch((error) =>
     console.error("Failed to save anti-pattern guidance:", error),
   );
 
@@ -806,7 +854,12 @@ async function maybeCaptureAntiPattern(args: {
  */
 export async function manageConversationTurn(
   input: OrchestratorInput,
+  serviceOverrides: Partial<ConversationServices> = {},
 ): Promise<OrchestratorResponse> {
+  const services: ConversationServices = {
+    ...createDefaultConversationServices(),
+    ...serviceOverrides,
+  };
   const {
     userId,
     xHandle,
@@ -820,9 +873,9 @@ export async function manageConversationTurn(
   } = input;
   const effectiveXHandle = xHandle || "default";
 
-  let memoryRecord = await getConversationMemory({ runId, threadId });
+  let memoryRecord = await services.getConversationMemory({ runId, threadId });
   if (!memoryRecord) {
-    memoryRecord = await createConversationMemory({
+    memoryRecord = await services.createConversationMemory({
       runId,
       threadId,
       userId: userId === "anonymous" ? null : userId,
@@ -841,7 +894,7 @@ export async function manageConversationTurn(
 
   let classification;
   if (!explicitIntent) {
-    classification = await classifyIntent(userMessage, recentHistory);
+    classification = await services.classifyIntent(userMessage, recentHistory);
     if (!classification) {
       return {
         mode: "error",
@@ -862,7 +915,7 @@ export async function manageConversationTurn(
     const nextConstraints = Array.from(
       new Set([...memory.activeConstraints, userMessage]),
     );
-    const updated = await updateConversationMemory({
+    const updated = await services.updateConversationMemory({
       runId,
       threadId,
       activeConstraints: nextConstraints,
@@ -870,33 +923,33 @@ export async function manageConversationTurn(
     memory = createConversationMemorySnapshot(updated as unknown as Record<string, unknown>);
   }
 
-  let mode = classification.intent;
-
-  if (
-    !explicitIntent &&
-    ["hello", "hi", "help me grow", "i want to grow"].includes(
-      userMessage.toLowerCase().trim(),
-    )
-  ) {
-    mode = "coach";
-  }
-
-  if (!explicitIntent && mode === "draft" && !activeDraft) {
-    mode = "plan";
-  }
+  let mode = resolveConversationMode({
+    explicitIntent,
+    userMessage,
+    classifiedIntent: classification.intent,
+    activeDraft,
+  }) as V2ChatIntent;
 
   const [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
-    generateStyleProfile(userId, effectiveXHandle, 20),
-    retrieveAnchors(userId, effectiveXHandle, userMessage || memory.topicSummary || "growth"),
-    userId !== "anonymous" ? extractStyleRules(userMessage, recentHistory) : Promise.resolve(null),
-    userId !== "anonymous" ? extractCoreFacts(userMessage, recentHistory) : Promise.resolve(null),
+    services.generateStyleProfile(userId, effectiveXHandle, 20),
+    services.retrieveAnchors(
+      userId,
+      effectiveXHandle,
+      userMessage || memory.topicSummary || "growth",
+    ),
+    userId !== "anonymous"
+      ? services.extractStyleRules(userMessage, recentHistory)
+      : Promise.resolve(null),
+    userId !== "anonymous"
+      ? services.extractCoreFacts(userMessage, recentHistory)
+      : Promise.resolve(null),
   ]);
 
   if (styleCard && extractedRules && extractedRules.length > 0) {
     styleCard.customGuidelines = Array.from(
       new Set([...(styleCard.customGuidelines || []), ...extractedRules]),
     );
-    saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+    services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
       console.error("Failed to save style profile:", error),
     );
   }
@@ -905,19 +958,22 @@ export async function manageConversationTurn(
     styleCard.contextAnchors = Array.from(
       new Set([...(styleCard.contextAnchors || []), ...extractedFacts]),
     );
-    saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+    services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
       console.error("Failed to save style profile:", error),
     );
   }
 
-  const antiPatterns = await maybeCaptureAntiPattern({
-    userId,
-    userMessage,
-    activeDraft,
-    recentHistory,
-    styleCard,
-    xHandle: effectiveXHandle,
-  });
+  const antiPatterns = await maybeCaptureAntiPattern(
+    {
+      userId,
+      userMessage,
+      activeDraft,
+      recentHistory,
+      styleCard,
+      xHandle: effectiveXHandle,
+    },
+    services,
+  );
 
   const relevantTopicAnchors = retrieveRelevantContext({
     userMessage,
@@ -936,7 +992,7 @@ export async function manageConversationTurn(
     activeConstraints: effectiveActiveConstraints,
   });
 
-  const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+  const storedRun = await services.getOnboardingRun(runId);
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
   const onboardingProfile = onboardingResult?.profile as Record<string, unknown> | undefined;
   const isVerifiedAccount = onboardingProfile?.isVerified === true;
@@ -978,7 +1034,7 @@ User Profile Summary:
         patch.currentDraftArtifactId ?? memory.currentDraftArtifactId,
     });
 
-    const updated = await updateConversationMemory({
+    const updated = await services.updateConversationMemory({
       runId,
       threadId,
       topicSummary: patch.topicSummary,
@@ -1041,23 +1097,20 @@ User Profile Summary:
   }
 
   if (
-    mode === "planner_feedback" &&
-    memory.conversationState === "plan_pending_approval" &&
+    shouldUsePendingPlanApprovalPath({
+      mode,
+      conversationState: memory.conversationState,
+      hasPendingPlan: Boolean(memory.pendingPlan),
+    }) &&
     memory.pendingPlan
   ) {
     const decision = await interpretPlannerFeedback(userMessage, memory.pendingPlan);
 
     if (decision === "approve") {
       const approvedPlan = memory.pendingPlan;
-      const pastPosts = await prisma.post.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        select: { text: true },
-      });
-      const historicalTexts = pastPosts.map((post) => post.text);
+      const historicalTexts = await services.getHistoricalPosts(userId);
 
-      const writerOutput = await generateDrafts(
+      const writerOutput = await services.generateDrafts(
         approvedPlan,
         styleCard,
         relevantTopicAnchors,
@@ -1083,7 +1136,7 @@ User Profile Summary:
         };
       }
 
-      const criticOutput = await critiqueDrafts(
+      const criticOutput = await services.critiqueDrafts(
         writerOutput,
         effectiveActiveConstraints,
         styleCard,
@@ -1103,7 +1156,7 @@ User Profile Summary:
         };
       }
 
-      const noveltyCheck = checkDeterministicNovelty(
+      const noveltyCheck = services.checkDeterministicNovelty(
         criticOutput.finalDraft,
         historicalTexts,
       );
@@ -1178,7 +1231,7 @@ User Profile Summary:
         `Requested revision: ${userMessage}`,
       ].join("\n");
 
-      const revisedPlan = await generatePlan(
+      const revisedPlan = await services.generatePlan(
         revisionPrompt,
         memory.topicSummary,
         effectiveActiveConstraints,
@@ -1286,8 +1339,13 @@ User Profile Summary:
     });
 
     if (
-      contextSlots.domainHint === "career" &&
-      (!contextSlots.behaviorKnown || !contextSlots.stakesKnown)
+      shouldRouteCareerClarification({
+        explicitIntent,
+        mode,
+        domainHint: contextSlots.domainHint,
+        behaviorKnown: contextSlots.behaviorKnown,
+        stakesKnown: contextSlots.stakesKnown,
+      })
     ) {
       const clarification = buildClarificationTree({
         branchKey: "career_context_missing",
@@ -1536,7 +1594,7 @@ User Profile Summary:
 
   switch (mode) {
     case "ideate": {
-      const ideas = await generateIdeasMenu(
+      const ideas = await services.generateIdeasMenu(
         userMessage,
         memory.topicSummary,
         effectiveContext,
@@ -1578,7 +1636,7 @@ User Profile Summary:
     }
 
     case "plan": {
-      const plan = await generatePlan(
+      const plan = await services.generatePlan(
         userMessage,
         memory.topicSummary,
         effectiveActiveConstraints,
@@ -1632,12 +1690,12 @@ User Profile Summary:
     case "draft":
     case "review":
     case "edit": {
-      if (activeDraft && (mode === "review" || mode === "edit")) {
+      if (shouldUseRevisionDraftPath({ mode, activeDraft }) && activeDraft) {
         const revision = normalizeDraftRevisionInstruction(
           draftInstruction,
           activeDraft,
         );
-        const reviserOutput = await generateRevisionDraft({
+        const reviserOutput = await services.generateRevisionDraft({
           activeDraft,
           revision,
           styleCard,
@@ -1663,7 +1721,7 @@ User Profile Summary:
           };
         }
 
-        const criticOutput = await critiqueDrafts(
+        const criticOutput = await services.critiqueDrafts(
           {
             angle: "Targeted revision",
             draft: reviserOutput.revisedDraft,
@@ -1743,15 +1801,9 @@ User Profile Summary:
         };
       }
 
-      const pastPosts = await prisma.post.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        select: { text: true },
-      });
-      const historicalTexts = pastPosts.map((post) => post.text);
+      const historicalTexts = await services.getHistoricalPosts(userId);
 
-      const plan = await generatePlan(
+      const plan = await services.generatePlan(
         draftInstruction,
         memory.topicSummary,
         effectiveActiveConstraints,
@@ -1781,7 +1833,7 @@ User Profile Summary:
         turnFormatPreference,
       );
 
-      const writerOutput = await generateDrafts(
+      const writerOutput = await services.generateDrafts(
         planWithPreference,
         styleCard,
         relevantTopicAnchors,
@@ -1807,7 +1859,7 @@ User Profile Summary:
         };
       }
 
-      const criticOutput = await critiqueDrafts(
+      const criticOutput = await services.critiqueDrafts(
         writerOutput,
         effectiveActiveConstraints,
         styleCard,
@@ -1827,7 +1879,7 @@ User Profile Summary:
         };
       }
 
-      const noveltyCheck = checkDeterministicNovelty(
+      const noveltyCheck = services.checkDeterministicNovelty(
         criticOutput.finalDraft,
         historicalTexts,
       );
@@ -1903,7 +1955,7 @@ User Profile Summary:
     case "coach":
     case "answer_question":
     default: {
-      const coachReply = await generateCoachReply(
+      const coachReply = await services.generateCoachReply(
         userMessage,
         effectiveContext,
         memory.topicSummary,

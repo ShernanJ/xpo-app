@@ -169,7 +169,8 @@ function normalizeClarificationState(value: unknown): ClarificationState | null 
       record.branchKey !== "topic_known_but_direction_missing" &&
       record.branchKey !== "abstract_topic_focus_pick" &&
       record.branchKey !== "semantic_repair" &&
-      record.branchKey !== "entity_context_missing") ||
+      record.branchKey !== "entity_context_missing" &&
+      record.branchKey !== "career_context_missing") ||
     typeof record.stepKey !== "string"
   ) {
     return null;
