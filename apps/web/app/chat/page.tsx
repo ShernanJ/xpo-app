@@ -3,6 +3,7 @@
 import {
   ChangeEvent,
   FormEvent,
+  Fragment,
   KeyboardEvent,
   Suspense,
   useCallback,
@@ -495,6 +496,7 @@ const HERO_EXIT_TRANSITION_MS = 720;
 const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
 
 type PlaybookStageKey = "0-1k" | "1k-10k" | "10k-50k" | "50k+";
+type PlaybookTemplateTab = "hook" | "reply" | "thread" | "cta";
 
 interface PlaybookTemplate {
   id: string;
@@ -506,6 +508,7 @@ interface PlaybookDefinition {
   id: string;
   name: string;
   outcome: string;
+  whenItWorks: string;
   difficulty: string;
   timePerDay: string;
   bestFor: string[];
@@ -533,28 +536,47 @@ const PLAYBOOK_STAGE_META: Record<
   {
     label: string;
     highlight: string;
+    winCondition: string;
     bottleneck: string;
+    priorities: string[];
+    contentMix: {
+      replies: number;
+      posts: number;
+      threads: number;
+    };
   }
 > = {
   "0-1k": {
     label: "0→1k",
     highlight: "discovery + reps",
+    winCondition: "win by getting discovered consistently and learning fast.",
     bottleneck: "your bottleneck is discovery. the win condition is consistent impressions from replies and proof posts.",
+    priorities: ["discovery", "consistency", "proof"],
+    contentMix: { replies: 60, posts: 30, threads: 10 },
   },
   "1k-10k": {
     label: "1k→10k",
     highlight: "repeatable formats + positioning",
+    winCondition: "win by becoming easy to recognize in one clear lane.",
     bottleneck: "your bottleneck is identity. people should quickly understand what lane you own.",
+    priorities: ["positioning", "formats", "proof"],
+    contentMix: { replies: 40, posts: 40, threads: 20 },
   },
   "10k-50k": {
     label: "10k→50k",
     highlight: "distribution + collabs",
+    winCondition: "win by amplifying strong work through distribution loops.",
     bottleneck: "your bottleneck is scaling reach through distribution loops, not writing more generic posts.",
+    priorities: ["distribution", "collabs", "systems"],
+    contentMix: { replies: 35, posts: 35, threads: 30 },
   },
   "50k+": {
     label: "50k+",
     highlight: "systems + leverage",
+    winCondition: "win by turning trust into leverage without losing signal.",
     bottleneck: "your bottleneck is leverage and trust maintenance. the writing needs to support a bigger operating system.",
+    priorities: ["leverage", "systems", "trust"],
+    contentMix: { replies: 20, posts: 35, threads: 45 },
   },
 };
 
@@ -564,6 +586,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "reply-ladder",
       name: "Reply Ladder",
       outcome: "Get discovered by bigger accounts",
+      whenItWorks: "best when your best ideas are still under-distributed",
       difficulty: "Easy",
       timePerDay: "15 min/day",
       bestFor: ["builders", "solo founders", "tech twitter"],
@@ -622,6 +645,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "daily-shipping-loop",
       name: "Daily Shipping Loop",
       outcome: "Build trust through visible proof",
+      whenItWorks: "best when you need more reps and more proof",
       difficulty: "Easy",
       timePerDay: "20 min/day",
       bestFor: ["builders", "students", "indie hackers"],
@@ -682,6 +706,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "weekly-series",
       name: "Weekly Series",
       outcome: "Build topic association and repeat engagement",
+      whenItWorks: "best when people know you but not your signature format",
       difficulty: "Medium",
       timePerDay: "25 min/day",
       bestFor: ["builders", "operators", "career twitter"],
@@ -740,6 +765,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "contrarian-proof",
       name: "Contrarian Takes With Proof",
       outcome: "Sharpen positioning with stronger opinions",
+      whenItWorks: "best when you have opinions and proof to back them up",
       difficulty: "Medium",
       timePerDay: "20 min/day",
       bestFor: ["experts", "founders", "niche educators"],
@@ -800,6 +826,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "network-loops",
       name: "Network Loops",
       outcome: "Scale reach through high-signal relationships",
+      whenItWorks: "best when the writing is solid but reach is capped",
       difficulty: "Medium",
       timePerDay: "30 min/day",
       bestFor: ["operators", "founders", "creators"],
@@ -858,6 +885,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "content-ip",
       name: "Content IP",
       outcome: "Build signature formats people recognize instantly",
+      whenItWorks: "best when your audience needs a pattern they remember fast",
       difficulty: "Hard",
       timePerDay: "35 min/day",
       bestFor: ["educators", "creators", "operators"],
@@ -918,6 +946,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "narrative-arcs",
       name: "Narrative Arcs",
       outcome: "Keep trust high while scaling reach",
+      whenItWorks: "best when your audience is following the bigger journey",
       difficulty: "Hard",
       timePerDay: "30 min/day",
       bestFor: ["founders", "creators", "operators"],
@@ -976,6 +1005,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       id: "community-flywheel",
       name: "Community Flywheel",
       outcome: "Turn audience attention into durable leverage",
+      whenItWorks: "best when your audience already participates and responds",
       difficulty: "Hard",
       timePerDay: "40 min/day",
       bestFor: ["operators", "founders", "community-led brands"],
@@ -1730,6 +1760,78 @@ function getPlaybookStageConfidence(
   }
 }
 
+function getPlaybookRiskLabel(difficulty: string): string {
+  const normalized = difficulty.trim().toLowerCase();
+
+  if (normalized === "easy") {
+    return "low risk";
+  }
+
+  if (normalized === "medium" || normalized === "moderate") {
+    return "medium risk";
+  }
+
+  return "higher risk";
+}
+
+function buildPlaybookTemplateGroups(
+  playbook: PlaybookDefinition,
+): Record<PlaybookTemplateTab, PlaybookTemplate[]> {
+  const groups: Record<PlaybookTemplateTab, PlaybookTemplate[]> = {
+    hook: [],
+    reply: [],
+    thread: [],
+    cta: [],
+  };
+
+  for (const template of playbook.templates) {
+    const label = template.label.toLowerCase();
+    if (label.includes("reply")) {
+      groups.reply.push(template);
+    } else if (label.includes("thread")) {
+      groups.thread.push(template);
+    } else if (label.includes("cta")) {
+      groups.cta.push(template);
+    } else {
+      groups.hook.push(template);
+    }
+  }
+
+  if (groups.hook.length === 0) {
+    groups.hook.push({
+      id: `${playbook.id}-hook-fallback`,
+      label: "Hook",
+      text: "i used to think ___, then i saw ___, now i do ___.",
+    });
+  }
+
+  if (groups.reply.length === 0) {
+    groups.reply.push({
+      id: `${playbook.id}-reply-fallback`,
+      label: "Reply",
+      text: "this is true. the part people miss is ___. here's how i'd apply it: ___.",
+    });
+  }
+
+  if (groups.thread.length === 0) {
+    groups.thread.push({
+      id: `${playbook.id}-thread-fallback`,
+      label: "Thread",
+      text: "hook\n\nwhat changed\n\n3 proof points\n\nwhat i learned\n\nwhat to do next",
+    });
+  }
+
+  if (groups.cta.length === 0) {
+    groups.cta.push({
+      id: `${playbook.id}-cta-fallback`,
+      label: "CTA",
+      text: "if this helps, tell me what you're testing next.",
+    });
+  }
+
+  return groups;
+}
+
 const chatScanlineStyle = {
   backgroundImage:
     "linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
@@ -2073,7 +2175,6 @@ function ChatPageContent() {
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [playbookStage, setPlaybookStage] = useState<PlaybookStageKey>("0-1k");
   const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
-  const [playbookSearchQuery, setPlaybookSearchQuery] = useState("");
   const [playbookDetailsOpen, setPlaybookDetailsOpen] = useState<{
     rationale: boolean;
     mistakes: boolean;
@@ -2085,7 +2186,8 @@ function ChatPageContent() {
     examples: false,
     quickStart: false,
   });
-  const [playbookReminderEnabled, setPlaybookReminderEnabled] = useState(false);
+  const [playbookTemplateTab, setPlaybookTemplateTab] =
+    useState<PlaybookTemplateTab>("hook");
   const [copiedPlaybookTemplateId, setCopiedPlaybookTemplateId] = useState<string | null>(
     null,
   );
@@ -2146,24 +2248,7 @@ function ChatPageContent() {
     () => PLAYBOOK_LIBRARY[playbookStage],
     [playbookStage],
   );
-  const filteredStagePlaybooks = useMemo(() => {
-    const trimmedQuery = playbookSearchQuery.trim().toLowerCase();
-    if (!trimmedQuery) {
-      return stagePlaybooks;
-    }
-
-    return stagePlaybooks.filter((playbook) => {
-      const searchableText = [
-        playbook.name,
-        playbook.outcome,
-        playbook.bestFor.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return searchableText.includes(trimmedQuery);
-    });
-  }, [playbookSearchQuery, stagePlaybooks]);
+  const filteredStagePlaybooks = stagePlaybooks;
   const selectedPlaybook = useMemo(() => {
     const withinFiltered =
       filteredStagePlaybooks.find((playbook) => playbook.id === activePlaybookId) ??
@@ -2171,6 +2256,14 @@ function ChatPageContent() {
 
     return withinFiltered ?? filteredStagePlaybooks[0] ?? stagePlaybooks[0] ?? null;
   }, [activePlaybookId, filteredStagePlaybooks, stagePlaybooks]);
+  const selectedPlaybookTemplateGroups = useMemo(
+    () => (selectedPlaybook ? buildPlaybookTemplateGroups(selectedPlaybook) : null),
+    [selectedPlaybook],
+  );
+  const selectedPlaybookTemplates = useMemo(
+    () => selectedPlaybookTemplateGroups?.[playbookTemplateTab] ?? [],
+    [playbookTemplateTab, selectedPlaybookTemplateGroups],
+  );
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
@@ -2270,6 +2363,10 @@ function ChatPageContent() {
     });
   }, [stagePlaybooks]);
 
+  useEffect(() => {
+    setPlaybookTemplateTab("hook");
+  }, [selectedPlaybook?.id]);
+
   const handleCopyPlaybookTemplate = useCallback(async (template: PlaybookTemplate) => {
     try {
       await navigator.clipboard.writeText(template.text);
@@ -2288,38 +2385,57 @@ function ChatPageContent() {
     setActivePlaybookId(playbookId);
   }, []);
 
-  const handleExportPlaybookPlan = useCallback(async () => {
+  const handleCopyCurrentPlaybookTemplates = useCallback(async () => {
     if (!selectedPlaybook) {
       return;
     }
 
     const exportLines = [
-      `${selectedPlaybook.name}`,
+      `${selectedPlaybook.name} • ${playbookTemplateTab.toUpperCase()} templates`,
       "",
-      `Outcome: ${selectedPlaybook.outcome}`,
-      "",
-      "The Loop:",
-      `- Input: ${selectedPlaybook.loop.input}`,
-      `- Action: ${selectedPlaybook.loop.action}`,
-      `- Feedback: ${selectedPlaybook.loop.feedback}`,
-      "",
-      "Today's Checklist:",
-      ...selectedPlaybook.checklist.daily.map((item) => `- ${item}`),
-      "",
-      "2x/week:",
-      ...selectedPlaybook.checklist.weekly.map((item) => `- ${item}`),
+      ...selectedPlaybookTemplates.map(
+        (template) => `${template.label}: ${template.text}`,
+      ),
     ].join("\n");
 
     try {
       await navigator.clipboard.writeText(exportLines);
-      setCopiedPlaybookTemplateId("__export__");
+      setCopiedPlaybookTemplateId("__templates__");
       window.setTimeout(() => {
         setCopiedPlaybookTemplateId((current) =>
-          current === "__export__" ? null : current,
+          current === "__templates__" ? null : current,
         );
       }, 1800);
     } catch (error) {
-      console.error("Failed to export playbook", error);
+      console.error("Failed to copy playbook templates", error);
+    }
+  }, [playbookTemplateTab, selectedPlaybook, selectedPlaybookTemplates]);
+
+  const handleCopyPlaybookChecklist = useCallback(async () => {
+    if (!selectedPlaybook) {
+      return;
+    }
+
+    const checklistText = [
+      `${selectedPlaybook.name} checklist`,
+      "",
+      "Daily:",
+      ...selectedPlaybook.checklist.daily.map((item) => `- ${item}`),
+      "",
+      "2x / week:",
+      ...selectedPlaybook.checklist.weekly.map((item) => `- ${item}`),
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(checklistText);
+      setCopiedPlaybookTemplateId("__checklist__");
+      window.setTimeout(() => {
+        setCopiedPlaybookTemplateId((current) =>
+          current === "__checklist__" ? null : current,
+        );
+      }, 1800);
+    } catch (error) {
+      console.error("Failed to copy playbook checklist", error);
     }
   }, [selectedPlaybook]);
   const preferencesPreviewDraft = useMemo(() => {
@@ -6032,250 +6148,278 @@ function ChatPageContent() {
               }
             }}
           >
-            <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-              <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                      Growth Playbooks
-                    </p>
-                    <h2 className="mt-2 text-2xl font-semibold text-white">
-                      Growth Playbooks
-                    </h2>
-                    <p className="mt-2 text-sm leading-7 text-zinc-400">
+            <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Growth Guide
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Growth Guide</h2>
+                  <p className="mt-2 text-sm text-zinc-400">what works on x at each stage</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
+                      {PLAYBOOK_STAGE_META[playbookStage].label}
+                    </span>
+                    <span className="text-sm text-zinc-400">
                       @{context.creatorProfile.identity.username} • {formatNicheSummary(context).toLowerCase()}
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
-                        Stage: {PLAYBOOK_STAGE_META[playbookStage].label}
-                      </span>
-                      <span className="text-sm text-zinc-400">
-                        focus: {PLAYBOOK_STAGE_META[playbookStage].highlight}
-                      </span>
-                    </div>
-                    <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-                      {PLAYBOOK_STAGE_META[playbookStage].bottleneck}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedPlaybook) {
-                          handleApplyPlaybook(selectedPlaybook.id);
-                        }
-                      }}
-                      disabled={!selectedPlaybook}
-                      className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    </span>
+                    <span
+                      title={PLAYBOOK_STAGE_META[playbookStage].bottleneck}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400"
                     >
-                      Apply playbook
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPlaybookModalOpen(false);
-                        setPreferencesOpen(true);
-                      }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
-                    >
-                      Customize
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPlaybookDetailsOpen((current) => ({
-                          ...current,
-                          rationale: !current.rationale,
-                        }))
-                      }
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      Why this stage?
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlaybookModalOpen(false)}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
-                    >
-                      Close
-                    </button>
+                      fit {getPlaybookStageConfidence(currentPlaybookStage, playbookStage)}%
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {PLAYBOOK_STAGE_ORDER.map((stageKey) => {
-                    const isSelected = playbookStage === stageKey;
-                    const confidence = getPlaybookStageConfidence(currentPlaybookStage, stageKey);
-
-                    return (
-                      <button
-                        key={stageKey}
-                        type="button"
-                        onClick={() => setPlaybookStage(stageKey)}
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition ${
-                          isSelected
-                            ? "bg-white text-black"
-                            : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                        }`}
-                      >
-                        <span>{PLAYBOOK_STAGE_META[stageKey].label}</span>
-                        <span
-                          className={`text-[10px] uppercase tracking-[0.16em] ${
-                            isSelected ? "text-black/60" : "text-zinc-600"
-                          }`}
-                        >
-                          {confidence}%
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlaybookModalOpen(false)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
               </div>
 
               <div className="overflow-y-auto px-6 py-6">
-                <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-                  <div className="space-y-4">
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
-                      <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        Search playbooks
-                      </label>
-                      <input
-                        type="text"
-                        value={playbookSearchQuery}
-                        onChange={(event) => setPlaybookSearchQuery(event.target.value)}
-                        placeholder="Filter by outcome, niche, or playbook"
-                        className="mt-3 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
-                      />
+                <div className="space-y-6">
+                  <div className="flex flex-wrap gap-2">
+                    {PLAYBOOK_STAGE_ORDER.map((stageKey) => {
+                      const isSelected = playbookStage === stageKey;
+                      const confidence = getPlaybookStageConfidence(currentPlaybookStage, stageKey);
+
+                      return (
+                        <button
+                          key={stageKey}
+                          type="button"
+                          onClick={() => setPlaybookStage(stageKey)}
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition ${
+                            isSelected
+                              ? "bg-white text-black"
+                              : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                          }`}
+                          title={`confidence in stage classification: ${confidence}%`}
+                        >
+                          <span>{PLAYBOOK_STAGE_META[stageKey].label}</span>
+                          <span
+                            className={`text-[10px] uppercase tracking-[0.16em] ${
+                              isSelected ? "text-black/60" : "text-zinc-600"
+                            }`}
+                          >
+                            fit {confidence}%
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                            Stage focus
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-white">
+                            {PLAYBOOK_STAGE_META[playbookStage].highlight}
+                          </p>
+                          <p className="mt-1 text-sm text-zinc-400">
+                            win condition: {PLAYBOOK_STAGE_META[playbookStage].winCondition}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {PLAYBOOK_STAGE_META[playbookStage].priorities.map((priority) => (
+                            <span
+                              key={priority}
+                              className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300"
+                            >
+                              {priority}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="min-w-0 flex-1 rounded-3xl border border-white/10 bg-black/20 p-4 lg:max-w-sm">
+                        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          <span>content mix</span>
+                          <span>
+                            replies {PLAYBOOK_STAGE_META[playbookStage].contentMix.replies}% • posts{" "}
+                            {PLAYBOOK_STAGE_META[playbookStage].contentMix.posts}% • threads{" "}
+                            {PLAYBOOK_STAGE_META[playbookStage].contentMix.threads}%
+                          </span>
+                        </div>
+                        <div className="mt-3 flex h-3 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                          <div
+                            className="bg-white/[0.78]"
+                            style={{
+                              width: `${PLAYBOOK_STAGE_META[playbookStage].contentMix.replies}%`,
+                            }}
+                          />
+                          <div
+                            className="bg-zinc-500/80"
+                            style={{
+                              width: `${PLAYBOOK_STAGE_META[playbookStage].contentMix.posts}%`,
+                            }}
+                          />
+                          <div
+                            className="bg-zinc-700/90"
+                            style={{
+                              width: `${PLAYBOOK_STAGE_META[playbookStage].contentMix.threads}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <section className="space-y-4">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                        Playbooks that work
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        stage-based systems you can skim, copy from, and adapt.
+                      </p>
                     </div>
 
                     <div className="space-y-3">
                       {filteredStagePlaybooks.length > 0 ? (
-                        filteredStagePlaybooks.map((playbook) => {
-                          const isActive = selectedPlaybook?.id === playbook.id;
+                        <>
+                          <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+                            {filteredStagePlaybooks.map((playbook) => {
+                              const isSelected = selectedPlaybook?.id === playbook.id;
 
-                          return (
-                            <div
-                              key={playbook.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => handleApplyPlaybook(playbook.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  handleApplyPlaybook(playbook.id);
-                                }
-                              }}
-                              className={`w-full rounded-3xl border p-5 text-left transition ${
-                                isActive
-                                  ? "border-white/25 bg-white/[0.05]"
-                                  : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-white">{playbook.name}</p>
-                                  <p className="mt-2 text-sm text-zinc-400">{playbook.outcome}</p>
-                                </div>
+                              return (
                                 <button
+                                  key={playbook.id}
                                   type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleApplyPlaybook(playbook.id);
-                                  }}
-                                  className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
-                                    isActive
-                                      ? "bg-white text-black"
-                                      : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                                  onClick={() => handleApplyPlaybook(playbook.id)}
+                                  className={`whitespace-nowrap rounded-full border px-3 py-2 text-xs font-medium transition ${
+                                    isSelected
+                                      ? "border-white/25 bg-white text-black"
+                                      : "border-white/10 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.06] hover:text-white"
                                   }`}
                                 >
-                                  {isActive ? "Active" : "Set Active"}
+                                  {playbook.name}
                                 </button>
-                              </div>
+                              );
+                            })}
+                          </div>
 
-                              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                                <span>{playbook.difficulty}</span>
-                                <span>•</span>
-                                <span>{playbook.timePerDay}</span>
-                              </div>
-
+                          {selectedPlaybook ? (
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                              <p className="text-sm text-zinc-300">{selectedPlaybook.outcome}</p>
                               <div className="mt-3 flex flex-wrap gap-2">
-                                {playbook.bestFor.map((tag) => (
-                                  <span
-                                    key={tag}
-                                    className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
+                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                                  {selectedPlaybook.timePerDay}
+                                </span>
+                                <span
+                                  title={`risk is inferred from difficulty (${selectedPlaybook.difficulty.toLowerCase()})`}
+                                  className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
+                                >
+                                  {getPlaybookRiskLabel(selectedPlaybook.difficulty)}
+                                </span>
+                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] text-zinc-500">
+                                  {selectedPlaybook.whenItWorks}
+                                </span>
                               </div>
                             </div>
-                          );
-                        })
+                          ) : null}
+                        </>
                       ) : (
                         <div className="rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-6 text-sm text-zinc-500">
                           No playbooks match that filter.
                         </div>
                       )}
                     </div>
-                  </div>
+                  </section>
 
-                  <div className="space-y-4">
-                    {selectedPlaybook ? (
-                      <>
-                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                                This week&apos;s execution
-                              </p>
-                              <h3 className="mt-2 text-xl font-semibold text-white">
-                                {selectedPlaybook.name}
-                              </h3>
-                              <p className="mt-2 text-sm text-zinc-400">
-                                {selectedPlaybook.outcome}
-                              </p>
-                            </div>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                              {PLAYBOOK_STAGE_META[playbookStage].label}
-                            </span>
+                  {selectedPlaybook ? (
+                    <section className="space-y-4">
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                              Playbook details
+                            </p>
+                            <h3 className="mt-2 text-xl font-semibold text-white">
+                              {selectedPlaybook.name}
+                            </h3>
+                            <p className="mt-2 text-sm text-zinc-400">
+                              {selectedPlaybook.outcome}
+                            </p>
                           </div>
-
-                          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                Input
-                              </p>
-                              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                {selectedPlaybook.loop.input}
-                              </p>
-                            </div>
-                            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                Action
-                              </p>
-                              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                {selectedPlaybook.loop.action}
-                              </p>
-                            </div>
-                            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                Feedback
-                              </p>
-                              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                {selectedPlaybook.loop.feedback}
-                              </p>
-                            </div>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedPlaybook.bestFor.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
+                              >
+                                {tag}
+                              </span>
+                            ))}
                           </div>
                         </div>
 
-                        <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+                        <div className="mt-5">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                            The loop
+                          </p>
+                          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">
+                            {[
+                              { label: "Input", value: selectedPlaybook.loop.input },
+                              { label: "Action", value: selectedPlaybook.loop.action },
+                              { label: "Feedback", value: selectedPlaybook.loop.feedback },
+                            ].map((step, index) => (
+                              <Fragment key={step.label}>
+                                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                    {step.label}
+                                  </p>
+                                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                    {step.value}
+                                  </p>
+                                </div>
+                                {index < 2 ? (
+                                  <div className="hidden items-center justify-center md:flex">
+                                    <ChevronRight className="h-4 w-4 text-zinc-600" />
+                                  </div>
+                                ) : null}
+                              </Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                        <div className="space-y-4">
                           <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                             <div className="flex items-center gap-3">
-                              <Check className="h-4 w-4 text-zinc-500" />
+                              <BarChart3 className="h-4 w-4 text-zinc-500" />
                               <div>
-                                <p className="text-sm font-semibold text-white">Today&apos;s checklist</p>
-                                <p className="text-xs text-zinc-500">Keep it tight. Do the reps that move the loop.</p>
+                                <p className="text-sm font-semibold text-white">What good looks like</p>
+                                <p className="text-xs text-zinc-500">3–5 benchmarks worth tracking.</p>
+                              </div>
+                            </div>
+
+                            <ul className="mt-4 space-y-2">
+                              {selectedPlaybook.metrics.slice(0, 5).map((metric) => (
+                                <li
+                                  key={metric}
+                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300"
+                                >
+                                  {metric}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                            <div className="flex items-center gap-3">
+                              <List className="h-4 w-4 text-zinc-500" />
+                              <div>
+                                <p className="text-sm font-semibold text-white">Checklist</p>
+                                <p className="text-xs text-zinc-500">Daily + weekly loop to keep reps high.</p>
                               </div>
                             </div>
 
@@ -6285,7 +6429,7 @@ function ChatPageContent() {
                                   Daily
                                 </p>
                                 <ul className="mt-3 space-y-2">
-                                  {selectedPlaybook.checklist.daily.map((item) => (
+                                  {selectedPlaybook.checklist.daily.slice(0, 5).map((item) => (
                                     <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
                                       <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
                                       <span className="leading-6">{item}</span>
@@ -6299,7 +6443,7 @@ function ChatPageContent() {
                                   2x / week
                                 </p>
                                 <ul className="mt-3 space-y-2">
-                                  {selectedPlaybook.checklist.weekly.map((item) => (
+                                  {selectedPlaybook.checklist.weekly.slice(0, 5).map((item) => (
                                     <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
                                       <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
                                       <span className="leading-6">{item}</span>
@@ -6309,225 +6453,228 @@ function ChatPageContent() {
                               </div>
                             </div>
                           </div>
+                        </div>
 
-                          <div className="space-y-4">
-                            <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                              <div className="flex items-center gap-3">
-                                <BookOpen className="h-4 w-4 text-zinc-500" />
-                                <div>
-                                  <p className="text-sm font-semibold text-white">Templates</p>
-                                  <p className="text-xs text-zinc-500">Steal the shape, not the wording.</p>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 space-y-3">
-                                {selectedPlaybook.templates.map((template) => {
-                                  const isCopied = copiedPlaybookTemplateId === template.id;
-
-                                  return (
-                                    <div
-                                      key={template.id}
-                                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                            {template.label}
-                                          </p>
-                                          <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                            {template.text}
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleCopyPlaybookTemplate(template)}
-                                          className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                                          aria-label={`Copy ${template.label} template`}
-                                        >
-                                          {isCopied ? (
-                                            <Check className="h-4 w-4" />
-                                          ) : (
-                                            <Copy className="h-4 w-4" />
-                                          )}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                        <div className="space-y-4">
+                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                            <div className="flex items-center gap-3">
+                              <BookOpen className="h-4 w-4 text-zinc-500" />
+                              <div>
+                                <p className="text-sm font-semibold text-white">Templates</p>
+                                <p className="text-xs text-zinc-500">Hook / Reply / Thread / CTA</p>
                               </div>
                             </div>
 
-                            <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                              <div className="flex items-center gap-3">
-                                <BarChart3 className="h-4 w-4 text-zinc-500" />
-                                <div>
-                                  <p className="text-sm font-semibold text-white">Success metrics</p>
-                                  <p className="text-xs text-zinc-500">What to watch while running this playbook.</p>
-                                </div>
-                              </div>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {(
+                                [
+                                  { key: "hook", label: "Hook" },
+                                  { key: "reply", label: "Reply" },
+                                  { key: "thread", label: "Thread" },
+                                  { key: "cta", label: "CTA" },
+                                ] as const
+                              ).map((tab) => (
+                                <button
+                                  key={tab.key}
+                                  type="button"
+                                  onClick={() => setPlaybookTemplateTab(tab.key)}
+                                  className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                                    playbookTemplateTab === tab.key
+                                      ? "bg-white text-black"
+                                      : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  }`}
+                                >
+                                  {tab.label}
+                                </button>
+                              ))}
+                            </div>
 
-                              <ul className="mt-4 space-y-2">
-                                {selectedPlaybook.metrics.map((metric) => (
-                                  <li
-                                    key={metric}
-                                    className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300"
+                            <div className="mt-4 space-y-3">
+                              {selectedPlaybookTemplates.map((template) => {
+                                const isCopied = copiedPlaybookTemplateId === template.id;
+
+                                return (
+                                  <div
+                                    key={template.id}
+                                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
                                   >
-                                    {metric}
-                                  </li>
-                                ))}
-                              </ul>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                          {template.label}
+                                        </p>
+                                        <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                          {template.text}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleCopyPlaybookTemplate(template)}
+                                        className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                                        aria-label={`Copy ${template.label} template`}
+                                      >
+                                        {isCopied ? (
+                                          <Check className="h-4 w-4" />
+                                        ) : (
+                                          <Copy className="h-4 w-4" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="space-y-3">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPlaybookDetailsOpen((current) => ({
-                                ...current,
-                                quickStart: !current.quickStart,
-                              }))
-                            }
-                            className="flex w-full items-center justify-between rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-4 text-left transition hover:bg-white/[0.04]"
-                          >
-                            <div>
-                              <p className="text-sm font-semibold text-white">What I&apos;d do in the next 30 minutes</p>
-                              <p className="mt-1 text-xs text-zinc-500">Instant value if you want to start now.</p>
-                            </div>
-                            {playbookDetailsOpen.quickStart ? (
-                              <ChevronUp className="h-4 w-4 text-zinc-500" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4 text-zinc-500" />
-                            )}
-                          </button>
-
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPlaybookDetailsOpen((current) => ({
+                              ...current,
+                              quickStart: !current.quickStart,
+                            }))
+                          }
+                          className="flex w-full items-center justify-between rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-4 text-left transition hover:bg-white/[0.04]"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-white">Start in 15 min</p>
+                            <p className="mt-1 text-xs text-zinc-500">A fast read-only quickstart.</p>
+                          </div>
                           {playbookDetailsOpen.quickStart ? (
-                            <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                              <ol className="space-y-3 text-sm text-zinc-300">
-                                {selectedPlaybook.quickStart.map((item, index) => (
-                                  <li key={item} className="flex items-start gap-3">
-                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] font-semibold text-zinc-400">
-                                      {index + 1}
-                                    </span>
-                                    <span className="leading-6">{item}</span>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          ) : null}
+                            <ChevronUp className="h-4 w-4 text-zinc-500" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-zinc-500" />
+                          )}
+                        </button>
 
-                          {(
-                            [
-                              {
-                                key: "rationale" as const,
-                                title: "Show rationale",
-                                body: selectedPlaybook.rationale,
-                              },
-                              {
-                                key: "mistakes" as const,
-                                title: "Common mistakes",
-                                body: selectedPlaybook.mistakes,
-                              },
-                              {
-                                key: "examples" as const,
-                                title: "Examples",
-                                body: selectedPlaybook.examples,
-                              },
-                            ] as const
-                          ).map((section) => (
-                            <div
-                              key={section.key}
-                              className="rounded-3xl border border-white/10 bg-white/[0.02]"
+                        {playbookDetailsOpen.quickStart ? (
+                          <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                            <ol className="space-y-3 text-sm text-zinc-300">
+                              {selectedPlaybook.quickStart.map((item, index) => (
+                                <li key={item} className="flex items-start gap-3">
+                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] font-semibold text-zinc-400">
+                                    {index + 1}
+                                  </span>
+                                  <span className="leading-6">{item}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        ) : null}
+
+                        {(
+                          [
+                            {
+                              key: "rationale" as const,
+                              title: "Why this playbook works",
+                              body: selectedPlaybook.rationale,
+                            },
+                            {
+                              key: "mistakes" as const,
+                              title: "Common mistakes",
+                              body: selectedPlaybook.mistakes,
+                            },
+                            {
+                              key: "examples" as const,
+                              title: "Examples",
+                              body: selectedPlaybook.examples.slice(0, 3),
+                            },
+                          ] as const
+                        ).map((section) => (
+                          <div
+                            key={section.key}
+                            className="rounded-3xl border border-white/10 bg-white/[0.02]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPlaybookDetailsOpen((current) => ({
+                                  ...current,
+                                  [section.key]: !current[section.key],
+                                }))
+                              }
+                              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
                             >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setPlaybookDetailsOpen((current) => ({
-                                    ...current,
-                                    [section.key]: !current[section.key],
-                                  }))
-                                }
-                                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
-                              >
-                                <p className="text-sm font-semibold text-white">{section.title}</p>
-                                {playbookDetailsOpen[section.key] ? (
-                                  <ChevronUp className="h-4 w-4 text-zinc-500" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-zinc-500" />
-                                )}
-                              </button>
+                              <p className="text-sm font-semibold text-white">{section.title}</p>
                               {playbookDetailsOpen[section.key] ? (
-                                Array.isArray(section.body) ? (
-                                  <ul className="space-y-2 px-5 pb-5 text-sm text-zinc-300">
-                                    {section.body.map((item) => (
-                                      <li key={item} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 leading-6">
-                                        {item}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <div className="px-5 pb-5">
-                                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300">
-                                      {section.body}
-                                    </div>
+                                <ChevronUp className="h-4 w-4 text-zinc-500" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4 text-zinc-500" />
+                              )}
+                            </button>
+                            {playbookDetailsOpen[section.key] ? (
+                              Array.isArray(section.body) ? (
+                                <ul className="space-y-2 px-5 pb-5 text-sm text-zinc-300">
+                                  {section.body.map((item) => (
+                                    <li
+                                      key={item}
+                                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 leading-6"
+                                    >
+                                      {item}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div className="px-5 pb-5">
+                                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300">
+                                    {section.body}
                                   </div>
-                                )
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
+                                </div>
+                              )
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-4 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Active playbook
-                  </p>
-                  <p className="mt-2 text-sm text-white">
-                    {selectedPlaybook ? selectedPlaybook.name : "No playbook selected"}
-                  </p>
+              <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-zinc-500">
+                  {selectedPlaybook ? `selected playbook: ${selectedPlaybook.name}` : "no playbook selected"}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setPlaybookReminderEnabled((current) => !current)}
-                    className={`flex items-center gap-3 rounded-full border px-4 py-2 text-sm transition ${
-                      playbookReminderEnabled
-                        ? "border-white/20 bg-white/[0.06] text-white"
-                        : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                    }`}
+                    onClick={() => void handleCopyCurrentPlaybookTemplates()}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/[0.04]"
                   >
-                    <span
-                      className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
-                        playbookReminderEnabled ? "bg-emerald-500/70" : "bg-zinc-800"
-                      }`}
-                    >
-                      <span
-                        className={`h-4 w-4 rounded-full bg-white transition-transform ${
-                          playbookReminderEnabled ? "translate-x-5" : "translate-x-0"
-                        }`}
-                      />
-                    </span>
-                    <span>Remind me daily</span>
+                    {copiedPlaybookTemplateId === "__templates__" ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    <span>Copy templates</span>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => void handleExportPlaybookPlan()}
+                    onClick={() => void handleCopyPlaybookChecklist()}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/[0.04]"
                   >
-                    {copiedPlaybookTemplateId === "__export__" ? (
+                    {copiedPlaybookTemplateId === "__checklist__" ? (
                       <Check className="h-4 w-4" />
                     ) : (
-                      <ArrowUpRight className="h-4 w-4" />
+                      <Copy className="h-4 w-4" />
                     )}
-                    <span>Export as plan</span>
+                    <span>Copy checklist</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlaybookModalOpen(false);
+                      setAnalysisOpen(true);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                  >
+                    <span>Open Profile Analysis</span>
+                    <ArrowUpRight className="h-4 w-4" />
                   </button>
                 </div>
               </div>
