@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -1335,6 +1335,7 @@ function ChatPageContent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draftInput, setDraftInput] = useState("");
   const [isLeavingHero, setIsLeavingHero] = useState(false);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -2114,6 +2115,7 @@ function ChatPageContent() {
   }, [composerCharacterLimit, messages]);
 
   const scrollThreadToBottom = useCallback(() => {
+    setShowScrollToLatest(false);
     window.requestAnimationFrame(() => {
       const node = threadScrollRef.current;
       if (!node) {
@@ -2126,6 +2128,27 @@ function ChatPageContent() {
       });
     });
   }, []);
+
+  useEffect(() => {
+    const node = threadScrollRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateScrollPosition = () => {
+      const distanceFromBottom =
+        node.scrollHeight - node.scrollTop - node.clientHeight;
+      setShowScrollToLatest(distanceFromBottom > 140);
+    };
+
+    updateScrollPosition();
+    node.addEventListener("scroll", updateScrollPosition, { passive: true });
+    window.requestAnimationFrame(updateScrollPosition);
+
+    return () => {
+      node.removeEventListener("scroll", updateScrollPosition);
+    };
+  }, [activeThreadId, messages.length]);
 
   const saveDraftEditor = useCallback(async () => {
     if (
@@ -2563,6 +2586,7 @@ function ChatPageContent() {
         };
 
         setMessages((current) => [...current, userMessage]);
+        scrollThreadToBottom();
         if (options.includeUserMessageInHistory !== false) {
           history = [...history, userMessage].slice(-6);
         }
@@ -2662,6 +2686,7 @@ function ChatPageContent() {
                     : undefined,
             },
           ]);
+          scrollThreadToBottom();
 
           if (
             effectiveSelectedDraftContext &&
@@ -2821,6 +2846,7 @@ function ChatPageContent() {
                   : undefined,
           },
         ]);
+        scrollThreadToBottom();
 
         if (
           effectiveSelectedDraftContext &&
@@ -2891,6 +2917,7 @@ function ChatPageContent() {
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
       selectedDraftContext,
+      scrollThreadToBottom,
       accountName,
       activeThreadId,
       syncThreadTitle,
@@ -3928,6 +3955,18 @@ function ChatPageContent() {
 
           <div className={dockComposerWrapperClassName}>
             <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
+              {showScrollToLatest && !shouldCenterHero ? (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={scrollThreadToBottom}
+                    className="group inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-[#0F0F0F]/90 text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-white"
+                    aria-label="Jump to latest message"
+                  >
+                    <ChevronDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
+                  </button>
+                </div>
+              ) : null}
               <form onSubmit={handleComposerSubmit}>
                 <div className={dockComposerSurfaceClassName}>
                   <textarea
