@@ -1074,6 +1074,83 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
+function personalizePlaybookTemplateText(params: {
+  text: string;
+  tab: PlaybookTemplateTab;
+  playbook: PlaybookDefinition;
+  context: CreatorAgentContext | null;
+}): string {
+  const { text, tab, playbook, context } = params;
+  const dominantTopic =
+    context?.creatorProfile.topics.dominantTopics[0]?.label?.trim() ?? "";
+  const nicheTopic = context ? formatNicheSummary(context).toLowerCase() : "";
+  const topic = (dominantTopic || nicheTopic || "your niche")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+  const audience =
+    context?.creatorProfile.topics.audienceSignals[0]?.trim().toLowerCase() ??
+    "the right audience";
+  const outcome = playbook.outcome.toLowerCase();
+
+  const replacementsByTab: Record<PlaybookTemplateTab, string[]> = {
+    hook: [topic, `the one update that drove ${outcome}`],
+    reply: [topic, "a practical next step", `what's working for ${audience}`],
+    thread: [topic, "what changed", "what i learned", "what to do next"],
+    cta: [topic, "the exact checklist", "what to do this week"],
+  };
+
+  const replacements = replacementsByTab[tab];
+  let replacementCursor = 0;
+  let personalized = text.replace(/___/g, () => {
+    const next =
+      replacements[replacementCursor] ??
+      replacements[replacements.length - 1] ??
+      topic;
+    replacementCursor += 1;
+    return next;
+  });
+
+  if (!/___/.test(text) && tab === "cta") {
+    const keyword = topic
+      .split(/\s+/)
+      .filter(Boolean)[0]
+      ?.replace(/[^a-z0-9]/gi, "")
+      .toUpperCase();
+    personalized = `${personalized}\n\nreply "${keyword || "START"}" if you want the exact steps.`;
+  }
+
+  personalized = personalized
+    .replace(/\s{2,}/g, " ")
+    .replace(/ \./g, ".")
+    .trim();
+
+  const voice = context?.creatorProfile.voice;
+  const shouldLowercase =
+    voice?.primaryCasing === "lowercase" &&
+    (voice?.lowercaseSharePercent ?? 0) >= 70;
+
+  if (shouldLowercase) {
+    return personalized.toLowerCase();
+  }
+
+  return applyNormalSentenceCasing(personalized);
+}
+
+function buildTemplateWhyItWorks(tab: PlaybookTemplateTab): string {
+  switch (tab) {
+    case "hook":
+      return "it works because the first line is clear and scroll-stopping.";
+    case "reply":
+      return "it works because it adds value fast instead of generic agreement.";
+    case "thread":
+      return "it works because the structure makes the idea easy to follow.";
+    case "cta":
+      return "it works because it asks for one clear action with low friction.";
+    default:
+      return "it works because it is short, specific, and easy to act on.";
+  }
+}
+
 function escapeRegexLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2143,6 +2220,7 @@ function ChatPageContent() {
   const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
   const [playbookTemplateTab, setPlaybookTemplateTab] =
     useState<PlaybookTemplateTab>("hook");
+  const [activePlaybookTemplateId, setActivePlaybookTemplateId] = useState<string | null>(null);
   const [copiedPlaybookTemplateId, setCopiedPlaybookTemplateId] = useState<string | null>(
     null,
   );
@@ -2219,6 +2297,37 @@ function ChatPageContent() {
     () => selectedPlaybookTemplateGroups?.[playbookTemplateTab] ?? [],
     [playbookTemplateTab, selectedPlaybookTemplateGroups],
   );
+  const personalizedPlaybookTemplates = useMemo(
+    () =>
+      selectedPlaybookTemplates.map((template) => ({
+        ...template,
+        text: personalizePlaybookTemplateText({
+          text: template.text,
+          tab: playbookTemplateTab,
+          playbook: selectedPlaybook as PlaybookDefinition,
+          context,
+        }),
+      })),
+    [context, playbookTemplateTab, selectedPlaybook, selectedPlaybookTemplates],
+  );
+  const activePlaybookTemplate = useMemo(() => {
+    if (personalizedPlaybookTemplates.length === 0) {
+      return null;
+    }
+
+    return (
+      personalizedPlaybookTemplates.find(
+        (template) => template.id === activePlaybookTemplateId,
+      ) ?? personalizedPlaybookTemplates[0]
+    );
+  }, [activePlaybookTemplateId, personalizedPlaybookTemplates]);
+  const playbookTemplatePreviewCounter = useMemo(() => {
+    const previewText = activePlaybookTemplate?.text ?? "";
+    const weightedCharacterCount = computeXWeightedCharacterCount(previewText);
+    const characterLimit = getXCharacterLimitForAccount(isVerifiedAccount);
+
+    return `${weightedCharacterCount}/${characterLimit} chars`;
+  }, [activePlaybookTemplate?.text, isVerifiedAccount]);
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
@@ -2321,6 +2430,9 @@ function ChatPageContent() {
   useEffect(() => {
     setPlaybookTemplateTab("hook");
   }, [selectedPlaybook?.id]);
+  useEffect(() => {
+    setActivePlaybookTemplateId(personalizedPlaybookTemplates[0]?.id ?? null);
+  }, [personalizedPlaybookTemplates]);
 
   const handleCopyPlaybookTemplate = useCallback(async (template: PlaybookTemplate) => {
     try {
@@ -6093,44 +6205,49 @@ function ChatPageContent() {
                   </div>
 
                   {filteredStagePlaybooks.length > 0 ? (
-                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
-                      {filteredStagePlaybooks.map((playbook) => {
-                        const isSelected = selectedPlaybook?.id === playbook.id;
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-1.5">
+                      <div
+                        className="grid gap-1"
+                        style={{
+                          gridTemplateColumns: `repeat(${filteredStagePlaybooks.length}, minmax(0, 1fr))`,
+                        }}
+                      >
+                        {filteredStagePlaybooks.map((playbook) => {
+                          const isSelected = selectedPlaybook?.id === playbook.id;
 
-                        return (
-                          <button
-                            key={playbook.id}
-                            type="button"
-                            onClick={() => handleApplyPlaybook(playbook.id)}
-                            className={`min-w-[270px] rounded-2xl border p-4 text-left transition ${
-                              isSelected
-                                ? "border-white/35 bg-white/[0.1] shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
-                                : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"
-                            }`}
-                            aria-pressed={isSelected}
-                          >
-                            <div className="flex items-center gap-3">
-                              <span
-                                className={`flex h-7 w-12 items-center rounded-full border px-1 transition ${
-                                  isSelected
-                                    ? "justify-end border-white/50 bg-white/15"
-                                    : "justify-start border-white/20 bg-black/30"
+                          return (
+                            <button
+                              key={playbook.id}
+                              type="button"
+                              onClick={() => handleApplyPlaybook(playbook.id)}
+                              className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                                isSelected
+                                  ? "border-white/25 bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+                                  : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                              }`}
+                              aria-pressed={isSelected}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="truncate text-sm font-semibold">{playbook.name}</p>
+                                <span
+                                  className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                                    isSelected ? "text-zinc-300" : "text-zinc-600"
+                                  }`}
+                                >
+                                  {isSelected ? "selected" : "view"}
+                                </span>
+                              </div>
+                              <p
+                                className={`mt-1 truncate text-xs ${
+                                  isSelected ? "text-zinc-300" : "text-zinc-500"
                                 }`}
                               >
-                                <span
-                                  className={`h-5 w-5 rounded-full transition ${
-                                    isSelected ? "bg-white" : "bg-zinc-500"
-                                  }`}
-                                />
-                              </span>
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-white">{playbook.name}</p>
-                                <p className="mt-0.5 text-xs text-zinc-400">{playbook.outcome}</p>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                                {playbook.outcome}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-zinc-500">
@@ -6360,44 +6477,123 @@ function ChatPageContent() {
                           </div>
                         </div>
 
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          {selectedPlaybookTemplates.map((template) => {
-                            const isCopied = copiedPlaybookTemplateId === template.id;
-
-                            return (
-                              <div
-                                key={template.id}
-                                className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                      {template.label}
-                                    </p>
-                                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                      {template.text}
-                                    </p>
+                        <div className="mt-4 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                          <div className="rounded-2xl border border-white/10 bg-[#0F0F0F] p-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                              Example preview
+                            </p>
+                            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                              <div className="flex items-start gap-3">
+                                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                  {context.avatarUrl ? (
+                                    <div
+                                      className="h-full w-full bg-cover bg-center"
+                                      style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                                      role="img"
+                                      aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
+                                    />
+                                  ) : (
+                                    (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1">
+                                    <span className="truncate text-sm font-bold text-white">
+                                      {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
+                                    </span>
+                                    {isVerifiedAccount ? (
+                                      <Image
+                                        src="/x-verified.svg"
+                                        alt="Verified account"
+                                        width={16}
+                                        height={16}
+                                        className="h-4 w-4 shrink-0"
+                                      />
+                                    ) : null}
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleCopyPlaybookTemplate(template)}
-                                    className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                                    aria-label={`Copy ${template.label} template`}
-                                  >
-                                    {isCopied ? (
-                                      <Check className="h-4 w-4" />
-                                    ) : (
-                                      <Copy className="h-4 w-4" />
-                                    )}
-                                  </button>
+                                  <span className="text-xs text-zinc-500">
+                                    @{context.creatorProfile.identity.username || accountName || "user"}
+                                  </span>
                                 </div>
                               </div>
-                            );
-                          })}
+
+                              <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+                                {activePlaybookTemplate?.text ||
+                                  "pick a template on the right to preview it here."}
+                              </p>
+
+                              <div className="mt-4 flex items-center gap-1.5 text-xs text-zinc-500">
+                                <span>Example</span>
+                                <span>·</span>
+                                <span>{playbookTemplatePreviewCounter}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex min-h-[320px] flex-col rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <p className="text-xs text-zinc-500">
+                              examples are tailored to this profile’s niche and tone.
+                            </p>
+                            <div className="mt-3 flex-1 space-y-3">
+                              {personalizedPlaybookTemplates.map((template) => {
+                              const isCopied = copiedPlaybookTemplateId === template.id;
+                              const isTemplateSelected = activePlaybookTemplate?.id === template.id;
+
+                              return (
+                                <div
+                                  key={template.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setActivePlaybookTemplateId(template.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      setActivePlaybookTemplateId(template.id);
+                                    }
+                                  }}
+                                  className={`rounded-2xl border p-4 transition ${
+                                    isTemplateSelected
+                                      ? "border-white/25 bg-white/[0.06]"
+                                      : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                        {template.label}
+                                      </p>
+                                      <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                        {template.text}
+                                      </p>
+                                      <p className="mt-2 text-xs text-zinc-500">
+                                        why this works: {buildTemplateWhyItWorks(playbookTemplateTab)}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void handleCopyPlaybookTemplate(template);
+                                      }}
+                                      className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                                      aria-label={`Copy ${template.label} template`}
+                                    >
+                                      {isCopied ? (
+                                        <Check className="h-4 w-4" />
+                                      ) : (
+                                        <Copy className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                              })}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="grid gap-4 lg:grid-cols-3">
+                      <div className="grid gap-4 md:grid-cols-2">
                         <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                           <p className="text-sm font-semibold text-white">🚀 Start in 15 min</p>
                           <ol className="mt-4 space-y-3 text-sm text-zinc-300">
@@ -6419,34 +6615,32 @@ function ChatPageContent() {
                           </p>
                         </div>
 
-                        <div className="space-y-4">
-                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                            <p className="text-sm font-semibold text-white">⚠️ Common mistakes</p>
-                            <ul className="mt-4 space-y-2">
-                              {selectedPlaybook.mistakes.map((item) => (
-                                <li
-                                  key={item}
-                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
-                                >
-                                  {item}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <p className="text-sm font-semibold text-white">⚠️ Common mistakes</p>
+                          <ul className="mt-4 space-y-2">
+                            {selectedPlaybook.mistakes.map((item) => (
+                              <li
+                                key={item}
+                                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
+                              >
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
 
-                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                            <p className="text-sm font-semibold text-white">🧪 Examples</p>
-                            <ul className="mt-4 space-y-2">
-                              {selectedPlaybook.examples.slice(0, 3).map((item) => (
-                                <li
-                                  key={item}
-                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
-                                >
-                                  {item}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <p className="text-sm font-semibold text-white">🧪 Examples</p>
+                          <ul className="mt-4 space-y-2">
+                            {selectedPlaybook.examples.slice(0, 3).map((item) => (
+                              <li
+                                key={item}
+                                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
+                              >
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
                     </section>
