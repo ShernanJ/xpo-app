@@ -81,9 +81,9 @@ Must Include: ${plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${activeConstraints.join(" | ") || "None"}
 
-USER'S HISTORICAL POSTS (FOR VIBE AND TONE REFERENCE ONLY):
+USER'S HISTORICAL POSTS (FOR VOICE AND THEMATIC REFERENCE):
 ${topicAnchors.join("\n---") || "None"}
-CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them ONLY to understand their voice and pacing.
+CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them to understand the user's voice, pacing, and recurring thematic territory only.
 
 ${styleCard
       ? `
@@ -104,12 +104,15 @@ REQUIREMENTS:
 2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
 4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
-5. Provide an idea for a "supportAsset" (image/video idea to attach).
-6. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
-7. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
-8. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-9. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
-10. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
+5. If the user did not specify a concrete topic, stay inside the user's usual subject matter and angles from their historical posts instead of drifting into random generic business content.
+6. Provide an idea for a "supportAsset" (image/video idea to attach).
+7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
+8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
+9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
+10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
+11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
+12. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
+13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 
 Respond ONLY with a valid JSON matching this schema:
 {

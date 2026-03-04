@@ -8,6 +8,7 @@ import {
   computeXWeightedCharacterCount,
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
+import { enforceVoiceStyleOnDraft } from "../core/voiceSignals";
 import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
@@ -55,6 +56,17 @@ function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
     default:
       return 0.55;
   }
+}
+
+function stripUnsupportedXMarkdown(value: string): string {
+  return value
+    .replace(/\*\*(.*?)\*\*/gs, "$1")
+    .replace(/__(.*?)__/gs, "$1")
+    .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=$|[\s).,!?:;])/g, "$1$2")
+    .replace(/(^|[\s(])_(?!\s)([^_\n]+?)_(?=$|[\s).,!?:;])/g, "$1$2")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .trim();
 }
 
 /**
@@ -122,20 +134,42 @@ Respond ONLY with a valid JSON matching this schema:
   try {
     const parsed = CriticOutputSchema.parse(data);
     const normalizedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
+    const markdownSanitizedDraft = trimToXCharacterLimit(
+      stripUnsupportedXMarkdown(normalizedDraft),
+      maxCharacterLimit,
+    );
+    const styleAlignedDraft = trimToXCharacterLimit(
+      enforceVoiceStyleOnDraft(markdownSanitizedDraft, styleCard),
+      maxCharacterLimit,
+    );
     const wasTrimmed = normalizedDraft !== parsed.finalDraft;
+    const markdownAdjusted = markdownSanitizedDraft !== normalizedDraft;
+    const styleAdjusted = styleAlignedDraft !== markdownSanitizedDraft;
     let nextIssues = wasTrimmed
       ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
       : parsed.issues;
+    if (markdownAdjusted) {
+      nextIssues = [
+        ...nextIssues,
+        "Removed unsupported markdown styling for X.",
+      ];
+    }
+    if (styleAdjusted) {
+      nextIssues = [
+        ...nextIssues,
+        "Normalized casing or list formatting to match the creator's voice.",
+      ];
+    }
     let approved =
       parsed.approved &&
-      computeXWeightedCharacterCount(normalizedDraft) <= maxCharacterLimit;
+      computeXWeightedCharacterCount(styleAlignedDraft) <= maxCharacterLimit;
 
     if (
       options?.previousDraft &&
       options?.revisionChangeKind &&
       getRevisionOverlapFloor(options.revisionChangeKind) > 0
     ) {
-      const overlapRatio = computeTokenOverlapRatio(normalizedDraft, options.previousDraft);
+      const overlapRatio = computeTokenOverlapRatio(styleAlignedDraft, options.previousDraft);
       if (overlapRatio < getRevisionOverlapFloor(options.revisionChangeKind)) {
         nextIssues = [...nextIssues, "Revision drifted farther than the requested edit scope."];
         approved = false;
@@ -144,7 +178,7 @@ Respond ONLY with a valid JSON matching this schema:
 
     return {
       ...parsed,
-      finalDraft: normalizedDraft,
+      finalDraft: styleAlignedDraft,
       approved,
       issues: nextIssues,
     };

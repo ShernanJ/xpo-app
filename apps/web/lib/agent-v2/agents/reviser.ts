@@ -185,8 +185,11 @@ REQUIREMENTS:
 7. If this is a tone shift, you may rewrite wording but keep the same structure unless the flow truly breaks.
 8. Only a full rewrite may substantially restructure the post.
 9. Keep the draft sounding like the user. Match their casing and pacing.
-10. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
-11. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
+10. If the user uses list markers like "-" or ">", preserve that formatting style when the revised draft uses lists.
+11. Verification is not a professionalism signal. Do not make the revision sound more polished or corporate just because the account is verified.
+12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+13. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
+14. X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.
 
 Respond ONLY with valid JSON:
 {
