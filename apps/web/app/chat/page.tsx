@@ -701,6 +701,17 @@ function getFeedbackStatusPillClassName(status: FeedbackReportStatus): string {
   return "border-white/10 text-zinc-300";
 }
 
+function getFeedbackHistoryActivityTimestamp(entry: FeedbackHistoryItem): number {
+  const candidate = entry.statusUpdatedAt ?? entry.createdAt;
+  const parsed = Date.parse(candidate);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+
+  const createdAt = Date.parse(entry.createdAt);
+  return Number.isFinite(createdAt) ? createdAt : 0;
+}
+
 function isSupportedFeedbackFile(file: File): boolean {
   const mimeType = file.type.toLowerCase();
   if (FEEDBACK_SUPPORTED_FILE_MIME_TYPES.has(mimeType)) {
@@ -2639,7 +2650,7 @@ function ChatPageContent() {
     [],
   );
   const [feedbackHistoryFilter, setFeedbackHistoryFilter] =
-    useState<FeedbackReportFilter>("all");
+    useState<FeedbackReportFilter>("open");
   const [isFeedbackHistoryLoading, setIsFeedbackHistoryLoading] = useState(false);
   const [feedbackStatusUpdatingIds, setFeedbackStatusUpdatingIds] = useState<
     Record<string, boolean>
@@ -2866,9 +2877,18 @@ function ChatPageContent() {
     ],
     [accountName, activeThreadId, context?.account],
   );
+  const sortedFeedbackHistory = useMemo(
+    () =>
+      [...feedbackHistory].sort(
+        (left, right) =>
+          getFeedbackHistoryActivityTimestamp(right) -
+          getFeedbackHistoryActivityTimestamp(left),
+      ),
+    [feedbackHistory],
+  );
   const feedbackHistoryCounts = useMemo(
     () =>
-      feedbackHistory.reduce(
+      sortedFeedbackHistory.reduce(
         (acc, entry) => {
           const normalizedStatus = normalizeFeedbackStatus(entry.status);
           acc.all += 1;
@@ -2882,17 +2902,17 @@ function ChatPageContent() {
           cancelled: 0,
         } as Record<FeedbackReportFilter, number>,
       ),
-    [feedbackHistory],
+    [sortedFeedbackHistory],
   );
   const filteredFeedbackHistory = useMemo(() => {
     if (feedbackHistoryFilter === "all") {
-      return feedbackHistory;
+      return sortedFeedbackHistory;
     }
 
-    return feedbackHistory.filter(
+    return sortedFeedbackHistory.filter(
       (entry) => normalizeFeedbackStatus(entry.status) === feedbackHistoryFilter,
     );
-  }, [feedbackHistory, feedbackHistoryFilter]);
+  }, [feedbackHistoryFilter, sortedFeedbackHistory]);
   const clearFeedbackImages = useCallback(() => {
     setFeedbackImages((current) => {
       for (const image of current) {
