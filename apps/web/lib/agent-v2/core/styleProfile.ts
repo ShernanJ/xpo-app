@@ -11,6 +11,17 @@ export const StyleCardSchema = z.object({
   formattingRules: z.array(z.string()).describe("Rules around capitalization, punctuation, line breaks (e.g. 'never uses capitalization', 'double line breaks between sentences')"),
   customGuidelines: z.array(z.string()).default([]).describe("Explicit stylistic feedback or rules the user dictates (e.g. 'Never use emojis', 'Make it less cringe')"),
   contextAnchors: z.array(z.string()).default([]).describe("Explicit facts the user has told the bot about themselves or their project"),
+  antiExamples: z
+    .array(
+      z.object({
+        badSnippet: z.string(),
+        reason: z.string(),
+        guidance: z.string(),
+        createdAt: z.string(),
+      }),
+    )
+    .default([])
+    .describe("Recent rejected style patterns to avoid repeating"),
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
@@ -66,7 +77,8 @@ Respond ONLY with a valid JSON object matching this schema:
   "slangAndVocabulary": ["..."],
   "formattingRules": ["..."],
   "customGuidelines": [],
-  "contextAnchors": []
+  "contextAnchors": [],
+  "antiExamples": []
 }
 `;
 

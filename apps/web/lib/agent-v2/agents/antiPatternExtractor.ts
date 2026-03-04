@@ -5,6 +5,8 @@ const AntiPatternSchema = z.object({
   shouldCapture: z.boolean(),
   feedbackReason: z.string(),
   patternTags: z.array(z.string()).min(0).max(5),
+  badSnippet: z.string(),
+  guidance: z.string(),
 });
 
 export type AntiPatternExtraction = z.infer<typeof AntiPatternSchema>;
@@ -19,6 +21,11 @@ export function looksLikeMechanicalEdit(message: string): boolean {
     "fix the first line",
     "remove emoji",
     "no emojis",
+    "fix punctuation",
+    "fix grammar",
+    "fix spelling",
+    "change to 280",
+    "trim to fit",
   ].some((candidate) => normalized.includes(candidate));
 }
 
@@ -52,9 +59,11 @@ export async function extractAntiPattern(
         role: "system",
         content: [
           "Analyze user feedback about a rejected draft.",
-          "Extract the core tonal complaint as short, reusable anti-pattern tags.",
+          "Extract the core tonal complaint as reusable anti-pattern guidance.",
           "If the feedback is only a mechanical edit, set shouldCapture to false.",
-          "Respond only with JSON: {\"shouldCapture\":boolean,\"feedbackReason\":\"...\",\"patternTags\":[\"...\"]}",
+          "Return a short badSnippet only if a clearly problematic phrase/pattern is obvious in the draft.",
+          "Return concise guidance we can reuse in future prompts.",
+          "Respond only with JSON: {\"shouldCapture\":boolean,\"feedbackReason\":\"...\",\"patternTags\":[\"...\"],\"badSnippet\":\"...\",\"guidance\":\"...\"}",
         ].join(" "),
       },
       {

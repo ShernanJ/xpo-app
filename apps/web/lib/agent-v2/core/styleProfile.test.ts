@@ -18,6 +18,7 @@ async function runTest() {
     formattingRules: ["no uppercase at start of sentence"],
     customGuidelines: [],
     contextAnchors: [],
+    antiExamples: [],
   };
 
   console.log("Saving dummy profile to database...");

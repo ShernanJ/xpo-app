@@ -23,6 +23,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   selectedAngle?: unknown;
   contentFocus?: unknown;
   selectedDraftContext?: unknown;
+  formatPreference?: unknown;
 }
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
@@ -148,7 +149,7 @@ function normalizeDraftPayload(args: {
     draft = drafts[0] || null;
   }
 
-  if (args.outputShape === "short_form_post") {
+  if (args.outputShape === "short_form_post" || args.outputShape === "long_form_post") {
     const trimmedReply = reply.trim();
     const replyLooksLikeDraft =
       trimmedReply.length > 40 && !looksLikeDraftHandoff(trimmedReply);
@@ -350,6 +351,10 @@ export async function POST(request: NextRequest) {
   const message = typeof body.message === "string" ? body.message.trim() : "";
 
   const intent = typeof body.intent === "string" ? body.intent.trim() : "";
+  const formatPreference =
+    body.formatPreference === "shortform" || body.formatPreference === "longform"
+      ? body.formatPreference
+      : null;
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
   const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
   const selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
@@ -463,6 +468,7 @@ export async function POST(request: NextRequest) {
       recentHistory: recentHistoryStr || "None",
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
+      formatPreference,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
@@ -475,6 +481,7 @@ export async function POST(request: NextRequest) {
       mustAvoid?: string[];
       hookType?: string;
       pitchResponse?: string;
+      formatPreference?: "shortform" | "longform";
     } | null;
     const shouldPromoteThreadTitle = canPromoteThreadTitle({
       currentTitle: storedThread?.title,
@@ -502,6 +509,7 @@ export async function POST(request: NextRequest) {
                   mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
                   hookType: plan.hookType,
                   pitchResponse: plan.pitchResponse,
+                  ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
                 }
               : null,
         })

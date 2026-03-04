@@ -2,6 +2,7 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type {
   ConversationState,
+  DraftFormatPreference,
   DraftPreference,
   StrategyPlan,
 } from "../contracts/chat";
@@ -9,6 +10,7 @@ import {
   buildAntiPatternBlock,
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
+  buildFormatPreferenceBlock,
   buildGoalHydrationBlock,
   buildStateHydrationBlock,
 } from "../prompts/promptHydrator";
@@ -40,6 +42,7 @@ export async function generatePlan(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
+    formatPreference?: DraftFormatPreference;
   },
 ): Promise<PlannerOutput | null> {
   const isEditing = !!activeDraft;
@@ -47,15 +50,17 @@ export async function generatePlan(
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
   const draftPreference = options?.draftPreference || "balanced";
+  const formatPreference = options?.formatPreference || "shortform";
   const instruction = `
 You are the Lead Strategist for an elite X (Twitter) creator.
 ${isEditing ? `Your task is to take the user's request and formulate a precise plan to EDIT their existing draft.`
-      : `Your task is to take the user's requested topic (or their answer to your previous question) and formulate a precise plan for a NEW short-form post.`}
+      : `Your task is to take the user's requested topic (or their answer to your previous question) and formulate a precise plan for a NEW ${formatPreference === "longform" ? "longform" : "shortform"} post.`}
 
 ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "plan")}
 ${buildStateHydrationBlock(conversationState, "plan")}
 ${buildDraftPreferenceBlock(draftPreference, "plan")}
+${buildFormatPreferenceBlock(formatPreference, "plan")}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${activeDraft}\n\n` : ""}

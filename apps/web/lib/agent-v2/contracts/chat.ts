@@ -21,6 +21,8 @@ export type DraftPreference =
   | "voice_first"
   | "growth_first";
 
+export type DraftFormatPreference = "shortform" | "longform";
+
 export interface StrategyPlan {
   objective: string;
   angle: string;
@@ -30,6 +32,7 @@ export interface StrategyPlan {
   hookType: string;
   pitchResponse: string;
   deliveryPreference?: DraftPreference;
+  formatPreference?: DraftFormatPreference;
 }
 
 export type ClarificationBranchKey =
@@ -38,7 +41,8 @@ export type ClarificationBranchKey =
   | "plan_reject"
   | "topic_known_but_direction_missing"
   | "abstract_topic_focus_pick"
-  | "semantic_repair";
+  | "semantic_repair"
+  | "entity_context_missing";
 
 export interface CreatorChatQuickReply {
   kind:
@@ -50,6 +54,7 @@ export interface CreatorChatQuickReply {
   label: string;
   suggestedFocus?: string;
   explicitIntent?: V2ChatIntent;
+  formatPreference?: DraftFormatPreference;
 }
 
 export interface ClarificationState {
@@ -69,6 +74,7 @@ export interface V2ConversationMemory {
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
   assistantTurnCount: number;
+  formatPreference: DraftFormatPreference | null;
   voiceFidelity: "balanced";
 }
 
@@ -76,4 +82,5 @@ export type V2ChatOutputShape =
   | "coach_question"
   | "ideation_angles"
   | "planning_outline"
-  | "short_form_post";
+  | "short_form_post"
+  | "long_form_post";

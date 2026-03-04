@@ -39,6 +39,7 @@ import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
   CreatorChatQuickReply,
+  DraftFormatPreference,
   DraftPreference,
   StrategyPlan,
   V2ChatIntent,
@@ -55,6 +56,7 @@ export interface OrchestratorInput {
   recentHistory: string;
   explicitIntent?: V2ChatIntent | null;
   activeDraft?: string;
+  formatPreference?: DraftFormatPreference | null;
 }
 
 export interface OrchestratorData {
@@ -177,6 +179,17 @@ function hasRelationshipDetail(normalized: string): boolean {
   ].some((cue) => normalized.includes(cue));
 }
 
+function looksLikeBuildMessage(normalized: string): boolean {
+  return (
+    ["building", "making", "creating", "shipping", "rebuilding"].some((cue) =>
+      normalized.includes(cue),
+    ) &&
+    ["tool", "app", "product", "extension", "plugin"].some((cue) =>
+      normalized.includes(cue),
+    )
+  );
+}
+
 function inferMissingSpecificQuestion(message: string): string | null {
   const normalized = message.trim().toLowerCase();
   const comparisonReference = inferComparisonReference(message);
@@ -237,6 +250,50 @@ function inferMissingSpecificQuestion(message: string): string | null {
   }
 
   return "quick check: what does it actually do?";
+}
+
+function inferNamedEntity(message: string): string | null {
+  const match = message.match(/\b(?:for|with|using|like)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i);
+  return match?.[1]?.trim().replace(/[.?!,]+$/, "") || null;
+}
+
+function evaluateDraftContextSlots(args: {
+  userMessage: string;
+  topicSummary: string | null;
+  contextAnchors: string[];
+}): {
+  subjectKnown: boolean;
+  behaviorKnown: boolean;
+  stakesKnown: boolean;
+  externalContextKnown: boolean;
+  namedEntity: string | null;
+  isProductLike: boolean;
+} {
+  const trimmed = args.userMessage.trim();
+  const normalized = trimmed.toLowerCase();
+  const namedEntity = inferNamedEntity(trimmed);
+  const isProductLike =
+    Boolean(namedEntity) ||
+    looksLikeBuildMessage(normalized) ||
+    ["tool", "app", "product", "extension", "plugin"].some((cue) => normalized.includes(cue));
+  const subjectKnown = Boolean((args.topicSummary || trimmed).trim());
+  const behaviorKnown = hasFunctionalDetail(normalized);
+  const stakesKnown = hasProblemDetail(normalized);
+  const externalContextKnown =
+    !namedEntity ||
+    normalized.includes(`${namedEntity.toLowerCase()} is`) ||
+    args.contextAnchors.some((anchor) =>
+      anchor.toLowerCase().includes(namedEntity.toLowerCase()),
+    );
+
+  return {
+    subjectKnown,
+    behaviorKnown,
+    stakesKnown,
+    externalContextKnown,
+    namedEntity,
+    isProductLike,
+  };
 }
 
 function inferAbstractTopicSeed(
@@ -430,20 +487,59 @@ function inferDraftPreference(
   return fallback;
 }
 
-function withDraftPreference(
-  plan: StrategyPlan,
-  draftPreference: DraftPreference,
-): StrategyPlan {
-  if (draftPreference === "balanced") {
-    const nextPlan = { ...plan };
-    delete nextPlan.deliveryPreference;
-    return nextPlan;
+function inferDraftFormatPreference(
+  message: string,
+  fallback: DraftFormatPreference = "shortform",
+  explicitFormatPreference?: DraftFormatPreference | null,
+): DraftFormatPreference {
+  if (explicitFormatPreference) {
+    return explicitFormatPreference;
   }
 
-  return {
-    ...plan,
-    deliveryPreference: draftPreference,
-  };
+  const normalized = message.trim().toLowerCase();
+
+  if (
+    [
+      "longform",
+      "long form",
+      "long-form",
+      "write longer",
+      "go deeper",
+      "expand this",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "longform";
+  }
+
+  if (
+    [
+      "shortform",
+      "short form",
+      "short-form",
+      "keep it short",
+      "keep it tight",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "shortform";
+  }
+
+  return fallback;
+}
+
+function withPlanPreferences(
+  plan: StrategyPlan,
+  draftPreference: DraftPreference,
+  formatPreference: DraftFormatPreference,
+): StrategyPlan {
+  const nextPlan = { ...plan, formatPreference };
+
+  if (draftPreference === "balanced") {
+    delete nextPlan.deliveryPreference;
+  } else {
+    nextPlan.deliveryPreference = draftPreference;
+  }
+
+  return nextPlan;
 }
 
 function buildPlanPitch(plan: StrategyPlan): string {
@@ -453,9 +549,17 @@ function buildPlanPitch(plan: StrategyPlan): string {
       : plan.targetLane === "quote"
         ? "a quote post"
         : "an original post";
+  const formatLabel =
+    plan.formatPreference === "longform" ? "longform " : "shortform ";
   const hookLabel = plan.hookType.trim().toLowerCase() || "clear";
 
-  return `i'm thinking we make this ${laneLabel} with a ${hookLabel} angle. want me to draft it?`;
+  return `i'm thinking we make this ${formatLabel}${laneLabel} with a ${hookLabel} angle. want me to draft it?`;
+}
+
+function resolveDraftOutputShape(
+  formatPreference: DraftFormatPreference,
+): V2ChatOutputShape {
+  return formatPreference === "longform" ? "long_form_post" : "short_form_post";
 }
 
 function buildPlanQuickReplies(): CreatorChatQuickReply[] {
@@ -497,6 +601,10 @@ function applyMemoryPatch(
         : patch.clarificationState,
     rollingSummary:
       patch.rollingSummary === undefined ? current.rollingSummary : patch.rollingSummary,
+    formatPreference:
+      patch.formatPreference === undefined
+        ? current.formatPreference
+        : patch.formatPreference,
   };
 }
 
@@ -508,6 +616,15 @@ async function maybeCaptureAntiPattern(args: {
   styleCard: Awaited<ReturnType<typeof generateStyleProfile>>;
   xHandle: string;
 }): Promise<string[]> {
+  const antiExamples = args.styleCard?.antiExamples || [];
+  const currentGuidance =
+    antiExamples.length > 0
+      ? antiExamples
+          .slice(-2)
+          .map((example) => example.guidance.trim())
+          .filter(Boolean)
+      : args.styleCard?.customGuidelines?.slice(-2) || [];
+
   if (
     args.userId === "anonymous" ||
     !args.styleCard ||
@@ -515,7 +632,7 @@ async function maybeCaptureAntiPattern(args: {
     !looksLikeNegativeFeedback(args.userMessage) ||
     looksLikeMechanicalEdit(args.userMessage)
   ) {
-    return args.styleCard?.customGuidelines?.slice(-2) || [];
+    return currentGuidance;
   }
 
   const extracted = await extractAntiPattern(
@@ -525,22 +642,39 @@ async function maybeCaptureAntiPattern(args: {
   );
 
   if (!extracted?.shouldCapture || extracted.patternTags.length === 0) {
-    return args.styleCard.customGuidelines.slice(-2);
+    return currentGuidance;
   }
 
   const nextGuidelines = Array.from(
     new Set([
       ...(args.styleCard.customGuidelines || []),
-      ...extracted.patternTags.map((tag) => `Avoid ${tag}`),
+      ...(extracted.guidance ? [extracted.guidance] : []),
+      ...extracted.patternTags.map((tag) => `avoid ${tag}`),
     ]),
   );
+  const nextAntiExamples = [
+    ...(args.styleCard.antiExamples || []),
+    {
+      badSnippet: extracted.badSnippet || "",
+      reason: extracted.feedbackReason || "",
+      guidance:
+        extracted.guidance ||
+        `avoid ${extracted.patternTags.join(" | ")}` ||
+        "avoid repeating that rejected phrasing",
+      createdAt: new Date().toISOString(),
+    },
+  ].slice(-5);
 
   args.styleCard.customGuidelines = nextGuidelines;
+  args.styleCard.antiExamples = nextAntiExamples;
   saveStyleProfile(args.userId, args.xHandle, args.styleCard).catch((error) =>
     console.error("Failed to save anti-pattern guidance:", error),
   );
 
-  return nextGuidelines.slice(-2);
+  return nextAntiExamples
+    .slice(-2)
+    .map((example) => example.guidance.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -558,6 +692,7 @@ export async function manageConversationTurn(
     recentHistory,
     explicitIntent,
     activeDraft,
+    formatPreference,
   } = input;
   const effectiveXHandle = xHandle || "default";
 
@@ -659,12 +794,16 @@ export async function manageConversationTurn(
     topicSummary: memory.topicSummary,
     rollingSummary: memory.rollingSummary,
     topicAnchors: anchors.topicAnchors,
+    contextAnchors: styleCard?.contextAnchors || [],
+    activeConstraints: memory.activeConstraints,
   });
 
   const effectiveContext = buildEffectiveContext({
     recentHistory,
     rollingSummary: memory.rollingSummary,
     relevantTopicAnchors,
+    contextAnchors: styleCard?.contextAnchors || [],
+    activeConstraints: memory.activeConstraints,
   });
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
@@ -702,6 +841,7 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      formatPreference: patch.formatPreference,
       topicSummary: patch.topicSummary ?? memory.topicSummary,
       concreteAnswerCount:
         patch.concreteAnswerCount ?? memory.concreteAnswerCount,
@@ -721,6 +861,7 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      formatPreference: patch.formatPreference,
     });
 
     memory = updated
@@ -733,6 +874,14 @@ User Profile Summary:
     userMessage,
     memory.pendingPlan?.deliveryPreference || "balanced",
   );
+  const requestedFormatPreference = inferDraftFormatPreference(
+    userMessage,
+    memory.pendingPlan?.formatPreference || memory.formatPreference || "shortform",
+    formatPreference,
+  );
+  const turnFormatPreference = isVerifiedAccount
+    ? requestedFormatPreference
+    : "shortform";
   let draftInstruction = userMessage;
 
   if (
@@ -788,6 +937,7 @@ User Profile Summary:
           maxCharacterLimit,
           goal,
           draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+          formatPreference: approvedPlan.formatPreference || turnFormatPreference,
         },
       );
 
@@ -807,6 +957,7 @@ User Profile Summary:
         {
           maxCharacterLimit,
           draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+          formatPreference: approvedPlan.formatPreference || turnFormatPreference,
         },
       );
 
@@ -854,6 +1005,7 @@ User Profile Summary:
         approvedPlan,
         activeConstraints: memory.activeConstraints,
         latestDraftStatus: "Draft delivered",
+        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
       });
 
       await writeMemory({
@@ -863,11 +1015,14 @@ User Profile Summary:
         clarificationState: null,
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
+        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
       });
 
       return {
         mode: "draft",
-        outputShape: "short_form_post",
+        outputShape: resolveDraftOutputShape(
+          approvedPlan.formatPreference || turnFormatPreference,
+        ),
         response: buildDraftReply({
           userMessage,
           draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
@@ -901,6 +1056,7 @@ User Profile Summary:
           conversationState: memory.conversationState,
           antiPatterns,
           draftPreference: turnDraftPreference,
+          formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
         },
       );
 
@@ -913,9 +1069,10 @@ User Profile Summary:
         };
       }
 
-      const revisedPlanWithPreference = withDraftPreference(
+      const revisedPlanWithPreference = withPlanPreferences(
         revisedPlan,
         turnDraftPreference,
+        memory.pendingPlan.formatPreference || turnFormatPreference,
       );
 
       await writeMemory({
@@ -924,6 +1081,8 @@ User Profile Summary:
         pendingPlan: revisedPlanWithPreference,
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        formatPreference:
+          revisedPlanWithPreference.formatPreference || turnFormatPreference,
       });
 
       return {
@@ -965,10 +1124,11 @@ User Profile Summary:
     }
 
     await writeMemory({
-      conversationState: "plan_pending_approval",
-      pendingPlan: memory.pendingPlan,
-      assistantTurnCount: nextAssistantTurnCount,
-    });
+        conversationState: "plan_pending_approval",
+        pendingPlan: memory.pendingPlan,
+        assistantTurnCount: nextAssistantTurnCount,
+        formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+      });
 
     return {
       mode: "plan",
@@ -980,6 +1140,65 @@ User Profile Summary:
       },
       memory,
     };
+  }
+
+  if (
+    !explicitIntent &&
+    mode === "plan"
+  ) {
+    const contextSlots = evaluateDraftContextSlots({
+      userMessage,
+      topicSummary: memory.topicSummary,
+      contextAnchors: styleCard?.contextAnchors || [],
+    });
+
+    if (
+      contextSlots.isProductLike &&
+      contextSlots.namedEntity &&
+      !contextSlots.externalContextKnown
+    ) {
+      const clarification = buildClarificationTree({
+        branchKey: "entity_context_missing",
+        seedTopic: contextSlots.namedEntity,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+      });
+
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: clarification.clarificationState,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: clarification.reply,
+        memory,
+      };
+    }
+
+    if (
+      contextSlots.isProductLike &&
+      (!contextSlots.behaviorKnown || !contextSlots.stakesKnown)
+    ) {
+      const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
+
+      if (clarificationQuestion) {
+        await writeMemory({
+          conversationState: "needs_more_context",
+          clarificationState: null,
+          assistantTurnCount: nextAssistantTurnCount,
+        });
+
+        return {
+          mode: "coach",
+          outputShape: "coach_question",
+          response: clarificationQuestion,
+          memory,
+        };
+      }
+    }
   }
 
   if (
@@ -1149,6 +1368,7 @@ User Profile Summary:
               approvedPlan: null,
               activeConstraints: memory.activeConstraints,
               latestDraftStatus: "Ideation in progress",
+              formatPreference: memory.formatPreference || turnFormatPreference,
               unresolvedQuestion: ideas?.close || null,
             })
           : memory.rollingSummary,
@@ -1175,6 +1395,7 @@ User Profile Summary:
           conversationState: memory.conversationState,
           antiPatterns,
           draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
         },
       );
 
@@ -1187,7 +1408,11 @@ User Profile Summary:
         };
       }
 
-      const planWithPreference = withDraftPreference(plan, turnDraftPreference);
+      const planWithPreference = withPlanPreferences(
+        plan,
+        turnDraftPreference,
+        turnFormatPreference,
+      );
 
       await writeMemory({
         topicSummary: planWithPreference.objective,
@@ -1195,6 +1420,7 @@ User Profile Summary:
         pendingPlan: planWithPreference,
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        formatPreference: planWithPreference.formatPreference || turnFormatPreference,
       });
 
       return {
@@ -1230,6 +1456,7 @@ User Profile Summary:
             maxCharacterLimit,
             goal,
             draftPreference: turnDraftPreference,
+            formatPreference: turnFormatPreference,
           },
         });
 
@@ -1255,6 +1482,9 @@ User Profile Summary:
           {
             maxCharacterLimit,
             draftPreference: turnDraftPreference,
+            formatPreference: turnFormatPreference,
+            previousDraft: activeDraft,
+            revisionChangeKind: revision.changeKind,
           },
         );
 
@@ -1267,6 +1497,10 @@ User Profile Summary:
           };
         }
 
+        const revisionWasRejectedByCritic = !criticOutput.approved;
+        const finalizedRevisionDraft = revisionWasRejectedByCritic
+          ? reviserOutput.revisedDraft
+          : criticOutput.finalDraft;
         const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
           ? buildRollingSummary({
               currentSummary: memory.rollingSummary,
@@ -1274,11 +1508,18 @@ User Profile Summary:
               approvedPlan: memory.pendingPlan,
               activeConstraints: memory.activeConstraints,
               latestDraftStatus: "Draft revised",
+              formatPreference: memory.formatPreference || turnFormatPreference,
             })
           : memory.rollingSummary;
 
         const issuesFixed = Array.from(
-          new Set([...(reviserOutput.issuesFixed || []), ...criticOutput.issues]),
+          new Set([
+            ...(reviserOutput.issuesFixed || []),
+            ...criticOutput.issues,
+            ...(revisionWasRejectedByCritic
+              ? ["Kept the revision closer to the original edit scope."]
+              : []),
+          ]),
         );
 
         await writeMemory({
@@ -1287,11 +1528,12 @@ User Profile Summary:
           clarificationState: null,
           rollingSummary,
           assistantTurnCount: nextAssistantTurnCount,
+          formatPreference: turnFormatPreference,
         });
 
         return {
           mode: "draft",
-          outputShape: "short_form_post",
+          outputShape: resolveDraftOutputShape(turnFormatPreference),
           response: buildDraftReply({
             userMessage,
             draftPreference: turnDraftPreference,
@@ -1299,7 +1541,7 @@ User Profile Summary:
             issuesFixed,
           }),
           data: {
-            draft: criticOutput.finalDraft,
+            draft: finalizedRevisionDraft,
             supportAsset: reviserOutput.supportAsset,
             issuesFixed,
           },
@@ -1326,6 +1568,7 @@ User Profile Summary:
           conversationState: memory.conversationState,
           antiPatterns,
           draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
         },
       );
 
@@ -1338,7 +1581,11 @@ User Profile Summary:
         };
       }
 
-      const planWithPreference = withDraftPreference(plan, turnDraftPreference);
+      const planWithPreference = withPlanPreferences(
+        plan,
+        turnDraftPreference,
+        turnFormatPreference,
+      );
 
       const writerOutput = await generateDrafts(
         planWithPreference,
@@ -1353,6 +1600,7 @@ User Profile Summary:
           maxCharacterLimit,
           goal,
           draftPreference: planWithPreference.deliveryPreference || turnDraftPreference,
+          formatPreference: planWithPreference.formatPreference || turnFormatPreference,
         },
       );
 
@@ -1372,6 +1620,7 @@ User Profile Summary:
         {
           maxCharacterLimit,
           draftPreference: planWithPreference.deliveryPreference || turnDraftPreference,
+          formatPreference: planWithPreference.formatPreference || turnFormatPreference,
         },
       );
 
@@ -1421,6 +1670,8 @@ User Profile Summary:
             approvedPlan: planWithPreference,
             activeConstraints: memory.activeConstraints,
             latestDraftStatus: "Draft delivered",
+            formatPreference:
+              planWithPreference.formatPreference || turnFormatPreference,
           })
         : memory.rollingSummary;
 
@@ -1431,11 +1682,14 @@ User Profile Summary:
         clarificationState: null,
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
+        formatPreference: planWithPreference.formatPreference || turnFormatPreference,
       });
 
       return {
         mode: "draft",
-        outputShape: "short_form_post",
+        outputShape: resolveDraftOutputShape(
+          planWithPreference.formatPreference || turnFormatPreference,
+        ),
         response: buildDraftReply({
           userMessage,
           draftPreference:
@@ -1481,6 +1735,7 @@ User Profile Summary:
             approvedPlan: memory.pendingPlan,
             activeConstraints: memory.activeConstraints,
             latestDraftStatus: "Context gathering",
+            formatPreference: memory.formatPreference || turnFormatPreference,
             unresolvedQuestion: coachReply?.probingQuestion || null,
           })
         : memory.rollingSummary;

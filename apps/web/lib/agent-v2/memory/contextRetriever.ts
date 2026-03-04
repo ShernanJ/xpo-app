@@ -11,22 +11,39 @@ function scoreSnippet(snippet: string, terms: string[]): number {
   return terms.reduce((score, term) => (normalized.includes(term) ? score + 1 : score), 0);
 }
 
+function collectCorrectionLockTerms(activeConstraints: string[]): string[] {
+  return activeConstraints
+    .filter((constraint) => constraint.startsWith("Correction lock:"))
+    .flatMap((constraint) => collectTerms(constraint.replace(/^Correction lock:\s*/i, "")));
+}
+
 export function retrieveRelevantContext(args: {
   userMessage: string;
   topicSummary: string | null;
   rollingSummary: string | null;
   topicAnchors: string[];
+  contextAnchors?: string[];
+  activeConstraints?: string[];
 }): string[] {
-  const terms = new Set<string>([
+  const weightedTerms = [
+    ...collectTerms(args.userMessage),
+    ...collectTerms(args.userMessage),
     ...collectTerms(args.userMessage),
     ...collectTerms(args.topicSummary || ""),
+    ...collectTerms(args.topicSummary || ""),
     ...collectTerms(args.rollingSummary || ""),
-  ]);
-
+    ...collectTerms(args.rollingSummary || ""),
+    ...((args.contextAnchors || []).flatMap((anchor) => [
+      ...collectTerms(anchor),
+      ...collectTerms(anchor),
+    ])),
+    ...collectCorrectionLockTerms(args.activeConstraints || []),
+    ...collectCorrectionLockTerms(args.activeConstraints || []),
+  ];
   const ranked = args.topicAnchors
     .map((snippet) => ({
       snippet,
-      score: scoreSnippet(snippet, Array.from(terms)),
+      score: scoreSnippet(snippet, weightedTerms),
     }))
     .sort((left, right) => right.score - left.score)
     .filter((item) => item.score > 0)
@@ -44,6 +61,8 @@ export function buildEffectiveContext(args: {
   recentHistory: string;
   rollingSummary: string | null;
   relevantTopicAnchors: string[];
+  contextAnchors?: string[];
+  activeConstraints?: string[];
 }): string {
   const recentLines = args.recentHistory
     .split("\n")
@@ -51,7 +70,19 @@ export function buildEffectiveContext(args: {
     .filter(Boolean)
     .slice(-6);
 
+  const factualLocks = (args.activeConstraints || [])
+    .filter((constraint) => constraint.startsWith("Correction lock:"))
+    .map((constraint) => constraint.replace(/^Correction lock:\s*/i, "").trim())
+    .filter(Boolean)
+    .slice(-2);
+  const knownFacts = Array.from(
+    new Set([...(args.contextAnchors || []).slice(0, 3), ...factualLocks]),
+  ).filter(Boolean);
+
   const sections = [
+    knownFacts.length > 0
+      ? `FACTS YOU ALREADY KNOW:\n${knownFacts.join("\n")}`
+      : null,
     args.rollingSummary ? `ROLLING SUMMARY:\n${args.rollingSummary}` : null,
     recentLines.length > 0 ? `RECENT TURNS:\n${recentLines.join("\n")}` : null,
     args.relevantTopicAnchors.length > 0

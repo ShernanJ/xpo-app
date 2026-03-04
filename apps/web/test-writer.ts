@@ -22,7 +22,8 @@ async function run() {
     slangAndVocabulary: ["stanley", "xpo", "cto"],
     formattingRules: ["all lowercase always", "no punctuation"],
     customGuidelines: [],
-    contextAnchors: []
+    contextAnchors: [],
+    antiExamples: [],
   };
 
   const topicAnchors = [

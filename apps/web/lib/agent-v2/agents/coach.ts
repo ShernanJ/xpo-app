@@ -84,6 +84,21 @@ function buildSharperCoachQuestion(
   const topic = inferCoachTopic(userMessage, topicSummary);
 
   if (looksLikeBuildMessage(normalized)) {
+    const namedEntityMatch = userMessage.match(
+      /\b(?:for|with|using|like)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i,
+    );
+    const namedEntity = namedEntityMatch?.[1]?.trim().replace(/[.?!,]+$/, "");
+
+    if (
+      namedEntity &&
+      !normalized.includes(`${namedEntity.toLowerCase()} is`) &&
+      !normalized.includes("it helps") &&
+      !normalized.includes("it does") &&
+      !normalized.includes("it lets")
+    ) {
+      return `what is ${namedEntity} in one line, and what does your thing actually do with it?`;
+    }
+
     if (
       normalized.includes("but for ") ||
       normalized.includes("like stanley") ||

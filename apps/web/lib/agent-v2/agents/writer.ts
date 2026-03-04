@@ -4,12 +4,14 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
 import type {
   ConversationState,
+  DraftFormatPreference,
   DraftPreference,
 } from "../contracts/chat";
 import {
   buildAntiPatternBlock,
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
+  buildFormatPreferenceBlock,
   buildGoalHydrationBlock,
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
@@ -42,6 +44,7 @@ export async function generateDrafts(
     maxCharacterLimit?: number;
     goal?: string;
     draftPreference?: DraftPreference;
+    formatPreference?: DraftFormatPreference;
   },
 ): Promise<WriterOutput | null> {
   const isEditing = !!activeDraft;
@@ -50,6 +53,7 @@ export async function generateDrafts(
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const goal = options?.goal || "audience growth";
   const draftPreference = options?.draftPreference || "balanced";
+  const formatPreference = options?.formatPreference || plan.formatPreference || "shortform";
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
@@ -59,6 +63,7 @@ ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
+${buildFormatPreferenceBlock(formatPreference, "draft")}
 ${buildVoiceHydrationBlock(styleCard)}
 ${buildAntiPatternBlock(antiPatterns)}
 
@@ -102,8 +107,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 5. Provide an idea for a "supportAsset" (image/video idea to attach).
 6. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 7. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
-8. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target. Stay concise unless the plan clearly calls for more detail.
-9. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
+8. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
+9. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
+10. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
 
 Respond ONLY with a valid JSON matching this schema:
 {

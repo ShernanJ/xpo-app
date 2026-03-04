@@ -1,5 +1,9 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { ConversationState, DraftPreference } from "../contracts/chat";
+import type {
+  ConversationState,
+  DraftFormatPreference,
+  DraftPreference,
+} from "../contracts/chat";
 
 function normalizeList(values: string[], fallback: string): string {
   const filtered = values.map((value) => value.trim()).filter(Boolean);
@@ -86,12 +90,33 @@ export function buildVoiceHydrationBlock(styleCard: VoiceStyleCard | null): stri
 
 export function buildAntiPatternBlock(antiPatterns: string[]): string {
   if (antiPatterns.length === 0) {
-    return "ANTI-PATTERNS: none captured yet.";
+    return "NEGATIVE GUIDANCE: none captured yet.";
   }
 
   return [
-    "ANTI-PATTERNS:",
-    `- Avoid: ${antiPatterns.map((pattern) => pattern.trim()).filter(Boolean).join(" | ")}`,
+    "NEGATIVE GUIDANCE:",
+    `- Avoid these misses: ${antiPatterns.map((pattern) => pattern.trim()).filter(Boolean).join(" | ")}`,
+  ].join("\n");
+}
+
+export function buildFormatPreferenceBlock(
+  formatPreference: DraftFormatPreference,
+  mode: "plan" | "draft" | "critic",
+): string {
+  if (formatPreference === "longform") {
+    return [
+      `FORMAT BIAS (${mode}):`,
+      "- Treat this as longform X content.",
+      "- You can use fuller setup, development, and payoff instead of compressing every beat.",
+      "- Keep it readable, but do not force shortform cadence if the longer arc helps.",
+    ].join("\n");
+  }
+
+  return [
+    `FORMAT BIAS (${mode}):`,
+    "- Treat this as shortform X content.",
+    "- Land the hook early and compress the setup quickly.",
+    "- Favor tighter phrasing and faster payoff over extra development.",
   ].join("\n");
 }
 

@@ -2,12 +2,16 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { DraftPreference } from "../contracts/chat";
+import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
+import type { DraftRevisionChangeKind } from "../orchestrator/draftRevision";
 import {
   computeXWeightedCharacterCount,
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
-import { buildDraftPreferenceBlock } from "../prompts/promptHydrator";
+import {
+  buildDraftPreferenceBlock,
+  buildFormatPreferenceBlock,
+} from "../prompts/promptHydrator";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
@@ -17,6 +21,41 @@ export const CriticOutputSchema = z.object({
 });
 
 export type CriticOutput = z.infer<typeof CriticOutputSchema>;
+
+function normalizeTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+}
+
+function computeTokenOverlapRatio(currentDraft: string, previousDraft: string): number {
+  const previousTokens = Array.from(new Set(normalizeTokens(previousDraft)));
+  if (previousTokens.length === 0) {
+    return 1;
+  }
+
+  const currentTokenSet = new Set(normalizeTokens(currentDraft));
+  const matched = previousTokens.filter((token) => currentTokenSet.has(token)).length;
+  return matched / previousTokens.length;
+}
+
+function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
+  switch (changeKind) {
+    case "hook_only_edit":
+      return 0.45;
+    case "length_trim":
+      return 0.4;
+    case "tone_shift":
+      return 0.38;
+    case "full_rewrite":
+    case "generic":
+      return 0;
+    default:
+      return 0.55;
+  }
+}
 
 /**
  * High speed rule-checker. Enforces hard constraints and standardizes
@@ -29,16 +68,21 @@ export async function critiqueDrafts(
   options?: {
     maxCharacterLimit?: number;
     draftPreference?: DraftPreference;
+    formatPreference?: DraftFormatPreference;
+    previousDraft?: string;
+    revisionChangeKind?: DraftRevisionChangeKind;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const draftPreference = options?.draftPreference || "balanced";
+  const formatPreference = options?.formatPreference || "shortform";
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
 Your job is to take a draft and ruthlessly enforce constraints.
 
 RULES:
 ${buildDraftPreferenceBlock(draftPreference, "critic")}
+${buildFormatPreferenceBlock(formatPreference, "critic")}
 1. Do NOT change the meaning or the core angle of the draft.
 2. If the draft uses emojis and the constraints explicitly say "no emojis", you MUST remove them.
 3. If the draft uses the words "Delve", "Unlock", "Testament", or "Embark", you MUST replace them.
@@ -79,16 +123,29 @@ Respond ONLY with a valid JSON matching this schema:
     const parsed = CriticOutputSchema.parse(data);
     const normalizedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
     const wasTrimmed = normalizedDraft !== parsed.finalDraft;
-    const nextIssues = wasTrimmed
+    let nextIssues = wasTrimmed
       ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
       : parsed.issues;
+    let approved =
+      parsed.approved &&
+      computeXWeightedCharacterCount(normalizedDraft) <= maxCharacterLimit;
+
+    if (
+      options?.previousDraft &&
+      options?.revisionChangeKind &&
+      getRevisionOverlapFloor(options.revisionChangeKind) > 0
+    ) {
+      const overlapRatio = computeTokenOverlapRatio(normalizedDraft, options.previousDraft);
+      if (overlapRatio < getRevisionOverlapFloor(options.revisionChangeKind)) {
+        nextIssues = [...nextIssues, "Revision drifted farther than the requested edit scope."];
+        approved = false;
+      }
+    }
 
     return {
       ...parsed,
       finalDraft: normalizedDraft,
-      approved:
-        parsed.approved &&
-        computeXWeightedCharacterCount(normalizedDraft) <= maxCharacterLimit,
+      approved,
       issues: nextIssues,
     };
   } catch (err) {

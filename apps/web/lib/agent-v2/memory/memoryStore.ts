@@ -3,6 +3,7 @@ import { Prisma } from "../../generated/prisma/client";
 import type {
   ClarificationState,
   ConversationState,
+  DraftFormatPreference,
   StrategyPlan,
   V2ConversationMemory,
 } from "../contracts/chat";
@@ -25,6 +26,7 @@ export interface UpdateMemoryArgs {
   clarificationState?: ClarificationState | null;
   rollingSummary?: string | null;
   assistantTurnCount?: number;
+  formatPreference?: DraftFormatPreference | null;
 }
 
 interface StoredMemoryEnvelope {
@@ -34,6 +36,7 @@ interface StoredMemoryEnvelope {
   clarificationState: ClarificationState | null;
   rollingSummary: string | null;
   assistantTurnCount: number;
+  formatPreference: DraftFormatPreference | null;
 }
 
 function normalizeConversationState(value: unknown): ConversationState {
@@ -83,6 +86,14 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     mustAvoid: normalizeStringArray(record.mustAvoid),
     hookType: record.hookType,
     pitchResponse: record.pitchResponse,
+    ...(record.deliveryPreference === "balanced" ||
+    record.deliveryPreference === "voice_first" ||
+    record.deliveryPreference === "growth_first"
+      ? { deliveryPreference: record.deliveryPreference }
+      : {}),
+    ...(record.formatPreference === "shortform" || record.formatPreference === "longform"
+      ? { formatPreference: record.formatPreference }
+      : {}),
   };
 }
 
@@ -125,6 +136,13 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         item.explicitIntent === "answer_question"
           ? item.explicitIntent
           : undefined;
+      const formatPreference:
+        | "shortform"
+        | "longform"
+        | undefined =
+        item.formatPreference === "shortform" || item.formatPreference === "longform"
+          ? item.formatPreference
+          : undefined;
 
       return {
         kind,
@@ -132,6 +150,7 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         label: typeof item.label === "string" ? item.label : "",
         suggestedFocus: typeof item.suggestedFocus === "string" ? item.suggestedFocus : undefined,
         explicitIntent,
+        ...(formatPreference ? { formatPreference } : {}),
       };
     })
     .filter((item) => item.value && item.label);
@@ -146,7 +165,11 @@ function normalizeClarificationState(value: unknown): ClarificationState | null 
   if (
     (record.branchKey !== "vague_draft_request" &&
       record.branchKey !== "lazy_request" &&
-      record.branchKey !== "plan_reject") ||
+      record.branchKey !== "plan_reject" &&
+      record.branchKey !== "topic_known_but_direction_missing" &&
+      record.branchKey !== "abstract_topic_focus_pick" &&
+      record.branchKey !== "semantic_repair" &&
+      record.branchKey !== "entity_context_missing") ||
     typeof record.stepKey !== "string"
   ) {
     return null;
@@ -169,6 +192,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       clarificationState: null,
       rollingSummary: null,
       assistantTurnCount: 0,
+      formatPreference: null,
     };
   }
 
@@ -180,6 +204,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       clarificationState: null,
       rollingSummary: null,
       assistantTurnCount: 0,
+      formatPreference: null,
     };
   }
 
@@ -194,6 +219,10 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       typeof record.assistantTurnCount === "number" && Number.isFinite(record.assistantTurnCount)
         ? record.assistantTurnCount
         : 0,
+    formatPreference:
+      record.formatPreference === "shortform" || record.formatPreference === "longform"
+        ? record.formatPreference
+        : null,
   };
 }
 
@@ -205,6 +234,7 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     clarificationState: value.clarificationState,
     rollingSummary: value.rollingSummary,
     assistantTurnCount: value.assistantTurnCount,
+    formatPreference: value.formatPreference,
   } as Prisma.InputJsonValue;
 }
 
@@ -228,6 +258,7 @@ export function createConversationMemorySnapshot(
     pendingPlan: envelope.pendingPlan,
     clarificationState: envelope.clarificationState,
     assistantTurnCount: envelope.assistantTurnCount,
+    formatPreference: envelope.formatPreference,
     voiceFidelity: "balanced",
   };
 }
@@ -259,6 +290,7 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
           clarificationState: null,
           rollingSummary: null,
           assistantTurnCount: 0,
+          formatPreference: null,
         }),
         concreteAnswerCount: 0,
       },
@@ -298,6 +330,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
         args.assistantTurnCount === undefined
           ? existingSnapshot.assistantTurnCount
           : args.assistantTurnCount,
+      formatPreference:
+        args.formatPreference === undefined
+          ? existingSnapshot.formatPreference
+          : args.formatPreference,
     };
 
     const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {

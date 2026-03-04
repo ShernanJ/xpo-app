@@ -110,12 +110,14 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
           value: `draft a shortform x post about ${topicLabel}. keep it tight and in my voice.`,
           label: "Shortform",
           explicitIntent: "plan",
+          formatPreference: "shortform",
         },
         {
           kind: "clarification_choice",
           value: `draft a longform x post about ${topicLabel}. use the extra room and keep it in my voice.`,
           label: "Longform",
           explicitIntent: "plan",
+          formatPreference: "longform",
         },
         {
           kind: "clarification_choice",
@@ -203,6 +205,20 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
         stepKey: "pick_focus",
         seedTopic: args.seedTopic,
         options: quickReplies,
+      },
+    };
+  }
+
+  if (args.branchKey === "entity_context_missing") {
+    const entityLabel = args.seedTopic?.trim() || "that tool";
+    return {
+      reply: `quick check: what is ${entityLabel} in one line, and what does your thing actually do with it?`,
+      quickReplies: [],
+      clarificationState: {
+        branchKey: args.branchKey,
+        stepKey: "define_entity_context",
+        seedTopic: args.seedTopic,
+        options: [],
       },
     };
   }

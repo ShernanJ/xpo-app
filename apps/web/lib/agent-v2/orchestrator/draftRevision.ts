@@ -1,9 +1,10 @@
 export type DraftRevisionChangeKind =
-  | "remove_phrase"
-  | "shorten"
-  | "change_hook"
-  | "tighten"
+  | "local_phrase_edit"
+  | "line_level_edit"
+  | "hook_only_edit"
+  | "length_trim"
   | "tone_shift"
+  | "full_rewrite"
   | "generic";
 
 export interface DraftRevisionDirective {
@@ -44,8 +45,21 @@ export function normalizeDraftRevisionInstruction(
   ) {
     return {
       instruction: `remove or replace the phrase "${quotedText}" and keep the rest of the post aligned with the current wording`,
-      changeKind: "remove_phrase",
+      changeKind: "local_phrase_edit",
       targetText: quotedText,
+    };
+  }
+
+  if (
+    ["remove the last line", "cut the last line", "drop the last line", "remove the cta"].some(
+      (cue) => normalized.includes(cue),
+    )
+  ) {
+    return {
+      instruction:
+        "remove the final line or CTA only, and keep the rest of the post intact unless a tiny flow fix is needed",
+      changeKind: "line_level_edit",
+      targetText: null,
     };
   }
 
@@ -62,7 +76,7 @@ export function normalizeDraftRevisionInstruction(
     return {
       instruction:
         "shorten the current draft while preserving the main idea, tone, and core structure",
-      changeKind: normalized.includes("tight") ? "tighten" : "shorten",
+      changeKind: "length_trim",
       targetText: null,
     };
   }
@@ -75,7 +89,7 @@ export function normalizeDraftRevisionInstruction(
     return {
       instruction:
         "rewrite only the opening line or hook, and preserve the rest unless a small flow fix is needed",
-      changeKind: "change_hook",
+      changeKind: "hook_only_edit",
       targetText: null,
     };
   }
@@ -88,6 +102,22 @@ export function normalizeDraftRevisionInstruction(
     return {
       instruction: `adjust the tone of the current draft to satisfy this note: ${trimmed}`,
       changeKind: "tone_shift",
+      targetText: null,
+    };
+  }
+
+  if (
+    [
+      "start over",
+      "rewrite the whole thing",
+      "rewrite this from scratch",
+      "new angle",
+      "make this completely different",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return {
+      instruction: `fully rewrite the current draft around this request: ${trimmed}`,
+      changeKind: "full_rewrite",
       targetText: null,
     };
   }

@@ -3,12 +3,14 @@ import { fetchJsonFromGroq } from "./llm";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type {
   ConversationState,
+  DraftFormatPreference,
   DraftPreference,
 } from "../contracts/chat";
 import {
   buildAntiPatternBlock,
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
+  buildFormatPreferenceBlock,
   buildGoalHydrationBlock,
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
@@ -72,6 +74,34 @@ function tryDeterministicPhraseRemoval(args: {
   };
 }
 
+function tryDeterministicLastLineRemoval(args: {
+  activeDraft: string;
+  maxCharacterLimit: number;
+}): ReviserOutput | null {
+  const lines = args.activeDraft
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+
+  if (lines.length <= 1) {
+    return null;
+  }
+
+  const nextDraft = trimToXCharacterLimit(
+    cleanupEditedDraft(lines.slice(0, -1).join("\n")),
+    args.maxCharacterLimit,
+  );
+  if (!nextDraft) {
+    return null;
+  }
+
+  return {
+    revisedDraft: nextDraft,
+    supportAsset: null,
+    issuesFixed: ["Removed the final line or CTA."],
+  };
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -85,6 +115,7 @@ export async function generateRevisionDraft(args: {
     maxCharacterLimit?: number;
     goal?: string;
     draftPreference?: DraftPreference;
+    formatPreference?: DraftFormatPreference;
   };
 }): Promise<ReviserOutput | null> {
   const conversationState = args.options?.conversationState || "editing";
@@ -92,11 +123,23 @@ export async function generateRevisionDraft(args: {
   const maxCharacterLimit = args.options?.maxCharacterLimit ?? 280;
   const goal = args.options?.goal || "audience growth";
   const draftPreference = args.options?.draftPreference || "balanced";
+  const formatPreference = args.options?.formatPreference || "shortform";
 
-  if (args.revision.changeKind === "remove_phrase") {
+  if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
       activeDraft: args.activeDraft,
       targetText: args.revision.targetText,
+      maxCharacterLimit,
+    });
+
+    if (deterministic) {
+      return deterministic;
+    }
+  }
+
+  if (args.revision.changeKind === "line_level_edit") {
+    const deterministic = tryDeterministicLastLineRemoval({
+      activeDraft: args.activeDraft,
       maxCharacterLimit,
     });
 
@@ -113,6 +156,7 @@ ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
+${buildFormatPreferenceBlock(formatPreference, "draft")}
 ${buildVoiceHydrationBlock(args.styleCard)}
 ${buildAntiPatternBlock(antiPatterns)}
 
@@ -136,9 +180,13 @@ REQUIREMENTS:
 2. Apply only the requested change. Prefer local edits over fresh reframing.
 3. Never invent a new angle, new premise, or random new hook unless the user explicitly asks for one.
 4. If the user is removing or questioning a specific phrase, remove or replace that phrase and keep the rest as intact as possible.
-5. Keep the draft sounding like the user. Match their casing and pacing.
-6. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
-7. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
+5. If this is a local phrase edit or line-level edit, preserve all non-targeted lines.
+6. If this is a hook-only edit, rewrite only the opening beat and preserve the body.
+7. If this is a tone shift, you may rewrite wording but keep the same structure unless the flow truly breaks.
+8. Only a full rewrite may substantially restructure the post.
+9. Keep the draft sounding like the user. Match their casing and pacing.
+10. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+11. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
 
 Respond ONLY with valid JSON:
 {

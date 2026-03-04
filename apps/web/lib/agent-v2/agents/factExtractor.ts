@@ -7,6 +7,36 @@ export const FactExtractionSchema = z.object({
 
 export type FactExtraction = z.infer<typeof FactExtractionSchema>;
 
+function extractDeterministicFacts(userMessage: string): string[] {
+  const trimmed = userMessage.trim();
+  const normalized = trimmed.toLowerCase();
+  const facts: string[] = [];
+
+  const namedToolMatch = trimmed.match(
+    /\b([a-z0-9][a-z0-9'’-]{1,30})\s+is\s+([a-z0-9][a-z0-9\s,&/'’()-]{4,140})/i,
+  );
+  if (namedToolMatch) {
+    facts.push(`${namedToolMatch[1].trim()} is ${namedToolMatch[2].trim().replace(/[.?!,]+$/, "")}`);
+  }
+
+  const buildMatch = trimmed.match(
+    /\bi['’]m\s+(?:building|making|creating)\s+(?:an?\s+)?([a-z0-9][a-z0-9\s'’-]{2,80})/i,
+  );
+  if (buildMatch) {
+    facts.push(`User is building ${buildMatch[1].trim().replace(/[.?!,]+$/, "")}`);
+  }
+
+  if (
+    normalized.includes("works with ") ||
+    normalized.includes("works for ") ||
+    normalized.includes("extension for ")
+  ) {
+    facts.push(trimmed.replace(/[.?!]+$/, ""));
+  }
+
+  return Array.from(new Set(facts)).slice(0, 3);
+}
+
 /**
  * Lightweight LLM agent that scans the user's message for explicit facts about
  * their life, products, projects, or goals that should be remembered globally.
@@ -15,6 +45,11 @@ export async function extractCoreFacts(
   userMessage: string,
   recentHistory: string,
 ): Promise<string[] | null> {
+  const deterministicFacts = extractDeterministicFacts(userMessage);
+  if (deterministicFacts.length > 0) {
+    return deterministicFacts;
+  }
+
   const instruction = `
 You are a factual intelligence extractor for a creator growth AI.
 Your ONLY job is to detect if the user is stating a concrete fact about themselves, their product, their company, or their life that a personal coach should remember forever.
