@@ -2324,7 +2324,7 @@ function ChatPageContent() {
                     </div>
                   ) : null}
 
-                  {messages.map((message) => (
+                  {messages.map((message, index) => (
                     <div
                       key={message.id}
                       className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
@@ -2350,7 +2350,9 @@ function ChatPageContent() {
                         )}
                       </p>
 
-                      {message.role === "assistant" && message.quickReplies?.length ? (
+                      {message.role === "assistant" &&
+                        message.quickReplies?.length &&
+                        index === messages.length - 1 ? (
                         <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
                           {message.quickReplies.map((quickReply) => (
                             <button
@@ -2479,6 +2481,7 @@ function ChatPageContent() {
                         message.draft ? (() => {
                           const username = context?.creatorProfile?.identity?.username || "user";
                           const displayName = context?.creatorProfile?.identity?.displayName || username;
+                          const avatarUrl = context?.avatarUrl || null;
                           const isEditing = activeDraftEditor?.messageId === message.id;
                           const draftCounter = getXCharacterCounterMeta(
                             isEditing ? editorDraftText : message.draft || "",
@@ -2490,8 +2493,17 @@ function ChatPageContent() {
                               <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
                                 {/* Header: avatar + name + handle */}
                                 <div className="flex items-start gap-3">
-                                  <div className="h-10 w-10 flex-shrink-0 rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 flex items-center justify-center text-sm font-bold text-white uppercase">
-                                    {displayName.charAt(0)}
+                                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                    {avatarUrl ? (
+                                      <div
+                                        className="h-full w-full bg-cover bg-center"
+                                        style={{ backgroundImage: `url(${avatarUrl})` }}
+                                        role="img"
+                                        aria-label={`${displayName} profile photo`}
+                                      />
+                                    ) : (
+                                      displayName.charAt(0)
+                                    )}
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1">
