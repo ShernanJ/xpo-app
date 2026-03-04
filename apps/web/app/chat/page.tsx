@@ -6156,12 +6156,10 @@ function ChatPageContent() {
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-white">Growth Guide</h2>
                   <p className="mt-2 text-sm text-zinc-400">what works on x at each stage</p>
+                  <p className="mt-1 text-xs text-zinc-500">read-only field guide • not profile-specific</p>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
                       {PLAYBOOK_STAGE_META[playbookStage].label}
-                    </span>
-                    <span className="text-sm text-zinc-400">
-                      @{context.creatorProfile.identity.username} • {formatNicheSummary(context).toLowerCase()}
                     </span>
                     <span
                       title={PLAYBOOK_STAGE_META[playbookStage].bottleneck}
@@ -6391,140 +6389,138 @@ function ChatPageContent() {
                         </div>
                       </div>
 
-                      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-                        <div className="space-y-4">
-                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                            <div className="flex items-center gap-3">
-                              <BarChart3 className="h-4 w-4 text-zinc-500" />
-                              <div>
-                                <p className="text-sm font-semibold text-white">What good looks like</p>
-                                <p className="text-xs text-zinc-500">3–5 benchmarks worth tracking.</p>
-                              </div>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <div className="flex items-center gap-3">
+                            <BarChart3 className="h-4 w-4 text-zinc-500" />
+                            <div>
+                              <p className="text-sm font-semibold text-white">What good looks like</p>
+                              <p className="text-xs text-zinc-500">3–5 benchmarks worth tracking.</p>
                             </div>
-
-                            <ul className="mt-4 space-y-2">
-                              {selectedPlaybook.metrics.slice(0, 5).map((metric) => (
-                                <li
-                                  key={metric}
-                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300"
-                                >
-                                  {metric}
-                                </li>
-                              ))}
-                            </ul>
                           </div>
 
-                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                            <div className="flex items-center gap-3">
-                              <List className="h-4 w-4 text-zinc-500" />
-                              <div>
-                                <p className="text-sm font-semibold text-white">Checklist</p>
-                                <p className="text-xs text-zinc-500">Daily + weekly loop to keep reps high.</p>
-                              </div>
+                          <ul className="mt-4 space-y-2">
+                            {selectedPlaybook.metrics.slice(0, 5).map((metric) => (
+                              <li
+                                key={metric}
+                                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
+                              >
+                                {metric}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <div className="flex items-center gap-3">
+                            <List className="h-4 w-4 text-zinc-500" />
+                            <div>
+                              <p className="text-sm font-semibold text-white">Today’s checklist</p>
+                              <p className="text-xs text-zinc-500">Daily + weekly loop to keep reps high.</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-4">
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                Daily
+                              </p>
+                              <ul className="mt-3 space-y-2">
+                                {selectedPlaybook.checklist.daily.slice(0, 5).map((item) => (
+                                  <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
+                                    <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
+                                    <span className="leading-6">{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
 
-                            <div className="mt-4 space-y-4">
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                  Daily
-                                </p>
-                                <ul className="mt-3 space-y-2">
-                                  {selectedPlaybook.checklist.daily.slice(0, 5).map((item) => (
-                                    <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
-                                      <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
-                                      <span className="leading-6">{item}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                  2x / week
-                                </p>
-                                <ul className="mt-3 space-y-2">
-                                  {selectedPlaybook.checklist.weekly.slice(0, 5).map((item) => (
-                                    <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
-                                      <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
-                                      <span className="leading-6">{item}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                2x / week
+                              </p>
+                              <ul className="mt-3 space-y-2">
+                                {selectedPlaybook.checklist.weekly.slice(0, 5).map((item) => (
+                                  <li key={item} className="flex items-start gap-3 text-sm text-zinc-300">
+                                    <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-black/20" />
+                                    <span className="leading-6">{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="space-y-4">
-                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                            <div className="flex items-center gap-3">
-                              <BookOpen className="h-4 w-4 text-zinc-500" />
-                              <div>
-                                <p className="text-sm font-semibold text-white">Templates</p>
-                                <p className="text-xs text-zinc-500">Hook / Reply / Thread / CTA</p>
-                              </div>
-                            </div>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {(
-                                [
-                                  { key: "hook", label: "Hook" },
-                                  { key: "reply", label: "Reply" },
-                                  { key: "thread", label: "Thread" },
-                                  { key: "cta", label: "CTA" },
-                                ] as const
-                              ).map((tab) => (
-                                <button
-                                  key={tab.key}
-                                  type="button"
-                                  onClick={() => setPlaybookTemplateTab(tab.key)}
-                                  className={`rounded-full px-3 py-2 text-xs font-medium transition ${
-                                    playbookTemplateTab === tab.key
-                                      ? "bg-white text-black"
-                                      : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                                  }`}
-                                >
-                                  {tab.label}
-                                </button>
-                              ))}
-                            </div>
-
-                            <div className="mt-4 space-y-3">
-                              {selectedPlaybookTemplates.map((template) => {
-                                const isCopied = copiedPlaybookTemplateId === template.id;
-
-                                return (
-                                  <div
-                                    key={template.id}
-                                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                          {template.label}
-                                        </p>
-                                        <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                          {template.text}
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleCopyPlaybookTemplate(template)}
-                                        className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                                        aria-label={`Copy ${template.label} template`}
-                                      >
-                                        {isCopied ? (
-                                          <Check className="h-4 w-4" />
-                                        ) : (
-                                          <Copy className="h-4 w-4" />
-                                        )}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <BookOpen className="h-4 w-4 text-zinc-500" />
+                            <div>
+                              <p className="text-sm font-semibold text-white">Templates</p>
+                              <p className="text-xs text-zinc-500">Hook / Reply / Thread / CTA</p>
                             </div>
                           </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {(
+                              [
+                                { key: "hook", label: "Hook" },
+                                { key: "reply", label: "Reply" },
+                                { key: "thread", label: "Thread" },
+                                { key: "cta", label: "CTA" },
+                              ] as const
+                            ).map((tab) => (
+                              <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setPlaybookTemplateTab(tab.key)}
+                                className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                                  playbookTemplateTab === tab.key
+                                    ? "bg-white text-black"
+                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          {selectedPlaybookTemplates.map((template) => {
+                            const isCopied = copiedPlaybookTemplateId === template.id;
+
+                            return (
+                              <div
+                                key={template.id}
+                                className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                      {template.label}
+                                    </p>
+                                    <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                      {template.text}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleCopyPlaybookTemplate(template)}
+                                    className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                                    aria-label={`Copy ${template.label} template`}
+                                  >
+                                    {isCopied ? (
+                                      <Check className="h-4 w-4" />
+                                    ) : (
+                                      <Copy className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -6635,7 +6631,7 @@ function ChatPageContent() {
 
               <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-zinc-500">
-                  {selectedPlaybook ? `selected playbook: ${selectedPlaybook.name}` : "no playbook selected"}
+                  {selectedPlaybook ? `viewing: ${selectedPlaybook.name}` : "no playbook selected"}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
