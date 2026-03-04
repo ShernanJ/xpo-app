@@ -112,6 +112,59 @@ function isUsableTopicCandidate(value: string | null): value is string {
   return true;
 }
 
+function scoreTopicCandidate(
+  value: string,
+  args: {
+    seedTopic: string | null;
+    styleCard: VoiceStyleCard | null;
+    topicAnchors: string[];
+  },
+): number {
+  const cleaned = cleanTopicValue(value);
+  const normalized = cleaned.toLowerCase();
+  const compactLabel = compactTopicLabel(cleaned).toLowerCase();
+  let score = 0;
+
+  if (args.seedTopic && normalized === cleanTopicValue(args.seedTopic).toLowerCase()) {
+    score += 8;
+  }
+
+  if ((args.styleCard?.contextAnchors || []).some((anchor) => cleanTopicValue(anchor).toLowerCase() === normalized)) {
+    score += 4;
+  }
+
+  if (args.topicAnchors.some((anchor) => cleanTopicValue(anchor).toLowerCase() === normalized)) {
+    score += 3;
+  }
+
+  const wordCount = compactLabel.split(/\s+/).filter(Boolean).length;
+  if (wordCount <= 3) {
+    score += 3;
+  } else if (wordCount <= 5) {
+    score += 2;
+  } else {
+    score -= 2;
+  }
+
+  if (compactLabel.length <= 22) {
+    score += 2;
+  } else if (compactLabel.length <= 34) {
+    score += 1;
+  } else {
+    score -= 1;
+  }
+
+  if (/\d/.test(normalized)) {
+    score -= 2;
+  }
+
+  if (/\b(?:while|because|but|so|with)\b/i.test(cleaned)) {
+    score -= 1;
+  }
+
+  return score;
+}
+
 function collectDraftTopicCandidates(
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
@@ -126,9 +179,10 @@ function collectDraftTopicCandidates(
     .filter((value): value is string => Boolean(value));
 
   const seen = new Set<string>();
-  const unique: string[] = [];
+  const ranked: Array<{ value: string; score: number; order: number }> = [];
+  const seenLabels = new Set<string>();
 
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
     if (!isUsableTopicCandidate(candidate)) {
       continue;
     }
@@ -139,14 +193,30 @@ function collectDraftTopicCandidates(
       continue;
     }
 
-    seen.add(key);
-    unique.push(cleaned);
-    if (unique.length >= 3) {
-      break;
+    const compactLabel = compactTopicLabel(cleaned).toLowerCase();
+    if (seenLabels.has(compactLabel)) {
+      continue;
     }
+
+    seen.add(key);
+    seenLabels.add(compactLabel);
+    ranked.push({
+      value: cleaned,
+      score: scoreTopicCandidate(cleaned, { seedTopic, styleCard, topicAnchors }),
+      order: index,
+    });
   }
 
-  return unique;
+  return ranked
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return left.order - right.order;
+    })
+    .slice(0, 3)
+    .map((item) => item.value);
 }
 
 function buildTopicDraftChip(topic: string): CreatorChatQuickReply {
