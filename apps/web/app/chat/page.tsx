@@ -1740,40 +1740,6 @@ function inferCurrentPlaybookStage(
   return "0-1k";
 }
 
-function getPlaybookStageConfidence(
-  currentStage: PlaybookStageKey,
-  targetStage: PlaybookStageKey,
-): number {
-  const currentIndex = PLAYBOOK_STAGE_ORDER.indexOf(currentStage);
-  const targetIndex = PLAYBOOK_STAGE_ORDER.indexOf(targetStage);
-  const distance = Math.abs(currentIndex - targetIndex);
-
-  switch (distance) {
-    case 0:
-      return 94;
-    case 1:
-      return 76;
-    case 2:
-      return 58;
-    default:
-      return 42;
-  }
-}
-
-function getPlaybookRiskLabel(difficulty: string): string {
-  const normalized = difficulty.trim().toLowerCase();
-
-  if (normalized === "easy") {
-    return "low risk";
-  }
-
-  if (normalized === "medium" || normalized === "moderate") {
-    return "medium risk";
-  }
-
-  return "higher risk";
-}
-
 function buildPlaybookTemplateGroups(
   playbook: PlaybookDefinition,
 ): Record<PlaybookTemplateTab, PlaybookTemplate[]> {
@@ -6084,68 +6050,98 @@ function ChatPageContent() {
             }}
           >
             <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Growth Guide
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">Growth Guide</h2>
-                  <p className="mt-2 text-sm text-zinc-400">what works on x at each stage</p>
-                  <p className="mt-1 text-xs text-zinc-500">read-only field guide • not profile-specific</p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
-                      {PLAYBOOK_STAGE_META[playbookStage].label}
-                    </span>
-                    <span
-                      title={PLAYBOOK_STAGE_META[playbookStage].bottleneck}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400"
-                    >
-                      fit {getPlaybookStageConfidence(currentPlaybookStage, playbookStage)}%
-                    </span>
+              <div className="space-y-4 border-b border-white/10 px-6 py-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Growth Guide
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold text-white">Growth Guide</h2>
+                    <p className="mt-2 text-sm text-zinc-400">what works on x at each stage</p>
+                    <p className="mt-1 text-xs text-zinc-500">read-only field guide • not profile-specific</p>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setPlaybookModalOpen(false)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    Close
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setPlaybookModalOpen(false)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="overflow-y-auto px-6 py-6">
-                <div className="space-y-6">
-                  <div className="flex flex-wrap gap-2">
+                <div className="space-y-3">
+                  <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
                     {PLAYBOOK_STAGE_ORDER.map((stageKey) => {
                       const isSelected = playbookStage === stageKey;
-                      const confidence = getPlaybookStageConfidence(currentPlaybookStage, stageKey);
 
                       return (
                         <button
                           key={stageKey}
                           type="button"
                           onClick={() => setPlaybookStage(stageKey)}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium transition ${
+                          className={`inline-flex items-center rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
                             isSelected
                               ? "bg-white text-black"
-                              : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
                           }`}
-                          title={`confidence in stage classification: ${confidence}%`}
                         >
-                          <span>{PLAYBOOK_STAGE_META[stageKey].label}</span>
-                          <span
-                            className={`text-[10px] uppercase tracking-[0.16em] ${
-                              isSelected ? "text-black/60" : "text-zinc-600"
-                            }`}
-                          >
-                            fit {confidence}%
-                          </span>
+                          {PLAYBOOK_STAGE_META[stageKey].label}
                         </button>
                       );
                     })}
                   </div>
 
+                  {filteredStagePlaybooks.length > 0 ? (
+                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                      {filteredStagePlaybooks.map((playbook) => {
+                        const isSelected = selectedPlaybook?.id === playbook.id;
+
+                        return (
+                          <button
+                            key={playbook.id}
+                            type="button"
+                            onClick={() => handleApplyPlaybook(playbook.id)}
+                            className={`min-w-[270px] rounded-2xl border p-4 text-left transition ${
+                              isSelected
+                                ? "border-white/35 bg-white/[0.1] shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
+                                : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"
+                            }`}
+                            aria-pressed={isSelected}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`flex h-7 w-12 items-center rounded-full border px-1 transition ${
+                                  isSelected
+                                    ? "justify-end border-white/50 bg-white/15"
+                                    : "justify-start border-white/20 bg-black/30"
+                                }`}
+                              >
+                                <span
+                                  className={`h-5 w-5 rounded-full transition ${
+                                    isSelected ? "bg-white" : "bg-zinc-500"
+                                  }`}
+                                />
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-white">{playbook.name}</p>
+                                <p className="mt-0.5 text-xs text-zinc-400">{playbook.outcome}</p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-zinc-500">
+                      No playbooks match this stage yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
                   <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                     <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
                       <div className="space-y-3">
@@ -6208,85 +6204,6 @@ function ChatPageContent() {
                       </div>
                     </div>
                   </div>
-
-                  <section className="space-y-5">
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                        📚 Core module
-                      </p>
-                      <h3 className="mt-2 text-2xl font-semibold text-white sm:text-3xl">
-                        Playbooks that work
-                      </h3>
-                      <p className="mt-2 text-sm text-zinc-300">
-                        compare proven playbooks for this stage, then review the full loop below.
-                      </p>
-                    </div>
-
-                    <div className="space-y-4">
-                      {filteredStagePlaybooks.length > 0 ? (
-                        <>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {filteredStagePlaybooks.map((playbook) => {
-                              const isSelected = selectedPlaybook?.id === playbook.id;
-
-                              return (
-                                <button
-                                  key={playbook.id}
-                                  type="button"
-                                  onClick={() => handleApplyPlaybook(playbook.id)}
-                                  className={`rounded-3xl border p-5 text-left transition ${
-                                    isSelected
-                                      ? "border-white/30 bg-white/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
-                                      : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"
-                                  }`}
-                                  aria-pressed={isSelected}
-                                >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <p className="text-base font-semibold text-white">{playbook.name}</p>
-                                    <span
-                                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                                        isSelected
-                                          ? "bg-white text-black"
-                                          : "border border-white/10 text-zinc-500"
-                                      }`}
-                                    >
-                                      {isSelected ? "Viewing" : "Open"}
-                                    </span>
-                                  </div>
-
-                                  <p className="mt-3 text-sm leading-6 text-zinc-300">{playbook.outcome}</p>
-
-                                  <div className="mt-4 flex flex-wrap gap-2">
-                                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                                      {playbook.timePerDay}
-                                    </span>
-                                    <span
-                                      title={`risk is inferred from difficulty (${playbook.difficulty.toLowerCase()})`}
-                                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
-                                    >
-                                      {getPlaybookRiskLabel(playbook.difficulty)}
-                                    </span>
-                                  </div>
-
-                                  <p className="mt-3 text-xs text-zinc-500">{playbook.whenItWorks}</p>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {selectedPlaybook ? (
-                            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-400">
-                              now reviewing: <span className="font-medium text-zinc-200">{selectedPlaybook.name}</span>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-6 text-sm text-zinc-500">
-                          No playbooks match that filter.
-                        </div>
-                      )}
-                    </div>
-                  </section>
 
                   {selectedPlaybook ? (
                     <section className="space-y-4">
