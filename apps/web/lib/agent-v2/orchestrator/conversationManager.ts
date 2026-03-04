@@ -94,6 +94,23 @@ function isLazyDraftRequest(message: string): boolean {
   ].some((candidate) => normalized.includes(candidate));
 }
 
+function isBareDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase().replace(/[.?!,]+$/, "");
+  return [
+    "write me a post",
+    "write a post for me",
+    "write me a post for me",
+    "draft a post",
+    "draft a post for me",
+    "draft me a post",
+    "make a post",
+    "make me a post",
+    "give me a post",
+    "give me a post to use",
+    "give me a random post",
+  ].includes(normalized);
+}
+
 function inferComparisonReference(message: string): string | null {
   const rebuildMatch = message.match(
     /\brebuild(?:ing)?\s+([a-z0-9][a-z0-9\s'-]{1,30}?)(?:\s+but\s+for|\s+for)\b/i,
@@ -367,6 +384,10 @@ function inferAbstractTopicSeed(
   const trimmed = message.trim();
   const normalized = trimmed.toLowerCase();
   if (!trimmed || normalized.startsWith(">")) {
+    return null;
+  }
+
+  if (isBareDraftRequest(trimmed)) {
     return null;
   }
 
@@ -1345,6 +1366,38 @@ User Profile Summary:
         memory,
       };
     }
+  }
+
+  if (
+    !explicitIntent &&
+    mode === "plan" &&
+    isBareDraftRequest(userMessage)
+  ) {
+    const clarification = buildClarificationTree({
+      branchKey: isLazyDraftRequest(userMessage)
+        ? "lazy_request"
+        : "vague_draft_request",
+      seedTopic: null,
+      styleCard,
+      topicAnchors: relevantTopicAnchors,
+      isVerifiedAccount,
+    });
+
+    await writeMemory({
+      conversationState: "needs_more_context",
+      clarificationState: clarification.clarificationState,
+      assistantTurnCount: nextAssistantTurnCount,
+    });
+
+    return {
+      mode: "coach",
+      outputShape: "coach_question",
+      response: clarification.reply,
+      data: {
+        quickReplies: clarification.quickReplies,
+      },
+      memory,
+    };
   }
 
   if (
