@@ -99,7 +99,7 @@ model ChatMessage {
   threadId  String
   role      String   // "user" | "assistant"
   content   String   @db.Text
-  data      Json?    // Optional JSON data (e.g. CreatorChatReplyResult fields)
+  data      Json?    // Optional JSON data for stored chat payload fields
   createdAt DateTime @default(now())
 
   thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
