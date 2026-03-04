@@ -3263,10 +3263,19 @@ function ChatPageContent() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
 
       <div className="relative flex h-full min-h-0">
+        {sidebarOpen ? (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-20 bg-black/50 md:hidden"
+            aria-label="Close sidebar overlay"
+          />
+        ) : null}
+
         <aside
-          className={`sticky top-0 hidden h-full min-h-0 shrink-0 overflow-hidden transition-[width] duration-300 md:flex md:flex-col ${sidebarOpen
+          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden transition-[width,transform] duration-300 md:sticky md:top-0 ${sidebarOpen
             ? "w-[18.5rem] border-r border-white/10 bg-white/[0.02]"
-            : "w-0 border-r-0 bg-transparent"
+            : "w-[18.5rem] -translate-x-full border-r border-white/10 bg-white/[0.02] md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"
             }`}
         >
           {sidebarOpen ? (
@@ -3306,6 +3315,25 @@ function ChatPageContent() {
                   <span className="text-sm text-zinc-400">✎</span>
                   <span className="text-sm font-medium text-white">New Chat</span>
                 </button>
+              </div>
+
+              <div className="px-3 pt-1">
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setAnalysisOpen(true)}
+                    className="block w-full rounded-2xl px-3 py-2 text-left text-[11px] font-medium text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
+                  >
+                    View Profile Analysis
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPlaybookModalOpen(true)}
+                    className="block w-full rounded-2xl px-3 py-2 text-left text-[11px] font-medium text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
+                  >
+                    Playbook
+                  </button>
+                </div>
               </div>
             </>
           ) : null}
@@ -3532,22 +3560,8 @@ function ChatPageContent() {
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setAnalysisOpen(true)}
-                  className="text-[11px] font-medium text-zinc-400 transition hover:text-white"
-                >
-                  View Profile Analysis
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlaybookModalOpen(true)}
-                  className="text-[11px] font-medium text-zinc-400 transition hover:text-white"
-                >
-                  Playbook
-                </button>
-                <button
-                  type="button"
                   onClick={() => setExtensionModalOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.04]"
+                  className="hidden items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.04] md:inline-flex"
                 >
                   <span>Companion App</span>
                   <ArrowUpRight className="h-3.5 w-3.5" />
