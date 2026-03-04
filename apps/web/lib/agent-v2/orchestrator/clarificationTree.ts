@@ -51,13 +51,32 @@ function compactTopicLabel(value: string): string {
     return "your usual lane";
   }
 
-  const conversionMatch = cleaned.match(
-    /\b([a-z0-9]+)(?:\s+posts?|\s+content)?\s+(?:into|to)\s+([a-z0-9]+)\b/i,
+  const normalized = cleaned.toLowerCase();
+  const conversionMatch =
+    cleaned.match(
+      /\b(?:turning|convert(?:ing)?|rewriting|transform(?:ing)?)\s+([a-z0-9]+)(?:\s+posts?|\s+content)?\s+(?:into|to)\s+([a-z0-9]+)\b/i,
+    ) ||
+    cleaned.match(
+      /\b([a-z0-9]+)(?:\s+posts?|\s+content)?\s+(?:into|to)\s+([a-z0-9]+)\b/i,
+    );
+  const bridgeMatch = cleaned.match(
+    /\b([a-z0-9]+)\s+(?:vs|versus)\s+([a-z0-9]+)\b/i,
+  );
+  const pairedTopicMatch = cleaned.match(
+    /\b([a-z0-9][a-z0-9\s'-]{1,24})\s+and\s+([a-z0-9][a-z0-9\s'-]{1,24})\b/i,
   );
   const reduced =
     conversionMatch?.[1] && conversionMatch?.[2]
       ? `${conversionMatch[1]} to ${conversionMatch[2]}`
-      : cleaned.split(/\b(?:while|because|but|so|and|with)\b/i)[0].trim() || cleaned;
+      : bridgeMatch?.[1] && bridgeMatch?.[2]
+        ? `${bridgeMatch[1]} vs ${bridgeMatch[2]}`
+        : pairedTopicMatch?.[1] && pairedTopicMatch?.[2]
+          ? cleanTopicValue(
+              normalized.includes("internship") && normalized.includes("interview")
+                ? pairedTopicMatch[1]
+                : pairedTopicMatch[1],
+            )
+          : cleaned.split(/\b(?:while|because|but|so|and|with)\b/i)[0].trim() || cleaned;
   const words = reduced.split(/\s+/);
   const compact = words.length > 5 ? words.slice(0, 5).join(" ") : reduced;
   return compact.length > 34 ? `${compact.slice(0, 31).trimEnd()}...` : compact;
