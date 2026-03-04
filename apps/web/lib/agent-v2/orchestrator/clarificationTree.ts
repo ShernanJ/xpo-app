@@ -219,12 +219,65 @@ function collectDraftTopicCandidates(
     .map((item) => item.value);
 }
 
-function buildTopicDraftChip(topic: string): CreatorChatQuickReply {
+function buildPacingHint(styleCard: VoiceStyleCard | null): string {
+  const pacing = styleCard?.pacing.toLowerCase() || "";
+
+  if (pacing.includes("bullet") || pacing.includes("scan")) {
+    return "use the same scan-friendly structure i usually use.";
+  }
+
+  if (pacing.includes("long") || pacing.includes("flowing")) {
+    return "let it breathe a bit, but keep it readable and sharp.";
+  }
+
+  if (pacing.includes("short") || pacing.includes("punchy")) {
+    return "keep it punchy and close to my normal pacing.";
+  }
+
+  return "match my usual pacing.";
+}
+
+function buildTopicDraftChip(
+  topic: string,
+  styleCard: VoiceStyleCard | null,
+): CreatorChatQuickReply {
   return {
     kind: "clarification_choice",
-    value: `draft a post about ${topic}. keep it in my voice and stay close to what i usually post about.`,
+    value: `draft a post about ${topic}. keep it in my voice and stay close to what i usually post about. ${buildPacingHint(styleCard)}`,
     label: compactTopicLabel(topic),
     explicitIntent: "plan",
+  };
+}
+
+function buildFormatAwareDraftChip(args: {
+  topic: string | null;
+  styleCard: VoiceStyleCard | null;
+  formatPreference: "shortform" | "longform";
+}): CreatorChatQuickReply {
+  const topicLabel = args.topic ? compactTopicLabel(args.topic) : "my usual lane";
+  const label =
+    args.formatPreference === "shortform"
+      ? args.topic
+        ? `Shortform on ${topicLabel}`
+        : "Shortform in my usual lane"
+      : args.topic
+        ? `Longform on ${topicLabel}`
+        : "Longform in my usual lane";
+  const value =
+    args.formatPreference === "shortform"
+      ? args.topic
+        ? `draft a shortform x post about ${args.topic}. keep it tight, in my voice, and close to what i usually post about. ${buildPacingHint(args.styleCard)}`
+        : `draft a shortform x post in my usual lane. keep it tight, in my voice, and close to my usual topics. ${buildPacingHint(args.styleCard)}`
+      : args.topic
+        ? `draft a longform x post about ${args.topic}. use the extra room, keep it in my voice, and stay close to what i usually post about. ${buildPacingHint(args.styleCard)}`
+        : `draft a longform x post in my usual lane. use the extra room, keep it in my voice, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`;
+
+  return {
+    kind: "clarification_choice",
+    value,
+    label,
+    explicitIntent: "plan",
+    formatPreference: args.formatPreference,
   };
 }
 
@@ -239,24 +292,46 @@ function buildAngleChip(primaryTopic: string | null): CreatorChatQuickReply {
   };
 }
 
-function buildLooseFallbackChoices(primaryTopic: string | null): CreatorChatQuickReply[] {
-  const topicChoices = primaryTopic ? [buildTopicDraftChip(primaryTopic)] : [];
+function buildLooseFallbackChoices(args: {
+  primaryTopic: string | null;
+  styleCard: VoiceStyleCard | null;
+  isVerifiedAccount: boolean;
+}): CreatorChatQuickReply[] {
+  if (args.isVerifiedAccount) {
+    return [
+      buildFormatAwareDraftChip({
+        topic: args.primaryTopic,
+        styleCard: args.styleCard,
+        formatPreference: "shortform",
+      }),
+      buildFormatAwareDraftChip({
+        topic: args.primaryTopic,
+        styleCard: args.styleCard,
+        formatPreference: "longform",
+      }),
+      buildAngleChip(args.primaryTopic),
+    ];
+  }
+
+  const topicChoices = args.primaryTopic
+    ? [buildTopicDraftChip(args.primaryTopic, args.styleCard)]
+    : [];
 
   return [
     ...topicChoices,
     {
       kind: "clarification_choice" as const,
-      value: "draft something in my usual lane. keep it natural and close to my normal topics.",
+      value: `draft something in my usual lane. keep it natural and close to my normal topics. ${buildPacingHint(args.styleCard)}`,
       label: "my usual lane",
       explicitIntent: "plan" as const,
     },
     {
       kind: "clarification_choice" as const,
-      value: "draft something recent i could realistically post. keep it in my voice and make it feel current.",
+      value: `draft something recent i could realistically post. keep it in my voice, make it feel current, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`,
       label: "something recent",
       explicitIntent: "plan" as const,
     },
-    buildAngleChip(primaryTopic),
+    buildAngleChip(args.primaryTopic),
   ].slice(0, 3);
 }
 
@@ -275,40 +350,34 @@ function buildDynamicDraftChoices(args: {
   const primaryTopic = topicalChoices[0] || null;
 
   if (args.mode === "topic_known" && args.isVerifiedAccount) {
-    const topicValue = primaryTopic || "my usual lane";
-    const topicLabel = compactTopicLabel(topicValue);
     return [
-      {
-        kind: "clarification_choice",
-        value: primaryTopic
-          ? `draft a shortform x post about ${primaryTopic}. keep it tight and in my voice.`
-          : "draft a shortform x post in my usual lane. keep it tight and in my voice.",
-        label: `Shortform on ${topicLabel}`,
-        explicitIntent: "plan",
+      buildFormatAwareDraftChip({
+        topic: primaryTopic,
+        styleCard: args.styleCard,
         formatPreference: "shortform",
-      },
-      {
-        kind: "clarification_choice",
-        value: primaryTopic
-          ? `draft a longform x post about ${primaryTopic}. use the extra room and keep it in my voice.`
-          : "draft a longform x post in my usual lane. use the extra room and keep it in my voice.",
-        label: `Longform on ${topicLabel}`,
-        explicitIntent: "plan",
+      }),
+      buildFormatAwareDraftChip({
+        topic: primaryTopic,
+        styleCard: args.styleCard,
         formatPreference: "longform",
-      },
+      }),
       buildAngleChip(primaryTopic),
     ];
   }
 
   if (topicalChoices.length >= 2) {
     return [
-      buildTopicDraftChip(topicalChoices[0]),
-      buildTopicDraftChip(topicalChoices[1]),
+      buildTopicDraftChip(topicalChoices[0], args.styleCard),
+      buildTopicDraftChip(topicalChoices[1], args.styleCard),
       buildAngleChip(primaryTopic),
     ];
   }
 
-  return buildLooseFallbackChoices(primaryTopic);
+  return buildLooseFallbackChoices({
+    primaryTopic,
+    styleCard: args.styleCard,
+    isVerifiedAccount: args.isVerifiedAccount,
+  });
 }
 
 export function buildClarificationTree(args: ClarificationTreeArgs): ClarificationTreeResult {
