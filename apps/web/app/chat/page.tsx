@@ -172,6 +172,7 @@ interface CreatorChatSuccess {
       mustAvoid: string[];
       hookType: string;
       pitchResponse: string;
+      formatPreference?: "shortform" | "longform";
     } | null;
     draft?: string | null;
     drafts: string[];
@@ -287,6 +288,7 @@ interface CreatorChatSuccess {
         mustAvoid: string[];
         hookType: string;
         pitchResponse: string;
+        formatPreference?: "shortform" | "longform";
       } | null;
       clarificationState?: {
         branchKey: string;
@@ -294,6 +296,7 @@ interface CreatorChatSuccess {
         seedTopic: string | null;
       } | null;
       assistantTurnCount?: number;
+      formatPreference?: "shortform" | "longform" | null;
       voiceFidelity?: "balanced";
     };
   };
@@ -410,6 +413,7 @@ interface ChatQuickReply {
   label: string;
   suggestedFocus?: ChatContentFocus;
   explicitIntent?: ChatIntent;
+  formatPreference?: "shortform" | "longform";
 }
 
 interface ChatStrategyInputs {
@@ -2539,6 +2543,7 @@ function ChatPageContent() {
       includeUserMessageInHistory?: boolean;
       selectedAngle?: string | null;
       intent?: ChatIntent;
+      formatPreferenceOverride?: "shortform" | "longform" | null;
       selectedDraftContextOverride?: DraftVersionSnapshot | null;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
@@ -2629,6 +2634,9 @@ function ChatPageContent() {
             provider: providerPreference,
             stream: true,
             intent: effectiveIntent,
+            ...(options.formatPreferenceOverride
+              ? { formatPreference: options.formatPreferenceOverride }
+              : {}),
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
             ...(effectiveSelectedDraftContext
@@ -3048,6 +3056,7 @@ function ChatPageContent() {
           displayUserMessage: quickReply.label,
           appendUserMessage: true,
           intent: quickReply.explicitIntent,
+          formatPreferenceOverride: quickReply.formatPreference ?? null,
           strategyInputOverride: activeStrategyInputs,
           toneInputOverride: activeToneInputs,
           contentFocusOverride: activeContentFocus,
@@ -3777,6 +3786,7 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             message.outputShape !== "coach_question" &&
                             message.outputShape !== "short_form_post" &&
+                            message.outputShape !== "long_form_post" &&
                             message.draftArtifacts?.length ? (
                             <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                               {message.draftArtifacts.map((artifact, index) => {
