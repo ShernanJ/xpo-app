@@ -360,6 +360,9 @@ REQUIREMENTS:
 9. Use the conversation examples more than the public post examples for cadence if both are available.
 10. Avoid stock/template phrasing. Do NOT default to the same opener or always say "what do you want to work on today".
 11. Make the final question feel like a fresh DM, not a reusable app greeting.
+12. Do NOT use slang like "yo" unless the conversation examples or preferred opener patterns clearly use it.
+13. Do NOT quote a raw post snippet as the topic reference. Summarize the topic in a short natural phrase instead.
+14. Use normal sentence punctuation. Avoid the "name - sentence" template.
 
 Respond ONLY with valid JSON matching this schema:
 {
