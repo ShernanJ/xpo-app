@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChevronLeft, ChevronRight, ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -101,6 +101,9 @@ interface DraftInspectorSuccess {
   ok: true;
   data: {
     summary: string;
+    prompt: string;
+    userMessageId: string;
+    assistantMessageId: string;
   };
 }
 
@@ -1355,8 +1358,8 @@ function ChatPageContent() {
   );
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
-  const [draftInspectorSummary, setDraftInspectorSummary] = useState<string | null>(null);
   const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
+  const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
@@ -1955,6 +1958,10 @@ function ChatPageContent() {
   const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
     ? "Revert to this Version"
     : "Save As New Version";
+  const isDraftEditorPrimaryActionDisabled =
+    shouldShowRevertDraftCta
+      ? false
+      : !editorDraftText.trim() || !hasDraftEditorChanges;
   const draftInspectorActionLabel = isViewingHistoricalDraftVersion
     ? "Compare to Current"
     : "Analyze this Draft";
@@ -1971,12 +1978,12 @@ function ChatPageContent() {
   useEffect(() => {
     if (!selectedDraftVersionId) {
       setEditorDraftText("");
-      setDraftInspectorSummary(null);
+      setHasCopiedDraftEditorText(false);
       return;
     }
 
     setEditorDraftText(selectedDraftVersionContent);
-    setDraftInspectorSummary(null);
+    setHasCopiedDraftEditorText(false);
   }, [
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
@@ -2314,13 +2321,21 @@ function ChatPageContent() {
 
     try {
       await navigator.clipboard.writeText(editorDraftText);
+      setHasCopiedDraftEditorText(true);
+      window.setTimeout(() => {
+        setHasCopiedDraftEditorText(false);
+      }, 2200);
     } catch {
       setErrorMessage("Copy failed. Try selecting the text manually.");
     }
   }, [editorDraftText]);
 
+  const shareDraftEditorToX = useCallback(() => {
+    window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
+  }, []);
+
   const runDraftInspector = useCallback(async () => {
-    if (!selectedDraftVersion) {
+    if (!selectedDraftVersion || !activeThreadId) {
       return;
     }
 
@@ -2356,6 +2371,7 @@ function ChatPageContent() {
         body: JSON.stringify({
           mode: shouldCompare ? "compare" : "analyze",
           draft: inspectedDraft,
+          threadId: activeThreadId,
           ...(shouldCompare ? { currentDraft } : {}),
         }),
       });
@@ -2371,13 +2387,29 @@ function ChatPageContent() {
         return;
       }
 
-      setDraftInspectorSummary(data.data.summary.trim());
+      const nowIso = new Date().toISOString();
+      setMessages((current) => [
+        ...current,
+        {
+          id: data.data.userMessageId,
+          role: "user",
+          content: data.data.prompt,
+          createdAt: nowIso,
+        },
+        {
+          id: data.data.assistantMessageId,
+          role: "assistant",
+          content: data.data.summary.trim(),
+          createdAt: nowIso,
+        },
+      ]);
     } catch {
       setErrorMessage("The draft analysis failed.");
     } finally {
       setIsDraftInspectorLoading(false);
     }
   }, [
+    activeThreadId,
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
     editorDraftText,
@@ -3868,181 +3900,57 @@ function ChatPageContent() {
             <div className="pointer-events-none fixed inset-0 z-20 hidden lg:block">
               <div className="mx-auto flex h-full w-full max-w-[92rem] justify-end px-6 pb-32 pt-24">
                 <div className="pointer-events-auto flex w-[28rem] max-w-[28rem] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-                  <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-5">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                        {context?.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                            role="img"
-                            aria-label={`${heroIdentityLabel} profile photo`}
-                          />
-                        ) : (
-                          heroInitials.charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="truncate text-[15px] font-semibold text-white">
-                            {context?.creatorProfile.identity.displayName ??
-                              context?.creatorProfile.identity.username ??
-                              accountName ??
-                              "You"}
-                          </p>
-                          {isVerifiedAccount ? (
-                            <Image
-                              src="/x-verified.svg"
-                              alt="Verified account"
-                              width={16}
-                              height={16}
-                              className="h-4 w-4 shrink-0"
+                  <div className="px-5 pb-3 pt-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                          {context?.avatarUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                              role="img"
+                              aria-label={`${heroIdentityLabel} profile photo`}
                             />
-                          ) : null}
+                          ) : (
+                            heroInitials.charAt(0)
+                          )}
                         </div>
-                        <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
-                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
-                        </p>
-                        <div className="mt-1 flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => navigateDraftTimeline("back")}
-                              disabled={!canNavigateDraftBack}
-                              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                              aria-label="Previous draft version"
-                            >
-                              <ChevronLeft className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => navigateDraftTimeline("forward")}
-                              disabled={!canNavigateDraftForward}
-                              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                              aria-label="Next draft version"
-                            >
-                              <ChevronRight className="h-4 w-4" />
-                            </button>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-[15px] font-semibold text-white">
+                              {context?.creatorProfile.identity.displayName ??
+                                context?.creatorProfile.identity.username ??
+                                accountName ??
+                                "You"}
+                            </p>
+                            {isVerifiedAccount ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
                           </div>
-                          <p className="text-[11px] font-medium text-zinc-500">
-                            Version {selectedDraftTimelinePosition}
-                            {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
-                              editorDraftText,
-                            )}/{selectedDraftVersion.maxCharacterLimit} chars
+                          <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
+                            @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                           </p>
                         </div>
                       </div>
-                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setActiveDraftEditor(null)}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                      aria-label="Close draft editor"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto px-5 pb-5">
-                    <div className="p-0">
-                      <textarea
-                        value={editorDraftText}
-                        onChange={(event) => setEditorDraftText(event.target.value)}
-                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
-                        placeholder="Draft content"
-                      />
-                    </div>
-                    {draftInspectorSummary ? (
-                      <div className="mt-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          {isViewingHistoricalDraftVersion ? "Comparison" : "Draft Analysis"}
-                        </p>
-                        <p className="mt-2 text-sm leading-6 text-zinc-300">
-                          {draftInspectorSummary}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="border-t border-white/10 px-5 py-4">
-                    <div className="flex items-center justify-between gap-3">
                       <button
                         type="button"
-                        onClick={() => {
-                          void runDraftInspector();
-                        }}
-                        disabled={isDraftInspectorLoading}
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setActiveDraftEditor(null)}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                        aria-label="Close draft editor"
                       >
-                        {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                        ×
                       </button>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void copyDraftEditor();
-                          }}
-                          className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                        >
-                          Copy
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void (shouldShowRevertDraftCta
-                              ? revertToSelectedDraftVersion()
-                              : saveDraftEditor());
-                          }}
-                          className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
-                        >
-                          {draftEditorPrimaryActionLabel}
-                        </button>
-                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
-              <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-                <div className="flex items-start justify-between gap-4 px-4 pb-3 pt-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                      {context?.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${heroIdentityLabel} profile photo`}
-                        />
-                      ) : (
-                        heroInitials.charAt(0)
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="truncate text-sm font-semibold text-white">
-                          {context?.creatorProfile.identity.displayName ??
-                            context?.creatorProfile.identity.username ??
-                            accountName ??
-                            "You"}
-                        </p>
-                        {isVerifiedAccount ? (
-                          <Image
-                            src="/x-verified.svg"
-                            alt="Verified account"
-                            width={14}
-                            height={14}
-                            className="h-3.5 w-3.5 shrink-0"
-                          />
-                        ) : null}
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-zinc-400">
-                        @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2">
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -4063,23 +3971,174 @@ function ChatPageContent() {
                             <ChevronRight className="h-4 w-4" />
                           </button>
                         </div>
-                        <p className="text-[11px] text-zinc-500">
+                        <p className="truncate text-[11px] font-medium text-zinc-500">
                           Version {selectedDraftTimelinePosition}
-                          {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
-                            editorDraftText,
-                          )}/{selectedDraftVersion.maxCharacterLimit} chars
+                          {" "}of {selectedDraftTimeline.length}
                         </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void (shouldShowRevertDraftCta
+                            ? revertToSelectedDraftVersion()
+                            : saveDraftEditor());
+                        }}
+                        disabled={isDraftEditorPrimaryActionDisabled}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {draftEditorPrimaryActionLabel}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-5 pb-5">
+                    <div className="p-0">
+                      <textarea
+                        value={editorDraftText}
+                        onChange={(event) => setEditorDraftText(event.target.value)}
+                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
+                        placeholder="Draft content"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 px-5 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runDraftInspector();
+                        }}
+                        disabled={isDraftInspectorLoading}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-zinc-500">
+                          {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void copyDraftEditor();
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                          aria-label="Copy current draft"
+                        >
+                          {hasCopiedDraftEditorText ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            shareDraftEditorToX();
+                          }}
+                          className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                        >
+                          Share
+                        </button>
                       </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDraftEditor(null)}
-                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                    aria-label="Close draft editor"
-                  >
-                    ×
-                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
+              <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+                <div className="px-4 pb-3 pt-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${heroIdentityLabel} profile photo`}
+                          />
+                        ) : (
+                          heroInitials.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {context?.creatorProfile.identity.displayName ??
+                              context?.creatorProfile.identity.username ??
+                              accountName ??
+                              "You"}
+                          </p>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={14}
+                              height={14}
+                              className="h-3.5 w-3.5 shrink-0"
+                            />
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">
+                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => navigateDraftTimeline("back")}
+                          disabled={!canNavigateDraftBack}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous draft version"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateDraftTimeline("forward")}
+                          disabled={!canNavigateDraftForward}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next draft version"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <p className="truncate text-[11px] text-zinc-500">
+                        Version {selectedDraftTimelinePosition}
+                        {" "}of {selectedDraftTimeline.length}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void (shouldShowRevertDraftCta
+                          ? revertToSelectedDraftVersion()
+                          : saveDraftEditor());
+                      }}
+                      disabled={isDraftEditorPrimaryActionDisabled}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {draftEditorPrimaryActionLabel}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -4091,16 +4150,6 @@ function ChatPageContent() {
                       placeholder="Draft content"
                     />
                   </div>
-                  {draftInspectorSummary ? (
-                    <div className="mt-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        {isViewingHistoricalDraftVersion ? "Comparison" : "Draft Analysis"}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-zinc-300">
-                        {draftInspectorSummary}
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="border-t border-white/10 px-4 py-4">
@@ -4116,31 +4165,34 @@ function ChatPageContent() {
                       {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
                     </button>
                     <div className="flex items-center gap-2">
+                      <p className="text-xs text-zinc-500">
+                        {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                      </p>
                       <button
                         type="button"
                         onClick={() => {
                           void copyDraftEditor();
                         }}
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        aria-label="Copy current draft"
                       >
-                        Copy
+                        {hasCopiedDraftEditorText ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
                       </button>
                       <button
                         type="button"
                         onClick={() => {
-                          void (shouldShowRevertDraftCta
-                            ? revertToSelectedDraftVersion()
-                            : saveDraftEditor());
+                          shareDraftEditorToX();
                         }}
                         className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
                       >
-                        {shouldShowRevertDraftCta ? "Revert to this Version" : "Save As New Version"}
+                        Share
                       </button>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-zinc-500">
-                    {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
-                  </p>
                 </div>
               </div>
             </div>
