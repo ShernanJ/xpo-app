@@ -556,17 +556,17 @@ const PLAYBOOK_STAGE_META: Record<
   },
   "1k-10k": {
     label: "1k→10k",
-    highlight: "repeatable formats + positioning",
-    winCondition: "win by becoming easy to recognize in one clear lane.",
-    bottleneck: "your bottleneck is identity. people should quickly understand what lane you own.",
+    highlight: "consistent format + clear topic",
+    winCondition: "win by becoming known for one clear topic.",
+    bottleneck: "your bottleneck is clarity. people should quickly understand what you post about.",
     priorities: ["positioning", "formats", "proof"],
     contentMix: { replies: 40, posts: 40, threads: 20 },
   },
   "10k-50k": {
     label: "10k→50k",
     highlight: "distribution + collabs",
-    winCondition: "win by amplifying strong work through distribution loops.",
-    bottleneck: "your bottleneck is scaling reach through distribution loops, not writing more generic posts.",
+    winCondition: "win by getting your best posts seen through smart collaboration.",
+    bottleneck: "your bottleneck is reach. focus on distribution and collaboration, not more generic posts.",
     priorities: ["distribution", "collabs", "systems"],
     contentMix: { replies: 35, posts: 35, threads: 30 },
   },
@@ -711,15 +711,15 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       timePerDay: "25 min/day",
       bestFor: ["builders", "operators", "career twitter"],
       loop: {
-        input: "Choose one recurring lane",
-        action: "Ship one repeatable format",
-        feedback: "Track repeat commenters and saves",
+        input: "Pick one topic you'll post about every week",
+        action: "Use one format people can recognize",
+        feedback: "Track returning commenters and saves",
       },
       checklist: {
         daily: [
           "Collect one idea that fits the series",
           "Draft one hook for the next installment",
-          "Reply in the same lane to reinforce positioning",
+          "Reply on the same topic to reinforce your positioning",
         ],
         weekly: [
           "Ship 1 flagship post in the series",
@@ -744,7 +744,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         },
       ],
       metrics: ["Repeat commenters", "Series save rate", "Profile visits/post"],
-      rationale: "Repeatable formats make people remember your lane faster than random one-off posts.",
+      rationale: "Repeatable formats help people remember what you're known for faster than one-off posts.",
       mistakes: [
         "Changing topics every day",
         "Naming a series but not sticking to the cadence",
@@ -756,7 +756,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         "a repeated build-in-public checkpoint post",
       ],
       quickStart: [
-        "Pick one lane that already gets traction",
+        "Pick one topic that already gets traction",
         "Name a simple recurring format",
         "Draft the next hook now",
       ],
@@ -831,19 +831,19 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       timePerDay: "30 min/day",
       bestFor: ["operators", "founders", "creators"],
       loop: {
-        input: "Find aligned voices",
-        action: "Create mutual reply momentum",
-        feedback: "Track shared reach and profile follows",
+        input: "Find 3 creators in your space",
+        action: "Support each other with useful replies",
+        feedback: "Track extra reach and profile follows",
       },
       checklist: {
         daily: [
           "Reply to 3 aligned peers with real value",
-          "Amplify 1 post that fits your lane",
+          "Amplify 1 post that matches your topic",
           "Open 1 useful conversation in DMs",
         ],
         weekly: [
           "Run 1 collaborative quote or thread",
-          "Review which relationships lifted distribution",
+          "Review which relationships grew your reach",
         ],
       },
       templates: [
@@ -864,7 +864,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         },
       ],
       metrics: ["Shared reach", "Mutual reply rate", "Profile follows from collaborators"],
-      rationale: "At this stage, distribution compounding beats isolated posting.",
+      rationale: "At this stage, getting shared by trusted peers beats posting alone.",
       mistakes: [
         "Treating networking like random outreach",
         "Only chasing bigger accounts",
@@ -890,13 +890,13 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       timePerDay: "35 min/day",
       bestFor: ["educators", "creators", "operators"],
       loop: {
-        input: "Choose one repeatable format",
-        action: "Publish it often enough to become recognizable",
+        input: "Pick one format you'll repeat",
+        action: "Post it often so people recognize it",
         feedback: "Track repeat saves, shares, and mentions",
       },
       checklist: {
         daily: [
-          "Collect one example for your signature format",
+          "Collect one example for your format",
           "Refine the hook pattern, not the whole concept",
           "Post one lighter-format variant",
         ],
@@ -935,7 +935,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         "a repeatable weekly pattern post",
       ],
       quickStart: [
-        "Name one repeatable format",
+        "Name one format you'll repeat",
         "Write its base structure",
         "Draft a flagship version today",
       ],
@@ -951,18 +951,18 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       timePerDay: "30 min/day",
       bestFor: ["founders", "creators", "operators"],
       loop: {
-        input: "Choose the next narrative beat",
-        action: "Distribute it across multiple post types",
-        feedback: "Track trust, replies, and conversion quality",
+        input: "Pick the next chapter in your story",
+        action: "Share it across posts, replies, and threads",
+        feedback: "Track trust signals, replies, and conversions",
       },
       checklist: {
         daily: [
-          "Check where the current narrative stands",
+          "Check where your story currently stands",
           "Post one update that advances the arc",
           "Reply to key audience questions to keep trust high",
         ],
         weekly: [
-          "Map the next three narrative beats",
+          "Map the next three story chapters",
           "Review what moved attention vs what moved trust",
         ],
       },
@@ -996,7 +996,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         "a community update with a clear next step",
       ],
       quickStart: [
-        "Pick the next narrative beat",
+        "Pick the next story chapter",
         "Write one update",
         "Decide what signal proves it worked",
       ],
@@ -1011,7 +1011,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
       bestFor: ["operators", "founders", "community-led brands"],
       loop: {
         input: "Pull signals from the audience",
-        action: "Turn them into content + product loops",
+        action: "Turn them into posts and product improvements",
         feedback: "Track retention and trust",
       },
       checklist: {
@@ -1022,7 +1022,7 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         ],
         weekly: [
           "Ship one audience-led content asset",
-          "Review which loops deepen trust vs only spike reach",
+          "Review what deepened trust vs what only spiked reach",
         ],
       },
       templates: [
@@ -1039,11 +1039,11 @@ const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
         {
           id: "community-flywheel-thread",
           label: "Thread skeleton",
-          text: "1) repeated audience pain 2) your answer 3) proof 4) invite the next loop",
+          text: "1) repeated audience pain 2) your answer 3) proof 4) invite the next conversation",
         },
       ],
       metrics: ["Repeat responders", "Community reply quality", "Retention signals"],
-      rationale: "At this stage, the best leverage comes from compounding trust, not just more reach.",
+      rationale: "At this stage, the biggest upside comes from repeated trust, not just more reach.",
       mistakes: [
         "Treating the audience like an engagement machine",
         "Ignoring repeated questions that signal demand",
@@ -2175,17 +2175,6 @@ function ChatPageContent() {
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [playbookStage, setPlaybookStage] = useState<PlaybookStageKey>("0-1k");
   const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
-  const [playbookDetailsOpen, setPlaybookDetailsOpen] = useState<{
-    rationale: boolean;
-    mistakes: boolean;
-    examples: boolean;
-    quickStart: boolean;
-  }>({
-    rationale: false,
-    mistakes: false,
-    examples: false,
-    quickStart: false,
-  });
   const [playbookTemplateTab, setPlaybookTemplateTab] =
     useState<PlaybookTemplateTab>("hook");
   const [copiedPlaybookTemplateId, setCopiedPlaybookTemplateId] = useState<string | null>(
@@ -2384,60 +2373,6 @@ function ChatPageContent() {
   const handleApplyPlaybook = useCallback((playbookId: string) => {
     setActivePlaybookId(playbookId);
   }, []);
-
-  const handleCopyCurrentPlaybookTemplates = useCallback(async () => {
-    if (!selectedPlaybook) {
-      return;
-    }
-
-    const exportLines = [
-      `${selectedPlaybook.name} • ${playbookTemplateTab.toUpperCase()} templates`,
-      "",
-      ...selectedPlaybookTemplates.map(
-        (template) => `${template.label}: ${template.text}`,
-      ),
-    ].join("\n");
-
-    try {
-      await navigator.clipboard.writeText(exportLines);
-      setCopiedPlaybookTemplateId("__templates__");
-      window.setTimeout(() => {
-        setCopiedPlaybookTemplateId((current) =>
-          current === "__templates__" ? null : current,
-        );
-      }, 1800);
-    } catch (error) {
-      console.error("Failed to copy playbook templates", error);
-    }
-  }, [playbookTemplateTab, selectedPlaybook, selectedPlaybookTemplates]);
-
-  const handleCopyPlaybookChecklist = useCallback(async () => {
-    if (!selectedPlaybook) {
-      return;
-    }
-
-    const checklistText = [
-      `${selectedPlaybook.name} checklist`,
-      "",
-      "Daily:",
-      ...selectedPlaybook.checklist.daily.map((item) => `- ${item}`),
-      "",
-      "2x / week:",
-      ...selectedPlaybook.checklist.weekly.map((item) => `- ${item}`),
-    ].join("\n");
-
-    try {
-      await navigator.clipboard.writeText(checklistText);
-      setCopiedPlaybookTemplateId("__checklist__");
-      window.setTimeout(() => {
-        setCopiedPlaybookTemplateId((current) =>
-          current === "__checklist__" ? null : current,
-        );
-      }, 1800);
-    } catch (error) {
-      console.error("Failed to copy playbook checklist", error);
-    }
-  }, [selectedPlaybook]);
   const preferencesPreviewDraft = useMemo(() => {
     const bullet =
       preferenceBulletStyle === "auto"
@@ -4597,7 +4532,7 @@ function ChatPageContent() {
                     className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                   >
                     <BarChart3 className="h-4 w-4 shrink-0" />
-                    <span>View Profile Analysis</span>
+                    <span>Analysis</span>
                   </button>
                   <button
                     type="button"
@@ -6212,19 +6147,17 @@ function ChatPageContent() {
                   </div>
 
                   <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
                       <div className="space-y-3">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                            Stage focus
-                          </p>
-                          <p className="mt-2 text-sm font-semibold text-white">
-                            {PLAYBOOK_STAGE_META[playbookStage].highlight}
-                          </p>
-                          <p className="mt-1 text-sm text-zinc-400">
-                            win condition: {PLAYBOOK_STAGE_META[playbookStage].winCondition}
-                          </p>
-                        </div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                          🧭 Stage focus
+                        </p>
+                        <p className="text-base font-semibold text-white">
+                          {PLAYBOOK_STAGE_META[playbookStage].highlight}
+                        </p>
+                        <p className="text-sm text-zinc-400">
+                          🎯 win condition: {PLAYBOOK_STAGE_META[playbookStage].winCondition}
+                        </p>
                         <div className="flex flex-wrap gap-2">
                           {PLAYBOOK_STAGE_META[playbookStage].priorities.map((priority) => (
                             <span
@@ -6237,14 +6170,20 @@ function ChatPageContent() {
                         </div>
                       </div>
 
-                      <div className="min-w-0 flex-1 rounded-3xl border border-white/10 bg-black/20 p-4 lg:max-w-sm">
-                        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                          <span>content mix</span>
-                          <span>
-                            replies {PLAYBOOK_STAGE_META[playbookStage].contentMix.replies}% • posts{" "}
-                            {PLAYBOOK_STAGE_META[playbookStage].contentMix.posts}% • threads{" "}
-                            {PLAYBOOK_STAGE_META[playbookStage].contentMix.threads}%
-                          </span>
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          📊 Content mix
+                        </p>
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-zinc-400">
+                          <div className="rounded-xl border border-white/10 px-2 py-2 text-center">
+                            replies {PLAYBOOK_STAGE_META[playbookStage].contentMix.replies}%
+                          </div>
+                          <div className="rounded-xl border border-white/10 px-2 py-2 text-center">
+                            posts {PLAYBOOK_STAGE_META[playbookStage].contentMix.posts}%
+                          </div>
+                          <div className="rounded-xl border border-white/10 px-2 py-2 text-center">
+                            threads {PLAYBOOK_STAGE_META[playbookStage].contentMix.threads}%
+                          </div>
                         </div>
                         <div className="mt-3 flex h-3 overflow-hidden rounded-full border border-white/10 bg-black/30">
                           <div
@@ -6270,20 +6209,23 @@ function ChatPageContent() {
                     </div>
                   </div>
 
-                  <section className="space-y-4">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                        Playbooks that work
+                  <section className="space-y-5">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                        📚 Core module
                       </p>
-                      <p className="mt-2 text-sm text-zinc-400">
-                        stage-based systems you can skim, copy from, and adapt.
+                      <h3 className="mt-2 text-2xl font-semibold text-white sm:text-3xl">
+                        Playbooks that work
+                      </h3>
+                      <p className="mt-2 text-sm text-zinc-300">
+                        compare proven playbooks for this stage, then review the full loop below.
                       </p>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {filteredStagePlaybooks.length > 0 ? (
                         <>
-                          <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+                          <div className="grid gap-3 md:grid-cols-2">
                             {filteredStagePlaybooks.map((playbook) => {
                               const isSelected = selectedPlaybook?.id === playbook.id;
 
@@ -6292,35 +6234,49 @@ function ChatPageContent() {
                                   key={playbook.id}
                                   type="button"
                                   onClick={() => handleApplyPlaybook(playbook.id)}
-                                  className={`whitespace-nowrap rounded-full border px-3 py-2 text-xs font-medium transition ${
+                                  className={`rounded-3xl border p-5 text-left transition ${
                                     isSelected
-                                      ? "border-white/25 bg-white text-black"
-                                      : "border-white/10 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+                                      ? "border-white/30 bg-white/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
+                                      : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]"
                                   }`}
+                                  aria-pressed={isSelected}
                                 >
-                                  {playbook.name}
+                                  <div className="flex items-start justify-between gap-3">
+                                    <p className="text-base font-semibold text-white">{playbook.name}</p>
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                                        isSelected
+                                          ? "bg-white text-black"
+                                          : "border border-white/10 text-zinc-500"
+                                      }`}
+                                    >
+                                      {isSelected ? "Viewing" : "Open"}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-3 text-sm leading-6 text-zinc-300">{playbook.outcome}</p>
+
+                                  <div className="mt-4 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                                      {playbook.timePerDay}
+                                    </span>
+                                    <span
+                                      title={`risk is inferred from difficulty (${playbook.difficulty.toLowerCase()})`}
+                                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
+                                    >
+                                      {getPlaybookRiskLabel(playbook.difficulty)}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-3 text-xs text-zinc-500">{playbook.whenItWorks}</p>
                                 </button>
                               );
                             })}
                           </div>
 
                           {selectedPlaybook ? (
-                            <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
-                              <p className="text-sm text-zinc-300">{selectedPlaybook.outcome}</p>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                                  {selectedPlaybook.timePerDay}
-                                </span>
-                                <span
-                                  title={`risk is inferred from difficulty (${selectedPlaybook.difficulty.toLowerCase()})`}
-                                  className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500"
-                                >
-                                  {getPlaybookRiskLabel(selectedPlaybook.difficulty)}
-                                </span>
-                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] text-zinc-500">
-                                  {selectedPlaybook.whenItWorks}
-                                </span>
-                              </div>
+                            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-400">
+                              now reviewing: <span className="font-medium text-zinc-200">{selectedPlaybook.name}</span>
                             </div>
                           ) : null}
                         </>
@@ -6338,7 +6294,7 @@ function ChatPageContent() {
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                           <div>
                             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                              Playbook details
+                              📝 Playbook details
                             </p>
                             <h3 className="mt-2 text-xl font-semibold text-white">
                               {selectedPlaybook.name}
@@ -6361,13 +6317,13 @@ function ChatPageContent() {
 
                         <div className="mt-5">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                            The loop
+                            🔁 The loop
                           </p>
                           <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">
                             {[
-                              { label: "Input", value: selectedPlaybook.loop.input },
-                              { label: "Action", value: selectedPlaybook.loop.action },
-                              { label: "Feedback", value: selectedPlaybook.loop.feedback },
+                              { label: "🧩 Input", value: selectedPlaybook.loop.input },
+                              { label: "⚡ Action", value: selectedPlaybook.loop.action },
+                              { label: "📈 Feedback", value: selectedPlaybook.loop.feedback },
                             ].map((step, index) => (
                               <Fragment key={step.label}>
                                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -6394,7 +6350,7 @@ function ChatPageContent() {
                           <div className="flex items-center gap-3">
                             <BarChart3 className="h-4 w-4 text-zinc-500" />
                             <div>
-                              <p className="text-sm font-semibold text-white">What good looks like</p>
+                              <p className="text-sm font-semibold text-white">✅ What good looks like</p>
                               <p className="text-xs text-zinc-500">3–5 benchmarks worth tracking.</p>
                             </div>
                           </div>
@@ -6415,7 +6371,7 @@ function ChatPageContent() {
                           <div className="flex items-center gap-3">
                             <List className="h-4 w-4 text-zinc-500" />
                             <div>
-                              <p className="text-sm font-semibold text-white">Today’s checklist</p>
+                              <p className="text-sm font-semibold text-white">🗓️ Today’s checklist</p>
                               <p className="text-xs text-zinc-500">Daily + weekly loop to keep reps high.</p>
                             </div>
                           </div>
@@ -6457,7 +6413,7 @@ function ChatPageContent() {
                           <div className="flex items-center gap-3">
                             <BookOpen className="h-4 w-4 text-zinc-500" />
                             <div>
-                              <p className="text-sm font-semibold text-white">Templates</p>
+                              <p className="text-sm font-semibold text-white">🧰 Templates</p>
                               <p className="text-xs text-zinc-500">Hook / Reply / Thread / CTA</p>
                             </div>
                           </div>
@@ -6524,105 +6480,57 @@ function ChatPageContent() {
                         </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPlaybookDetailsOpen((current) => ({
-                              ...current,
-                              quickStart: !current.quickStart,
-                            }))
-                          }
-                          className="flex w-full items-center justify-between rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-4 text-left transition hover:bg-white/[0.04]"
-                        >
-                          <div>
-                            <p className="text-sm font-semibold text-white">Start in 15 min</p>
-                            <p className="mt-1 text-xs text-zinc-500">A fast read-only quickstart.</p>
-                          </div>
-                          {playbookDetailsOpen.quickStart ? (
-                            <ChevronUp className="h-4 w-4 text-zinc-500" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-zinc-500" />
-                          )}
-                        </button>
+                      <div className="grid gap-4 lg:grid-cols-3">
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <p className="text-sm font-semibold text-white">🚀 Start in 15 min</p>
+                          <ol className="mt-4 space-y-3 text-sm text-zinc-300">
+                            {selectedPlaybook.quickStart.map((item, index) => (
+                              <li key={item} className="flex items-start gap-3">
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] font-semibold text-zinc-400">
+                                  {index + 1}
+                                </span>
+                                <span className="leading-6">{item}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
 
-                        {playbookDetailsOpen.quickStart ? (
-                          <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                            <ol className="space-y-3 text-sm text-zinc-300">
-                              {selectedPlaybook.quickStart.map((item, index) => (
-                                <li key={item} className="flex items-start gap-3">
-                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] font-semibold text-zinc-400">
-                                    {index + 1}
-                                  </span>
-                                  <span className="leading-6">{item}</span>
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                          <p className="text-sm font-semibold text-white">🧠 Why this playbook works</p>
+                          <p className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300">
+                            {selectedPlaybook.rationale}
+                          </p>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                            <p className="text-sm font-semibold text-white">⚠️ Common mistakes</p>
+                            <ul className="mt-4 space-y-2">
+                              {selectedPlaybook.mistakes.map((item) => (
+                                <li
+                                  key={item}
+                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
+                                >
+                                  {item}
                                 </li>
                               ))}
-                            </ol>
+                            </ul>
                           </div>
-                        ) : null}
 
-                        {(
-                          [
-                            {
-                              key: "rationale" as const,
-                              title: "Why this playbook works",
-                              body: selectedPlaybook.rationale,
-                            },
-                            {
-                              key: "mistakes" as const,
-                              title: "Common mistakes",
-                              body: selectedPlaybook.mistakes,
-                            },
-                            {
-                              key: "examples" as const,
-                              title: "Examples",
-                              body: selectedPlaybook.examples.slice(0, 3),
-                            },
-                          ] as const
-                        ).map((section) => (
-                          <div
-                            key={section.key}
-                            className="rounded-3xl border border-white/10 bg-white/[0.02]"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPlaybookDetailsOpen((current) => ({
-                                  ...current,
-                                  [section.key]: !current[section.key],
-                                }))
-                              }
-                              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
-                            >
-                              <p className="text-sm font-semibold text-white">{section.title}</p>
-                              {playbookDetailsOpen[section.key] ? (
-                                <ChevronUp className="h-4 w-4 text-zinc-500" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-zinc-500" />
-                              )}
-                            </button>
-                            {playbookDetailsOpen[section.key] ? (
-                              Array.isArray(section.body) ? (
-                                <ul className="space-y-2 px-5 pb-5 text-sm text-zinc-300">
-                                  {section.body.map((item) => (
-                                    <li
-                                      key={item}
-                                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 leading-6"
-                                    >
-                                      {item}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <div className="px-5 pb-5">
-                                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300">
-                                    {section.body}
-                                  </div>
-                                </div>
-                              )
-                            ) : null}
+                          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                            <p className="text-sm font-semibold text-white">🧪 Examples</p>
+                            <ul className="mt-4 space-y-2">
+                              {selectedPlaybook.examples.slice(0, 3).map((item) => (
+                                <li
+                                  key={item}
+                                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-zinc-300"
+                                >
+                                  {item}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                        ))}
+                        </div>
                       </div>
                     </section>
                   ) : null}
@@ -6635,31 +6543,9 @@ function ChatPageContent() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyCurrentPlaybookTemplates()}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/[0.04]"
-                  >
-                    {copiedPlaybookTemplateId === "__templates__" ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                    <span>Copy templates</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyPlaybookChecklist()}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/[0.04]"
-                  >
-                    {copiedPlaybookTemplateId === "__checklist__" ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                    <span>Copy checklist</span>
-                  </button>
+                  <p className="text-xs text-zinc-500">
+                    work in progress: this guide is still being updated.
+                  </p>
 
                   <button
                     type="button"
