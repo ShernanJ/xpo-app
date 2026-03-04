@@ -1468,7 +1468,7 @@ function ChatPageContent() {
     const lines = [
       "building xpo in public means shipping before it feels perfect.",
       preferenceAllowProfanity
-        ? "this grind gets damn real, but the reps are worth it."
+        ? "this grind gets fucking real, but the reps are worth it."
         : "this grind gets real, but the reps are worth it.",
       `${bullet} testing ideas fast`,
       `${bullet} listening to what people actually need`,
@@ -1529,6 +1529,58 @@ function ChatPageContent() {
       ),
     [effectivePreferenceMaxCharacters, preferencesPreviewDraft],
   );
+  const preferenceConstraintRules = useMemo(() => {
+    const nextConstraints: string[] = [];
+
+    if (preferenceCasing === "lowercase") {
+      nextConstraints.push("Write in all lowercase.");
+    } else if (preferenceCasing === "uppercase") {
+      nextConstraints.push("Write in uppercase.");
+    }
+
+    nextConstraints.push(
+      `When using lists, use "${preferenceBulletStyle}" as the list marker.`,
+    );
+
+    if (preferenceUseEmojis) {
+      nextConstraints.push("Emojis are allowed, but keep them light and intentional.");
+    } else {
+      nextConstraints.push("Do not use emojis.");
+    }
+
+    if (preferenceAllowProfanity) {
+      nextConstraints.push("Profanity is allowed if it fits the voice.");
+    } else {
+      nextConstraints.push("Avoid profanity.");
+    }
+
+    const blockedTerms = preferenceBlacklistedTerms
+      .split(",")
+      .map((term) => term.trim())
+      .filter(Boolean);
+
+    if (blockedTerms.length > 0) {
+      nextConstraints.push(
+        `Never use these words or emojis: ${blockedTerms.join(", ")}.`,
+      );
+    }
+
+    if (isVerifiedAccount) {
+      nextConstraints.push(
+        `Prefer staying under ${effectivePreferenceMaxCharacters.toLocaleString()} characters unless the user explicitly asks for longer.`,
+      );
+    }
+
+    return nextConstraints;
+  }, [
+    effectivePreferenceMaxCharacters,
+    isVerifiedAccount,
+    preferenceAllowProfanity,
+    preferenceBlacklistedTerms,
+    preferenceBulletStyle,
+    preferenceCasing,
+    preferenceUseEmojis,
+  ]);
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
@@ -2762,6 +2814,9 @@ function ChatPageContent() {
             ...(effectiveSelectedDraftContext
               ? { selectedDraftContext: effectiveSelectedDraftContext }
               : {}),
+            ...(preferenceConstraintRules.length > 0
+              ? { preferenceConstraints: preferenceConstraintRules }
+              : {}),
             pinnedVoicePostIds,
             pinnedEvidencePostIds,
             ...resolvedToneInputs,
@@ -3068,6 +3123,7 @@ function ChatPageContent() {
       providerPreference,
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
+      preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
       accountName,
@@ -4824,7 +4880,17 @@ function ChatPageContent() {
                             <Smile className="h-4 w-4 text-zinc-500" />
                             <span className="text-sm text-zinc-300">Use emojis</span>
                           </div>
-                          <span className={`h-2.5 w-2.5 rounded-full ${preferenceUseEmojis ? "bg-emerald-400" : "bg-zinc-700"}`} />
+                          <span
+                            className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
+                              preferenceUseEmojis ? "bg-emerald-500/70" : "bg-zinc-800"
+                            }`}
+                          >
+                            <span
+                              className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                                preferenceUseEmojis ? "translate-x-5" : "translate-x-0"
+                              }`}
+                            />
+                          </span>
                         </button>
 
                         <button
@@ -4840,7 +4906,17 @@ function ChatPageContent() {
                             <Ban className="h-4 w-4 text-zinc-500" />
                             <span className="text-sm text-zinc-300">Allow profanity</span>
                           </div>
-                          <span className={`h-2.5 w-2.5 rounded-full ${preferenceAllowProfanity ? "bg-emerald-400" : "bg-zinc-700"}`} />
+                          <span
+                            className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
+                              preferenceAllowProfanity ? "bg-emerald-500/70" : "bg-zinc-800"
+                            }`}
+                          >
+                            <span
+                              className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                                preferenceAllowProfanity ? "translate-x-5" : "translate-x-0"
+                              }`}
+                            />
+                          </span>
                         </button>
                       </div>
 

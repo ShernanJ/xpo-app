@@ -57,6 +57,7 @@ export interface OrchestratorInput {
   explicitIntent?: V2ChatIntent | null;
   activeDraft?: string;
   formatPreference?: DraftFormatPreference | null;
+  preferenceConstraints?: string[];
 }
 
 export interface OrchestratorData {
@@ -767,6 +768,12 @@ export async function manageConversationTurn(
   let memory = createConversationMemorySnapshot(
     memoryRecord as unknown as Record<string, unknown>,
   );
+  const effectiveActiveConstraints = Array.from(
+    new Set([
+      ...memory.activeConstraints,
+      ...((input.preferenceConstraints || []).filter((value) => value.trim().length > 0)),
+    ]),
+  );
 
   let classification;
   if (!explicitIntent) {
@@ -854,7 +861,7 @@ export async function manageConversationTurn(
     rollingSummary: memory.rollingSummary,
     topicAnchors: anchors.topicAnchors,
     contextAnchors: styleCard?.contextAnchors || [],
-    activeConstraints: memory.activeConstraints,
+    activeConstraints: effectiveActiveConstraints,
   });
 
   const effectiveContext = buildEffectiveContext({
@@ -862,7 +869,7 @@ export async function manageConversationTurn(
     rollingSummary: memory.rollingSummary,
     relevantTopicAnchors,
     contextAnchors: styleCard?.contextAnchors || [],
-    activeConstraints: memory.activeConstraints,
+    activeConstraints: effectiveActiveConstraints,
   });
 
   const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
@@ -990,7 +997,7 @@ User Profile Summary:
         approvedPlan,
         styleCard,
         relevantTopicAnchors,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
@@ -1014,7 +1021,7 @@ User Profile Summary:
 
       const criticOutput = await critiqueDrafts(
         writerOutput,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         styleCard,
         {
           maxCharacterLimit,
@@ -1065,7 +1072,7 @@ User Profile Summary:
         currentSummary: memory.rollingSummary,
         topicSummary: approvedPlan.objective,
         approvedPlan,
-        activeConstraints: memory.activeConstraints,
+        activeConstraints: effectiveActiveConstraints,
         latestDraftStatus: "Draft delivered",
         formatPreference: approvedPlan.formatPreference || turnFormatPreference,
       });
@@ -1110,7 +1117,7 @@ User Profile Summary:
       const revisedPlan = await generatePlan(
         revisionPrompt,
         memory.topicSummary,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
@@ -1428,7 +1435,7 @@ User Profile Summary:
               currentSummary: memory.rollingSummary,
               topicSummary: userMessage,
               approvedPlan: null,
-              activeConstraints: memory.activeConstraints,
+              activeConstraints: effectiveActiveConstraints,
               latestDraftStatus: "Ideation in progress",
               formatPreference: memory.formatPreference || turnFormatPreference,
               unresolvedQuestion: ideas?.close || null,
@@ -1449,7 +1456,7 @@ User Profile Summary:
       const plan = await generatePlan(
         userMessage,
         memory.topicSummary,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
@@ -1510,7 +1517,7 @@ User Profile Summary:
           revision,
           styleCard,
           topicAnchors: relevantTopicAnchors,
-          activeConstraints: memory.activeConstraints,
+          activeConstraints: effectiveActiveConstraints,
           recentHistory: effectiveContext,
           options: {
             conversationState: "editing",
@@ -1539,7 +1546,7 @@ User Profile Summary:
             whyThisWorks: "",
             watchOutFor: "",
           },
-          memory.activeConstraints,
+          effectiveActiveConstraints,
           styleCard,
           {
             maxCharacterLimit,
@@ -1568,7 +1575,7 @@ User Profile Summary:
               currentSummary: memory.rollingSummary,
               topicSummary: memory.topicSummary,
               approvedPlan: memory.pendingPlan,
-              activeConstraints: memory.activeConstraints,
+              activeConstraints: effectiveActiveConstraints,
               latestDraftStatus: "Draft revised",
               formatPreference: memory.formatPreference || turnFormatPreference,
             })
@@ -1622,7 +1629,7 @@ User Profile Summary:
       const plan = await generatePlan(
         draftInstruction,
         memory.topicSummary,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
@@ -1653,7 +1660,7 @@ User Profile Summary:
         planWithPreference,
         styleCard,
         relevantTopicAnchors,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
@@ -1677,7 +1684,7 @@ User Profile Summary:
 
       const criticOutput = await critiqueDrafts(
         writerOutput,
-        memory.activeConstraints,
+        effectiveActiveConstraints,
         styleCard,
         {
           maxCharacterLimit,
@@ -1730,7 +1737,7 @@ User Profile Summary:
             currentSummary: memory.rollingSummary,
             topicSummary: planWithPreference.objective,
             approvedPlan: planWithPreference,
-            activeConstraints: memory.activeConstraints,
+            activeConstraints: effectiveActiveConstraints,
             latestDraftStatus: "Draft delivered",
             formatPreference:
               planWithPreference.formatPreference || turnFormatPreference,
@@ -1795,7 +1802,7 @@ User Profile Summary:
             currentSummary: memory.rollingSummary,
             topicSummary: memory.topicSummary,
             approvedPlan: memory.pendingPlan,
-            activeConstraints: memory.activeConstraints,
+            activeConstraints: effectiveActiveConstraints,
             latestDraftStatus: "Context gathering",
             formatPreference: memory.formatPreference || turnFormatPreference,
             unresolvedQuestion: coachReply?.probingQuestion || null,

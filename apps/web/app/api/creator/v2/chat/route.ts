@@ -24,6 +24,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   contentFocus?: unknown;
   selectedDraftContext?: unknown;
   formatPreference?: unknown;
+  preferenceConstraints?: unknown;
 }
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
@@ -358,6 +359,12 @@ export async function POST(request: NextRequest) {
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
   const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
   const selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
+  const preferenceConstraints = Array.isArray(body.preferenceConstraints)
+    ? body.preferenceConstraints
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
 
   const effectiveMessage = (() => {
     if (message) return message;
@@ -469,6 +476,7 @@ export async function POST(request: NextRequest) {
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
       formatPreference,
+      preferenceConstraints,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);

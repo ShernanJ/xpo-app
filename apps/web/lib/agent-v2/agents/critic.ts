@@ -60,8 +60,8 @@ function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
 
 function stripUnsupportedXMarkdown(value: string): string {
   return value
-    .replace(/\*\*(.*?)\*\*/gs, "$1")
-    .replace(/__(.*?)__/gs, "$1")
+    .replace(/\*\*([\s\S]*?)\*\*/g, "$1")
+    .replace(/__([\s\S]*?)__/g, "$1")
     .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=$|[\s).,!?:;])/g, "$1$2")
     .replace(/(^|[\s(])_(?!\s)([^_\n]+?)_(?=$|[\s).,!?:;])/g, "$1$2")
     .replace(/`([^`\n]+)`/g, "$1")
