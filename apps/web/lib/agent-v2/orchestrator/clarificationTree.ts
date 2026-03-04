@@ -282,12 +282,13 @@ function buildFormatAwareDraftChip(args: {
 }
 
 function buildAngleChip(primaryTopic: string | null): CreatorChatQuickReply {
+  const topicLabel = primaryTopic ? compactTopicLabel(primaryTopic) : null;
   return {
     kind: "clarification_choice",
     value: primaryTopic
-      ? `help me pick a sharper angle for ${primaryTopic}`
-      : "help me pick a sharper angle in my usual lane",
-    label: "Pick an angle first",
+      ? `give me 3 grounded angle options for ${primaryTopic}. stay inside that topic, keep them close to what i usually post about, and do not reset broader than it.`
+      : "give me 3 grounded angle options in my usual lane. keep them close to my normal topics and do not reset into something generic.",
+    label: topicLabel ? `Angle on ${topicLabel}` : "Pick an angle first",
     explicitIntent: "ideate",
   };
 }
