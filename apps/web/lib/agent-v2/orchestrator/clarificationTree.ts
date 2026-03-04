@@ -67,6 +67,14 @@ function buildSeededChoices(
 }
 
 export function buildClarificationTree(args: ClarificationTreeArgs): ClarificationTreeResult {
+  const hasWeakSeed = (value: string | null): boolean => {
+    const normalized = value?.trim().toLowerCase() || "";
+    return (
+      !normalized ||
+      ["what", "this", "that", "it", "me", "my thing", "something"].includes(normalized)
+    );
+  };
+
   if (args.branchKey === "plan_reject") {
     const quickReplies: CreatorChatQuickReply[] = [
       {
@@ -210,7 +218,9 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
   }
 
   if (args.branchKey === "entity_context_missing") {
-    const entityLabel = args.seedTopic?.trim() || "that tool";
+    const entityLabel = hasWeakSeed(args.seedTopic)
+      ? "that tool"
+      : args.seedTopic?.trim() || "that tool";
     return {
       reply: `quick check: what is ${entityLabel} in one line, and what does your thing actually do with it?`,
       quickReplies: [],

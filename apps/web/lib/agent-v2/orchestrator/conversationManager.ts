@@ -26,7 +26,7 @@ import {
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
-import { getXCharacterLimitForAccount } from "../../onboarding/draftArtifacts";
+import { getXCharacterLimitForFormat } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import {
@@ -253,8 +253,58 @@ function inferMissingSpecificQuestion(message: string): string | null {
 }
 
 function inferNamedEntity(message: string): string | null {
-  const match = message.match(/\b(?:for|with|using|like)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i);
-  return match?.[1]?.trim().replace(/[.?!,]+$/, "") || null;
+  const cleanCandidate = (value: string | undefined): string | null => {
+    const candidate = value?.trim().replace(/[.?!,]+$/, "") || "";
+    if (!candidate) {
+      return null;
+    }
+
+    const normalized = candidate.toLowerCase();
+    const weakSeeds = new Set([
+      "me",
+      "myself",
+      "my",
+      "i",
+      "it",
+      "this",
+      "that",
+      "what",
+      "something",
+      "someone",
+      "anything",
+      "everything",
+      "my thing",
+    ]);
+
+    if (
+      weakSeeds.has(normalized) ||
+      normalized.startsWith("my ") ||
+      normalized.startsWith("me ") ||
+      normalized.includes(" for ") ||
+      normalized.includes(" with ") ||
+      normalized.includes(" using ")
+    ) {
+      return null;
+    }
+
+    return candidate;
+  };
+
+  const productLinkedMatch = message.match(
+    /\b(?:extension|plugin|tool|app|product)\s+(?:for|with|using)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i,
+  );
+  const comparisonMatch = message.match(
+    /\b(?:like|alongside)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i,
+  );
+  const genericMatch = message.match(
+    /\b(?:for|with|using)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i,
+  );
+
+  return (
+    cleanCandidate(productLinkedMatch?.[1]) ||
+    cleanCandidate(comparisonMatch?.[1]) ||
+    cleanCandidate(genericMatch?.[1])
+  );
 }
 
 function evaluateDraftContextSlots(args: {
@@ -272,10 +322,15 @@ function evaluateDraftContextSlots(args: {
   const trimmed = args.userMessage.trim();
   const normalized = trimmed.toLowerCase();
   const namedEntity = inferNamedEntity(trimmed);
+  const hasProductCue = ["tool", "app", "product", "extension", "plugin"].some((cue) =>
+    normalized.includes(cue),
+  );
+  const looksLikeComparison = Boolean(inferComparisonReference(trimmed));
   const isProductLike =
-    Boolean(namedEntity) ||
     looksLikeBuildMessage(normalized) ||
-    ["tool", "app", "product", "extension", "plugin"].some((cue) => normalized.includes(cue));
+    hasProductCue ||
+    (Boolean(namedEntity) && looksLikeComparison) ||
+    (Boolean(namedEntity) && hasRelationshipDetail(normalized));
   const subjectKnown = Boolean((args.topicSummary || trimmed).trim());
   const behaviorKnown = hasFunctionalDetail(normalized);
   const stakesKnown = hasProblemDetail(normalized);
@@ -343,6 +398,10 @@ function inferAbstractTopicSeed(
     /^[a-z0-9\s/&'’-]+$/i.test(trimmed);
 
   if (!isShortTopic) {
+    return null;
+  }
+
+  if (["what", "this", "that", "it", "something", "anything"].includes(normalized)) {
     return null;
   }
 
@@ -810,7 +869,6 @@ export async function manageConversationTurn(
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
   const onboardingProfile = onboardingResult?.profile as Record<string, unknown> | undefined;
   const isVerifiedAccount = onboardingProfile?.isVerified === true;
-  const maxCharacterLimit = getXCharacterLimitForAccount(isVerifiedAccount);
   const stage = typeof onboardingResult?.growthStage === "string"
     ? onboardingResult.growthStage
     : "Unknown";
@@ -882,6 +940,10 @@ User Profile Summary:
   const turnFormatPreference = isVerifiedAccount
     ? requestedFormatPreference
     : "shortform";
+  const maxCharacterLimit = getXCharacterLimitForFormat(
+    isVerifiedAccount,
+    turnFormatPreference,
+  );
   let draftInstruction = userMessage;
 
   if (

@@ -24,6 +24,7 @@ export interface DraftArtifactInput {
 
 export const SHORT_FORM_X_LIMIT = 280;
 export const LONG_FORM_X_LIMIT = 25_000;
+export type DraftLengthMode = "shortform" | "longform";
 
 export function getXCharacterLimitForShape(
   outputShape: CreatorGenerationOutputShape,
@@ -33,6 +34,17 @@ export function getXCharacterLimitForShape(
 
 export function getXCharacterLimitForAccount(isVerified: boolean): number {
   return isVerified ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT;
+}
+
+export function getXCharacterLimitForFormat(
+  isVerified: boolean,
+  formatPreference: DraftLengthMode,
+): number {
+  if (formatPreference === "longform" && isVerified) {
+    return LONG_FORM_X_LIMIT;
+  }
+
+  return SHORT_FORM_X_LIMIT;
 }
 
 export function buildDraftArtifacts(params: {

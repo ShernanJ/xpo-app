@@ -1,4 +1,8 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
+import {
+  inferLowercasePreference,
+  inferPreferredListMarker,
+} from "../core/voiceSignals";
 import type {
   ConversationState,
   DraftFormatPreference,
@@ -77,11 +81,21 @@ export function buildVoiceHydrationBlock(styleCard: VoiceStyleCard | null): stri
     return "VOICE BIAS: Mirror a direct, casual peer by default.";
   }
 
+  const prefersLowercase = inferLowercasePreference(styleCard);
+  const preferredListMarker = inferPreferredListMarker(styleCard);
+
   return [
     "VOICE BIAS:",
+    "- Match the creator's actual voice. Do not make it more polished, corporate, or professional just because the account is verified or established.",
     `- Pacing: ${styleCard.pacing || "direct and conversational"}`,
     `- Familiar openers: ${normalizeList(styleCard.sentenceOpenings || [], "none recorded")}`,
     `- Vocabulary: ${normalizeList(styleCard.slangAndVocabulary || [], "keep it plainspoken")}`,
+    prefersLowercase
+      ? "- Casing: keep it all lowercase unless a proper noun or URL truly needs otherwise."
+      : "- Casing: follow the creator's normal casing instead of defaulting to formal title-case phrasing.",
+    preferredListMarker
+      ? `- Lists: when writing list items, prefer "${preferredListMarker}" as the bullet marker.`
+      : "- Lists: preserve the creator's usual list style when they use bullet points.",
     styleCard.formattingRules?.length
       ? `- Formatting: ${styleCard.formattingRules.join(" | ")}`
       : "- Formatting: keep it readable and natural.",

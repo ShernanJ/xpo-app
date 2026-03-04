@@ -8,7 +8,7 @@ export const StyleCardSchema = z.object({
   pacing: z.string().describe("How the user paces their text (e.g. 'short, punchy single-line sentences', 'long flowing paragraphs', 'bullet heavy')"),
   emojiPatterns: z.array(z.string()).describe("Specific emojis the user frequently uses and in what context"),
   slangAndVocabulary: z.array(z.string()).describe("Specific jargon, slang, or unique vocabulary words explicitly used by the user"),
-  formattingRules: z.array(z.string()).describe("Rules around capitalization, punctuation, line breaks (e.g. 'never uses capitalization', 'double line breaks between sentences')"),
+  formattingRules: z.array(z.string()).describe("Rules around capitalization, punctuation, line breaks, and list markers (e.g. 'never uses capitalization', 'double line breaks between sentences', 'uses - for bullets', 'uses > for bullets')"),
   customGuidelines: z.array(z.string()).default([]).describe("Explicit stylistic feedback or rules the user dictates (e.g. 'Never use emojis', 'Make it less cringe')"),
   contextAnchors: z.array(z.string()).default([]).describe("Explicit facts the user has told the bot about themselves or their project"),
   antiExamples: z
@@ -62,8 +62,12 @@ You are an expert copywriter and forensic linguist analyzing a creator's specifi
 Analyze the provided batch of posts to extract the creator's exact "Voice Style Card".
 This card will be used to generate future content that sounds exactly like them.
 
-Focus exclusively on STRUCTURE, CADENCE, VOCABULARY, and FORMATTING. 
+Focus exclusively on STRUCTURE, CADENCE, VOCABULARY, and FORMATTING.
 Do NOT analyze the topics they talk about, focus only on HOW they write.
+Explicitly capture:
+- whether they write in all lowercase vs normal capitalization
+- whether they prefer bullet markers like "-" or ">"
+- their line break rhythm and punctuation habits
 
 Creator's Posts to analyze:
 ${postsText}
