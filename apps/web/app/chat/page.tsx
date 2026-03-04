@@ -183,6 +183,8 @@ interface PreferencesFailure {
 type PreferencesResponse = PreferencesSuccess | PreferencesFailure;
 
 type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
+type FeedbackReportStatus = "open" | "resolved" | "cancelled";
+type FeedbackReportFilter = "all" | FeedbackReportStatus;
 
 interface FeedbackAttachmentPayload {
   id: string;
@@ -212,6 +214,8 @@ interface FeedbackHistoryItem {
   id: string;
   createdAt: string;
   category: FeedbackCategory;
+  status?: FeedbackReportStatus;
+  statusUpdatedAt?: string;
   title?: string | null;
   message: string;
   attachments: FeedbackAttachmentPayload[];
@@ -230,6 +234,32 @@ interface FeedbackHistoryFailure {
 }
 
 type FeedbackHistoryResponse = FeedbackHistorySuccess | FeedbackHistoryFailure;
+
+interface FeedbackStatusUpdateSuccess {
+  ok: true;
+  data: {
+    submission: FeedbackHistoryItem;
+  };
+}
+
+interface FeedbackStatusUpdateFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type FeedbackStatusUpdateResponse =
+  | FeedbackStatusUpdateSuccess
+  | FeedbackStatusUpdateFailure;
+
+const FEEDBACK_HISTORY_FILTER_OPTIONS: Array<{
+  value: FeedbackReportFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "resolved", label: "Resolved" },
+  { value: "cancelled", label: "Cancelled" },
+];
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -640,6 +670,35 @@ function formatFileSize(sizeBytes: number): string {
 
   const mb = kb / 1024;
   return `${mb.toFixed(1)} MB`;
+}
+
+function normalizeFeedbackStatus(
+  status: FeedbackReportStatus | undefined,
+): FeedbackReportStatus {
+  return status ?? "open";
+}
+
+function formatFeedbackStatusLabel(status: FeedbackReportStatus): string {
+  switch (status) {
+    case "resolved":
+      return "Resolved";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return "Open";
+  }
+}
+
+function getFeedbackStatusPillClassName(status: FeedbackReportStatus): string {
+  if (status === "resolved") {
+    return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
+  }
+
+  if (status === "cancelled") {
+    return "border-rose-300/30 bg-rose-300/10 text-rose-200";
+  }
+
+  return "border-white/10 text-zinc-300";
 }
 
 function isSupportedFeedbackFile(file: File): boolean {
@@ -2579,7 +2638,12 @@ function ChatPageContent() {
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackHistoryItem[]>(
     [],
   );
+  const [feedbackHistoryFilter, setFeedbackHistoryFilter] =
+    useState<FeedbackReportFilter>("all");
   const [isFeedbackHistoryLoading, setIsFeedbackHistoryLoading] = useState(false);
+  const [feedbackStatusUpdatingIds, setFeedbackStatusUpdatingIds] = useState<
+    Record<string, boolean>
+  >({});
   const feedbackEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackImagesRef = useRef(feedbackImages);
@@ -2802,6 +2866,33 @@ function ChatPageContent() {
     ],
     [accountName, activeThreadId, context?.account],
   );
+  const feedbackHistoryCounts = useMemo(
+    () =>
+      feedbackHistory.reduce(
+        (acc, entry) => {
+          const normalizedStatus = normalizeFeedbackStatus(entry.status);
+          acc.all += 1;
+          acc[normalizedStatus] += 1;
+          return acc;
+        },
+        {
+          all: 0,
+          open: 0,
+          resolved: 0,
+          cancelled: 0,
+        } as Record<FeedbackReportFilter, number>,
+      ),
+    [feedbackHistory],
+  );
+  const filteredFeedbackHistory = useMemo(() => {
+    if (feedbackHistoryFilter === "all") {
+      return feedbackHistory;
+    }
+
+    return feedbackHistory.filter(
+      (entry) => normalizeFeedbackStatus(entry.status) === feedbackHistoryFilter,
+    );
+  }, [feedbackHistory, feedbackHistoryFilter]);
   const clearFeedbackImages = useCallback(() => {
     setFeedbackImages((current) => {
       for (const image of current) {
@@ -2835,6 +2926,7 @@ function ChatPageContent() {
       }
 
       setFeedbackHistory(result.data.submissions);
+      setFeedbackStatusUpdatingIds({});
     } catch (error) {
       console.error("Failed to load feedback history", error);
       setFeedbackHistory([]);
@@ -2842,6 +2934,64 @@ function ChatPageContent() {
       setIsFeedbackHistoryLoading(false);
     }
   }, []);
+  const updateFeedbackSubmissionStatus = useCallback(
+    async (submissionId: string, status: FeedbackReportStatus) => {
+      setFeedbackStatusUpdatingIds((current) => ({
+        ...current,
+        [submissionId]: true,
+      }));
+      setFeedbackSubmitNotice(null);
+
+      try {
+        const response = await fetch("/api/creator/v2/feedback", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            submissionId,
+            status,
+          }),
+        });
+        const result: FeedbackStatusUpdateResponse = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(
+            !result.ok
+              ? result.errors[0]?.message || "Failed to update report status."
+              : "Failed to update report status.",
+          );
+        }
+
+        setFeedbackHistory((current) =>
+          current.map((entry) =>
+            entry.id === submissionId
+              ? {
+                  ...entry,
+                  status: result.data.submission.status,
+                  statusUpdatedAt: result.data.submission.statusUpdatedAt,
+                }
+              : entry,
+          ),
+        );
+        setFeedbackSubmitNotice(
+          `Report marked ${formatFeedbackStatusLabel(status).toLowerCase()}.`,
+        );
+      } catch (error) {
+        const fallbackMessage =
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while updating the report status.";
+        setFeedbackSubmitNotice(fallbackMessage);
+      } finally {
+        setFeedbackStatusUpdatingIds((current) => {
+          const next = { ...current };
+          delete next[submissionId];
+          return next;
+        });
+      }
+    },
+    [],
+  );
   const appendFeedbackImageFiles = useCallback((files: File[]) => {
     if (files.length === 0) {
       return;
@@ -7101,17 +7251,45 @@ function ChatPageContent() {
                           <span className="text-xs text-zinc-500">Loading…</span>
                         ) : null}
                       </div>
-
                       {feedbackHistory.length > 0 ? (
-                        <div className="mt-4 space-y-3">
-                          {feedbackHistory.map((entry) => (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {FEEDBACK_HISTORY_FILTER_OPTIONS.map((option) => {
+                            const isActive = feedbackHistoryFilter === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => setFeedbackHistoryFilter(option.value)}
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
+                                  isActive
+                                    ? "border-white/40 bg-white/[0.12] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                                }`}
+                              >
+                                {option.label} ({feedbackHistoryCounts[option.value]})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      {filteredFeedbackHistory.length > 0 ? (
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          {filteredFeedbackHistory.map((entry) => (
                             <article
                               key={entry.id}
-                              className="rounded-2xl border border-white/10 bg-black/30 p-4"
+                              className="h-full rounded-2xl border border-white/10 bg-black/30 p-4"
                             >
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
                                   {FEEDBACK_CATEGORY_CONFIG[entry.category].label}
+                                </span>
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getFeedbackStatusPillClassName(
+                                    normalizeFeedbackStatus(entry.status),
+                                  )}`}
+                                >
+                                  {formatFeedbackStatusLabel(normalizeFeedbackStatus(entry.status))}
                                 </span>
                                 <span className="text-[11px] text-zinc-500">
                                   {new Date(entry.createdAt).toLocaleString()}
@@ -7129,9 +7307,59 @@ function ChatPageContent() {
                                   {entry.attachments.length === 1 ? "" : "s"} attached
                                 </p>
                               ) : null}
+                              {entry.statusUpdatedAt ? (
+                                <p className="mt-2 text-[11px] text-zinc-500">
+                                  status updated {new Date(entry.statusUpdatedAt).toLocaleString()}
+                                </p>
+                              ) : null}
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {normalizeFeedbackStatus(entry.status) === "open" ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={Boolean(feedbackStatusUpdatingIds[entry.id])}
+                                      onClick={() =>
+                                        void updateFeedbackSubmissionStatus(entry.id, "resolved")
+                                      }
+                                      className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-200 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {feedbackStatusUpdatingIds[entry.id]
+                                        ? "Updating"
+                                        : "Mark resolved"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={Boolean(feedbackStatusUpdatingIds[entry.id])}
+                                      onClick={() =>
+                                        void updateFeedbackSubmissionStatus(entry.id, "cancelled")
+                                      }
+                                      className="rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-200 transition hover:bg-rose-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {feedbackStatusUpdatingIds[entry.id]
+                                        ? "Updating"
+                                        : "Mark cancelled"}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(feedbackStatusUpdatingIds[entry.id])}
+                                    onClick={() =>
+                                      void updateFeedbackSubmissionStatus(entry.id, "open")
+                                    }
+                                    className="rounded-full border border-white/15 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {feedbackStatusUpdatingIds[entry.id] ? "Updating" : "Reopen"}
+                                  </button>
+                                )}
+                              </div>
                             </article>
                           ))}
                         </div>
+                      ) : feedbackHistory.length > 0 ? (
+                        <p className="mt-4 text-sm text-zinc-500">
+                          No reports match this status.
+                        </p>
                       ) : (
                         <p className="mt-4 text-sm text-zinc-500">
                           No feedback submitted yet for this profile.
