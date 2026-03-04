@@ -192,6 +192,7 @@ interface FeedbackAttachmentPayload {
   mimeType: string;
   sizeBytes: number;
   status: "pending_upload";
+  signatureHex?: string | null;
 }
 
 interface FeedbackSubmitSuccess {
@@ -670,6 +671,21 @@ function formatFileSize(sizeBytes: number): string {
 
   const mb = kb / 1024;
   return `${mb.toFixed(1)} MB`;
+}
+
+async function readFeedbackFileSignatureHex(file: File): Promise<string | null> {
+  try {
+    const signatureBytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    if (signatureBytes.length === 0) {
+      return null;
+    }
+
+    return Array.from(signatureBytes)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null;
+  }
 }
 
 function normalizeFeedbackStatus(
@@ -2913,6 +2929,15 @@ function ChatPageContent() {
       (entry) => normalizeFeedbackStatus(entry.status) === feedbackHistoryFilter,
     );
   }, [feedbackHistoryFilter, sortedFeedbackHistory]);
+  const feedbackOpenWithMediaCount = useMemo(
+    () =>
+      feedbackHistory.filter(
+        (entry) =>
+          normalizeFeedbackStatus(entry.status) === "open" &&
+          entry.attachments.length > 0,
+      ).length,
+    [feedbackHistory],
+  );
   const clearFeedbackImages = useCallback(() => {
     setFeedbackImages((current) => {
       for (const image of current) {
@@ -3119,6 +3144,17 @@ function ChatPageContent() {
       setFeedbackSubmitNotice(null);
 
       try {
+        const attachmentPayloads: FeedbackAttachmentPayload[] = await Promise.all(
+          feedbackImages.map(async (image) => ({
+            id: image.id,
+            name: image.file.name,
+            mimeType: image.file.type || "application/octet-stream",
+            sizeBytes: image.file.size,
+            status: "pending_upload",
+            signatureHex: await readFeedbackFileSignatureHex(image.file),
+          })),
+        );
+
         const payload = {
           category: feedbackCategory,
           title: activeFeedbackTitle.trim() || null,
@@ -3134,13 +3170,7 @@ function ChatPageContent() {
             userAgent: navigator.userAgent,
             appSurface: "chat",
           },
-          attachments: feedbackImages.map((image): FeedbackAttachmentPayload => ({
-            id: image.id,
-            name: image.file.name,
-            mimeType: image.file.type || "application/octet-stream",
-            sizeBytes: image.file.size,
-            status: "pending_upload",
-          })),
+          attachments: attachmentPayloads,
         };
 
         const response = await fetch("/api/creator/v2/feedback", {
@@ -7390,9 +7420,15 @@ function ChatPageContent() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
-                  <p className="text-xs text-zinc-500">
-                    {feedbackSubmitNotice ?? "submissions are tracked per profile to improve product quality."}
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-zinc-500">
+                      {feedbackSubmitNotice ?? "submissions are tracked per profile to improve product quality."}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      Open reports: {feedbackHistoryCounts.open} • Open with media:{" "}
+                      {feedbackOpenWithMediaCount}
+                    </p>
+                  </div>
                   <button
                     type="submit"
                     disabled={isFeedbackSubmitting || activeFeedbackDraft.trim().length === 0}
