@@ -2012,6 +2012,7 @@ function ChatPageContent() {
   const draftInspectorActionLabel = isViewingHistoricalDraftVersion
     ? "Compare to Current"
     : "Analyze this Draft";
+  const isMainChatLocked = isSending || isDraftInspectorLoading;
 
   const latestAssistantMessageId = useMemo(
     () =>
@@ -2517,7 +2518,7 @@ function ChatPageContent() {
         !resolvedContract ||
         !resolvedStrategyInputs ||
         !resolvedToneInputs ||
-        isSending
+        isMainChatLocked
       ) {
         return;
       }
@@ -2884,7 +2885,7 @@ function ChatPageContent() {
       contract,
       context,
       conversationMemory,
-      isSending,
+      isMainChatLocked,
       messages,
       providerPreference,
       pinnedEvidencePostIds,
@@ -2952,7 +2953,7 @@ function ChatPageContent() {
 
   const handleAngleSelect = useCallback(
     async (angle: string) => {
-      if (!activeStrategyInputs || !activeToneInputs || isSending) {
+      if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
         return;
       }
 
@@ -2972,14 +2973,14 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
-      isSending,
+      isMainChatLocked,
       requestAssistantReply,
     ],
   );
 
   const handleQuickReplySelect = useCallback(
     async (quickReply: ChatQuickReply) => {
-      if (isSending) {
+      if (isMainChatLocked) {
         return;
       }
 
@@ -3019,7 +3020,7 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
-      isSending,
+      isMainChatLocked,
       requestAssistantReply,
     ],
   );
@@ -3028,7 +3029,7 @@ function ChatPageContent() {
     event.preventDefault();
 
     const trimmedInput = draftInput.trim();
-    if (!trimmedInput || !context || !contract || isSending) {
+    if (!trimmedInput || !context || !contract || isMainChatLocked) {
       return;
     }
 
@@ -3060,7 +3061,7 @@ function ChatPageContent() {
   const submitQuickStarter = useCallback(
     async (prompt: string) => {
       const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt || !context || !contract || isSending) {
+      if (!trimmedPrompt || !context || !contract || isMainChatLocked) {
         return;
       }
 
@@ -3095,7 +3096,7 @@ function ChatPageContent() {
       activeToneInputs,
       contract,
       context,
-      isSending,
+      isMainChatLocked,
       messages.length,
       requestAssistantReply,
     ],
@@ -3111,7 +3112,7 @@ function ChatPageContent() {
         !activeStrategyInputs ||
         !activeToneInputs ||
         !draftInput.trim() ||
-        isSending
+        isMainChatLocked
       ) {
         return;
       }
@@ -3158,7 +3159,7 @@ function ChatPageContent() {
     selectedDraftVersion && selectedDraftBundle,
   );
   const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${shouldCenterHero ? "justify-center" : ""
-    } ${isInlineDraftEditorOpen ? "max-w-[92rem] lg:pr-[31rem]" : "max-w-4xl"}`;
+    } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -3537,7 +3538,7 @@ function ChatPageContent() {
                                 onChange={(event) => setDraftInput(event.target.value)}
                                 onKeyDown={handleComposerKeyDown}
                                 placeholder="What are we creating today?"
-                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
                                 className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
                                 rows={1}
                               />
@@ -3550,7 +3551,7 @@ function ChatPageContent() {
                                     !activeStrategyInputs ||
                                     !activeToneInputs ||
                                     !draftInput.trim() ||
-                                    isSending
+                                    isMainChatLocked
                                   }
                                   className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
                                   aria-label="Send message"
@@ -3576,7 +3577,7 @@ function ChatPageContent() {
                                 onClick={() => {
                                   void submitQuickStarter(action.prompt);
                                 }}
-                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
                                 className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
                               >
                                 {action.label}
@@ -3631,7 +3632,7 @@ function ChatPageContent() {
                                   onClick={() => {
                                     void handleQuickReplySelect(quickReply);
                                   }}
-                                  disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                  disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
                                   className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                                 >
                                   {quickReply.label}
@@ -3934,7 +3935,7 @@ function ChatPageContent() {
                     onChange={(event) => setDraftInput(event.target.value)}
                     onKeyDown={handleComposerKeyDown}
                     placeholder="Send a message..."
-                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                    disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
                     className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
                     rows={1}
                   />
@@ -3947,7 +3948,7 @@ function ChatPageContent() {
                         !activeStrategyInputs ||
                         !activeToneInputs ||
                         !draftInput.trim() ||
-                        isSending
+                        isMainChatLocked
                       }
                       className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
                       aria-label="Send message"
@@ -3971,9 +3972,8 @@ function ChatPageContent() {
       {
         selectedDraftVersion && selectedDraftBundle ? (
           <>
-            <div className="pointer-events-none fixed inset-0 z-20 hidden lg:block">
-              <div className="mx-auto flex h-full w-full max-w-[92rem] justify-end px-6 pb-32 pt-24">
-                <div className="pointer-events-auto flex w-[28rem] max-w-[28rem] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+            <div className="pointer-events-none fixed bottom-32 right-4 top-24 z-20 hidden lg:block xl:right-6">
+              <div className="pointer-events-auto flex h-full w-[25.5rem] max-w-[calc(100vw-24rem)] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
                   <div className="px-5 pb-3 pt-5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex min-w-0 items-start gap-3">
@@ -4121,7 +4121,6 @@ function ChatPageContent() {
                     </div>
                   </div>
                 </div>
-              </div>
             </div>
 
             <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
