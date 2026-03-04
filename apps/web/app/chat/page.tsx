@@ -2,10 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -22,7 +21,6 @@ import {
   isMetaClarifyingPrompt,
   isThinCoachInput,
 } from "@/lib/onboarding/coachReply";
-import { buildWelcomeFallbackMessage } from "@/lib/agent-v2/welcomeMessage";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   XPublicProfile,
@@ -98,6 +96,59 @@ type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
 
+interface DraftInspectorSuccess {
+  ok: true;
+  data: {
+    summary: string;
+    prompt: string;
+    userMessageId: string;
+    assistantMessageId: string;
+  };
+}
+
+interface DraftInspectorFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type DraftInspectorResponse = DraftInspectorSuccess | DraftInspectorFailure;
+
+interface DraftPromotionSuccess {
+  ok: true;
+  data: {
+    userMessage: {
+      id: string;
+      role: "user";
+      content: string;
+      createdAt: string;
+    };
+    assistantMessage: {
+      id: string;
+      role: "assistant";
+      content: string;
+      createdAt: string;
+      draft: string;
+      drafts: string[];
+      draftArtifacts: DraftArtifact[];
+      draftVersions: DraftVersionEntry[];
+      activeDraftVersionId: string;
+      previousVersionSnapshot: DraftVersionSnapshot | null;
+      revisionChainId?: string;
+      supportAsset: string | null;
+      outputShape: CreatorChatSuccess["data"]["outputShape"];
+      source: "deterministic";
+      model: string | null;
+    };
+  };
+}
+
+interface DraftPromotionFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
+
 interface BackfillJobStatusResponse {
   ok: true;
   job: {
@@ -125,6 +176,10 @@ interface CreatorChatSuccess {
     draft?: string | null;
     drafts: string[];
     draftArtifacts: DraftArtifact[];
+    draftVersions?: DraftVersionEntry[];
+    activeDraftVersionId?: string;
+    previousVersionSnapshot?: DraftVersionSnapshot | null;
+    revisionChainId?: string;
     supportAsset: string | null;
     outputShape:
     | "coach_question"
@@ -215,6 +270,7 @@ interface CreatorChatSuccess {
     model: string | null;
     mode: CreatorGenerationContract["mode"];
     newThreadId?: string;
+    messageId?: string;
     threadTitle?: string;
     memory?: {
       conversationState: string;
@@ -272,11 +328,51 @@ type CreatorChatStreamEvent =
   | CreatorChatStreamErrorEvent;
 
 type DraftArtifact = DraftArtifactDetails;
+type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
+
+interface DraftVersionEntry {
+  id: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  basedOnVersionId: string | null;
+  weightedCharacterCount: number;
+  maxCharacterLimit: number;
+  supportAsset: string | null;
+}
+
+interface DraftVersionSnapshot {
+  messageId: string;
+  versionId: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  maxCharacterLimit?: number;
+  revisionChainId?: string;
+}
+
+interface DraftDrawerSelection {
+  messageId: string;
+  versionId: string;
+  revisionChainId?: string;
+}
+
+interface DraftTimelineEntry {
+  messageId: string;
+  versionId: string;
+  content: string;
+  createdAt: string;
+  source: DraftVersionSource;
+  revisionChainId: string;
+  maxCharacterLimit: number;
+  isCurrentMessageVersion: boolean;
+}
 
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  createdAt?: string;
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,6 +381,10 @@ interface ChatMessage {
   draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
+  draftVersions?: DraftVersionEntry[];
+  activeDraftVersionId?: string;
+  previousVersionSnapshot?: DraftVersionSnapshot | null;
+  revisionChainId?: string;
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
@@ -296,7 +396,7 @@ interface ChatMessage {
 }
 
 type ChatProviderPreference = "openai" | "groq";
-type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review";
+type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
 type ChatContentFocus =
   | "project_showcase"
   | "technical_insight"
@@ -342,6 +442,22 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
+const HERO_QUICK_ACTIONS = [
+  {
+    label: "Give me post ideas",
+    prompt: "Give me post ideas",
+  },
+  {
+    label: "Draft a post for me",
+    prompt: "Draft a post for me",
+  },
+  {
+    label: "Give me a random post I would use",
+    prompt: "Give me a random post I would use",
+  },
+] as const;
+const HERO_EXIT_TRANSITION_MS = 720;
+
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -399,6 +515,74 @@ function getComposerCharacterLimit(context: CreatorAgentContext | null): number 
   return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
 }
 
+function isClearlyCasualGreetingProfile(
+  context: CreatorAgentContext | null,
+  accountName: string | null,
+): boolean {
+  if (!context) {
+    return false;
+  }
+
+  const profile = context.creatorProfile;
+  const resolvedHandle = normalizeAccountHandle(
+    accountName ?? profile.identity.username ?? context.account,
+  );
+
+  if (resolvedHandle === "shernanjavier") {
+    return true;
+  }
+
+  const voiceSignals = [
+    ...profile.voice.styleNotes,
+    ...profile.styleCard.preferredOpeners,
+    ...profile.styleCard.signaturePhrases,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const hasFormalSignal =
+    /\b(formal|professional|polished|executive|authoritative|analytical|structured)\b/.test(
+      voiceSignals,
+    );
+  const hasCasualSignal =
+    /\b(casual|playful|relaxed|direct|conversational|unfiltered|fun|raw|loose)\b/.test(
+      voiceSignals,
+    );
+  const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
+  const isLowercaseHeavy =
+    profile.voice.primaryCasing === "lowercase" &&
+    profile.voice.lowercaseSharePercent >= 82;
+  const isShortFormLeaning =
+    profile.voice.averageLengthBand === "short" ||
+    profile.voice.averageLengthBand === "medium";
+
+  if (hasFormalSignal) {
+    return false;
+  }
+
+  return hasCasualSignal || hasSlangSignal || (isLowercaseHeavy && isShortFormLeaning);
+}
+
+function buildHeroGreeting(params: {
+  context: CreatorAgentContext | null;
+  accountName: string | null;
+}): string {
+  const resolvedHandle = normalizeAccountHandle(
+    params.accountName ??
+      params.context?.creatorProfile.identity.username ??
+      params.context?.account ??
+      "",
+  );
+  const opener = isClearlyCasualGreetingProfile(
+    params.context,
+    params.accountName,
+  )
+    ? "yo"
+    : "Hey";
+
+  return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
+}
+
 function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
   label: string;
   toneClassName: string;
@@ -410,6 +594,409 @@ function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
     label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
     toneClassName: isNearLimit ? "text-red-400" : "text-zinc-500",
   };
+}
+
+function resolveDraftArtifactKind(
+  outputShape?: CreatorChatSuccess["data"]["outputShape"],
+): DraftArtifact["kind"] {
+  switch (outputShape) {
+    case "long_form_post":
+    case "thread_seed":
+    case "reply_candidate":
+    case "quote_candidate":
+    case "short_form_post":
+      return outputShape;
+    default:
+      return "short_form_post";
+  }
+}
+
+function getDraftVersionSupportAsset(message: ChatMessage): string | null {
+  return message.supportAsset ?? message.draftArtifacts?.[0]?.supportAsset ?? null;
+}
+
+function buildDraftArtifactWithLimit(params: {
+  id: string;
+  title: string;
+  kind: DraftArtifact["kind"];
+  content: string;
+  supportAsset: string | null;
+  maxCharacterLimit: number;
+}): DraftArtifact {
+  const artifact = buildDraftArtifact({
+    id: params.id,
+    title: params.title,
+    kind: params.kind,
+    content: params.content,
+    supportAsset: params.supportAsset,
+  });
+
+  if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
+    return artifact;
+  }
+
+  return {
+    ...artifact,
+    maxCharacterLimit: params.maxCharacterLimit,
+    isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
+  };
+}
+
+function normalizeDraftVersionBundle(
+  message: ChatMessage,
+  fallbackCharacterLimit: number,
+): {
+  versions: DraftVersionEntry[];
+  activeVersionId: string;
+  activeVersion: DraftVersionEntry;
+  previousSnapshot: DraftVersionSnapshot | null;
+} | null {
+  const supportAsset = getDraftVersionSupportAsset(message);
+  const rawVersions =
+    message.draftVersions?.length
+      ? message.draftVersions
+      : (() => {
+          const fallbackContent =
+            message.draft ??
+            message.drafts?.[0] ??
+            message.draftArtifacts?.[0]?.content ??
+            null;
+
+          if (!fallbackContent) {
+            return [];
+          }
+
+          return [
+            {
+              id: `${message.id}-v1`,
+              content: fallbackContent,
+              source: "assistant_generated" as const,
+              createdAt: message.createdAt ?? new Date(0).toISOString(),
+              basedOnVersionId: null,
+              weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
+              maxCharacterLimit:
+                message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
+              supportAsset,
+            },
+          ];
+        })();
+
+  if (!rawVersions.length) {
+    return null;
+  }
+
+  const mappedVersions = rawVersions.map((version) => {
+    const content = typeof version.content === "string" ? version.content : "";
+    const maxCharacterLimit =
+      typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
+        ? version.maxCharacterLimit
+        : fallbackCharacterLimit;
+
+    return {
+      id: version.id,
+      content,
+      source: version.source,
+      createdAt: version.createdAt,
+      basedOnVersionId: version.basedOnVersionId ?? null,
+      weightedCharacterCount: computeXWeightedCharacterCount(content),
+      maxCharacterLimit,
+      supportAsset: version.supportAsset ?? supportAsset,
+    };
+  });
+
+  const activeVersionId =
+    message.activeDraftVersionId &&
+    mappedVersions.some((version) => version.id === message.activeDraftVersionId)
+      ? message.activeDraftVersionId
+      : mappedVersions[mappedVersions.length - 1].id;
+  const activeVersionIndex = mappedVersions.findIndex(
+    (version) => version.id === activeVersionId,
+  );
+  const versions =
+    activeVersionIndex >= 0 && activeVersionIndex < mappedVersions.length - 1
+      ? [
+          ...mappedVersions.slice(0, activeVersionIndex),
+          ...mappedVersions.slice(activeVersionIndex + 1),
+          mappedVersions[activeVersionIndex],
+        ]
+      : mappedVersions;
+  const currentVersionIndex = Math.max(
+    0,
+    versions.findIndex((version) => version.id === activeVersionId),
+  );
+  const activeVersion = versions[currentVersionIndex];
+  const inferredPreviousVersion =
+    (activeVersion.basedOnVersionId
+      ? versions.find((version) => version.id === activeVersion.basedOnVersionId) ?? null
+      : null) ?? (currentVersionIndex > 0 ? versions[currentVersionIndex - 1] : null);
+  const previousSnapshot = message.previousVersionSnapshot
+    ? message.previousVersionSnapshot
+    : inferredPreviousVersion
+      ? {
+          messageId: message.id,
+          versionId: inferredPreviousVersion.id,
+          content: inferredPreviousVersion.content,
+          source: inferredPreviousVersion.source,
+          createdAt: inferredPreviousVersion.createdAt,
+        }
+      : null;
+  return {
+    versions,
+    activeVersionId,
+    activeVersion,
+    previousSnapshot,
+  };
+}
+
+function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return "ignore";
+  }
+
+  if (
+    [
+      "give me ideas",
+      "post ideas",
+      "write a new post",
+      "different topic",
+      "start over",
+      "help me brainstorm",
+      "brainstorm",
+      "analyze my posts",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "ignore";
+  }
+
+  if (
+    [
+      "why does it say",
+      "why does it mention",
+      "don't say",
+      "dont say",
+      "remove \"",
+      "remove '",
+      "remove the",
+      "delete \"",
+      "delete '",
+      "make it shorter",
+      "shorten it",
+      "tighten this",
+      "make this clearer",
+      "change the hook",
+      "remove the last line",
+      "less hype",
+      "more casual",
+      "this part is weird",
+      "that line is off",
+      "this doesn't make sense",
+      "this doesnt make sense",
+      "too long",
+      "too much",
+      "make it punchier",
+      "make it sharper",
+      "fix this line",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "revise";
+  }
+
+  if (/["“'`](.+?)["”'`]/.test(prompt)) {
+    return "revise";
+  }
+
+  return "ignore";
+}
+
+function buildDraftRevisionTimeline(args: {
+  messages: ChatMessage[];
+  activeDraftSelection: DraftDrawerSelection | null;
+  fallbackCharacterLimit: number;
+}): DraftTimelineEntry[] {
+  if (!args.activeDraftSelection) {
+    return [];
+  }
+
+  const selectedMessage =
+    args.messages.find((message) => message.id === args.activeDraftSelection?.messageId) ?? null;
+  if (!selectedMessage) {
+    return [];
+  }
+
+  const selectedBundle = normalizeDraftVersionBundle(
+    selectedMessage,
+    args.fallbackCharacterLimit,
+  );
+  if (!selectedBundle) {
+    return [];
+  }
+
+  const resolvedChainId =
+    args.activeDraftSelection.revisionChainId?.trim() ||
+    selectedMessage.revisionChainId?.trim() ||
+    selectedMessage.previousVersionSnapshot?.revisionChainId?.trim() ||
+    `legacy-chain-${selectedMessage.id}`;
+
+  const chainedEntries = resolvedChainId
+    ? args.messages
+      .filter(
+        (message) =>
+          message.role === "assistant" &&
+          typeof message.revisionChainId === "string" &&
+          message.revisionChainId.trim() === resolvedChainId,
+      )
+      .sort((left, right) =>
+        (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
+      )
+      .flatMap((message) => {
+        const bundle = normalizeDraftVersionBundle(message, args.fallbackCharacterLimit);
+        if (!bundle) {
+          return [];
+        }
+
+        return bundle.versions.map((version) => ({
+          messageId: message.id,
+          versionId: version.id,
+          content: version.content,
+          createdAt: version.createdAt,
+          source: version.source,
+          revisionChainId: resolvedChainId,
+          maxCharacterLimit: version.maxCharacterLimit,
+          isCurrentMessageVersion: message.id === selectedMessage.id,
+        }));
+      })
+    : [];
+
+  if (chainedEntries.length > 0) {
+    const selectedMessageEntries = chainedEntries.some(
+      (entry) => entry.messageId === selectedMessage.id,
+    )
+      ? []
+      : selectedBundle.versions.map((version) => ({
+          messageId: selectedMessage.id,
+          versionId: version.id,
+          content: version.content,
+          createdAt: version.createdAt,
+          source: version.source,
+          revisionChainId: resolvedChainId,
+          maxCharacterLimit: version.maxCharacterLimit,
+          isCurrentMessageVersion: true,
+        }));
+    const combinedEntries = [...selectedMessageEntries, ...chainedEntries].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    );
+    const previousSnapshot = selectedBundle.previousSnapshot;
+    if (!previousSnapshot) {
+      return combinedEntries;
+    }
+
+    const snapshotAlreadyPresent = combinedEntries.some(
+      (entry) =>
+        entry.messageId === previousSnapshot.messageId &&
+        entry.versionId === previousSnapshot.versionId,
+    );
+    if (snapshotAlreadyPresent) {
+      return combinedEntries;
+    }
+
+    return [
+      {
+        messageId: previousSnapshot.messageId,
+        versionId: previousSnapshot.versionId,
+        content: previousSnapshot.content,
+        createdAt: previousSnapshot.createdAt,
+        source: previousSnapshot.source,
+        revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
+        maxCharacterLimit:
+          previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
+        isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
+      },
+      ...combinedEntries,
+    ];
+  }
+
+  const legacyChainSourceId =
+    args.activeDraftSelection.revisionChainId?.startsWith("legacy-chain-")
+      ? args.activeDraftSelection.revisionChainId.slice("legacy-chain-".length)
+      : "";
+  const legacyChainSource =
+    legacyChainSourceId && legacyChainSourceId !== selectedMessage.id
+      ? args.messages.find((message) => message.id === legacyChainSourceId) ?? null
+      : null;
+
+  if (legacyChainSource) {
+    const legacySourceBundle = normalizeDraftVersionBundle(
+      legacyChainSource,
+      args.fallbackCharacterLimit,
+    );
+    if (legacySourceBundle) {
+      const currentEntries = selectedBundle.versions.map((version) => ({
+        messageId: selectedMessage.id,
+        versionId: version.id,
+        content: version.content,
+        createdAt: version.createdAt,
+        source: version.source,
+        revisionChainId: resolvedChainId,
+        maxCharacterLimit: version.maxCharacterLimit,
+        isCurrentMessageVersion: true,
+      }));
+      const anchorEntries = legacySourceBundle.versions.map((version) => ({
+        messageId: legacyChainSource.id,
+        versionId: version.id,
+        content: version.content,
+        createdAt: version.createdAt,
+        source: version.source,
+        revisionChainId: resolvedChainId,
+        maxCharacterLimit: version.maxCharacterLimit,
+        isCurrentMessageVersion: false,
+      }));
+
+      return [...currentEntries, ...anchorEntries].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      );
+    }
+  }
+
+  const fallbackEntries = selectedBundle.versions.map((version) => ({
+    messageId: selectedMessage.id,
+    versionId: version.id,
+    content: version.content,
+    createdAt: version.createdAt,
+    source: version.source,
+    revisionChainId: resolvedChainId,
+    maxCharacterLimit: version.maxCharacterLimit,
+    isCurrentMessageVersion: true,
+  }));
+  const previousSnapshot = selectedBundle.previousSnapshot;
+
+  if (!previousSnapshot) {
+    return fallbackEntries;
+  }
+
+  const snapshotAlreadyPresent = fallbackEntries.some(
+    (entry) =>
+      entry.messageId === previousSnapshot.messageId &&
+      entry.versionId === previousSnapshot.versionId,
+  );
+  if (snapshotAlreadyPresent) {
+    return fallbackEntries;
+  }
+
+  return [
+    {
+      messageId: previousSnapshot.messageId,
+      versionId: previousSnapshot.versionId,
+      content: previousSnapshot.content,
+      createdAt: previousSnapshot.createdAt,
+      source: previousSnapshot.source,
+      revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
+      maxCharacterLimit:
+        previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
+      isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
+    },
+    ...fallbackEntries,
+  ];
 }
 
 function inferComposerIntent(input: string): ChatIntent {
@@ -487,6 +1074,10 @@ function formatTypingStatusLabel(status?: string | null): string {
       return "tightening the wording";
     case "Finalizing the reply.":
       return "getting the final wording right";
+    case "Analyzing this draft.":
+      return "reviewing what works and what doesn't";
+    case "Comparing versions.":
+      return "comparing these versions";
     default:
       return "thinking this through";
   }
@@ -572,7 +1163,8 @@ function ChatPageContent() {
   const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const threadMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
@@ -580,8 +1172,14 @@ function ChatPageContent() {
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+
+      if (threadMenuRef.current && !threadMenuRef.current.contains(target)) {
         setMenuOpenThreadId(null);
+      }
+
+      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
+        setAccountMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -713,7 +1311,6 @@ function ChatPageContent() {
 
       if (activeThreadId === deletingThread.id) {
         setActiveThreadId(null);
-        welcomeFetchedRef.current = false;
         threadCreatedInSessionRef.current = false;
         setMessages([]);
         setDraftInput("");
@@ -722,6 +1319,7 @@ function ChatPageContent() {
         setEditorDraftText("");
         setTypedAssistantLengths({});
         setErrorMessage(null);
+        setIsLeavingHero(false);
 
         window.history.replaceState({}, "", "/chat");
       }
@@ -733,15 +1331,17 @@ function ChatPageContent() {
     }
   };
 
-  // Guard against double fetching welcome message
-  const welcomeFetchedRef = useRef(false);
   // Guard against initializeThread re-fetching when we just created a thread in-session
   const threadCreatedInSessionRef = useRef(false);
+  const threadScrollRef = useRef<HTMLElement | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draftInput, setDraftInput] = useState("");
+  const [isLeavingHero, setIsLeavingHero] = useState(false);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -780,10 +1380,15 @@ function ChatPageContent() {
     if (!accountName) return;
 
     setActiveThreadId(null);
-    welcomeFetchedRef.current = false;
     threadCreatedInSessionRef.current = false;
     setMessages([]);
     setDraftInput("");
+    setConversationMemory(null);
+    setActiveDraftEditor(null);
+    setEditorDraftText("");
+    setTypedAssistantLengths({});
+    setErrorMessage(null);
+    setIsLeavingHero(false);
 
     window.history.pushState({}, '', '/chat');
   }, [accountName]);
@@ -792,8 +1397,11 @@ function ChatPageContent() {
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
+  const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
@@ -805,11 +1413,10 @@ function ChatPageContent() {
   const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
     null,
   );
-  const [activeDraftEditor, setActiveDraftEditor] = useState<{
-    messageId: string;
-    artifactIndex: number;
-  } | null>(null);
+  const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
+  const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
+  const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
@@ -823,10 +1430,6 @@ function ChatPageContent() {
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
-  );
-  const editorDraftCounter = useMemo(
-    () => getXCharacterCounterMeta(editorDraftText, composerCharacterLimit),
-    [editorDraftText, composerCharacterLimit],
   );
   const isVerifiedAccount = Boolean(context?.creatorProfile?.identity?.isVerified);
 
@@ -845,7 +1448,10 @@ function ChatPageContent() {
   }, []);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
-    if (handle === accountName) return;
+    const normalizedHandle = normalizeAccountHandle(handle);
+    if (!normalizedHandle || normalizedHandle === normalizeAccountHandle(accountName ?? "")) {
+      return;
+    }
 
     setAccountMenuOpen(false);
     setIsLoading(true);
@@ -855,20 +1461,20 @@ function ChatPageContent() {
       const resp = await fetch("/api/creator/profile/handles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle }),
+        body: JSON.stringify({ handle: normalizedHandle }),
       });
       if (!resp.ok) {
         throw new Error("Failed to switch handle");
       }
 
-      // Let reload clear state natively. Reusing load workspace breaks the NextAuth context boundary without a hard reload.
-      window.location.reload();
+      await refreshSession({ activeXHandle: normalizedHandle });
+      window.location.href = "/chat";
     } catch (err) {
       console.error(err);
-      setErrorMessage("Could not switch to account @" + handle);
+      setErrorMessage("Could not switch to account @" + normalizedHandle);
       setIsLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, refreshSession]);
 
   const closeAddAccountModal = useCallback(() => {
     if (isAddAccountSubmitting) {
@@ -1083,7 +1689,24 @@ function ChatPageContent() {
     setPinnedVoicePostIds([]);
     setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
+    setIsLeavingHero(false);
   }, [accountName]);
+
+  useEffect(() => {
+    if (!isLeavingHero) {
+      return;
+    }
+
+    if (messages.length > 0) {
+      const timeoutId = window.setTimeout(() => {
+        setIsLeavingHero(false);
+      }, HERO_EXIT_TRANSITION_MS);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+  }, [isLeavingHero, messages.length]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -1290,7 +1913,13 @@ function ChatPageContent() {
       return [];
     }
 
-    const recentItems = chatThreads.slice(0, 10).map((t) => ({
+    const trimmedQuery = sidebarSearchQuery.trim().toLowerCase();
+    const filteredThreads = trimmedQuery
+      ? chatThreads.filter((thread) =>
+          (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
+        )
+      : chatThreads;
+    const recentItems = filteredThreads.slice(0, 10).map((t) => ({
       id: t.id,
       label: t.title || "Chat",
       meta: new Date(t.updatedAt).toLocaleDateString(),
@@ -1299,28 +1928,110 @@ function ChatPageContent() {
     return [
       {
         section: "Chats",
-        items: recentItems.length > 0 ? recentItems : [
-          {
-            id: activeThreadId ?? "current-workspace",
-            label: "New Chat",
-            meta: "Active",
-          },
-        ],
+        items:
+          trimmedQuery || recentItems.length > 0
+            ? recentItems
+            : [
+                {
+                  id: activeThreadId ?? "current-workspace",
+                  label: "New Chat",
+                  meta: "Active",
+                },
+              ],
       },
-    ].filter((section) => section.items.length > 0);
-  }, [context, contract, chatThreads, activeThreadId]);
-  const selectedDraftArtifact = useMemo(() => {
-    if (!activeDraftEditor) {
+    ];
+  }, [context, contract, chatThreads, activeThreadId, sidebarSearchQuery]);
+  const selectedDraftMessage = useMemo(
+    () =>
+      activeDraftEditor
+        ? messages.find((item) => item.id === activeDraftEditor.messageId) ?? null
+        : null,
+    [activeDraftEditor, messages],
+  );
+  const selectedDraftBundle = useMemo(
+    () =>
+      selectedDraftMessage
+        ? normalizeDraftVersionBundle(selectedDraftMessage, composerCharacterLimit)
+        : null,
+    [composerCharacterLimit, selectedDraftMessage],
+  );
+  const selectedDraftVersion = useMemo(() => {
+    if (!activeDraftEditor || !selectedDraftBundle) {
       return null;
     }
 
-    const message = messages.find((item) => item.id === activeDraftEditor.messageId);
-    if (!message?.draftArtifacts) {
+    return (
+      selectedDraftBundle.versions.find(
+        (version) => version.id === activeDraftEditor.versionId,
+      ) ?? selectedDraftBundle.activeVersion
+    );
+  }, [activeDraftEditor, selectedDraftBundle]);
+  const selectedDraftContext = useMemo(() => {
+    if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
       return null;
     }
 
-    return message.draftArtifacts[activeDraftEditor.artifactIndex] ?? null;
-  }, [activeDraftEditor, messages]);
+    return {
+      messageId: activeDraftEditor.messageId,
+      versionId: selectedDraftVersion.id,
+      content: editorDraftText.trim() || selectedDraftVersion.content,
+      source: selectedDraftVersion.source,
+      createdAt: selectedDraftVersion.createdAt,
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      revisionChainId:
+        activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
+    };
+  }, [activeDraftEditor, editorDraftText, selectedDraftMessage, selectedDraftVersion]);
+  const selectedDraftTimeline = useMemo(
+    () =>
+      buildDraftRevisionTimeline({
+        messages,
+        activeDraftSelection: activeDraftEditor,
+        fallbackCharacterLimit: composerCharacterLimit,
+      }),
+    [activeDraftEditor, composerCharacterLimit, messages],
+  );
+  const selectedDraftTimelineIndex = useMemo(
+    () =>
+      selectedDraftTimeline.findIndex(
+        (entry) =>
+          entry.messageId === activeDraftEditor?.messageId &&
+          entry.versionId === activeDraftEditor?.versionId,
+      ),
+    [activeDraftEditor, selectedDraftTimeline],
+  );
+  const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
+  const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
+  const selectedDraftTimelinePosition =
+    selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
+  const latestDraftTimelineEntry =
+    selectedDraftTimeline.length > 0
+      ? selectedDraftTimeline[selectedDraftTimeline.length - 1]
+      : null;
+  const canNavigateDraftBack = selectedDraftTimelineIndex > 0;
+  const canNavigateDraftForward =
+    selectedDraftTimelineIndex >= 0 &&
+    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
+  const isViewingHistoricalDraftVersion =
+    selectedDraftTimelineIndex >= 0 &&
+    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
+  const hasDraftEditorChanges =
+    selectedDraftVersion !== null &&
+    editorDraftText.trim().length > 0 &&
+    editorDraftText.trim() !== selectedDraftVersion.content.trim();
+  const shouldShowRevertDraftCta =
+    isViewingHistoricalDraftVersion && !hasDraftEditorChanges;
+  const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
+    ? "Revert to this Version"
+    : "Save As New Version";
+  const isDraftEditorPrimaryActionDisabled =
+    shouldShowRevertDraftCta
+      ? false
+      : !editorDraftText.trim() || !hasDraftEditorChanges;
+  const draftInspectorActionLabel = isViewingHistoricalDraftVersion
+    ? "Compare to Current"
+    : "Analyze this Draft";
+  const isMainChatLocked = isSending || isDraftInspectorLoading;
 
   const latestAssistantMessageId = useMemo(
     () =>
@@ -1332,13 +2043,53 @@ function ChatPageContent() {
   );
 
   useEffect(() => {
-    if (!selectedDraftArtifact) {
+    if (!selectedDraftVersionId) {
       setEditorDraftText("");
+      setHasCopiedDraftEditorText(false);
       return;
     }
 
-    setEditorDraftText(selectedDraftArtifact.content);
-  }, [selectedDraftArtifact]);
+    setEditorDraftText(selectedDraftVersionContent);
+    setHasCopiedDraftEditorText(false);
+  }, [
+    activeDraftEditor?.messageId,
+    activeDraftEditor?.versionId,
+    selectedDraftVersionContent,
+    selectedDraftVersionId,
+  ]);
+
+  const navigateDraftTimeline = useCallback(
+    (direction: "back" | "forward") => {
+      if (selectedDraftTimelineIndex < 0) {
+        return;
+      }
+
+      const targetIndex =
+        direction === "back"
+          ? selectedDraftTimelineIndex - 1
+          : selectedDraftTimelineIndex + 1;
+      const targetEntry = selectedDraftTimeline[targetIndex];
+      if (!targetEntry) {
+        return;
+      }
+
+      setActiveDraftEditor({
+        messageId: targetEntry.messageId,
+        versionId: targetEntry.versionId,
+        revisionChainId: targetEntry.revisionChainId,
+      });
+
+      if (targetEntry.messageId !== activeDraftEditor?.messageId) {
+        window.requestAnimationFrame(() => {
+          messageRefs.current[targetEntry.messageId]?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        });
+      }
+    },
+    [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
+  );
 
   const togglePinnedPostId = useCallback(
     (postId: string, kind: "voice" | "evidence") => {
@@ -1360,12 +2111,70 @@ function ChatPageContent() {
     [],
   );
 
-  const openDraftEditor = useCallback((messageId: string, artifactIndex: number) => {
-    setActiveDraftEditor({ messageId, artifactIndex });
+  const openDraftEditor = useCallback((messageId: string, versionId?: string) => {
+    const message = messages.find((item) => item.id === messageId);
+    if (!message) {
+      return;
+    }
+
+    const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
+    if (!bundle) {
+      return;
+    }
+
+    setActiveDraftEditor({
+      messageId,
+      versionId:
+        versionId && bundle.versions.some((version) => version.id === versionId)
+        ? versionId
+          : bundle.activeVersionId,
+      revisionChainId: message.revisionChainId ?? undefined,
+    });
+  }, [composerCharacterLimit, messages]);
+
+  const scrollThreadToBottom = useCallback(() => {
+    setShowScrollToLatest(false);
+    window.requestAnimationFrame(() => {
+      const node = threadScrollRef.current;
+      if (!node) {
+        return;
+      }
+
+      node.scrollTo({
+        top: node.scrollHeight,
+        behavior: "smooth",
+      });
+    });
   }, []);
 
-  const saveDraftEditor = useCallback(() => {
-    if (!activeDraftEditor) {
+  useEffect(() => {
+    const node = threadScrollRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateScrollPosition = () => {
+      const distanceFromBottom =
+        node.scrollHeight - node.scrollTop - node.clientHeight;
+      setShowScrollToLatest(distanceFromBottom > 140);
+    };
+
+    updateScrollPosition();
+    node.addEventListener("scroll", updateScrollPosition, { passive: true });
+    window.requestAnimationFrame(updateScrollPosition);
+
+    return () => {
+      node.removeEventListener("scroll", updateScrollPosition);
+    };
+  }, [activeThreadId, messages.length]);
+
+  const saveDraftEditor = useCallback(async () => {
+    if (
+      !activeDraftEditor ||
+      !selectedDraftMessage ||
+      !selectedDraftVersion ||
+      !activeThreadId
+    ) {
       return;
     }
 
@@ -1374,39 +2183,195 @@ function ChatPageContent() {
       return;
     }
 
+    if (nextContent === selectedDraftVersion.content.trim()) {
+      return;
+    }
+
+    const revisionChainId =
+      selectedDraftMessage.revisionChainId ||
+      activeDraftEditor.revisionChainId ||
+      `revision-chain-${selectedDraftMessage.id}`;
+
+    try {
+      const response = await fetch(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/draft-promotions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: nextContent,
+            outputShape: selectedDraftMessage.outputShape ?? "short_form_post",
+            supportAsset:
+              selectedDraftVersion.supportAsset ??
+              getDraftVersionSupportAsset(selectedDraftMessage),
+            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+            revisionChainId,
+            basedOn: {
+              messageId: selectedDraftMessage.id,
+              versionId: selectedDraftVersion.id,
+              content: selectedDraftVersion.content,
+              source: selectedDraftVersion.source,
+              createdAt: selectedDraftVersion.createdAt,
+              maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+              revisionChainId,
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("promotion failed");
+      }
+
+      const data = (await response.json()) as DraftPromotionResponse;
+      if (!data.ok) {
+        throw new Error(data.errors[0]?.message || "promotion failed");
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: data.data.userMessage.id,
+          role: "user",
+          content: data.data.userMessage.content,
+          createdAt: data.data.userMessage.createdAt,
+        },
+        {
+          id: data.data.assistantMessage.id,
+          role: "assistant",
+          content: data.data.assistantMessage.content,
+          createdAt: data.data.assistantMessage.createdAt,
+          draft: data.data.assistantMessage.draft,
+          drafts: data.data.assistantMessage.drafts,
+          draftArtifacts: data.data.assistantMessage.draftArtifacts,
+          draftVersions: data.data.assistantMessage.draftVersions,
+          activeDraftVersionId: data.data.assistantMessage.activeDraftVersionId,
+          previousVersionSnapshot: data.data.assistantMessage.previousVersionSnapshot,
+          revisionChainId: data.data.assistantMessage.revisionChainId,
+          supportAsset: data.data.assistantMessage.supportAsset,
+          outputShape: data.data.assistantMessage.outputShape,
+          source: data.data.assistantMessage.source,
+          model: data.data.assistantMessage.model,
+        },
+      ]);
+      setActiveDraftEditor({
+        messageId: data.data.assistantMessage.id,
+        versionId: data.data.assistantMessage.activeDraftVersionId,
+        revisionChainId: data.data.assistantMessage.revisionChainId,
+      });
+      scrollThreadToBottom();
+    } catch {
+      setErrorMessage("The draft could not be promoted yet.");
+    }
+  }, [
+    activeDraftEditor,
+    activeThreadId,
+    editorDraftText,
+    selectedDraftMessage,
+    selectedDraftVersion,
+    scrollThreadToBottom,
+  ]);
+
+  const revertToSelectedDraftVersion = useCallback(async () => {
+    if (!selectedDraftVersion || !selectedDraftMessage) {
+      return;
+    }
+
+    const nextContent = selectedDraftVersion.content.trim();
+    if (!nextContent) {
+      return;
+    }
+
+    const revisionChainId =
+      selectedDraftMessage.revisionChainId ??
+      activeDraftEditor?.revisionChainId ??
+      `revision-chain-${selectedDraftMessage.id}`;
+    const nextVersions =
+      selectedDraftMessage.draftVersions && selectedDraftMessage.draftVersions.length > 0
+        ? selectedDraftMessage.draftVersions
+        : (selectedDraftBundle?.versions ?? [selectedDraftVersion]);
+    const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
+    const activeDraftArtifact = buildDraftArtifactWithLimit({
+      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
+      title: sourceArtifact?.title ?? "Draft",
+      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
+      content: nextContent,
+      supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+    });
+
     setMessages((current) =>
       current.map((message) => {
-        if (message.id !== activeDraftEditor.messageId || !message.draftArtifacts) {
+        if (message.id !== selectedDraftMessage.id) {
           return message;
         }
 
-        const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
-          index === activeDraftEditor.artifactIndex
-            ? buildDraftArtifact({
-              id: artifact.id,
-              title: artifact.title,
-              kind: artifact.kind,
-              content: nextContent,
-              supportAsset: artifact.supportAsset,
-            })
-            : artifact,
-        );
-
-        const nextDrafts =
-          message.drafts && message.drafts.length > 0
-            ? message.drafts.map((draft, index) =>
-              index === activeDraftEditor.artifactIndex ? nextContent : draft,
-            )
-            : nextDraftArtifacts.map((artifact) => artifact.content);
-
         return {
           ...message,
-          drafts: nextDrafts,
-          draftArtifacts: nextDraftArtifacts,
+          draft: nextContent,
+          drafts:
+            message.drafts && message.drafts.length > 1
+              ? [nextContent, ...message.drafts.slice(1)]
+              : [nextContent],
+          draftArtifacts:
+            message.draftArtifacts && message.draftArtifacts.length > 1
+              ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
+              : [activeDraftArtifact],
+          draftVersions: nextVersions,
+          activeDraftVersionId: selectedDraftVersion.id,
+          revisionChainId,
         };
       }),
     );
-  }, [activeDraftEditor, editorDraftText]);
+
+    setActiveDraftEditor({
+      messageId: selectedDraftMessage.id,
+      versionId: selectedDraftVersion.id,
+      revisionChainId,
+    });
+
+    if (!activeThreadId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            draftVersions: nextVersions,
+            activeDraftVersionId: selectedDraftVersion.id,
+            draft: nextContent,
+            drafts:
+              selectedDraftMessage.drafts && selectedDraftMessage.drafts.length > 1
+                ? [nextContent, ...selectedDraftMessage.drafts.slice(1)]
+                : [nextContent],
+            draftArtifacts:
+              selectedDraftMessage.draftArtifacts && selectedDraftMessage.draftArtifacts.length > 1
+                ? [activeDraftArtifact, ...selectedDraftMessage.draftArtifacts.slice(1)]
+                : [activeDraftArtifact],
+            revisionChainId,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("persist failed");
+      }
+    } catch {
+      setErrorMessage("The current version could not be updated yet.");
+    }
+  }, [
+    activeDraftEditor?.revisionChainId,
+    activeThreadId,
+    selectedDraftBundle,
+    selectedDraftMessage,
+    selectedDraftVersion,
+  ]);
 
   const copyDraftEditor = useCallback(async () => {
     if (!editorDraftText.trim()) {
@@ -1415,10 +2380,155 @@ function ChatPageContent() {
 
     try {
       await navigator.clipboard.writeText(editorDraftText);
+      setHasCopiedDraftEditorText(true);
+      window.setTimeout(() => {
+        setHasCopiedDraftEditorText(false);
+      }, 2200);
     } catch {
       setErrorMessage("Copy failed. Try selecting the text manually.");
     }
   }, [editorDraftText]);
+
+  const shareDraftEditorToX = useCallback(() => {
+    window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
+  }, []);
+
+  const runDraftInspector = useCallback(async () => {
+    if (!selectedDraftVersion || !activeThreadId) {
+      return;
+    }
+
+    const inspectedDraft = editorDraftText.trim() || selectedDraftVersion.content.trim();
+    if (!inspectedDraft) {
+      return;
+    }
+
+    const shouldCompare =
+      isViewingHistoricalDraftVersion &&
+      !!latestDraftTimelineEntry &&
+      (latestDraftTimelineEntry.messageId !== activeDraftEditor?.messageId ||
+        latestDraftTimelineEntry.versionId !== activeDraftEditor?.versionId);
+    const currentDraft =
+      shouldCompare && latestDraftTimelineEntry
+        ? latestDraftTimelineEntry.content.trim()
+        : "";
+
+    if (shouldCompare && !currentDraft) {
+      setErrorMessage("There isn't a current draft version to compare against yet.");
+      return;
+    }
+
+    const prompt = shouldCompare
+      ? "compare this to the current version"
+      : "what do you think about this post?";
+    const nowIso = new Date().toISOString();
+    const temporaryUserMessageId = `draft-inspector-user-${Date.now()}`;
+    const temporaryAssistantMessageId = `draft-inspector-assistant-${Date.now() + 1}`;
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: temporaryUserMessageId,
+        role: "user",
+        content: prompt,
+        createdAt: nowIso,
+      },
+      {
+        id: temporaryAssistantMessageId,
+        role: "assistant",
+        content: shouldCompare ? "Comparing versions." : "Analyzing this draft.",
+        createdAt: nowIso,
+        isStreaming: true,
+      },
+    ]);
+    scrollThreadToBottom();
+    setIsDraftInspectorLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/creator/v2/draft-analysis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: shouldCompare ? "compare" : "analyze",
+          draft: inspectedDraft,
+          threadId: activeThreadId,
+          ...(shouldCompare ? { currentDraft } : {}),
+        }),
+      });
+
+      const data = (await response.json()) as DraftInspectorResponse;
+
+      if (!response.ok || !data.ok) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === temporaryAssistantMessageId
+              ? {
+                  ...message,
+                  content: "I couldn't analyze that draft just now.",
+                  isStreaming: false,
+                }
+              : message,
+          ),
+        );
+        setErrorMessage(
+          data.ok
+            ? "The draft analysis failed."
+            : (data.errors[0]?.message ?? "The draft analysis failed."),
+        );
+        return;
+      }
+
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id === temporaryUserMessageId) {
+            return {
+              ...message,
+              id: data.data.userMessageId,
+              content: data.data.prompt,
+            };
+          }
+
+          if (message.id === temporaryAssistantMessageId) {
+            return {
+              ...message,
+              id: data.data.assistantMessageId,
+              content: data.data.summary.trim(),
+              isStreaming: false,
+            };
+          }
+
+          return message;
+        }),
+      );
+    } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === temporaryAssistantMessageId
+            ? {
+                ...message,
+                content: "I couldn't analyze that draft just now.",
+                isStreaming: false,
+              }
+            : message,
+        ),
+      );
+      setErrorMessage("The draft analysis failed.");
+    } finally {
+      setIsDraftInspectorLoading(false);
+    }
+  }, [
+    activeThreadId,
+    activeDraftEditor?.messageId,
+    activeDraftEditor?.versionId,
+    editorDraftText,
+    isViewingHistoricalDraftVersion,
+    latestDraftTimelineEntry,
+    selectedDraftVersion,
+    scrollThreadToBottom,
+  ]);
 
   const requestAssistantReply = useCallback(
     async (options: {
@@ -1428,6 +2538,7 @@ function ChatPageContent() {
       includeUserMessageInHistory?: boolean;
       selectedAngle?: string | null;
       intent?: ChatIntent;
+      selectedDraftContextOverride?: DraftVersionSnapshot | null;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
       toneInputOverride?: ChatToneInputs;
@@ -1448,18 +2559,32 @@ function ChatPageContent() {
         !resolvedContract ||
         !resolvedStrategyInputs ||
         !resolvedToneInputs ||
-        isSending
+        isMainChatLocked
       ) {
         return;
       }
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
-      const resolvedIntent = options.intent;
+      const selectedDraftAction =
+        selectedDraftContext && trimmedPrompt
+          ? inferSelectedDraftAction(trimmedPrompt)
+          : "ignore";
+      const effectiveIntent =
+        options.intent ??
+        (selectedDraftContext && selectedDraftAction === "revise" ? "edit" : undefined);
+      const effectiveSelectedDraftContext =
+        options.selectedDraftContextOverride !== undefined
+          ? options.selectedDraftContextOverride
+          : selectedDraftContext &&
+              !options.selectedAngle &&
+              (effectiveIntent === "edit" || effectiveIntent === "review")
+            ? selectedDraftContext
+            : null;
       const hasStructuredIntent =
         !!options.selectedAngle ||
-        (resolvedIntent === "coach" &&
+        (effectiveIntent === "coach" &&
           (!trimmedPrompt || !!resolvedContentFocus)) ||
-        ((resolvedIntent === "ideate" || resolvedIntent === "coach") &&
+        ((effectiveIntent === "ideate" || effectiveIntent === "coach") &&
           !!resolvedContentFocus);
 
       if (!trimmedPrompt && !hasStructuredIntent) {
@@ -1479,6 +2604,7 @@ function ChatPageContent() {
         };
 
         setMessages((current) => [...current, userMessage]);
+        scrollThreadToBottom();
         if (options.includeUserMessageInHistory !== false) {
           history = [...history, userMessage].slice(-6);
         }
@@ -1501,9 +2627,12 @@ function ChatPageContent() {
             history,
             provider: providerPreference,
             stream: true,
-            intent: resolvedIntent,
+            intent: effectiveIntent,
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
+            ...(effectiveSelectedDraftContext
+              ? { selectedDraftContext: effectiveSelectedDraftContext }
+              : {}),
             pinnedVoicePostIds,
             pinnedEvidencePostIds,
             ...resolvedToneInputs,
@@ -1529,14 +2658,19 @@ function ChatPageContent() {
           setMessages((current) => [
             ...current,
             {
-              id: `assistant-${Date.now() + 1}`,
+              id: data.data.messageId ?? `assistant-${Date.now() + 1}`,
               role: "assistant",
               content: data.data.reply,
+              createdAt: new Date().toISOString(),
               angles: data.data.angles,
               plan: data.data.plan ?? null,
               draft: data.data.draft || null,
               drafts: data.data.drafts,
               draftArtifacts: data.data.draftArtifacts,
+              draftVersions: data.data.draftVersions,
+              activeDraftVersionId: data.data.activeDraftVersionId,
+              previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
+              revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
               whyThisWorks: data.data.whyThisWorks,
@@ -1570,6 +2704,20 @@ function ChatPageContent() {
                     : undefined,
             },
           ]);
+          scrollThreadToBottom();
+
+          if (
+            effectiveSelectedDraftContext &&
+            data.data.messageId &&
+            data.data.activeDraftVersionId &&
+            data.data.draft
+          ) {
+          setActiveDraftEditor({
+            messageId: data.data.messageId,
+            versionId: data.data.activeDraftVersionId,
+            revisionChainId: data.data.revisionChainId,
+          });
+        }
 
           // Store returned memory blob
           if (data.data.memory) {
@@ -1670,14 +2818,19 @@ function ChatPageContent() {
         setMessages((current) => [
           ...current,
           {
-            id: `assistant-${Date.now() + 1}`,
+            id: streamedResult.messageId ?? `assistant-${Date.now() + 1}`,
             role: "assistant",
             content: streamedResult.reply,
+            createdAt: new Date().toISOString(),
             angles: streamedResult.angles,
             plan: streamedResult.plan ?? null,
             draft: streamedResult.draft || null,
             drafts: streamedResult.drafts,
             draftArtifacts: streamedResult.draftArtifacts,
+            draftVersions: streamedResult.draftVersions,
+            activeDraftVersionId: streamedResult.activeDraftVersionId,
+            previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
+            revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
             whyThisWorks: streamedResult.whyThisWorks,
@@ -1711,6 +2864,20 @@ function ChatPageContent() {
                   : undefined,
           },
         ]);
+        scrollThreadToBottom();
+
+        if (
+          effectiveSelectedDraftContext &&
+          streamedResult.messageId &&
+          streamedResult.activeDraftVersionId &&
+          streamedResult.draft
+        ) {
+          setActiveDraftEditor({
+            messageId: streamedResult.messageId,
+            versionId: streamedResult.activeDraftVersionId,
+            revisionChainId: streamedResult.revisionChainId,
+          });
+        }
 
         // Store returned memory blob from stream
         if (streamedResult.memory) {
@@ -1762,11 +2929,13 @@ function ChatPageContent() {
       contract,
       context,
       conversationMemory,
-      isSending,
+      isMainChatLocked,
       messages,
       providerPreference,
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
+      selectedDraftContext,
+      scrollThreadToBottom,
       accountName,
       activeThreadId,
       syncThreadTitle,
@@ -1784,8 +2953,6 @@ function ChatPageContent() {
       return;
     }
 
-    const currentContext = context;
-
     async function initializeThread() {
       // If we have an active thread, try loading its history
       if (activeThreadId) {
@@ -1802,6 +2969,7 @@ function ChatPageContent() {
               id: m.id,
               role: m.role as "assistant" | "user",
               content: m.content,
+              createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
               ...(m.data || {}),
             }));
             setMessages(mappedMessages);
@@ -1812,50 +2980,6 @@ function ChatPageContent() {
         }
       }
 
-      // If no history was loaded, and the screen is blank, fetch the Welcome message
-      if (messages.length === 0) {
-        if (welcomeFetchedRef.current) return;
-        welcomeFetchedRef.current = true;
-        const resolvedWelcomeAccount = accountName ?? currentContext.account ?? "there";
-        const fallbackWelcome = buildWelcomeFallbackMessage({
-          accountName: resolvedWelcomeAccount,
-          creatorProfile: currentContext.creatorProfile,
-        });
-
-        try {
-          setMessages([{
-            id: `assistant-welcome-loading`,
-            role: "assistant",
-            content: "",
-            isStreaming: true, // Show typing indicator
-          }]);
-
-          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${currentContext.runId}&account=${encodeURIComponent(resolvedWelcomeAccount)}`);
-          const data = await res.json();
-
-          if (data.ok && data.data?.response) {
-            setMessages([{
-              id: `assistant-welcome-${Date.now()}`,
-              role: "assistant",
-              content: data.data.response,
-            }]);
-          } else {
-            // Fallback if the LLM fails
-            setMessages([{
-              id: `assistant-welcome-fallback`,
-              role: "assistant",
-              content: fallbackWelcome,
-            }]);
-          }
-        } catch (err) {
-          console.error("Failed to fetch welcome message", err);
-          setMessages([{
-            id: `assistant-welcome-fallback`,
-            role: "assistant",
-            content: fallbackWelcome,
-          }]);
-        }
-      }
     }
 
     void initializeThread();
@@ -1874,7 +2998,7 @@ function ChatPageContent() {
 
   const handleAngleSelect = useCallback(
     async (angle: string) => {
-      if (!activeStrategyInputs || !activeToneInputs || isSending) {
+      if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
         return;
       }
 
@@ -1894,14 +3018,14 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
-      isSending,
+      isMainChatLocked,
       requestAssistantReply,
     ],
   );
 
   const handleQuickReplySelect = useCallback(
     async (quickReply: ChatQuickReply) => {
-      if (isSending) {
+      if (isMainChatLocked) {
         return;
       }
 
@@ -1941,7 +3065,7 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
-      isSending,
+      isMainChatLocked,
       requestAssistantReply,
     ],
   );
@@ -1950,13 +3074,22 @@ function ChatPageContent() {
     event.preventDefault();
 
     const trimmedInput = draftInput.trim();
-    if (!trimmedInput || !context || !contract || isSending) {
+    if (!trimmedInput || !context || !contract || isMainChatLocked) {
       return;
     }
 
     if (!activeStrategyInputs || !activeToneInputs) {
       setErrorMessage("The planning model is still loading.");
       return;
+    }
+
+    const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
+
+    if (shouldAnimateHeroExit) {
+      setIsLeavingHero(true);
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
+      });
     }
 
     setDraftInput("");
@@ -1970,6 +3103,50 @@ function ChatPageContent() {
     });
   }
 
+  const submitQuickStarter = useCallback(
+    async (prompt: string) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || !context || !contract || isMainChatLocked) {
+        return;
+      }
+
+      if (!activeStrategyInputs || !activeToneInputs) {
+        setErrorMessage("The planning model is still loading.");
+        return;
+      }
+
+      const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
+
+      if (shouldAnimateHeroExit) {
+        setIsLeavingHero(true);
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
+        });
+      }
+
+      setDraftInput("");
+
+      await requestAssistantReply({
+        prompt: trimmedPrompt,
+        appendUserMessage: true,
+        strategyInputOverride: activeStrategyInputs,
+        toneInputOverride: activeToneInputs,
+        contentFocusOverride: activeContentFocus,
+      });
+    },
+    [
+      activeContentFocus,
+      activeThreadId,
+      activeStrategyInputs,
+      activeToneInputs,
+      contract,
+      context,
+      isMainChatLocked,
+      messages.length,
+      requestAssistantReply,
+    ],
+  );
+
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -1980,13 +3157,104 @@ function ChatPageContent() {
         !activeStrategyInputs ||
         !activeToneInputs ||
         !draftInput.trim() ||
-        isSending
+        isMainChatLocked
       ) {
         return;
       }
       void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
   };
+
+  const isNewChatHero =
+    !activeThreadId && messages.length === 0 && Boolean(context) && !isLeavingHero;
+  const heroGreeting = buildHeroGreeting({
+    context,
+    accountName,
+  });
+  const heroIdentityLabel =
+    context?.creatorProfile.identity.displayName ??
+    context?.creatorProfile.identity.username ??
+    accountName ??
+    context?.account ??
+    "X";
+  const heroInitials = heroIdentityLabel
+    .replace(/^@+/, "")
+    .slice(0, 2)
+    .toUpperCase();
+  const accountAvatarFallback =
+    accountName?.slice(0, 1).toUpperCase() ??
+    session?.user?.email?.slice(0, 1).toUpperCase() ??
+    "X";
+  const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
+  const shouldCenterHero = isNewChatHero || isLeavingHero;
+  const renderAccountMenuPanel = (className: string) =>
+    accountMenuOpen ? (
+      <div className={className}>
+        <div className="max-h-[200px] overflow-y-auto px-1 py-1">
+          <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            X Accounts
+          </p>
+          {availableHandles.map((handleStr) => (
+            <button
+              key={handleStr}
+              onClick={() => switchActiveHandle(handleStr)}
+              className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+            >
+              <span className="truncate">@{handleStr}</span>
+              {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setAccountMenuOpen(false);
+              setIsAddAccountModalOpen(true);
+              setAddAccountError(null);
+              setReadyAccountHandle(null);
+            }}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Account</span>
+          </button>
+        </div>
+
+        <div className="my-1 h-px bg-white/10" />
+
+        <div className="px-1 py-1">
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Sign out</span>
+          </button>
+        </div>
+      </div>
+    ) : null;
+  const composerChromeClassName =
+    "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
+  const heroInlineComposerSurfaceClassName =
+    `${composerChromeClassName} rounded-[1.4rem] p-1.5 sm:p-2`;
+  const dockComposerSurfaceClassName =
+    `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;
+  const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${isLeavingHero
+    ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
+    : "translate-y-0 scale-100 opacity-100 blur-0"
+    }`;
+  const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${isLeavingHero
+    ? "-translate-y-4 opacity-0 blur-[2px]"
+    : "translate-y-0 opacity-100 blur-0"
+    }`;
+  const dockComposerWrapperClassName = `absolute inset-x-0 bottom-0 z-10 pb-[env(safe-area-inset-bottom)] transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${isNewChatHero
+    ? "pointer-events-none opacity-0 -translate-y-[14.5rem] sm:-translate-y-[17rem]"
+    : "pointer-events-auto opacity-100 translate-y-0"
+    }`;
+  const isInlineDraftEditorOpen = Boolean(
+    selectedDraftVersion && selectedDraftBundle,
+  );
+  const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
+    } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -1996,75 +3264,51 @@ function ChatPageContent() {
 
       <div className="relative flex h-full min-h-0">
         <aside
-          className={`sticky top-0 hidden h-full min-h-0 shrink-0 border-r border-white/10 bg-white/[0.02] transition-[width] duration-300 md:flex md:flex-col ${sidebarOpen ? "w-[18.5rem]" : "w-[4.75rem]"
+          className={`sticky top-0 hidden h-full min-h-0 shrink-0 overflow-hidden transition-[width] duration-300 md:flex md:flex-col ${sidebarOpen
+            ? "w-[18.5rem] border-r border-white/10 bg-white/[0.02]"
+            : "w-0 border-r-0 bg-transparent"
             }`}
         >
-          <div className="px-3 pt-3">
-            <Link
-              href="/"
-              className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition hover:bg-white/[0.04] ${sidebarOpen ? "justify-start" : "justify-center"
-                }`}
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-sm font-semibold tracking-[0.18em] text-white">
-                X
-              </span>
-              {sidebarOpen ? (
-                <span className="text-sm font-semibold tracking-[0.18em] text-white">
-                  Xpo
-                </span>
-              ) : null}
-            </Link>
-          </div>
-
-          <div className="flex items-center justify-between px-4 py-4">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen((current) => !current)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              {sidebarOpen ? "×" : "≡"}
-            </button>
-            {sidebarOpen ? (
+          {sidebarOpen ? (
+            <div className="flex items-center px-3 py-4">
               <button
                 type="button"
-                onClick={() => {
-                  void loadWorkspace();
-                }}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.04]"
+                onClick={() => setSidebarOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
+                aria-label="Collapse sidebar"
               >
-                Refresh
+                ×
               </button>
-            ) : null}
-          </div>
-
-          <div className="px-3">
-            <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
-              <span className="text-sm text-zinc-500">⌕</span>
-              {sidebarOpen ? (
-                <>
-                  <span className="text-sm text-zinc-400">Search</span>
-                  <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-                    ⌘K
-                  </span>
-                </>
-              ) : null}
             </div>
-          </div>
+          ) : null}
 
-          <div className="px-3 pt-3">
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${sidebarOpen ? "justify-start" : "justify-center"
-                }`}
-            >
-              <span className="text-sm text-white">✎</span>
-              {sidebarOpen ? (
-                <span className="text-sm font-medium text-white">New Chat</span>
-              ) : null}
-            </button>
-          </div>
+          {sidebarOpen ? (
+            <>
+              <div className="px-3">
+                <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
+                  <span className="text-sm text-zinc-500">⌕</span>
+                  <input
+                    type="text"
+                    value={sidebarSearchQuery}
+                    onChange={(event) => setSidebarSearchQuery(event.target.value)}
+                    placeholder="Search chats"
+                    className="w-full bg-transparent text-sm text-zinc-300 outline-none placeholder:text-zinc-500"
+                  />
+                </div>
+              </div>
+
+              <div className="px-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[0.03]"
+                >
+                  <span className="text-sm text-zinc-400">✎</span>
+                  <span className="text-sm font-medium text-white">New Chat</span>
+                </button>
+              </div>
+            </>
+          ) : null}
 
           <div className="flex-1 overflow-y-auto px-3 py-4">
             {sidebarOpen ? (
@@ -2118,7 +3362,7 @@ function ChatPageContent() {
                               </div>
 
                               {section.section === "Chats" && item.id !== "current-workspace" && (hoveredThreadId === item.id || menuOpenThreadId === item.id) && (
-                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? menuRef : null}>
+                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? threadMenuRef : null}>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2162,158 +3406,158 @@ function ChatPageContent() {
                         )}
                       </div>
                     ))}
+                    {section.items.length === 0 && sidebarSearchQuery.trim() ? (
+                      <div className="rounded-2xl px-2 py-3 text-sm text-zinc-500">
+                        No matching chats
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-3 pt-2">
-                {sidebarThreads.flatMap((section) => section.items).slice(0, 6).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      if (item.id !== "current-workspace") {
-                        setActiveThreadId(item.id);
-                        window.history.pushState({}, '', `/chat/${item.id}`);
-                      }
-                    }}
-                    className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white ${activeThreadId === item.id ? "ring-1 ring-white/20" : ""}`}
-                    title={item.label}
-                  >
-                    {item.label.slice(0, 2)}
-                  </button>
-                ))}
-              </div>
+              <div className="h-full" />
             )}
           </div>
 
-          <div className="relative border-t border-white/10 px-3 py-4">
-            {sidebarOpen ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
-                  className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
-                >
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold overflow-hidden">
-                      {context?.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${accountName} profile photo`}
-                        />
-                      ) : (
-                        accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"
-                      )}
-                    </div>
-                    <div className="flex flex-col items-start overflow-hidden text-left">
-                      <span className="truncate text-xs font-semibold text-zinc-100 w-full">
-                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
-                      </span>
-                      {accountName ? (
-                        <span className="truncate text-[10px] text-zinc-500 w-full">
-                          {session?.user?.email ?? ""}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
-                </button>
-
-                {accountMenuOpen && (
-                  <div className="absolute bottom-[calc(100%+8px)] left-2 right-2 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl">
-                    <div className="max-h-[200px] overflow-y-auto px-1 py-1">
-                      <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                        X Accounts
-                      </p>
-                      {availableHandles.map((handleStr) => (
-                        <button
-                          key={handleStr}
-                          onClick={() => switchActiveHandle(handleStr)}
-                          className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-                        >
-                          <span className="truncate">@{handleStr}</span>
-                          {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAccountMenuOpen(false);
-                          setIsAddAccountModalOpen(true);
-                          setAddAccountError(null);
-                          setReadyAccountHandle(null);
-                        }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                      >
-                        <Plus className="h-4 w-4" />
-                        <span>Add Account</span>
-                      </button>
-                    </div>
-
-                    <div className="my-1 h-px bg-white/10" />
-
-                    <div className="px-1 py-1">
-                      <button
-                        onClick={() => signOut({ callbackUrl: "/" })}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        <span>Sign out</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black text-sm font-bold transition hover:opacity-80"
-                  aria-label="Open account menu"
-                >
-                  {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
-                </button>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        <div className="flex h-full min-h-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
-            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+          {sidebarOpen ? (
+            <div ref={accountMenuRef} className="relative border-t border-white/10 px-3 py-4">
               <button
                 type="button"
-                onClick={() => setSidebarOpen((current) => !current)}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white md:hidden"
-                aria-label="Toggle sidebar"
+                onClick={() => {
+                  setMenuOpenThreadId(null);
+                  setAccountMenuOpen((current) => !current);
+                }}
+                className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
+                aria-label="Open account menu"
+              >
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black">
+                    {context?.avatarUrl ? (
+                      <div
+                        className="h-full w-full bg-cover bg-center"
+                        style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                        role="img"
+                        aria-label={accountProfileAriaLabel}
+                      />
+                    ) : (
+                      accountAvatarFallback
+                    )}
+                  </div>
+                  <div className="flex flex-col items-start overflow-hidden text-left">
+                    <span className="w-full truncate text-xs font-semibold text-zinc-100">
+                      {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
+                    </span>
+                    {accountName ? (
+                      <span className="w-full truncate text-[10px] text-zinc-500">
+                        {session?.user?.email ?? ""}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
+              </button>
+
+              {renderAccountMenuPanel(
+                "absolute bottom-[calc(100%+8px)] left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl",
+              )}
+            </div>
+          ) : null}
+        </aside>
+
+        {!sidebarOpen ? (
+          <>
+            <div className="pointer-events-none absolute left-4 top-4 z-20 hidden md:block">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpenThreadId(null);
+                  setAccountMenuOpen(false);
+                  setSidebarOpen(true);
+                }}
+                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
+                aria-label="Expand sidebar"
               >
                 ≡
               </button>
-              <div className="flex justify-center md:justify-start">
+            </div>
+
+            <div ref={accountMenuRef} className="absolute bottom-4 left-4 z-20 hidden md:block">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpenThreadId(null);
+                  setAccountMenuOpen((current) => !current);
+                }}
+                className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition hover:opacity-85"
+                aria-label="Open account menu"
+              >
+                {context?.avatarUrl ? (
+                  <div
+                    className="h-full w-full bg-cover bg-center"
+                    style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                    role="img"
+                    aria-label={accountProfileAriaLabel}
+                  />
+                ) : (
+                  accountAvatarFallback
+                )}
+              </button>
+              {renderAccountMenuPanel(
+                "absolute bottom-[calc(100%+10px)] left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl",
+              )}
+            </div>
+          </>
+        ) : null}
+
+        <div className="relative flex h-full min-h-0 flex-1 flex-col">
+          <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen((current) => !current)}
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white md:hidden"
+                  aria-label="Toggle sidebar"
+                >
+                  ≡
+                </button>
+              </div>
+              <div className="flex justify-center">
                 <div className="rounded-full border border-white/10 px-5 py-2">
                   <p className="font-mono text-sm font-semibold tracking-[0.08em] text-white">
-                    X Strategy Chat
+                    Xpo
                   </p>
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setAnalysisOpen(true)}
-                  className="rounded-full border border-white/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-white/[0.04]"
+                  className="text-[11px] font-medium text-zinc-400 transition hover:text-white"
                 >
-                  View Analysis
+                  View Profile Analysis
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlaybookModalOpen(true)}
+                  className="text-[11px] font-medium text-zinc-400 transition hover:text-white"
+                >
+                  Playbook
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExtensionModalOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.04]"
+                >
+                  <span>Companion App</span>
+                  <ArrowUpRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
           </header>
 
-          <section className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24">
+          <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div className={chatCanvasClassName}>
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -2324,333 +3568,457 @@ function ChatPageContent() {
                     </div>
                   ) : null}
 
-                  {messages.map((message, index) => (
-                    <div
-                      key={message.id}
-                      className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
-                        ? "text-zinc-100"
-                        : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
-                        }`}
-                    >
-                      <p className="whitespace-pre-wrap">
-                        {message.role === "assistant" &&
-                          message.id === latestAssistantMessageId ? (
-                          <>
-                            {message.content.slice(
-                              0,
-                              typedAssistantLengths[message.id] ?? 0,
+                  {isNewChatHero || isLeavingHero ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-10 py-10 text-center">
+                      <div className="w-full max-w-xl">
+                        <div className={heroProfileMotionClassName}>
+                          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 shadow-[0_14px_42px_rgba(0,0,0,0.32)] sm:h-24 sm:w-24">
+                            {context?.avatarUrl ? (
+                              <div
+                                className="h-full w-full bg-cover bg-center"
+                                style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                                role="img"
+                                aria-label={`${heroIdentityLabel} profile photo`}
+                              />
+                            ) : (
+                              <span className="text-2xl font-semibold text-white">{heroInitials}</span>
                             )}
-                            {(typedAssistantLengths[message.id] ?? 0) <
-                              message.content.length ? (
-                              <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                          </div>
+
+                          <div className="flex items-center justify-center gap-2">
+                            <p className="text-xl font-semibold tracking-[-0.04em] text-white sm:text-3xl">
+                              {heroGreeting}
+                            </p>
+                            {isVerifiedAccount ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={18}
+                                height={18}
+                                className="h-4 w-4 shrink-0 sm:h-5 sm:w-5"
+                              />
                             ) : null}
-                          </>
-                        ) : (
-                          message.content
-                        )}
-                      </p>
-
-                      {message.role === "assistant" &&
-                        message.quickReplies?.length &&
-                        index === messages.length - 1 ? (
-                        <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                          {message.quickReplies.map((quickReply) => (
-                            <button
-                              key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
-                              type="button"
-                              onClick={() => {
-                                void handleQuickReplySelect(quickReply);
-                              }}
-                              disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                              className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                            >
-                              {quickReply.label}
-                            </button>
-                          ))}
+                          </div>
                         </div>
-                      ) : null}
 
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.angles?.length ? (
-                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                          {message.angles.map((angle, index) => {
-                            // Support both old string[] and new structured IdeaSchema objects
-                            const isStructured = typeof angle === "object" && angle !== null;
-                            const title = isStructured ? (angle as Record<string, string>).title : angle as string;
-                            const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
-                            const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
-
-                            // Old formats parsing
-                            const premise = isStructured ? (angle as Record<string, string>).premise : null;
-                            const format = isStructured ? (angle as Record<string, string>).format : null;
-
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => setDraftInput(`> ${title}\n\n`)}
-                                key={`${message.id}-angle-${index}`}
-                                className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
-                              >
-                                <div className="flex items-start gap-3">
-                                  <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
-                                  <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
-                                    {title}
-                                  </p>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.draftArtifacts?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.draftArtifacts.map((artifact, index) => (
-                            <div
-                              key={`${message.id}-draft-artifact-${artifact.id}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    {artifact.title}
-                                  </p>
-                                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                    {artifact.maxCharacterLimit}
-                                  </p>
-                                </div>
+                        {isNewChatHero ? (
+                          <form onSubmit={handleComposerSubmit} className="mt-3">
+                            <div className={heroInlineComposerSurfaceClassName}>
+                              <textarea
+                                value={draftInput}
+                                onChange={(event) => setDraftInput(event.target.value)}
+                                onKeyDown={handleComposerKeyDown}
+                                placeholder="What are we creating today?"
+                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                                className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
+                                rows={1}
+                              />
+                              <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
                                 <button
-                                  type="button"
-                                  onClick={() => openDraftEditor(message.id, index)}
-                                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                  type="submit"
+                                  disabled={
+                                    !context ||
+                                    !contract ||
+                                    !activeStrategyInputs ||
+                                    !activeToneInputs ||
+                                    !draftInput.trim() ||
+                                    isMainChatLocked
+                                  }
+                                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
+                                  aria-label="Send message"
                                 >
-                                  Edit
+                                  {isSending ? (
+                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                                  ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                                      <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  )}
                                 </button>
                               </div>
-                              <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {artifact.content}
-                              </p>
                             </div>
-                          ))}
-                        </div>
-                      ) : null}
+                          </form>
+                        ) : null}
 
-                      {message.plan ? (
-                        <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
-                          <div className="mb-3 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
-                              S
-                            </span>
-                            <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
-                              Strategy Outline
-                            </span>
-                          </div>
-                          <div className="space-y-4">
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
-                              <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
-                            </div>
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
-                              <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
-                            </div>
-                            <div className="flex gap-6">
-                              <div>
-                                <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
-                                <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
-                              </div>
-                              {message.plan.hookType && (
-                                <div>
-                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
-                                  <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
-                                </div>
+                        <div className={`${heroChipsMotionClassName} mt-4`}>
+                            {HERO_QUICK_ACTIONS.map((action) => (
+                              <button
+                                key={action.prompt}
+                                type="button"
+                                onClick={() => {
+                                  void submitQuickStarter(action.prompt);
+                                }}
+                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
+                              >
+                                {action.label}
+                              </button>
+                            ))}
+	                        </div>
+	                    </div>
+	                  </div>
+	                  ) : (
+                    <>
+                      {messages.map((message, index) => (
+                        <div
+                          key={message.id}
+                          ref={(node) => {
+                            messageRefs.current[message.id] = node;
+                          }}
+                          className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
+                            ? "text-zinc-100"
+                            : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
+                            }`}
+                        >
+                          {message.role === "assistant" && message.isStreaming ? (
+                            <AssistantTypingBubble status={message.content || null} />
+                          ) : (
+                            <p className="whitespace-pre-wrap">
+                              {message.role === "assistant" &&
+                                message.id === latestAssistantMessageId ? (
+                                <>
+                                  {message.content.slice(
+                                    0,
+                                    typedAssistantLengths[message.id] ?? 0,
+                                  )}
+                                  {(typedAssistantLengths[message.id] ?? 0) <
+                                    message.content.length ? (
+                                    <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                                  ) : null}
+                                </>
+                              ) : (
+                                message.content
                               )}
+                            </p>
+                          )}
+
+                          {message.role === "assistant" &&
+                            message.quickReplies?.length &&
+                            index === messages.length - 1 ? (
+                            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                              {message.quickReplies.map((quickReply) => (
+                                <button
+                                  key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
+                                  type="button"
+                                  onClick={() => {
+                                    void handleQuickReplySelect(quickReply);
+                                  }}
+                                  disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                >
+                                  {quickReply.label}
+                                </button>
+                              ))}
                             </div>
-                          </div>
-                        </div>
-                      ) : null}
+                          ) : null}
 
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.draft ? (() => {
-                          const username = context?.creatorProfile?.identity?.username || "user";
-                          const displayName = context?.creatorProfile?.identity?.displayName || username;
-                          const avatarUrl = context?.avatarUrl || null;
-                          const isEditing = activeDraftEditor?.messageId === message.id;
-                          const draftCounter = getXCharacterCounterMeta(
-                            isEditing ? editorDraftText : message.draft || "",
-                            composerCharacterLimit,
-                          );
-                          return (
-                            <div className="mt-4 border-t border-white/10 pt-4">
-                              {/* X Post Card */}
-                              <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
-                                {/* Header: avatar + name + handle */}
-                                <div className="flex items-start gap-3">
-                                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                    {avatarUrl ? (
-                                      <div
-                                        className="h-full w-full bg-cover bg-center"
-                                        style={{ backgroundImage: `url(${avatarUrl})` }}
-                                        role="img"
-                                        aria-label={`${displayName} profile photo`}
-                                      />
-                                    ) : (
-                                      displayName.charAt(0)
-                                    )}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-sm font-bold text-white truncate">{displayName}</span>
-                                      {isVerifiedAccount ? (
-                                        <Image
-                                          src="/x-verified.svg"
-                                          alt="Verified account"
-                                          width={16}
-                                          height={16}
-                                          className="h-4 w-4 shrink-0"
-                                        />
-                                      ) : null}
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.angles?.length ? (
+                            <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                              {message.angles.map((angle, index) => {
+                                // Support both old string[] and new structured IdeaSchema objects
+                                const isStructured = typeof angle === "object" && angle !== null;
+                                const title = isStructured ? (angle as Record<string, string>).title : angle as string;
+                                const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
+                                const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
+
+                                // Old formats parsing
+                                const premise = isStructured ? (angle as Record<string, string>).premise : null;
+                                const format = isStructured ? (angle as Record<string, string>).format : null;
+
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDraftInput(`> ${title}\n\n`)}
+                                    key={`${message.id}-angle-${index}`}
+                                    className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
+                                      <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
+                                        {title}
+                                      </p>
                                     </div>
-                                    <span className="text-xs text-zinc-500">@{username}</span>
-                                  </div>
-                                </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
 
-                                {/* Post Content */}
-                                <div className="mt-3">
-                                  {isEditing ? (
-                                    <textarea
-                                      value={editorDraftText}
-                                      onChange={(e) => setEditorDraftText(e.target.value)}
-                                      className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
-                                      rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
-                                    />
-                                  ) : (
-                                    <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                      {message.draft}
-                                    </p>
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.outputShape !== "short_form_post" &&
+                            message.draftArtifacts?.length ? (
+                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                              {message.draftArtifacts.map((artifact, index) => {
+                                const artifactVersionId =
+                                  normalizeDraftVersionBundle(
+                                    message,
+                                    composerCharacterLimit,
+                                  )?.versions[index]?.id;
+
+                                return (
+                                <div
+                                  key={`${message.id}-draft-artifact-${artifact.id}`}
+                                  className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                        {artifact.title}
+                                      </p>
+                                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                        {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
+                                        {artifact.maxCharacterLimit}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openDraftEditor(message.id, artifactVersionId)
+                                      }
+                                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                  <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
+                                    {artifact.content}
+                                  </p>
+                                </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+
+                          {message.plan ? (
+                            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
+                              <div className="mb-3 flex items-center gap-2">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
+                                  S
+                                </span>
+                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                                  Strategy Outline
+                                </span>
+                              </div>
+                              <div className="space-y-4">
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
+                                  <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
+                                  <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
+                                </div>
+                                <div className="flex gap-6">
+                                  <div>
+                                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
+                                    <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
+                                  </div>
+                                  {message.plan.hookType && (
+                                    <div>
+                                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
+                                      <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
+                                    </div>
                                   )}
                                 </div>
-
-                                {/* Timestamp */}
-                                <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
-                                  <span>Just now</span>
-                                  <span>·</span>
-                                  <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
-                                </div>
-
-                                {/* Divider */}
-                                <div className="mt-3 border-t border-white/[0.06]" />
-
-                                {/* Action Buttons */}
-                                <div className="mt-2 flex items-center justify-between">
-                                  <div className="flex items-center gap-1">
-                                    {/* Edit / Save toggle */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isEditing) {
-                                          setActiveDraftEditor(null);
-                                        } else {
-                                          setActiveDraftEditor({
-                                            messageId: message.id,
-                                            artifactIndex: 0,
-                                          });
-                                          setEditorDraftText(message.draft || "");
-                                        }
-                                      }}
-                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                    >
-                                      {isEditing ? "Done" : "Edit"}
-                                    </button>
-                                    {/* Copy */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const text = isEditing ? editorDraftText : (message.draft || "");
-                                        void navigator.clipboard.writeText(text);
-                                      }}
-                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                    >
-                                      Copy
-                                    </button>
-                                  </div>
-                                </div>
                               </div>
                             </div>
-                          );
-                        })() : null}
+                          ) : null}
 
-                      {message.role === "assistant" &&
-                        message.supportAsset &&
-                        !message.draftArtifacts?.length ? (
-                        <div className="mt-4 border-t border-white/10 pt-4">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Visual / Demo Ideas
-                          </p>
-                          <p className="mt-2 text-xs leading-6 text-zinc-300">
-                            {message.supportAsset}
-                          </p>
-                        </div>
-                      ) : null}
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.draft ? (() => {
+                              const username = context?.creatorProfile?.identity?.username || "user";
+                              const displayName = context?.creatorProfile?.identity?.displayName || username;
+                              const avatarUrl = context?.avatarUrl || null;
+                              const draftBundle = normalizeDraftVersionBundle(
+                                message,
+                                composerCharacterLimit,
+                              );
+                              const previewDraft =
+                                draftBundle?.activeVersion.content ?? message.draft ?? "";
+                              const draftCounter = getXCharacterCounterMeta(
+                                previewDraft,
+                                draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
+                              );
+                              return (
+                                <div className="mt-4 border-t border-white/10 pt-4">
+                                  {/* X Post Card */}
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => openDraftEditor(message.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openDraftEditor(message.id);
+                                      }
+                                    }}
+                                    className="rounded-2xl border border-white/[0.08] bg-[#000000] p-4 transition hover:border-white/15 hover:bg-[#0F0F0F] cursor-pointer"
+                                  >
+                                    {/* Header: avatar + name + handle */}
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                        {avatarUrl ? (
+                                          <div
+                                            className="h-full w-full bg-cover bg-center"
+                                            style={{ backgroundImage: `url(${avatarUrl})` }}
+                                            role="img"
+                                            aria-label={`${displayName} profile photo`}
+                                          />
+                                        ) : (
+                                          displayName.charAt(0)
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-sm font-bold text-white truncate">{displayName}</span>
+                                          {isVerifiedAccount ? (
+                                            <Image
+                                              src="/x-verified.svg"
+                                              alt="Verified account"
+                                              width={16}
+                                              height={16}
+                                              className="h-4 w-4 shrink-0"
+                                            />
+                                          ) : null}
+                                        </div>
+                                        <span className="text-xs text-zinc-500">@{username}</span>
+                                      </div>
+                                    </div>
 
-                      {showDevTools && message.role === "assistant" &&
-                        ((message.whyThisWorks?.length ?? 0) > 0 ||
-                          (message.watchOutFor?.length ?? 0) > 0) ? (
-                        <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
-                          {message.whyThisWorks?.length ? (
-                            <div>
+                                    {/* Post Content */}
+                                    <div className="mt-3">
+                                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                        {previewDraft}
+                                      </p>
+                                    </div>
+
+                                    {/* Timestamp */}
+                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+                                      <span>Just now</span>
+                                      <span>·</span>
+                                      <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
+                                    </div>
+
+                                    {/* Divider */}
+                                    <div className="mt-3 border-t border-white/[0.06]" />
+
+                                    {/* Action Buttons */}
+                                    <div className="mt-2 flex items-center justify-between">
+                                      <div className="flex items-center gap-1">
+                                        {/* Edit / Save toggle */}
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openDraftEditor(message.id);
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                        >
+                                          Edit
+                                        </button>
+                                        {/* Copy */}
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void navigator.clipboard.writeText(previewDraft);
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })() : null}
+
+                          {message.role === "assistant" &&
+                            message.supportAsset &&
+                            !message.draftArtifacts?.length ? (
+                            <div className="mt-4 border-t border-white/10 pt-4">
                               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Why This Works
+                                Visual / Demo Ideas
                               </p>
-                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                {message.whyThisWorks.map((item, index) => (
-                                  <li key={`${message.id}-why-${index}`}>{item}</li>
-                                ))}
-                              </ul>
+                              <p className="mt-2 text-xs leading-6 text-zinc-300">
+                                {message.supportAsset}
+                              </p>
                             </div>
                           ) : null}
 
-                          {message.watchOutFor?.length ? (
-                            <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Watch Out For
-                              </p>
-                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                {message.watchOutFor.map((item, index) => (
-                                  <li key={`${message.id}-watch-${index}`}>{item}</li>
-                                ))}
-                              </ul>
+                          {showDevTools && message.role === "assistant" &&
+                            ((message.whyThisWorks?.length ?? 0) > 0 ||
+                              (message.watchOutFor?.length ?? 0) > 0) ? (
+                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
+                              {message.whyThisWorks?.length ? (
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Why This Works
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                    {message.whyThisWorks.map((item, index) => (
+                                      <li key={`${message.id}-why-${index}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+
+                              {message.watchOutFor?.length ? (
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Watch Out For
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                    {message.watchOutFor.map((item, index) => (
+                                      <li key={`${message.id}-watch-${index}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
+
                         </div>
-                      ) : null}
+                      ))}
 
-                    </div>
-                  ))}
+                      {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
+                    </>
+                  )}
 
-                  {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
                 </>
               )}
             </div>
           </section >
 
-          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+          <div className={dockComposerWrapperClassName}>
             <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
+              {showScrollToLatest && !shouldCenterHero ? (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={scrollThreadToBottom}
+                    className="group inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-[#0F0F0F]/90 text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-white"
+                    aria-label="Jump to latest message"
+                  >
+                    <ChevronDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
+                  </button>
+                </div>
+              ) : null}
               <form onSubmit={handleComposerSubmit}>
-                <div className="relative flex w-full items-end overflow-hidden rounded-[1.5rem] bg-[#1a1a1f] p-2 shadow-[0_0_1px_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.5)] transition-all focus-within:ring-1 focus-within:ring-white/20">
+                <div className={dockComposerSurfaceClassName}>
                   <textarea
                     value={draftInput}
                     onChange={(event) => setDraftInput(event.target.value)}
                     onKeyDown={handleComposerKeyDown}
                     placeholder="Send a message..."
-                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                    disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
                     className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
                     rows={1}
                   />
@@ -2663,7 +4031,7 @@ function ChatPageContent() {
                         !activeStrategyInputs ||
                         !activeToneInputs ||
                         !draftInput.trim() ||
-                        isSending
+                        isMainChatLocked
                       }
                       className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
                       aria-label="Send message"
@@ -2685,156 +4053,388 @@ function ChatPageContent() {
       </div >
 
       {
-        selectedDraftArtifact ? (
-          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    {selectedDraftArtifact.title}
-                  </p>
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
-                      editorDraftText,
-                    )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
-                      editorDraftText,
-                    ) <= selectedDraftArtifact.maxCharacterLimit
-                      ? "Within Limit"
-                      : "Over Limit"}
-                  </p>
+        selectedDraftVersion && selectedDraftBundle ? (
+          <>
+            <div className="pointer-events-none fixed bottom-32 right-4 top-24 z-20 hidden lg:block xl:right-6">
+              <div className="pointer-events-auto flex h-full w-[25.5rem] max-w-[calc(100vw-24rem)] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+                  <div className="px-5 pb-3 pt-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                          {context?.avatarUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                              role="img"
+                              aria-label={`${heroIdentityLabel} profile photo`}
+                            />
+                          ) : (
+                            heroInitials.charAt(0)
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-[15px] font-semibold text-white">
+                              {context?.creatorProfile.identity.displayName ??
+                                context?.creatorProfile.identity.username ??
+                                accountName ??
+                                "You"}
+                            </p>
+                            {isVerifiedAccount ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
+                            @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveDraftEditor(null)}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                        aria-label="Close draft editor"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => navigateDraftTimeline("back")}
+                            disabled={!canNavigateDraftBack}
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label="Previous draft version"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigateDraftTimeline("forward")}
+                            disabled={!canNavigateDraftForward}
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label="Next draft version"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p className="truncate text-[11px] font-medium text-zinc-500">
+                          Version {selectedDraftTimelinePosition}
+                          {" "}of {selectedDraftTimeline.length}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void (shouldShowRevertDraftCta
+                            ? revertToSelectedDraftVersion()
+                            : saveDraftEditor());
+                        }}
+                        disabled={isDraftEditorPrimaryActionDisabled}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {draftEditorPrimaryActionLabel}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-5 pb-5">
+                    <div className="p-0">
+                      <textarea
+                        value={editorDraftText}
+                        onChange={(event) => setEditorDraftText(event.target.value)}
+                        readOnly={isViewingHistoricalDraftVersion}
+                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
+                        placeholder="Draft content"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 px-5 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runDraftInspector();
+                        }}
+                        disabled={isDraftInspectorLoading}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {draftInspectorActionLabel}
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-zinc-500">
+                          {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void copyDraftEditor();
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                          aria-label="Copy current draft"
+                        >
+                          {hasCopiedDraftEditorText ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            shareDraftEditorToX();
+                          }}
+                          className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                        >
+                          Share
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveDraftEditor(null)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                >
-                  Close
-                </button>
-              </div>
+            </div>
 
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <textarea
-                  value={editorDraftText}
-                  onChange={(event) => setEditorDraftText(event.target.value)}
-                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                  placeholder="Draft content"
-                />
-
-                {selectedDraftArtifact.supportAsset ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Visual / Demo Ideas
-                    </p>
-                    <p className="mt-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.supportAsset}
-                    </p>
+            <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
+              <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+                <div className="px-4 pb-3 pt-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${heroIdentityLabel} profile photo`}
+                          />
+                        ) : (
+                          heroInitials.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {context?.creatorProfile.identity.displayName ??
+                              context?.creatorProfile.identity.username ??
+                              accountName ??
+                              "You"}
+                          </p>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={14}
+                              height={14}
+                              className="h-3.5 w-3.5 shrink-0"
+                            />
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">
+                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
+                    >
+                      ×
+                    </button>
                   </div>
-                ) : null}
 
-                {selectedDraftArtifact.betterClosers.length ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Better Closers
-                    </p>
-                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.betterClosers.map((closer, index) => (
-                        <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {selectedDraftArtifact.replyPlan.length ? (
-                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Reply Plan
-                    </p>
-                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                      {selectedDraftArtifact.replyPlan.map((step, index) => (
-                        <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="border-t border-white/10 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    Edit the draft here before you use it.
-                  </p>
-                  <div className="flex items-center gap-2">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => navigateDraftTimeline("back")}
+                          disabled={!canNavigateDraftBack}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous draft version"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateDraftTimeline("forward")}
+                          disabled={!canNavigateDraftForward}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next draft version"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <p className="truncate text-[11px] text-zinc-500">
+                        Version {selectedDraftTimelinePosition}
+                        {" "}of {selectedDraftTimeline.length}
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
-                        void copyDraftEditor();
+                        void (shouldShowRevertDraftCta
+                          ? revertToSelectedDraftVersion()
+                          : saveDraftEditor());
                       }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      disabled={isDraftEditorPrimaryActionDisabled}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Copy
+                      {draftEditorPrimaryActionLabel}
                     </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 pb-4">
+                  <div className="p-0">
+                    <textarea
+                      value={editorDraftText}
+                      onChange={(event) => setEditorDraftText(event.target.value)}
+                      readOnly={isViewingHistoricalDraftVersion}
+                      className="min-h-[15rem] w-full resize-none bg-transparent text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
+                      placeholder="Draft content"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 px-4 py-4">
+                  <div className="flex items-center justify-between gap-2">
                     <button
                       type="button"
-                      onClick={saveDraftEditor}
-                      className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
+                      onClick={() => {
+                        void runDraftInspector();
+                      }}
+                      disabled={isDraftInspectorLoading}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Save
+                      {draftInspectorActionLabel}
                     </button>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-zinc-500">
+                        {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void copyDraftEditor();
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        aria-label="Copy current draft"
+                      >
+                        {hasCopiedDraftEditorText ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          shareDraftEditorToX();
+                        }}
+                        className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                      >
+                        Share
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </aside>
-        ) : activeDraftEditor && editorDraftText ? (
-          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+          </>
+        ) : null
+      }
+
+      {
+        extensionModalOpen ? (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setExtensionModalOpen(false);
+              }
+            }}
+          >
+            <div className="relative w-full max-w-xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setExtensionModalOpen(false)}
+                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+              >
+                Close
+              </button>
+
+              <div className="space-y-6">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Post Draft
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Companion App
                   </p>
-                  <p className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${editorDraftCounter.toneClassName}`}>
-                    {editorDraftCounter.label}
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Companion App
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-zinc-400">
+                    We&apos;ll wire the real extension flow next. For now, this is the placeholder entry point.
                   </p>
                 </div>
+
                 <button
                   type="button"
-                  onClick={() => setActiveDraftEditor(null)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                  onClick={() => {}}
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.04]"
                 >
-                  Close
+                  Link to download
                 </button>
               </div>
+            </div>
+          </div>
+        ) : null
+      }
 
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <textarea
-                  value={editorDraftText}
-                  onChange={(event) => setEditorDraftText(event.target.value)}
-                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                  placeholder="Draft content"
-                />
-              </div>
+      {
+        playbookModalOpen ? (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setPlaybookModalOpen(false);
+              }
+            }}
+          >
+            <div className="relative w-full max-w-lg rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setPlaybookModalOpen(false)}
+                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+              >
+                Close
+              </button>
 
-              <div className="border-t border-white/10 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    Edit the draft, then copy it to post.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void copyDraftEditor();
-                      }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
+              <div className="space-y-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                  Playbook
+                </p>
+                <h2 className="text-2xl font-semibold text-white">
+                  Playbook coming soon
+                </h2>
+                <p className="text-sm leading-7 text-zinc-400">
+                  We&apos;ll add the full playbook flow here next.
+                </p>
               </div>
             </div>
-          </aside>
+          </div>
         ) : null
       }
 

@@ -35,6 +35,14 @@ const TOPIC_STOPWORDS = new Set([
   "with",
 ]);
 
+const TOPIC_BANNED_PHRASES = [
+  "must follow",
+  "must read",
+  "must watch",
+  "viral hook",
+  "hot take",
+];
+
 function normalizeSnippet(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -190,7 +198,7 @@ function inferWelcomeOpener(params: WelcomeFallbackParams, tone: WelcomeToneProf
   ]).toLowerCase();
   const explicitOpener = extractKnownOpener([
     ...(params.creatorProfile?.styleCard.preferredOpeners || []),
-    ...(params.conversationExamples || []),
+    ...(hasCreatorProfile(params) ? [] : params.conversationExamples || []),
   ]);
 
   if (explicitOpener) {
@@ -271,6 +279,10 @@ function isUsableTopicHint(value: string): boolean {
     return false;
   }
 
+  if (TOPIC_BANNED_PHRASES.some((phrase) => normalized.includes(phrase))) {
+    return false;
+  }
+
   if (!/^[a-z0-9\s/&'+-]+$/i.test(normalized)) {
     return false;
   }
@@ -302,12 +314,12 @@ function inferTopicLead(params: WelcomeFallbackParams, tone: WelcomeToneProfile)
     56,
   );
 
-  if (!topicHint) {
+  if (!topicHint || !isUsableTopicHint(topicHint)) {
     return null;
   }
 
   const topicLabel = normalizeTopicPhrase(topicHint);
-  if (!topicLabel) {
+  if (!topicLabel || !isUsableTopicHint(topicLabel)) {
     return null;
   }
 

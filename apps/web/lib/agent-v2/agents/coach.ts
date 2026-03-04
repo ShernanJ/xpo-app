@@ -357,7 +357,7 @@ REQUIREMENTS:
 6. NO emojis unless their style explicitly asks for it.
 7. NO robotic enthusiasm ("Welcome to the app!", "I am your AI assistant!"). Act like a human peer opening a Slack thread.
 8. Never sound more polished, formal, or supportive-bot-ish than the user's own writing.
-9. Use the conversation examples more than the public post examples for cadence if both are available.
+9. Use the public post examples as the primary source of voice and casing. Use conversation examples only as a secondary hint for familiarity.
 10. Avoid stock/template phrasing. Do NOT default to the same opener or always say "what do you want to work on today".
 11. Make the final question feel like a fresh DM, not a reusable app greeting.
 12. Do NOT use slang like "yo" unless the conversation examples or preferred opener patterns clearly use it.

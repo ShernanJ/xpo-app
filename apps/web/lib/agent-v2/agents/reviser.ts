@@ -1,0 +1,176 @@
+import { z } from "zod";
+import { fetchJsonFromGroq } from "./llm";
+import type { VoiceStyleCard } from "../core/styleProfile";
+import type {
+  ConversationState,
+  DraftPreference,
+} from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildDraftPreferenceBlock,
+  buildGoalHydrationBlock,
+  buildStateHydrationBlock,
+  buildVoiceHydrationBlock,
+} from "../prompts/promptHydrator";
+import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
+import { trimToXCharacterLimit } from "../../onboarding/draftArtifacts";
+
+export const ReviserOutputSchema = z.object({
+  revisedDraft: z.string().describe("The revised draft text"),
+  supportAsset: z.string().nullable().describe("Idea for what image or video to attach"),
+  issuesFixed: z.array(z.string()).describe("Short list of what changed"),
+});
+
+export type ReviserOutput = z.infer<typeof ReviserOutputSchema>;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanupEditedDraft(text: string): string {
+  return text
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([,.;:!?]){2,}/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function tryDeterministicPhraseRemoval(args: {
+  activeDraft: string;
+  targetText: string | null;
+  maxCharacterLimit: number;
+}): ReviserOutput | null {
+  if (!args.targetText) {
+    return null;
+  }
+
+  const escapedTarget = escapeRegExp(args.targetText);
+  const parentheticalPattern = new RegExp(`\\s*\\([^)]*${escapedTarget}[^)]*\\)`, "i");
+  const phrasePattern = new RegExp(escapedTarget, "i");
+  let nextDraft = args.activeDraft;
+
+  if (parentheticalPattern.test(nextDraft)) {
+    nextDraft = nextDraft.replace(parentheticalPattern, "");
+  } else if (phrasePattern.test(nextDraft)) {
+    nextDraft = nextDraft.replace(phrasePattern, "");
+  } else {
+    return null;
+  }
+
+  nextDraft = trimToXCharacterLimit(cleanupEditedDraft(nextDraft), args.maxCharacterLimit);
+  if (!nextDraft) {
+    return null;
+  }
+
+  return {
+    revisedDraft: nextDraft,
+    supportAsset: null,
+    issuesFixed: [`Removed or replaced "${args.targetText}".`],
+  };
+}
+
+export async function generateRevisionDraft(args: {
+  activeDraft: string;
+  revision: DraftRevisionDirective;
+  styleCard: VoiceStyleCard | null;
+  topicAnchors: string[];
+  activeConstraints: string[];
+  recentHistory: string;
+  options?: {
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+    maxCharacterLimit?: number;
+    goal?: string;
+    draftPreference?: DraftPreference;
+  };
+}): Promise<ReviserOutput | null> {
+  const conversationState = args.options?.conversationState || "editing";
+  const antiPatterns = args.options?.antiPatterns || [];
+  const maxCharacterLimit = args.options?.maxCharacterLimit ?? 280;
+  const goal = args.options?.goal || "audience growth";
+  const draftPreference = args.options?.draftPreference || "balanced";
+
+  if (args.revision.changeKind === "remove_phrase") {
+    const deterministic = tryDeterministicPhraseRemoval({
+      activeDraft: args.activeDraft,
+      targetText: args.revision.targetText,
+      maxCharacterLimit,
+    });
+
+    if (deterministic) {
+      return deterministic;
+    }
+  }
+
+  const instruction = `
+You are an elite X (Twitter) revision editor.
+Your job is to revise an existing draft with minimal drift.
+
+${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "draft")}
+${buildStateHydrationBlock(conversationState, "draft")}
+${buildDraftPreferenceBlock(draftPreference, "draft")}
+${buildVoiceHydrationBlock(args.styleCard)}
+${buildAntiPatternBlock(antiPatterns)}
+
+CURRENT DRAFT (THIS IS THE CANONICAL BASE TEXT):
+${args.activeDraft}
+
+REVISION REQUEST:
+${args.revision.instruction}
+
+RECENT CHAT HISTORY:
+${args.recentHistory}
+
+TOPIC / VOICE REFERENCES:
+${args.topicAnchors.join("\n---") || "None"}
+
+ACTIVE SESSION CONSTRAINTS:
+${args.activeConstraints.join(" | ") || "None"}
+
+REQUIREMENTS:
+1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.
+2. Apply only the requested change. Prefer local edits over fresh reframing.
+3. Never invent a new angle, new premise, or random new hook unless the user explicitly asks for one.
+4. If the user is removing or questioning a specific phrase, remove or replace that phrase and keep the rest as intact as possible.
+5. Keep the draft sounding like the user. Match their casing and pacing.
+6. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+7. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
+
+Respond ONLY with valid JSON:
+{
+  "revisedDraft": "...",
+  "supportAsset": null,
+  "issuesFixed": ["what changed"]
+}
+  `.trim();
+
+  const data = await fetchJsonFromGroq<unknown>({
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    reasoning_effort: "medium",
+    temperature: 0.25,
+    max_tokens: 4096,
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content: "Revise the draft now." },
+    ],
+  });
+
+  if (!data) {
+    return null;
+  }
+
+  try {
+    const parsed = ReviserOutputSchema.parse(data);
+    return {
+      ...parsed,
+      revisedDraft: trimToXCharacterLimit(parsed.revisedDraft, maxCharacterLimit),
+    };
+  } catch (error) {
+    console.error("Reviser validation failed", error);
+    return null;
+  }
+}
