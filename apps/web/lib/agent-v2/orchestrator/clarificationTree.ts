@@ -26,20 +26,71 @@ interface ClarificationTreeResult {
   clarificationState: ClarificationState;
 }
 
-function compactTopicLabel(value: string): string {
-  const cleaned = value
+const JUNK_TOPIC_VALUES = new Set([
+  "this",
+  "that",
+  "it",
+  "something",
+  "anything",
+  "my thing",
+  "stuff",
+]);
+
+function cleanTopicValue(value: string): string {
+  return value
     .trim()
     .replace(/^[@#]+/, "")
     .replace(/[.?!,]+$/, "")
     .replace(/\s+/g, " ");
+}
+
+function compactTopicLabel(value: string): string {
+  const cleaned = cleanTopicValue(value);
 
   if (!cleaned) {
     return "your usual lane";
   }
 
-  const words = cleaned.split(/\s+/);
-  const compact = words.length > 5 ? words.slice(0, 5).join(" ") : cleaned;
+  const conversionMatch = cleaned.match(
+    /\b([a-z0-9]+)(?:\s+posts?|\s+content)?\s+(?:into|to)\s+([a-z0-9]+)\b/i,
+  );
+  const reduced =
+    conversionMatch?.[1] && conversionMatch?.[2]
+      ? `${conversionMatch[1]} to ${conversionMatch[2]}`
+      : cleaned.split(/\b(?:while|because|but|so|and|with)\b/i)[0].trim() || cleaned;
+  const words = reduced.split(/\s+/);
+  const compact = words.length > 5 ? words.slice(0, 5).join(" ") : reduced;
   return compact.length > 34 ? `${compact.slice(0, 31).trimEnd()}...` : compact;
+}
+
+function isUsableTopicCandidate(value: string | null): value is string {
+  const cleaned = cleanTopicValue(value || "");
+  const normalized = cleaned.toLowerCase();
+
+  if (!cleaned || JUNK_TOPIC_VALUES.has(normalized)) {
+    return false;
+  }
+
+  if (
+    /\b(?:draft|write|make|give|help)\s+(?:me\s+)?(?:a\s+)?post\b/i.test(cleaned) ||
+    /\b(?:pick|choose)\s+(?:an?\s+)?angle\b/i.test(cleaned)
+  ) {
+    return false;
+  }
+
+  if (cleaned.length > 84 || cleaned.includes("\n")) {
+    return false;
+  }
+
+  if (cleaned.split(/\s+/).length > 8) {
+    return false;
+  }
+
+  if (/^[^a-z0-9]*$/i.test(cleaned)) {
+    return false;
+  }
+
+  return true;
 }
 
 function collectDraftTopicCandidates(
@@ -59,13 +110,18 @@ function collectDraftTopicCandidates(
   const unique: string[] = [];
 
   for (const candidate of candidates) {
-    const key = candidate.toLowerCase();
+    if (!isUsableTopicCandidate(candidate)) {
+      continue;
+    }
+
+    const cleaned = cleanTopicValue(candidate);
+    const key = cleaned.toLowerCase();
     if (seen.has(key)) {
       continue;
     }
 
     seen.add(key);
-    unique.push(candidate);
+    unique.push(cleaned);
     if (unique.length >= 3) {
       break;
     }
@@ -74,56 +130,96 @@ function collectDraftTopicCandidates(
   return unique;
 }
 
-function buildFallbackChoices(seedTopic: string | null): CreatorChatQuickReply[] {
-  const baseChoices = [
-    seedTopic || "something you shipped recently",
-    "a mistake you learned from this week",
-  ];
+function buildTopicDraftChip(topic: string): CreatorChatQuickReply {
+  return {
+    kind: "clarification_choice",
+    value: `draft a post about ${topic}. keep it in my voice and stay close to what i usually post about.`,
+    label: compactTopicLabel(topic),
+    explicitIntent: "plan",
+  };
+}
 
-  const topicChoices = baseChoices.map((value) => ({
-    kind: "clarification_choice" as const,
-    value: `draft a post about ${value}. keep it in my voice and make it feel like my usual lane.`,
-    label: compactTopicLabel(value),
-    explicitIntent: "plan" as const,
-  }));
+function buildAngleChip(primaryTopic: string | null): CreatorChatQuickReply {
+  return {
+    kind: "clarification_choice",
+    value: primaryTopic
+      ? `help me pick a sharper angle for ${primaryTopic}`
+      : "help me pick a sharper angle in my usual lane",
+    label: "Pick an angle first",
+    explicitIntent: "ideate",
+  };
+}
+
+function buildLooseFallbackChoices(primaryTopic: string | null): CreatorChatQuickReply[] {
+  const topicChoices = primaryTopic ? [buildTopicDraftChip(primaryTopic)] : [];
 
   return [
     ...topicChoices,
     {
-      kind: "clarification_choice",
-      value: "draft something in my usual lane. keep it natural and close to how i normally post.",
+      kind: "clarification_choice" as const,
+      value: "draft something in my usual lane. keep it natural and close to my normal topics.",
       label: "my usual lane",
-      explicitIntent: "plan",
+      explicitIntent: "plan" as const,
     },
+    {
+      kind: "clarification_choice" as const,
+      value: "draft something recent i could realistically post. keep it in my voice and make it feel current.",
+      label: "something recent",
+      explicitIntent: "plan" as const,
+    },
+    buildAngleChip(primaryTopic),
   ].slice(0, 3);
 }
 
-function buildSeededChoices(
+function buildDynamicDraftChoices(args: {
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   seedTopic: string | null,
-): CreatorChatQuickReply[] {
-  const topicalChoices = collectDraftTopicCandidates(styleCard, topicAnchors, seedTopic);
-  if (topicalChoices.length > 0) {
-    const topicReplies = topicalChoices.slice(0, 2).map((value) => ({
-      kind: "clarification_choice" as const,
-      value: `draft a post about ${value}. keep it in my voice and stay close to what i usually post about.`,
-      label: compactTopicLabel(value),
-      explicitIntent: "plan" as const,
-    }));
+  isVerifiedAccount: boolean,
+  mode: "topic_known" | "loose",
+}): CreatorChatQuickReply[] {
+  const topicalChoices = collectDraftTopicCandidates(
+    args.styleCard,
+    args.topicAnchors,
+    args.seedTopic,
+  );
+  const primaryTopic = topicalChoices[0] || null;
 
+  if (args.mode === "topic_known" && args.isVerifiedAccount) {
+    const topicValue = primaryTopic || "my usual lane";
+    const topicLabel = compactTopicLabel(topicValue);
     return [
-      ...topicReplies,
       {
         kind: "clarification_choice",
-        value: "draft something in my usual lane. keep it natural and close to my normal topics.",
-        label: "my usual lane",
+        value: primaryTopic
+          ? `draft a shortform x post about ${primaryTopic}. keep it tight and in my voice.`
+          : "draft a shortform x post in my usual lane. keep it tight and in my voice.",
+        label: `Shortform on ${topicLabel}`,
         explicitIntent: "plan",
+        formatPreference: "shortform",
       },
-    ].slice(0, 3);
+      {
+        kind: "clarification_choice",
+        value: primaryTopic
+          ? `draft a longform x post about ${primaryTopic}. use the extra room and keep it in my voice.`
+          : "draft a longform x post in my usual lane. use the extra room and keep it in my voice.",
+        label: `Longform on ${topicLabel}`,
+        explicitIntent: "plan",
+        formatPreference: "longform",
+      },
+      buildAngleChip(primaryTopic),
+    ];
   }
 
-  return buildFallbackChoices(seedTopic);
+  if (topicalChoices.length >= 2) {
+    return [
+      buildTopicDraftChip(topicalChoices[0]),
+      buildTopicDraftChip(topicalChoices[1]),
+      buildAngleChip(primaryTopic),
+    ];
+  }
+
+  return buildLooseFallbackChoices(primaryTopic);
 }
 
 export function buildClarificationTree(args: ClarificationTreeArgs): ClarificationTreeResult {
@@ -170,70 +266,20 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
   }
 
   if (args.branchKey === "topic_known_but_direction_missing") {
-    const topicLabel = args.seedTopic?.trim() || "this";
-    if (args.isVerifiedAccount) {
-      const quickReplies: CreatorChatQuickReply[] = [
-        {
-          kind: "clarification_choice",
-          value: `draft a shortform x post about ${topicLabel}. keep it tight and in my voice.`,
-          label: "Shortform",
-          explicitIntent: "plan",
-          formatPreference: "shortform",
-        },
-        {
-          kind: "clarification_choice",
-          value: `draft a longform x post about ${topicLabel}. use the extra room and keep it in my voice.`,
-          label: "Longform",
-          explicitIntent: "plan",
-          formatPreference: "longform",
-        },
-        {
-          kind: "clarification_choice",
-          value: `help me pick a sharper angle for ${topicLabel}`,
-          label: "Pick an angle first",
-          explicitIntent: "ideate",
-        },
-      ];
-
-      return {
-        reply: buildDirectionChoiceReply({ verified: true }),
-        quickReplies,
-        clarificationState: {
-          branchKey: args.branchKey,
-          stepKey: "pick_length",
-          seedTopic: args.seedTopic,
-          options: quickReplies,
-        },
-      };
-    }
-
-    const quickReplies: CreatorChatQuickReply[] = [
-      {
-        kind: "clarification_choice",
-        value: `draft a solid ${topicLabel} post in my voice. keep it natural, not growth-hacky.`,
-        label: "Random in my voice",
-        explicitIntent: "plan",
-      },
-      {
-        kind: "clarification_choice",
-        value: `draft a ${topicLabel} post optimized for growth and reach.`,
-        label: "Optimize for growth",
-        explicitIntent: "plan",
-      },
-      {
-        kind: "clarification_choice",
-        value: `help me pick a sharper angle for ${topicLabel}`,
-        label: "Pick an angle first",
-        explicitIntent: "ideate",
-      },
-    ];
+    const quickReplies = buildDynamicDraftChoices({
+      styleCard: args.styleCard,
+      topicAnchors: args.topicAnchors,
+      seedTopic: args.seedTopic,
+      isVerifiedAccount: Boolean(args.isVerifiedAccount),
+      mode: "topic_known",
+    });
 
     return {
-      reply: buildDirectionChoiceReply({ verified: false }),
+      reply: buildDirectionChoiceReply({ verified: Boolean(args.isVerifiedAccount) }),
       quickReplies,
       clarificationState: {
         branchKey: args.branchKey,
-        stepKey: "pick_direction",
+        stepKey: args.isVerifiedAccount ? "pick_length" : "pick_direction",
         seedTopic: args.seedTopic,
         options: quickReplies,
       },
@@ -291,7 +337,13 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     };
   }
 
-  const quickReplies = buildSeededChoices(args.styleCard, args.topicAnchors, args.seedTopic);
+  const quickReplies = buildDynamicDraftChoices({
+    styleCard: args.styleCard,
+    topicAnchors: args.topicAnchors,
+    seedTopic: args.seedTopic,
+    isVerifiedAccount: Boolean(args.isVerifiedAccount),
+    mode: "loose",
+  });
 
   const reply =
     args.branchKey === "lazy_request"
