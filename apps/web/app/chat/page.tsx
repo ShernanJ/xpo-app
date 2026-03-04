@@ -3185,7 +3185,7 @@ function ChatPageContent() {
   const isInlineDraftEditorOpen = Boolean(
     selectedDraftVersion && selectedDraftBundle,
   );
-  const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${shouldCenterHero ? "justify-center" : ""
+  const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
     } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
 
   return (
