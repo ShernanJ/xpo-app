@@ -6155,10 +6155,17 @@ function ChatPageContent() {
                           const isActive = selectedPlaybook?.id === playbook.id;
 
                           return (
-                            <button
+                            <div
                               key={playbook.id}
-                              type="button"
+                              role="button"
+                              tabIndex={0}
                               onClick={() => handleApplyPlaybook(playbook.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  handleApplyPlaybook(playbook.id);
+                                }
+                              }}
                               className={`w-full rounded-3xl border p-5 text-left transition ${
                                 isActive
                                   ? "border-white/25 bg-white/[0.05]"
@@ -6202,7 +6209,7 @@ function ChatPageContent() {
                                   </span>
                                 ))}
                               </div>
-                            </button>
+                            </div>
                           );
                         })
                       ) : (
