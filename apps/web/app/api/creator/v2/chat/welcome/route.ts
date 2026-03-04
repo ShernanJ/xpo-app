@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
-import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
+import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { generateWelcome } from "@/lib/agent-v2/agents/coach";
+import {
+  buildWelcomeFallbackMessage,
+  buildWelcomeTopicHint,
+  buildWelcomeVoiceContext,
+} from "@/lib/agent-v2/welcomeMessage";
 
 export async function GET(
   request: NextRequest,
 ) {
   const searchParams = request.nextUrl.searchParams;
   const runId = searchParams.get("runId");
-  const accountName = searchParams.get("account") || "there";
+  const accountName = searchParams.get("account");
 
   if (!runId) {
     return NextResponse.json(
@@ -26,25 +32,54 @@ export async function GET(
       );
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const oResult = storedRun.result as Record<string, any>;
-    const topPosts = oResult?.creatorProfile?.examples?.bestPerforming ?? [];
-    const topicHint = topPosts.length > 0
-      ? topPosts[0].text.substring(0, 100).replace(/\n/g, " ").trim()
-      : null;
-
-    // Get tone guidelines from style card, default gracefully
-    const styleCard = await generateStyleProfile("anonymous", accountName, 20);
-    const toningCues = styleCard
-      ? `Pacing: ${styleCard.pacing}. Formatting: ${styleCard.formattingRules.join(", ")}`
-      : "Mirror a casual, lowercase peer.";
-
-    const welcome = await generateWelcome(accountName, topicHint, toningCues);
+    const agentContext = buildCreatorAgentContext({
+      runId: storedRun.runId,
+      onboarding: storedRun.result,
+    });
+    const resolvedAccountName = accountName || agentContext.account || "there";
+    const topicHint = buildWelcomeTopicHint(agentContext.creatorProfile);
+    const recentUserMessages = await prisma.chatMessage.findMany({
+      where: {
+        role: "user",
+        thread: {
+          memories: {
+            some: { runId },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { content: true },
+    });
+    const recentUserMessageContents = recentUserMessages.map((message) => message.content);
+    const voiceContext = buildWelcomeVoiceContext({
+      creatorProfile: agentContext.creatorProfile,
+      recentUserMessages: recentUserMessageContents,
+    });
+    const welcome = await generateWelcome(
+      resolvedAccountName,
+      topicHint,
+      voiceContext.toneGuide,
+      voiceContext.voiceExamples,
+      voiceContext.conversationExamples,
+    );
 
     if (!welcome) {
       return NextResponse.json(
-        { ok: false, errors: [{ field: "llm", message: "Failed to generate welcome." }] },
-        { status: 500 },
+        {
+          ok: true,
+          data: {
+            response: buildWelcomeFallbackMessage({
+              accountName: resolvedAccountName,
+              creatorProfile: agentContext.creatorProfile,
+              topicHint,
+              recentUserMessages: recentUserMessageContents,
+              voiceExamples: voiceContext.voiceExamples,
+              conversationExamples: voiceContext.conversationExamples,
+            }),
+          },
+        },
+        { status: 200 },
       );
     }
 
@@ -62,4 +97,3 @@ export async function GET(
     );
   }
 }
-

@@ -9,6 +9,10 @@ import {
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
+import {
+  buildWelcomeFallbackMessage,
+  isTemplateyWelcomeMessage,
+} from "../welcomeMessage";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -284,6 +288,37 @@ export const WelcomeOutputSchema = z.object({
 
 export type WelcomeOutput = z.infer<typeof WelcomeOutputSchema>;
 
+function normalizeWelcomeResponse(args: {
+  response: string;
+  accountName: string;
+  topicHint: string | null;
+  voiceExamples: string[];
+  conversationExamples: string[];
+}): string {
+  const trimmed = args.response.trim();
+  if (!trimmed) {
+    return buildWelcomeFallbackMessage({
+      accountName: args.accountName,
+      topicHint: args.topicHint,
+      recentUserMessages: args.conversationExamples,
+      voiceExamples: args.voiceExamples,
+      conversationExamples: args.conversationExamples,
+    });
+  }
+
+  if (!isTemplateyWelcomeMessage(trimmed)) {
+    return trimmed;
+  }
+
+  return buildWelcomeFallbackMessage({
+    accountName: args.accountName,
+    topicHint: args.topicHint,
+    recentUserMessages: args.conversationExamples,
+    voiceExamples: args.voiceExamples,
+    conversationExamples: args.conversationExamples,
+  });
+}
+
 export async function generateWelcome(
   accountName: string,
   topicHint: string | null,
@@ -322,6 +357,9 @@ REQUIREMENTS:
 6. NO emojis unless their style explicitly asks for it.
 7. NO robotic enthusiasm ("Welcome to the app!", "I am your AI assistant!"). Act like a human peer opening a Slack thread.
 8. Never sound more polished, formal, or supportive-bot-ish than the user's own writing.
+9. Use the conversation examples more than the public post examples for cadence if both are available.
+10. Avoid stock/template phrasing. Do NOT default to the same opener or always say "what do you want to work on today".
+11. Make the final question feel like a fresh DM, not a reusable app greeting.
 
 Respond ONLY with valid JSON matching this schema:
 {
@@ -332,7 +370,7 @@ Respond ONLY with valid JSON matching this schema:
   const data = await fetchJsonFromGroq<unknown>({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     reasoning_effort: "low",
-    temperature: 0.6, // slightly more varied
+    temperature: 0.8,
     max_tokens: 256, // fast response
     messages: [
       { role: "system", content: instruction },
@@ -343,7 +381,16 @@ Respond ONLY with valid JSON matching this schema:
   if (!data) return null;
 
   try {
-    return WelcomeOutputSchema.parse(data);
+    const parsed = WelcomeOutputSchema.parse(data);
+    return {
+      response: normalizeWelcomeResponse({
+        response: parsed.response,
+        accountName,
+        topicHint,
+        voiceExamples,
+        conversationExamples,
+      }),
+    };
   } catch (err) {
     console.error("Welcome validation failed", err);
     return null;
