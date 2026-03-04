@@ -1136,18 +1136,38 @@ function personalizePlaybookTemplateText(params: {
   return applyNormalSentenceCasing(personalized);
 }
 
-function buildTemplateWhyItWorks(tab: PlaybookTemplateTab): string {
+function buildTemplateWhyItWorksPoints(tab: PlaybookTemplateTab): string[] {
   switch (tab) {
     case "hook":
-      return "it works because the first line is clear and scroll-stopping.";
+      return [
+        "clear first line that earns the stop.",
+        "specific enough to attract the right audience.",
+        "easy to expand into a full post without losing focus.",
+      ];
     case "reply":
-      return "it works because it adds value fast instead of generic agreement.";
+      return [
+        "adds value fast instead of generic agreement.",
+        "gives a practical next step people can use.",
+        "sounds like a real conversation, not a canned comment.",
+      ];
     case "thread":
-      return "it works because the structure makes the idea easy to follow.";
+      return [
+        "simple structure makes it easy to scan.",
+        "each step naturally leads to the next point.",
+        "keeps readers to the end because flow is clear.",
+      ];
     case "cta":
-      return "it works because it asks for one clear action with low friction.";
+      return [
+        "asks for one clear action with low friction.",
+        "tells people exactly what to do next.",
+        "ties the action to immediate value.",
+      ];
     default:
-      return "it works because it is short, specific, and easy to act on.";
+      return [
+        "short enough to read in one glance.",
+        "specific enough to feel practical.",
+        "clear enough to act on immediately.",
+      ];
   }
 }
 
@@ -6531,8 +6551,8 @@ function ChatPageContent() {
                           </div>
 
                           <div className="flex min-h-[320px] flex-col rounded-2xl border border-white/10 bg-black/20 p-4">
-                            <p className="text-xs text-zinc-500">
-                              examples are tailored to this profile’s niche and tone.
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                              Example Templates
                             </p>
                             <div className="mt-3 flex-1 space-y-3">
                               {personalizedPlaybookTemplates.map((template) => {
@@ -6540,50 +6560,62 @@ function ChatPageContent() {
                               const isTemplateSelected = activePlaybookTemplate?.id === template.id;
 
                               return (
-                                <div
-                                  key={template.id}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => setActivePlaybookTemplateId(template.id)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter" || event.key === " ") {
-                                      event.preventDefault();
-                                      setActivePlaybookTemplateId(template.id);
-                                    }
-                                  }}
-                                  className={`rounded-2xl border p-4 transition ${
-                                    isTemplateSelected
-                                      ? "border-white/25 bg-white/[0.06]"
-                                      : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
-                                  }`}
-                                >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                        {template.label}
-                                      </p>
-                                      <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                        {template.text}
-                                      </p>
-                                      <p className="mt-2 text-xs text-zinc-500">
-                                        why this works: {buildTemplateWhyItWorks(playbookTemplateTab)}
-                                      </p>
+                                <div key={template.id} className="space-y-2">
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setActivePlaybookTemplateId(template.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        setActivePlaybookTemplateId(template.id);
+                                      }
+                                    }}
+                                    className={`rounded-2xl border p-4 transition ${
+                                      isTemplateSelected
+                                        ? "border-white/25 bg-white/[0.06]"
+                                        : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                          {template.label}
+                                        </p>
+                                        <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                          {template.text}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void handleCopyPlaybookTemplate(template);
+                                        }}
+                                        className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                                        aria-label={`Copy ${template.label} template`}
+                                      >
+                                        {isCopied ? (
+                                          <Check className="h-4 w-4" />
+                                        ) : (
+                                          <Copy className="h-4 w-4" />
+                                        )}
+                                      </button>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void handleCopyPlaybookTemplate(template);
-                                      }}
-                                      className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                                      aria-label={`Copy ${template.label} template`}
-                                    >
-                                      {isCopied ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <Copy className="h-4 w-4" />
-                                      )}
-                                    </button>
+                                  </div>
+
+                                  <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                      Why This Works
+                                    </p>
+                                    <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
+                                      {buildTemplateWhyItWorksPoints(playbookTemplateTab).map((point) => (
+                                        <li key={point} className="flex items-start gap-2">
+                                          <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" />
+                                          <span>{point}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
                                   </div>
                                 </div>
                               );
@@ -6649,14 +6681,11 @@ function ChatPageContent() {
               </div>
 
               <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-zinc-500">
-                  {selectedPlaybook ? `viewing: ${selectedPlaybook.name}` : "no playbook selected"}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-xs text-zinc-500">
+                <p className="text-xs text-zinc-500">
                     work in progress: this guide is still being updated.
                   </p>
+
+                <div className="flex flex-wrap items-center gap-3">
 
                   <button
                     type="button"
