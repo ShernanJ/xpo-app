@@ -355,6 +355,7 @@ const HERO_QUICK_ACTIONS = [
     prompt: "Give me a random post I would use",
   },
 ] as const;
+const HERO_EXIT_TRANSITION_MS = 360;
 
 function formatEnumLabel(value: string): string {
   return value
@@ -931,7 +932,10 @@ function ChatPageContent() {
   }, []);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
-    if (handle === accountName) return;
+    const normalizedHandle = normalizeAccountHandle(handle);
+    if (!normalizedHandle || normalizedHandle === normalizeAccountHandle(accountName ?? "")) {
+      return;
+    }
 
     setAccountMenuOpen(false);
     setIsLoading(true);
@@ -941,20 +945,20 @@ function ChatPageContent() {
       const resp = await fetch("/api/creator/profile/handles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle }),
+        body: JSON.stringify({ handle: normalizedHandle }),
       });
       if (!resp.ok) {
         throw new Error("Failed to switch handle");
       }
 
-      // Let reload clear state natively. Reusing load workspace breaks the NextAuth context boundary without a hard reload.
-      window.location.reload();
+      await refreshSession({ activeXHandle: normalizedHandle });
+      window.location.href = "/chat";
     } catch (err) {
       console.error(err);
-      setErrorMessage("Could not switch to account @" + handle);
+      setErrorMessage("Could not switch to account @" + normalizedHandle);
       setIsLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, refreshSession]);
 
   const closeAddAccountModal = useCallback(() => {
     if (isAddAccountSubmitting) {
@@ -1180,17 +1184,13 @@ function ChatPageContent() {
     if (messages.length > 0) {
       const timeoutId = window.setTimeout(() => {
         setIsLeavingHero(false);
-      }, 320);
+      }, HERO_EXIT_TRANSITION_MS);
 
       return () => {
         window.clearTimeout(timeoutId);
       };
     }
-
-    if (!isSending) {
-      setIsLeavingHero(false);
-    }
-  }, [isLeavingHero, isSending, messages.length]);
+  }, [isLeavingHero, messages.length]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -2020,8 +2020,13 @@ function ChatPageContent() {
       return;
     }
 
-    if (!activeThreadId && messages.length === 0) {
+    const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
+
+    if (shouldAnimateHeroExit) {
       setIsLeavingHero(true);
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
+      });
     }
 
     setDraftInput("");
@@ -2047,7 +2052,15 @@ function ChatPageContent() {
         return;
       }
 
-      setIsLeavingHero(true);
+      const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
+
+      if (shouldAnimateHeroExit) {
+        setIsLeavingHero(true);
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
+        });
+      }
+
       setDraftInput("");
 
       await requestAssistantReply({
@@ -2060,11 +2073,13 @@ function ChatPageContent() {
     },
     [
       activeContentFocus,
+      activeThreadId,
       activeStrategyInputs,
       activeToneInputs,
       contract,
       context,
       isSending,
+      messages.length,
       requestAssistantReply,
     ],
   );
@@ -2088,7 +2103,7 @@ function ChatPageContent() {
   };
 
   const isNewChatHero =
-    !activeThreadId && messages.length === 0 && !isSending && Boolean(context);
+    !activeThreadId && messages.length === 0 && Boolean(context) && !isLeavingHero;
   const heroGreeting = buildHeroGreeting({
     context,
     accountName,
@@ -2104,7 +2119,20 @@ function ChatPageContent() {
     .slice(0, 2)
     .toUpperCase();
   const composerSurfaceClassName =
-    "relative flex w-full items-end overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.08] p-2 backdrop-blur-2xl shadow-[0_20px_70px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-300 ease-out focus-within:ring-1 focus-within:ring-white/20";
+    "relative flex w-full items-end overflow-hidden rounded-[1.4rem] border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-300 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15 sm:p-2";
+  const shouldCenterHero = isNewChatHero || isLeavingHero;
+  const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${isLeavingHero
+    ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
+    : "translate-y-0 scale-100 opacity-100 blur-0"
+    }`;
+  const heroComposerMotionClassName = `w-full transition-all duration-500 ease-out ${isLeavingHero
+    ? "translate-y-20 scale-[0.985] opacity-40"
+    : "translate-y-0 scale-100 opacity-100"
+    }`;
+  const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${isLeavingHero
+    ? "-translate-y-4 opacity-0 blur-[2px]"
+    : "translate-y-0 opacity-100 blur-0"
+    }`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -2432,7 +2460,7 @@ function ChatPageContent() {
 
           <section className="min-h-0 flex-1 overflow-y-auto">
             <div
-              className={`relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${isNewChatHero ? "justify-center" : ""
+              className={`relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${shouldCenterHero ? "justify-center" : ""
                 }`}
             >
               {isLoading && !context && !contract ? (
@@ -2446,15 +2474,10 @@ function ChatPageContent() {
                   ) : null}
 
                   {isNewChatHero || isLeavingHero ? (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
-                      <div
-                        className={`w-full max-w-3xl transition-all duration-300 ease-out ${isLeavingHero
-                          ? "translate-y-24 scale-[0.98] opacity-0"
-                          : "translate-y-0 scale-100 opacity-100"
-                          }`}
-                      >
-                        <div className="flex flex-col items-center gap-6">
-                          <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:h-32 sm:w-32">
+                    <div className="flex flex-1 flex-col items-center justify-center gap-10 py-10 text-center">
+                      <div className="w-full max-w-xl">
+                        <div className={heroProfileMotionClassName}>
+                          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 shadow-[0_14px_42px_rgba(0,0,0,0.32)] sm:h-24 sm:w-24">
                             {context?.avatarUrl ? (
                               <div
                                 className="h-full w-full bg-cover bg-center"
@@ -2463,15 +2486,30 @@ function ChatPageContent() {
                                 aria-label={`${heroIdentityLabel} profile photo`}
                               />
                             ) : (
-                              <span className="text-3xl font-semibold text-white">{heroInitials}</span>
+                              <span className="text-2xl font-semibold text-white">{heroInitials}</span>
                             )}
                           </div>
 
-                          <p className="text-3xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-                            {heroGreeting}
-                          </p>
+                          <div className="flex items-center justify-center gap-2">
+                            <p className="text-xl font-semibold tracking-[-0.04em] text-white sm:text-3xl">
+                              {heroGreeting}
+                            </p>
+                            {isVerifiedAccount ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={18}
+                                height={18}
+                                className="h-4 w-4 shrink-0 sm:h-5 sm:w-5"
+                              />
+                            ) : null}
+                          </div>
+                        </div>
 
-                          <form onSubmit={handleComposerSubmit} className="w-full">
+                        <form
+                          onSubmit={handleComposerSubmit}
+                          className={`${heroComposerMotionClassName} mt-3`}
+                        >
                             <div className={composerSurfaceClassName}>
                               <textarea
                                 value={draftInput}
@@ -2479,10 +2517,10 @@ function ChatPageContent() {
                                 onKeyDown={handleComposerKeyDown}
                                 placeholder="What are we creating today?"
                                 disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                className="max-h-[200px] min-h-[56px] w-full resize-none bg-transparent px-4 py-4 pb-12 text-[16px] leading-6 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
+                                className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
                                 rows={1}
                               />
-                              <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
+                              <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
                                 <button
                                   type="submit"
                                   disabled={
@@ -2493,7 +2531,7 @@ function ChatPageContent() {
                                     !draftInput.trim() ||
                                     isSending
                                   }
-                                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
+                                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
                                   aria-label="Send message"
                                 >
                                   {isSending ? (
@@ -2506,9 +2544,9 @@ function ChatPageContent() {
                                 </button>
                               </div>
                             </div>
-                          </form>
+                        </form>
 
-                          <div className="flex flex-wrap items-center justify-center gap-3">
+                        <div className={`${heroChipsMotionClassName} mt-4`}>
                             {HERO_QUICK_ACTIONS.map((action) => (
                               <button
                                 key={action.prompt}
@@ -2517,16 +2555,15 @@ function ChatPageContent() {
                                   void submitQuickStarter(action.prompt);
                                 }}
                                 disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
                               >
                                 {action.label}
                               </button>
                             ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
+	                        </div>
+	                    </div>
+	                  </div>
+	                  ) : (
                     <>
                       {messages.map((message, index) => (
                         <div
@@ -2848,8 +2885,17 @@ function ChatPageContent() {
             </div>
           </section >
 
-          {!isNewChatHero && !isLeavingHero ? (
-            <div className="shrink-0 pb-[env(safe-area-inset-bottom)]">
+          {!isNewChatHero ? (
+            <div
+              className={`shrink-0 pb-[env(safe-area-inset-bottom)] ${isLeavingHero
+                ? "pointer-events-none translate-y-6 opacity-0"
+                : "translate-y-0 opacity-100"
+                }`}
+              style={{
+                transition:
+                  "transform 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 520ms ease-out",
+              }}
+            >
               <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
                 <form onSubmit={handleComposerSubmit}>
                   <div className={composerSurfaceClassName}>
