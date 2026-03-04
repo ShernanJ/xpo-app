@@ -355,7 +355,7 @@ const HERO_QUICK_ACTIONS = [
     prompt: "Give me a random post I would use",
   },
 ] as const;
-const HERO_EXIT_TRANSITION_MS = 360;
+const HERO_EXIT_TRANSITION_MS = 720;
 
 function formatEnumLabel(value: string): string {
   return value
@@ -2118,26 +2118,24 @@ function ChatPageContent() {
     .replace(/^@+/, "")
     .slice(0, 2)
     .toUpperCase();
+  const shouldCenterHero = isNewChatHero || isLeavingHero;
   const composerChromeClassName =
     "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
-  const heroComposerSurfaceClassName = `${composerChromeClassName} ${isLeavingHero
-    ? "rounded-[1.12rem] p-1.5"
-    : "rounded-[1.4rem] p-1.5 sm:p-2"
-    }`;
+  const heroInlineComposerSurfaceClassName =
+    `${composerChromeClassName} rounded-[1.4rem] p-1.5 sm:p-2`;
   const dockComposerSurfaceClassName =
     `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;
-  const shouldCenterHero = isNewChatHero || isLeavingHero;
   const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${isLeavingHero
     ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
     : "translate-y-0 scale-100 opacity-100 blur-0"
     }`;
-  const heroComposerMotionClassName = `w-full transition-all duration-500 ease-out ${isLeavingHero
-    ? "translate-y-28 sm:translate-y-36 scale-[0.985] opacity-100"
-    : "translate-y-0 scale-100 opacity-100"
-    }`;
   const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${isLeavingHero
     ? "-translate-y-4 opacity-0 blur-[2px]"
     : "translate-y-0 opacity-100 blur-0"
+    }`;
+  const dockComposerWrapperClassName = `absolute inset-x-0 bottom-0 z-10 pb-[env(safe-area-inset-bottom)] transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${isNewChatHero
+    ? "pointer-events-none opacity-0 -translate-y-[14.5rem] sm:-translate-y-[17rem]"
+    : "pointer-events-auto opacity-100 translate-y-0"
     }`;
 
   return (
@@ -2434,7 +2432,7 @@ function ChatPageContent() {
           </div>
         </aside>
 
-        <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className="relative flex h-full min-h-0 flex-1 flex-col">
           <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
             <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
               <button
@@ -2512,11 +2510,9 @@ function ChatPageContent() {
                           </div>
                         </div>
 
-                        <form
-                          onSubmit={handleComposerSubmit}
-                          className={`${heroComposerMotionClassName} mt-3`}
-                        >
-                            <div className={heroComposerSurfaceClassName}>
+                        {isNewChatHero ? (
+                          <form onSubmit={handleComposerSubmit} className="mt-3">
+                            <div className={heroInlineComposerSurfaceClassName}>
                               <textarea
                                 value={draftInput}
                                 onChange={(event) => setDraftInput(event.target.value)}
@@ -2550,7 +2546,8 @@ function ChatPageContent() {
                                 </button>
                               </div>
                             </div>
-                        </form>
+                          </form>
+                        ) : null}
 
                         <div className={`${heroChipsMotionClassName} mt-4`}>
                             {HERO_QUICK_ACTIONS.map((action) => (
@@ -2891,48 +2888,46 @@ function ChatPageContent() {
             </div>
           </section >
 
-          {!isNewChatHero && !isLeavingHero ? (
-            <div className="shrink-0 pb-[env(safe-area-inset-bottom)]">
-              <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
-                <form onSubmit={handleComposerSubmit}>
-                  <div className={dockComposerSurfaceClassName}>
-                    <textarea
-                      value={draftInput}
-                      onChange={(event) => setDraftInput(event.target.value)}
-                      onKeyDown={handleComposerKeyDown}
-                      placeholder="Send a message..."
-                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                      className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
-                      rows={1}
-                    />
-                    <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
-                      <button
-                        type="submit"
-                        disabled={
-                          !context ||
-                          !contract ||
-                          !activeStrategyInputs ||
-                          !activeToneInputs ||
-                          !draftInput.trim() ||
-                          isSending
-                        }
-                        className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
-                        aria-label="Send message"
-                      >
-                        {isSending ? (
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
-                        ) : (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
-                            <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
+          <div className={dockComposerWrapperClassName}>
+            <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
+              <form onSubmit={handleComposerSubmit}>
+                <div className={dockComposerSurfaceClassName}>
+                  <textarea
+                    value={draftInput}
+                    onChange={(event) => setDraftInput(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder="Send a message..."
+                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                    className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
+                    rows={1}
+                  />
+                  <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
+                    <button
+                      type="submit"
+                      disabled={
+                        !context ||
+                        !contract ||
+                        !activeStrategyInputs ||
+                        !activeToneInputs ||
+                        !draftInput.trim() ||
+                        isSending
+                      }
+                      className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
+                      aria-label="Send message"
+                    >
+                      {isSending ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                          <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
-                </form>
-              </div>
+                </div>
+              </form>
             </div>
-          ) : null}
+          </div>
         </div >
       </div >
 
