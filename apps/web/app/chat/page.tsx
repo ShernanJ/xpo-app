@@ -124,6 +124,9 @@ interface CreatorChatSuccess {
     draft?: string | null;
     drafts: string[];
     draftArtifacts: DraftArtifact[];
+    draftVersions?: DraftVersionEntry[];
+    activeDraftVersionId?: string;
+    previousVersionSnapshot?: DraftVersionSnapshot | null;
     supportAsset: string | null;
     outputShape:
     | "coach_question"
@@ -214,6 +217,7 @@ interface CreatorChatSuccess {
     model: string | null;
     mode: CreatorGenerationContract["mode"];
     newThreadId?: string;
+    messageId?: string;
     threadTitle?: string;
     memory?: {
       conversationState: string;
@@ -271,11 +275,38 @@ type CreatorChatStreamEvent =
   | CreatorChatStreamErrorEvent;
 
 type DraftArtifact = DraftArtifactDetails;
+type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
+
+interface DraftVersionEntry {
+  id: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  basedOnVersionId: string | null;
+  weightedCharacterCount: number;
+  maxCharacterLimit: number;
+  supportAsset: string | null;
+}
+
+interface DraftVersionSnapshot {
+  messageId: string;
+  versionId: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  maxCharacterLimit?: number;
+}
+
+interface DraftDrawerSelection {
+  messageId: string;
+  versionId: string;
+}
 
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  createdAt?: string;
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -284,6 +315,9 @@ interface ChatMessage {
   draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
+  draftVersions?: DraftVersionEntry[];
+  activeDraftVersionId?: string;
+  previousVersionSnapshot?: DraftVersionSnapshot | null;
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
@@ -492,6 +526,151 @@ function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
   return {
     label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
     toneClassName: isNearLimit ? "text-red-400" : "text-zinc-500",
+  };
+}
+
+function buildDraftVersionId(): string {
+  return `draft-version-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveDraftArtifactKind(
+  outputShape?: CreatorChatSuccess["data"]["outputShape"],
+): DraftArtifact["kind"] {
+  switch (outputShape) {
+    case "long_form_post":
+    case "thread_seed":
+    case "reply_candidate":
+    case "quote_candidate":
+    case "short_form_post":
+      return outputShape;
+    default:
+      return "short_form_post";
+  }
+}
+
+function getDraftVersionSupportAsset(message: ChatMessage): string | null {
+  return message.supportAsset ?? message.draftArtifacts?.[0]?.supportAsset ?? null;
+}
+
+function buildDraftArtifactWithLimit(params: {
+  id: string;
+  title: string;
+  kind: DraftArtifact["kind"];
+  content: string;
+  supportAsset: string | null;
+  maxCharacterLimit: number;
+}): DraftArtifact {
+  const artifact = buildDraftArtifact({
+    id: params.id,
+    title: params.title,
+    kind: params.kind,
+    content: params.content,
+    supportAsset: params.supportAsset,
+  });
+
+  if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
+    return artifact;
+  }
+
+  return {
+    ...artifact,
+    maxCharacterLimit: params.maxCharacterLimit,
+    isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
+  };
+}
+
+function normalizeDraftVersionBundle(
+  message: ChatMessage,
+  fallbackCharacterLimit: number,
+): {
+  versions: DraftVersionEntry[];
+  activeVersionId: string;
+  activeVersion: DraftVersionEntry;
+  previousSnapshot: DraftVersionSnapshot | null;
+} | null {
+  const supportAsset = getDraftVersionSupportAsset(message);
+  const rawVersions =
+    message.draftVersions?.length
+      ? message.draftVersions
+      : (() => {
+          const fallbackContent =
+            message.draft ??
+            message.drafts?.[0] ??
+            message.draftArtifacts?.[0]?.content ??
+            null;
+
+          if (!fallbackContent) {
+            return [];
+          }
+
+          return [
+            {
+              id: `${message.id}-v1`,
+              content: fallbackContent,
+              source: "assistant_generated" as const,
+              createdAt: message.createdAt ?? new Date(0).toISOString(),
+              basedOnVersionId: null,
+              weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
+              maxCharacterLimit:
+                message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
+              supportAsset,
+            },
+          ];
+        })();
+
+  if (!rawVersions.length) {
+    return null;
+  }
+
+  const versions = rawVersions.map((version) => {
+    const content = typeof version.content === "string" ? version.content : "";
+    const maxCharacterLimit =
+      typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
+        ? version.maxCharacterLimit
+        : fallbackCharacterLimit;
+
+    return {
+      id: version.id,
+      content,
+      source: version.source,
+      createdAt: version.createdAt,
+      basedOnVersionId: version.basedOnVersionId ?? null,
+      weightedCharacterCount: computeXWeightedCharacterCount(content),
+      maxCharacterLimit,
+      supportAsset: version.supportAsset ?? supportAsset,
+    };
+  });
+
+  const activeVersionId =
+    message.activeDraftVersionId &&
+    versions.some((version) => version.id === message.activeDraftVersionId)
+      ? message.activeDraftVersionId
+      : versions[versions.length - 1].id;
+  const currentVersionIndex = Math.max(
+    0,
+    versions.findIndex((version) => version.id === activeVersionId),
+  );
+  const activeVersion = versions[currentVersionIndex];
+  const inferredPreviousVersion =
+    (activeVersion.basedOnVersionId
+      ? versions.find((version) => version.id === activeVersion.basedOnVersionId) ?? null
+      : null) ?? (currentVersionIndex > 0 ? versions[currentVersionIndex - 1] : null);
+  const previousSnapshot = message.previousVersionSnapshot
+    ? message.previousVersionSnapshot
+    : inferredPreviousVersion
+      ? {
+          messageId: message.id,
+          versionId: inferredPreviousVersion.id,
+          content: inferredPreviousVersion.content,
+          source: inferredPreviousVersion.source,
+          createdAt: inferredPreviousVersion.createdAt,
+        }
+      : null;
+  return {
+    versions,
+    activeVersionId,
+    activeVersion,
+    previousSnapshot,
   };
 }
 
@@ -892,10 +1071,7 @@ function ChatPageContent() {
   const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
     null,
   );
-  const [activeDraftEditor, setActiveDraftEditor] = useState<{
-    messageId: string;
-    artifactIndex: number;
-  } | null>(null);
+  const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
   const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
@@ -910,10 +1086,6 @@ function ChatPageContent() {
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
-  );
-  const editorDraftCounter = useMemo(
-    () => getXCharacterCounterMeta(editorDraftText, composerCharacterLimit),
-    [editorDraftText, composerCharacterLimit],
   );
   const isVerifiedAccount = Boolean(context?.creatorProfile?.identity?.isVerified);
 
@@ -1416,18 +1588,95 @@ function ChatPageContent() {
       },
     ].filter((section) => section.items.length > 0);
   }, [context, contract, chatThreads, activeThreadId]);
+  const selectedDraftMessage = useMemo(
+    () =>
+      activeDraftEditor
+        ? messages.find((item) => item.id === activeDraftEditor.messageId) ?? null
+        : null,
+    [activeDraftEditor, messages],
+  );
+  const selectedDraftBundle = useMemo(
+    () =>
+      selectedDraftMessage
+        ? normalizeDraftVersionBundle(selectedDraftMessage, composerCharacterLimit)
+        : null,
+    [composerCharacterLimit, selectedDraftMessage],
+  );
+  const selectedDraftVersion = useMemo(() => {
+    if (!activeDraftEditor || !selectedDraftBundle) {
+      return null;
+    }
+
+    return (
+      selectedDraftBundle.versions.find(
+        (version) => version.id === activeDraftEditor.versionId,
+      ) ?? selectedDraftBundle.activeVersion
+    );
+  }, [activeDraftEditor, selectedDraftBundle]);
   const selectedDraftArtifact = useMemo(() => {
-    if (!activeDraftEditor) {
+    if (!selectedDraftMessage || !selectedDraftVersion) {
       return null;
     }
 
-    const message = messages.find((item) => item.id === activeDraftEditor.messageId);
-    if (!message?.draftArtifacts) {
+    const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
+
+    return buildDraftArtifactWithLimit({
+      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
+      title: sourceArtifact?.title ?? "Draft",
+      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
+      content: selectedDraftVersion.content,
+      supportAsset:
+        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+    });
+  }, [selectedDraftMessage, selectedDraftVersion]);
+  const selectedPreviousDraftSnapshot = useMemo(() => {
+    if (!selectedDraftVersion || !selectedDraftBundle) {
       return null;
     }
 
-    return message.draftArtifacts[activeDraftEditor.artifactIndex] ?? null;
-  }, [activeDraftEditor, messages]);
+    const selectedIndex = selectedDraftBundle.versions.findIndex(
+      (version) => version.id === selectedDraftVersion.id,
+    );
+    const previousVersion =
+      (selectedDraftVersion.basedOnVersionId
+        ? selectedDraftBundle.versions.find(
+            (version) => version.id === selectedDraftVersion.basedOnVersionId,
+          ) ?? null
+        : null) ?? (selectedIndex > 0 ? selectedDraftBundle.versions[selectedIndex - 1] : null);
+
+    if (!previousVersion || !selectedDraftMessage) {
+      return selectedDraftBundle.previousSnapshot &&
+        selectedDraftBundle.previousSnapshot.versionId !== selectedDraftVersion.id
+        ? selectedDraftBundle.previousSnapshot
+        : null;
+    }
+
+    return {
+      messageId: selectedDraftMessage.id,
+      versionId: previousVersion.id,
+      content: previousVersion.content,
+      source: previousVersion.source,
+      createdAt: previousVersion.createdAt,
+      maxCharacterLimit: previousVersion.maxCharacterLimit,
+    };
+  }, [selectedDraftBundle, selectedDraftMessage, selectedDraftVersion]);
+  const selectedDraftContext = useMemo(() => {
+    if (!activeDraftEditor || !selectedDraftVersion) {
+      return null;
+    }
+
+    return {
+      messageId: activeDraftEditor.messageId,
+      versionId: selectedDraftVersion.id,
+      content: editorDraftText.trim() || selectedDraftVersion.content,
+      source: selectedDraftVersion.source,
+      createdAt: selectedDraftVersion.createdAt,
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+    };
+  }, [activeDraftEditor, editorDraftText, selectedDraftVersion]);
+  const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
+  const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
 
   const latestAssistantMessageId = useMemo(
     () =>
@@ -1439,13 +1688,18 @@ function ChatPageContent() {
   );
 
   useEffect(() => {
-    if (!selectedDraftArtifact) {
+    if (!selectedDraftVersionId) {
       setEditorDraftText("");
       return;
     }
 
-    setEditorDraftText(selectedDraftArtifact.content);
-  }, [selectedDraftArtifact]);
+    setEditorDraftText(selectedDraftVersionContent);
+  }, [
+    activeDraftEditor?.messageId,
+    activeDraftEditor?.versionId,
+    selectedDraftVersionContent,
+    selectedDraftVersionId,
+  ]);
 
   const togglePinnedPostId = useCallback(
     (postId: string, kind: "voice" | "evidence") => {
@@ -1467,12 +1721,28 @@ function ChatPageContent() {
     [],
   );
 
-  const openDraftEditor = useCallback((messageId: string, artifactIndex: number) => {
-    setActiveDraftEditor({ messageId, artifactIndex });
-  }, []);
+  const openDraftEditor = useCallback((messageId: string, versionId?: string) => {
+    const message = messages.find((item) => item.id === messageId);
+    if (!message) {
+      return;
+    }
 
-  const saveDraftEditor = useCallback(() => {
-    if (!activeDraftEditor) {
+    const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
+    if (!bundle) {
+      return;
+    }
+
+    setActiveDraftEditor({
+      messageId,
+      versionId:
+        versionId && bundle.versions.some((version) => version.id === versionId)
+          ? versionId
+          : bundle.activeVersionId,
+    });
+  }, [composerCharacterLimit, messages]);
+
+  const saveDraftEditor = useCallback(async () => {
+    if (!activeDraftEditor || !selectedDraftMessage || !selectedDraftVersion) {
       return;
     }
 
@@ -1481,39 +1751,101 @@ function ChatPageContent() {
       return;
     }
 
+    if (nextContent === selectedDraftVersion.content.trim()) {
+      return;
+    }
+
+    const nextVersion: DraftVersionEntry = {
+      id: buildDraftVersionId(),
+      content: nextContent,
+      source: "manual_save",
+      createdAt: new Date().toISOString(),
+      basedOnVersionId: selectedDraftVersion.id,
+      weightedCharacterCount: computeXWeightedCharacterCount(nextContent),
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      supportAsset:
+        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
+    };
+    const baseVersions = selectedDraftBundle?.versions ?? [selectedDraftVersion];
+    const nextVersions = [...baseVersions, nextVersion];
+    const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
+    const activeDraftArtifact = buildDraftArtifactWithLimit({
+      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${nextVersion.id}`,
+      title: sourceArtifact?.title ?? "Draft",
+      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
+      content: nextContent,
+      supportAsset: nextVersion.supportAsset,
+      maxCharacterLimit: nextVersion.maxCharacterLimit,
+    });
+
     setMessages((current) =>
       current.map((message) => {
-        if (message.id !== activeDraftEditor.messageId || !message.draftArtifacts) {
+        if (message.id !== activeDraftEditor.messageId) {
           return message;
         }
 
-        const nextDraftArtifacts = message.draftArtifacts.map((artifact, index) =>
-          index === activeDraftEditor.artifactIndex
-            ? buildDraftArtifact({
-              id: artifact.id,
-              title: artifact.title,
-              kind: artifact.kind,
-              content: nextContent,
-              supportAsset: artifact.supportAsset,
-            })
-            : artifact,
-        );
-
-        const nextDrafts =
-          message.drafts && message.drafts.length > 0
-            ? message.drafts.map((draft, index) =>
-              index === activeDraftEditor.artifactIndex ? nextContent : draft,
-            )
-            : nextDraftArtifacts.map((artifact) => artifact.content);
-
         return {
           ...message,
-          drafts: nextDrafts,
-          draftArtifacts: nextDraftArtifacts,
+          draft: nextContent,
+          drafts:
+            message.drafts && message.drafts.length > 1
+              ? [nextContent, ...message.drafts.slice(1)]
+              : [nextContent],
+          draftArtifacts:
+            message.draftArtifacts && message.draftArtifacts.length > 1
+              ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
+              : [activeDraftArtifact],
+          draftVersions: nextVersions,
+          activeDraftVersionId: nextVersion.id,
         };
       }),
     );
-  }, [activeDraftEditor, editorDraftText]);
+    setActiveDraftEditor({
+      messageId: activeDraftEditor.messageId,
+      versionId: nextVersion.id,
+    });
+
+    if (!activeThreadId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(activeDraftEditor.messageId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            draftVersions: nextVersions,
+            activeDraftVersionId: nextVersion.id,
+            draft: nextContent,
+            drafts:
+              selectedDraftMessage.drafts && selectedDraftMessage.drafts.length > 1
+                ? [nextContent, ...selectedDraftMessage.drafts.slice(1)]
+                : [nextContent],
+            draftArtifacts:
+              selectedDraftMessage.draftArtifacts && selectedDraftMessage.draftArtifacts.length > 1
+                ? [activeDraftArtifact, ...selectedDraftMessage.draftArtifacts.slice(1)]
+                : [activeDraftArtifact],
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("persist failed");
+      }
+    } catch {
+      setErrorMessage("The draft saved locally, but it could not be persisted yet.");
+    }
+  }, [
+    activeDraftEditor,
+    activeThreadId,
+    editorDraftText,
+    selectedDraftBundle,
+    selectedDraftMessage,
+    selectedDraftVersion,
+  ]);
 
   const copyDraftEditor = useCallback(async () => {
     if (!editorDraftText.trim()) {
@@ -1535,6 +1867,7 @@ function ChatPageContent() {
       includeUserMessageInHistory?: boolean;
       selectedAngle?: string | null;
       intent?: ChatIntent;
+      selectedDraftContextOverride?: DraftVersionSnapshot | null;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
       toneInputOverride?: ChatToneInputs;
@@ -1562,6 +1895,14 @@ function ChatPageContent() {
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
       const resolvedIntent = options.intent;
+      const effectiveSelectedDraftContext =
+        options.selectedDraftContextOverride !== undefined
+          ? options.selectedDraftContextOverride
+          : selectedDraftContext &&
+              !options.selectedAngle &&
+              (!resolvedIntent || resolvedIntent === "draft" || resolvedIntent === "review")
+            ? selectedDraftContext
+            : null;
       const hasStructuredIntent =
         !!options.selectedAngle ||
         (resolvedIntent === "coach" &&
@@ -1611,6 +1952,9 @@ function ChatPageContent() {
             intent: resolvedIntent,
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
+            ...(effectiveSelectedDraftContext
+              ? { selectedDraftContext: effectiveSelectedDraftContext }
+              : {}),
             pinnedVoicePostIds,
             pinnedEvidencePostIds,
             ...resolvedToneInputs,
@@ -1636,14 +1980,18 @@ function ChatPageContent() {
           setMessages((current) => [
             ...current,
             {
-              id: `assistant-${Date.now() + 1}`,
+              id: data.data.messageId ?? `assistant-${Date.now() + 1}`,
               role: "assistant",
               content: data.data.reply,
+              createdAt: new Date().toISOString(),
               angles: data.data.angles,
               plan: data.data.plan ?? null,
               draft: data.data.draft || null,
               drafts: data.data.drafts,
               draftArtifacts: data.data.draftArtifacts,
+              draftVersions: data.data.draftVersions,
+              activeDraftVersionId: data.data.activeDraftVersionId,
+              previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
               whyThisWorks: data.data.whyThisWorks,
@@ -1677,6 +2025,18 @@ function ChatPageContent() {
                     : undefined,
             },
           ]);
+
+          if (
+            effectiveSelectedDraftContext &&
+            data.data.messageId &&
+            data.data.activeDraftVersionId &&
+            data.data.draft
+          ) {
+            setActiveDraftEditor({
+              messageId: data.data.messageId,
+              versionId: data.data.activeDraftVersionId,
+            });
+          }
 
           // Store returned memory blob
           if (data.data.memory) {
@@ -1777,14 +2137,18 @@ function ChatPageContent() {
         setMessages((current) => [
           ...current,
           {
-            id: `assistant-${Date.now() + 1}`,
+            id: streamedResult.messageId ?? `assistant-${Date.now() + 1}`,
             role: "assistant",
             content: streamedResult.reply,
+            createdAt: new Date().toISOString(),
             angles: streamedResult.angles,
             plan: streamedResult.plan ?? null,
             draft: streamedResult.draft || null,
             drafts: streamedResult.drafts,
             draftArtifacts: streamedResult.draftArtifacts,
+            draftVersions: streamedResult.draftVersions,
+            activeDraftVersionId: streamedResult.activeDraftVersionId,
+            previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
             whyThisWorks: streamedResult.whyThisWorks,
@@ -1818,6 +2182,18 @@ function ChatPageContent() {
                   : undefined,
           },
         ]);
+
+        if (
+          effectiveSelectedDraftContext &&
+          streamedResult.messageId &&
+          streamedResult.activeDraftVersionId &&
+          streamedResult.draft
+        ) {
+          setActiveDraftEditor({
+            messageId: streamedResult.messageId,
+            versionId: streamedResult.activeDraftVersionId,
+          });
+        }
 
         // Store returned memory blob from stream
         if (streamedResult.memory) {
@@ -1874,6 +2250,7 @@ function ChatPageContent() {
       providerPreference,
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
+      selectedDraftContext,
       accountName,
       activeThreadId,
       syncThreadTitle,
@@ -1907,6 +2284,7 @@ function ChatPageContent() {
               id: m.id,
               role: m.role as "assistant" | "user",
               content: m.content,
+              createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
               ...(m.data || {}),
             }));
             setMessages(mappedMessages);
@@ -2652,9 +3030,17 @@ function ChatPageContent() {
 
                           {message.role === "assistant" &&
                             message.outputShape !== "coach_question" &&
+                            message.outputShape !== "short_form_post" &&
                             message.draftArtifacts?.length ? (
                             <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                              {message.draftArtifacts.map((artifact, index) => (
+                              {message.draftArtifacts.map((artifact, index) => {
+                                const artifactVersionId =
+                                  normalizeDraftVersionBundle(
+                                    message,
+                                    composerCharacterLimit,
+                                  )?.versions[index]?.id;
+
+                                return (
                                 <div
                                   key={`${message.id}-draft-artifact-${artifact.id}`}
                                   className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
@@ -2671,7 +3057,9 @@ function ChatPageContent() {
                                     </div>
                                     <button
                                       type="button"
-                                      onClick={() => openDraftEditor(message.id, index)}
+                                      onClick={() =>
+                                        openDraftEditor(message.id, artifactVersionId)
+                                      }
                                       className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
                                     >
                                       Edit
@@ -2681,7 +3069,8 @@ function ChatPageContent() {
                                     {artifact.content}
                                   </p>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : null}
 
@@ -2726,15 +3115,31 @@ function ChatPageContent() {
                               const username = context?.creatorProfile?.identity?.username || "user";
                               const displayName = context?.creatorProfile?.identity?.displayName || username;
                               const avatarUrl = context?.avatarUrl || null;
-                              const isEditing = activeDraftEditor?.messageId === message.id;
-                              const draftCounter = getXCharacterCounterMeta(
-                                isEditing ? editorDraftText : message.draft || "",
+                              const draftBundle = normalizeDraftVersionBundle(
+                                message,
                                 composerCharacterLimit,
+                              );
+                              const previewDraft =
+                                draftBundle?.activeVersion.content ?? message.draft ?? "";
+                              const draftCounter = getXCharacterCounterMeta(
+                                previewDraft,
+                                draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
                               );
                               return (
                                 <div className="mt-4 border-t border-white/10 pt-4">
                                   {/* X Post Card */}
-                                  <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => openDraftEditor(message.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openDraftEditor(message.id);
+                                      }
+                                    }}
+                                    className="rounded-2xl border border-white/[0.08] bg-black/30 p-4 transition hover:border-white/15 hover:bg-black/35"
+                                  >
                                     {/* Header: avatar + name + handle */}
                                     <div className="flex items-start gap-3">
                                       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
@@ -2768,18 +3173,9 @@ function ChatPageContent() {
 
                                     {/* Post Content */}
                                     <div className="mt-3">
-                                      {isEditing ? (
-                                        <textarea
-                                          value={editorDraftText}
-                                          onChange={(e) => setEditorDraftText(e.target.value)}
-                                          className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
-                                          rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
-                                        />
-                                      ) : (
-                                        <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                          {message.draft}
-                                        </p>
-                                      )}
+                                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                        {previewDraft}
+                                      </p>
                                     </div>
 
                                     {/* Timestamp */}
@@ -2798,27 +3194,20 @@ function ChatPageContent() {
                                         {/* Edit / Save toggle */}
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            if (isEditing) {
-                                              setActiveDraftEditor(null);
-                                            } else {
-                                              setActiveDraftEditor({
-                                                messageId: message.id,
-                                                artifactIndex: 0,
-                                              });
-                                              setEditorDraftText(message.draft || "");
-                                            }
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openDraftEditor(message.id);
                                           }}
                                           className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
                                         >
-                                          {isEditing ? "Done" : "Edit"}
+                                          Edit
                                         </button>
                                         {/* Copy */}
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const text = isEditing ? editorDraftText : (message.draft || "");
-                                            void navigator.clipboard.writeText(text);
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void navigator.clipboard.writeText(previewDraft);
                                           }}
                                           className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
                                         >
@@ -2932,20 +3321,23 @@ function ChatPageContent() {
       </div >
 
       {
-        selectedDraftArtifact ? (
+        selectedDraftArtifact && selectedDraftVersion && selectedDraftBundle ? (
           <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    {selectedDraftArtifact.title}
+                    Post Draft
                   </p>
                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
+                    Version {selectedDraftBundle.versions.findIndex(
+                      (version) => version.id === selectedDraftVersion.id,
+                    ) + 1}
+                    {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
                       editorDraftText,
-                    )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
+                    )}/{selectedDraftVersion.maxCharacterLimit} · {computeXWeightedCharacterCount(
                       editorDraftText,
-                    ) <= selectedDraftArtifact.maxCharacterLimit
+                    ) <= selectedDraftVersion.maxCharacterLimit
                       ? "Within Limit"
                       : "Over Limit"}
                   </p>
@@ -2966,6 +3358,17 @@ function ChatPageContent() {
                   className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
                   placeholder="Draft content"
                 />
+
+                {selectedPreviousDraftSnapshot ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Previous Version
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-zinc-300">
+                      {selectedPreviousDraftSnapshot.content}
+                    </p>
+                  </div>
+                ) : null}
 
                 {selectedDraftArtifact.supportAsset ? (
                   <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
@@ -3022,60 +3425,12 @@ function ChatPageContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={saveDraftEditor}
+                      onClick={() => {
+                        void saveDraftEditor();
+                      }}
                       className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
                     >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </aside>
-        ) : activeDraftEditor && editorDraftText ? (
-          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Post Draft
-                  </p>
-                  <p className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${editorDraftCounter.toneClassName}`}>
-                    {editorDraftCounter.label}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveDraftEditor(null)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <textarea
-                  value={editorDraftText}
-                  onChange={(event) => setEditorDraftText(event.target.value)}
-                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                  placeholder="Draft content"
-                />
-              </div>
-
-              <div className="border-t border-white/10 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                    Edit the draft, then copy it to post.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void copyDraftEditor();
-                      }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      Copy
+                      Save As New Version
                     </button>
                   </div>
                 </div>
