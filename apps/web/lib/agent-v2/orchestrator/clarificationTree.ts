@@ -26,19 +26,76 @@ interface ClarificationTreeResult {
   clarificationState: ClarificationState;
 }
 
+function compactTopicLabel(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/^[@#]+/, "")
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) {
+    return "your usual lane";
+  }
+
+  const words = cleaned.split(/\s+/);
+  const compact = words.length > 5 ? words.slice(0, 5).join(" ") : cleaned;
+  return compact.length > 34 ? `${compact.slice(0, 31).trimEnd()}...` : compact;
+}
+
+function collectDraftTopicCandidates(
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  seedTopic: string | null,
+): string[] {
+  const candidates = [
+    seedTopic,
+    ...(styleCard?.contextAnchors || []),
+    ...topicAnchors,
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const candidate of candidates) {
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(candidate);
+    if (unique.length >= 3) {
+      break;
+    }
+  }
+
+  return unique;
+}
+
 function buildFallbackChoices(seedTopic: string | null): CreatorChatQuickReply[] {
   const baseChoices = [
-    seedTopic ? `the real story behind ${seedTopic}` : "something you shipped recently",
+    seedTopic || "something you shipped recently",
     "a mistake you learned from this week",
-    "an opinion you have that most people in your niche get wrong",
   ];
 
-  return baseChoices.slice(0, 3).map((value) => ({
-    kind: "clarification_choice",
-    value,
-    label: value,
-    explicitIntent: "draft",
+  const topicChoices = baseChoices.map((value) => ({
+    kind: "clarification_choice" as const,
+    value: `draft a post about ${value}. keep it in my voice and make it feel like my usual lane.`,
+    label: compactTopicLabel(value),
+    explicitIntent: "plan" as const,
   }));
+
+  return [
+    ...topicChoices,
+    {
+      kind: "clarification_choice",
+      value: "draft something in my usual lane. keep it natural and close to how i normally post.",
+      label: "my usual lane",
+      explicitIntent: "plan",
+    },
+  ].slice(0, 3);
 }
 
 function buildSeededChoices(
@@ -46,28 +103,24 @@ function buildSeededChoices(
   topicAnchors: string[],
   seedTopic: string | null,
 ): CreatorChatQuickReply[] {
-  const fromProfile = (styleCard?.contextAnchors || []).slice(0, 3);
-  if (fromProfile.length > 0) {
-    return fromProfile.map((value) => ({
-      kind: "clarification_choice",
-      value,
-      label: value,
-      explicitIntent: "draft",
+  const topicalChoices = collectDraftTopicCandidates(styleCard, topicAnchors, seedTopic);
+  if (topicalChoices.length > 0) {
+    const topicReplies = topicalChoices.slice(0, 2).map((value) => ({
+      kind: "clarification_choice" as const,
+      value: `draft a post about ${value}. keep it in my voice and stay close to what i usually post about.`,
+      label: compactTopicLabel(value),
+      explicitIntent: "plan" as const,
     }));
-  }
 
-  const fromAnchors = topicAnchors
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .slice(0, 3);
-
-  if (fromAnchors.length > 0) {
-    return fromAnchors.map((value) => ({
-      kind: "clarification_choice",
-      value,
-      label: value.length > 48 ? `${value.slice(0, 45)}...` : value,
-      explicitIntent: "draft",
-    }));
+    return [
+      ...topicReplies,
+      {
+        kind: "clarification_choice",
+        value: "draft something in my usual lane. keep it natural and close to my normal topics.",
+        label: "my usual lane",
+        explicitIntent: "plan",
+      },
+    ].slice(0, 3);
   }
 
   return buildFallbackChoices(seedTopic);
