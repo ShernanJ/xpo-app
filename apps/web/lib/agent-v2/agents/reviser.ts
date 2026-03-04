@@ -190,6 +190,7 @@ REQUIREMENTS:
 12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
 13. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction.
 14. X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.
+15. Do NOT introduce empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something concrete in return (DM, template, checklist, link, copy, or access). If there is no real payoff, use a more natural CTA.
 
 Respond ONLY with valid JSON:
 {

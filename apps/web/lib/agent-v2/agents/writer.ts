@@ -113,6 +113,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
 12. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
+14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 
 Respond ONLY with a valid JSON matching this schema:
 {

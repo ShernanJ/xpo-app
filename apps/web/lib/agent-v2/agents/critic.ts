@@ -69,6 +69,64 @@ function stripUnsupportedXMarkdown(value: string): string {
     .trim();
 }
 
+function hasCtaIncentiveCue(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return [
+    "i'll dm",
+    "ill dm",
+    "dm you",
+    "send you",
+    "i'll send",
+    "ill send",
+    "template",
+    "checklist",
+    "guide",
+    "link",
+    "copy",
+    "resource",
+    "download",
+    "access",
+    "freebie",
+    "follow back",
+    "follow-up",
+    "in return",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function normalizeWeakEngagementBaitCta(value: string): {
+  nextDraft: string;
+  adjusted: boolean;
+} {
+  if (hasCtaIncentiveCue(value)) {
+    return { nextDraft: value, adjusted: false };
+  }
+
+  const lines = value.split("\n");
+  let adjusted = false;
+  const nextLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return line;
+    }
+
+    const isWeakWordReplyCta =
+      /^(?:try|give|test|run|do).{0,80}(?:reply|comment)\s+["'][^"']+["']/i.test(trimmed) ||
+      /^(?:reply|comment)\s+["'][^"']+["']\s+if\b/i.test(trimmed);
+
+    if (!isWeakWordReplyCta) {
+      return line;
+    }
+
+    adjusted = true;
+    return "if you try it, let me know how it goes.";
+  });
+
+  return {
+    nextDraft: nextLines.join("\n"),
+    adjusted,
+  };
+}
+
 /**
  * High speed rule-checker. Enforces hard constraints and standardizes
  * the draft output before it is shown to the user.
@@ -101,6 +159,7 @@ ${buildFormatPreferenceBlock(formatPreference, "critic")}
 4. If the draft contains obvious AI-isms (like "Here are 3 reasons why", "Let's dive in", "A story in 3 parts"), you MUST delete those phrases.
 5. If the draft fails fundamentally, set "approved" to false. Otherwise, return true.
 6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+7. Do NOT allow empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets a concrete payoff in return. If there is no payoff, rewrite that CTA into something natural and non-gimmicky.
 
 DRAFT TO REVIEW:
 ${writerOutput.draft}
@@ -138,13 +197,19 @@ Respond ONLY with a valid JSON matching this schema:
       stripUnsupportedXMarkdown(normalizedDraft),
       maxCharacterLimit,
     );
+    const engagementCtaNormalized = normalizeWeakEngagementBaitCta(markdownSanitizedDraft);
+    const engagementAdjustedDraft = trimToXCharacterLimit(
+      engagementCtaNormalized.nextDraft,
+      maxCharacterLimit,
+    );
     const styleAlignedDraft = trimToXCharacterLimit(
-      enforceVoiceStyleOnDraft(markdownSanitizedDraft, styleCard),
+      enforceVoiceStyleOnDraft(engagementAdjustedDraft, styleCard),
       maxCharacterLimit,
     );
     const wasTrimmed = normalizedDraft !== parsed.finalDraft;
     const markdownAdjusted = markdownSanitizedDraft !== normalizedDraft;
-    const styleAdjusted = styleAlignedDraft !== markdownSanitizedDraft;
+    const engagementAdjusted = engagementAdjustedDraft !== markdownSanitizedDraft;
+    const styleAdjusted = styleAlignedDraft !== engagementAdjustedDraft;
     let nextIssues = wasTrimmed
       ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
       : parsed.issues;
@@ -152,6 +217,12 @@ Respond ONLY with a valid JSON matching this schema:
       nextIssues = [
         ...nextIssues,
         "Removed unsupported markdown styling for X.",
+      ];
+    }
+    if (engagementAdjusted) {
+      nextIssues = [
+        ...nextIssues,
+        "Replaced a weak engagement-bait CTA with a more natural close.",
       ];
     }
     if (styleAdjusted) {
