@@ -1,0 +1,91 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  isBareDraftRequest,
+  resolveConversationMode,
+  resolveDraftOutputShape,
+  shouldRouteCareerClarification,
+  shouldUsePendingPlanApprovalPath,
+  shouldUseRevisionDraftPath,
+} from "./conversationManagerLogic.ts";
+
+test("generic draft prompts are treated as bare draft requests", () => {
+  assert.equal(isBareDraftRequest("draft a post for me"), true);
+  assert.equal(isBareDraftRequest("write me a post"), true);
+  assert.equal(isBareDraftRequest("write me a post about internship hunt"), false);
+});
+
+test("plain draft intent without an active draft upgrades to plan mode", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "write me a post",
+    classifiedIntent: "draft",
+  });
+
+  assert.equal(mode, "plan");
+});
+
+test("planner feedback only reuses pending plan when approval state is active", () => {
+  assert.equal(
+    shouldUsePendingPlanApprovalPath({
+      mode: "planner_feedback",
+      conversationState: "plan_pending_approval",
+      hasPendingPlan: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldUsePendingPlanApprovalPath({
+      mode: "planner_feedback",
+      conversationState: "needs_more_context",
+      hasPendingPlan: true,
+    }),
+    false,
+  );
+});
+
+test("selected draft review/edit modes use the revision flow", () => {
+  assert.equal(
+    shouldUseRevisionDraftPath({
+      mode: "edit",
+      activeDraft: "current draft",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldUseRevisionDraftPath({
+      mode: "plan",
+      activeDraft: "current draft",
+    }),
+    false,
+  );
+});
+
+test("verified longform maps to long_form_post", () => {
+  assert.equal(resolveDraftOutputShape("longform"), "long_form_post");
+  assert.equal(resolveDraftOutputShape("shortform"), "short_form_post");
+});
+
+test("career prompts are routed into the career clarification gate", () => {
+  assert.equal(
+    shouldRouteCareerClarification({
+      explicitIntent: null,
+      mode: "plan",
+      domainHint: "career",
+      behaviorKnown: false,
+      stakesKnown: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRouteCareerClarification({
+      explicitIntent: null,
+      mode: "plan",
+      domainHint: "product",
+      behaviorKnown: false,
+      stakesKnown: true,
+    }),
+    false,
+  );
+});
