@@ -24,6 +24,12 @@ export const FeedbackAttachmentSchema = z.object({
   mimeType: z.string(),
   sizeBytes: z.number().int().nonnegative(),
   status: z.literal("pending_upload"),
+  signatureHex: z
+    .string()
+    .regex(/^[0-9a-f]+$/i)
+    .max(64)
+    .nullable()
+    .optional(),
 });
 
 export const FeedbackSubmissionStatusSchema = z.enum([

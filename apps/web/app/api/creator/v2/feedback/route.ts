@@ -12,14 +12,10 @@ import {
   FeedbackSubmissionStatusSchema,
   StyleCardSchema,
 } from "@/lib/agent-v2/core/styleProfile";
-
-const FEEDBACK_MAX_ATTACHMENTS = 6;
-const FEEDBACK_MAX_ATTACHMENT_TOTAL_BYTES = 75 * 1024 * 1024;
-const FEEDBACK_RATE_LIMIT_MAX_PER_10_MINUTES = 3;
-const FEEDBACK_RATE_LIMIT_MAX_PER_DAY = 20;
-const FEEDBACK_RATE_LIMIT_MEDIA_MAX_PER_DAY = 5;
-const FEEDBACK_COOLDOWN_MS = 45_000;
-const FEEDBACK_DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+import {
+  evaluateFeedbackSubmissionGuards,
+  FEEDBACK_MAX_ATTACHMENTS,
+} from "./route.logic";
 
 const FeedbackRequestSchema = z.object({
   category: FeedbackCategorySchema,
@@ -84,40 +80,6 @@ function sanitizeFields(fields?: Record<string, string>): Record<string, string>
     .slice(0, 12);
 
   return Object.fromEntries(entries);
-}
-
-function getTimestamp(value: string): number | null {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeFeedbackText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getLatestSubmissionTimestamp(submissions: z.infer<typeof FeedbackSubmissionSchema>[]): number | null {
-  let latest: number | null = null;
-  for (const submission of submissions) {
-    const createdAt = getTimestamp(submission.createdAt);
-    if (createdAt === null) {
-      continue;
-    }
-    latest = latest === null ? createdAt : Math.max(latest, createdAt);
-  }
-  return latest;
-}
-
-function buildFeedbackThrottleError(message: string) {
-  return NextResponse.json(
-    {
-      ok: false,
-      errors: [{ field: "feedback", message }],
-    },
-    { status: 429 },
-  );
 }
 
 export async function GET() {
@@ -211,78 +173,23 @@ export async function POST(request: NextRequest) {
       ? parsedCurrentStyle.data
       : buildEmptyStyleCard();
   const existingSubmissions = baseStyleCard.feedbackSubmissions ?? [];
-  const nowMs = Date.now();
-  const submissionsInLast10Minutes = existingSubmissions.filter((submission) => {
-    const createdAt = getTimestamp(submission.createdAt);
-    return createdAt !== null && nowMs - createdAt < 10 * 60 * 1000;
+  const guardResult = evaluateFeedbackSubmissionGuards({
+    existingSubmissions,
+    incomingMessage: parsedBody.data.message,
+    incomingAttachments: parsedBody.data.attachments ?? [],
   });
-  if (submissionsInLast10Minutes.length >= FEEDBACK_RATE_LIMIT_MAX_PER_10_MINUTES) {
-    return buildFeedbackThrottleError(
-      "Too many submissions in a short window. Please wait a few minutes and try again.",
-    );
-  }
-
-  const submissionsInLastDay = existingSubmissions.filter((submission) => {
-    const createdAt = getTimestamp(submission.createdAt);
-    return createdAt !== null && nowMs - createdAt < 24 * 60 * 60 * 1000;
-  });
-  if (submissionsInLastDay.length >= FEEDBACK_RATE_LIMIT_MAX_PER_DAY) {
-    return buildFeedbackThrottleError(
-      "Daily feedback limit reached for this profile. Please try again tomorrow.",
-    );
-  }
-
-  const latestSubmissionTimestamp = getLatestSubmissionTimestamp(existingSubmissions);
-  if (latestSubmissionTimestamp !== null) {
-    const elapsedMs = nowMs - latestSubmissionTimestamp;
-    if (elapsedMs < FEEDBACK_COOLDOWN_MS) {
-      const waitSeconds = Math.ceil((FEEDBACK_COOLDOWN_MS - elapsedMs) / 1000);
-      return buildFeedbackThrottleError(
-        `Please wait ${waitSeconds}s before submitting another report.`,
-      );
-    }
-  }
-
-  const incomingAttachments = parsedBody.data.attachments ?? [];
-  const incomingAttachmentBytes = incomingAttachments.reduce(
-    (total, attachment) => total + attachment.sizeBytes,
-    0,
-  );
-  if (incomingAttachmentBytes > FEEDBACK_MAX_ATTACHMENT_TOTAL_BYTES) {
-    return buildFeedbackThrottleError("Total attachment size is too large for one report.");
-  }
-
-  if (incomingAttachments.length > 0) {
-    const mediaSubmissionsInLastDay = submissionsInLastDay.filter(
-      (submission) => submission.attachments.length > 0,
-    );
-    if (mediaSubmissionsInLastDay.length >= FEEDBACK_RATE_LIMIT_MEDIA_MAX_PER_DAY) {
-      return buildFeedbackThrottleError(
-        "Daily media feedback limit reached for this profile. Please try again tomorrow.",
-      );
-    }
-  }
-
-  const normalizedIncomingMessage = normalizeFeedbackText(parsedBody.data.message);
-  const duplicateExists = submissionsInLastDay.some((submission) => {
-    const createdAt = getTimestamp(submission.createdAt);
-    if (createdAt === null || nowMs - createdAt > FEEDBACK_DUPLICATE_WINDOW_MS) {
-      return false;
-    }
-    return normalizeFeedbackText(submission.message) === normalizedIncomingMessage;
-  });
-  if (duplicateExists) {
+  if (!guardResult.ok) {
     return NextResponse.json(
       {
         ok: false,
         errors: [
           {
             field: "feedback",
-            message: "This report looks like a duplicate of a recent submission.",
+            message: guardResult.message,
           },
         ],
       },
-      { status: 409 },
+      { status: guardResult.status },
     );
   }
 
