@@ -1,6 +1,16 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -476,6 +486,48 @@ function formatAreaLabel(value: string): string {
 
 function escapeRegexLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyNormalSentenceCasing(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/(^|[.!?]\s+|\n)([a-z])/g, (_, prefix: string, character: string) =>
+      `${prefix}${character.toUpperCase()}`,
+    )
+    .replace(
+      /(^|\n)(\s*(?:-|>)\s*)([a-z])/g,
+      (_, prefix: string, marker: string, character: string) =>
+        `${prefix}${marker}${character.toUpperCase()}`,
+    );
+}
+
+function inferAutoBulletMarker(context: CreatorAgentContext | null): "-" | ">" {
+  if (!context) {
+    return "-";
+  }
+
+  let dashCount = 0;
+  let angleCount = 0;
+  const samples = [
+    ...context.creatorProfile.examples.voiceAnchors,
+    ...context.creatorProfile.examples.replyVoiceAnchors,
+    ...context.creatorProfile.examples.quoteVoiceAnchors,
+    ...context.creatorProfile.examples.bestPerforming,
+  ];
+
+  for (const sample of samples) {
+    for (const line of sample.text.split("\n")) {
+      if (/^\s*-\s+/.test(line)) {
+        dashCount += 1;
+      }
+
+      if (/^\s*>\s+/.test(line)) {
+        angleCount += 1;
+      }
+    }
+  }
+
+  return angleCount > dashCount ? ">" : "-";
 }
 
 function normalizeAccountHandle(value: string): string {
@@ -1420,11 +1472,21 @@ function ChatPageContent() {
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const [preferenceCasing, setPreferenceCasing] = useState<"auto" | "lowercase" | "uppercase">("auto");
-  const [preferenceBulletStyle, setPreferenceBulletStyle] = useState<"-" | ">">("-");
+  const [preferenceCasing, setPreferenceCasing] = useState<
+    "auto" | "normal" | "lowercase" | "uppercase"
+  >("auto");
+  const [preferenceBulletStyle, setPreferenceBulletStyle] = useState<
+    "auto" | "-" | ">"
+  >("auto");
+  const [preferenceWritingMode, setPreferenceWritingMode] = useState<
+    "voice" | "balanced" | "growth"
+  >("balanced");
   const [preferenceUseEmojis, setPreferenceUseEmojis] = useState(false);
   const [preferenceAllowProfanity, setPreferenceAllowProfanity] = useState(false);
-  const [preferenceBlacklistedTerms, setPreferenceBlacklistedTerms] = useState("");
+  const [preferenceBlacklistedTerms, setPreferenceBlacklistedTerms] = useState<
+    string[]
+  >([]);
+  const [preferenceBlacklistInput, setPreferenceBlacklistInput] = useState("");
   const [preferenceMaxCharacters, setPreferenceMaxCharacters] = useState(25000);
   const [, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1463,38 +1525,138 @@ function ChatPageContent() {
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
+  const autoPreferenceBulletMarker = useMemo(
+    () => inferAutoBulletMarker(context),
+    [context],
+  );
+  const commitPreferenceBlacklistedTerm = useCallback((rawValue: string) => {
+    const normalizedValue = rawValue.trim().replace(/^,+|,+$/g, "").trim();
+
+    if (!normalizedValue) {
+      return;
+    }
+
+    setPreferenceBlacklistedTerms((current) => {
+      if (
+        current.some(
+          (term) => term.toLowerCase() === normalizedValue.toLowerCase(),
+        )
+      ) {
+        return current;
+      }
+
+      return [...current, normalizedValue];
+    });
+  }, []);
+  const removePreferenceBlacklistedTerm = useCallback((termIndex: number) => {
+    setPreferenceBlacklistedTerms((current) =>
+      current.filter((_, index) => index !== termIndex),
+    );
+  }, []);
+  const handlePreferenceBlacklistInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+
+      if (!nextValue.includes(",")) {
+        setPreferenceBlacklistInput(nextValue);
+        return;
+      }
+
+      const segments = nextValue.split(",");
+
+      for (const segment of segments.slice(0, -1)) {
+        commitPreferenceBlacklistedTerm(segment);
+      }
+
+      setPreferenceBlacklistInput(
+        segments.length > 0 ? segments[segments.length - 1] : "",
+      );
+    },
+    [commitPreferenceBlacklistedTerm],
+  );
+  const handlePreferenceBlacklistInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter" || event.key === ",") {
+        event.preventDefault();
+        commitPreferenceBlacklistedTerm(preferenceBlacklistInput);
+        setPreferenceBlacklistInput("");
+        return;
+      }
+
+      if (
+        (event.key === "Backspace" || event.key === "Delete") &&
+        preferenceBlacklistInput.length === 0 &&
+        preferenceBlacklistedTerms.length > 0
+      ) {
+        event.preventDefault();
+        setPreferenceBlacklistedTerms((current) => {
+          if (event.key === "Delete") {
+            return current.slice(1);
+          }
+
+          return current.slice(0, -1);
+        });
+      }
+    },
+    [
+      commitPreferenceBlacklistedTerm,
+      preferenceBlacklistInput,
+      preferenceBlacklistedTerms.length,
+    ],
+  );
   const preferencesPreviewDraft = useMemo(() => {
-    const bullet = preferenceBulletStyle;
-    const lines = [
-      "building xpo in public means shipping before it feels perfect.",
-      preferenceAllowProfanity
-        ? "this grind gets fucking real, but the reps are worth it."
-        : "this grind gets real, but the reps are worth it.",
-      `${bullet} testing ideas fast`,
-      `${bullet} listening to what people actually need`,
-      `${bullet} fixing what breaks and shipping again`,
-      "if you're building too, keep going.",
-    ];
+    const bullet =
+      preferenceBulletStyle === "auto"
+        ? autoPreferenceBulletMarker
+        : preferenceBulletStyle;
+    const lines =
+      preferenceWritingMode === "voice"
+        ? [
+            "building xpo in public means shipping what feels real, not what sounds polished.",
+            preferenceAllowProfanity
+              ? "this fucking grind gets real, but the reps are worth it."
+              : "this grind gets real, but the reps are worth it.",
+            `${bullet} sharing what i'm learning as it happens`,
+            `${bullet} keeping the rough edges in instead of over-polishing`,
+            `${bullet} shipping again when the next fix is obvious`,
+            "if you're building too, keep going.",
+          ]
+        : preferenceWritingMode === "growth"
+          ? [
+              "most people wait too long to ship. building xpo in public keeps the loop tight.",
+              preferenceAllowProfanity
+                ? "this fucking grind gets real, but the reps are worth it."
+                : "this grind gets real, but the reps are worth it.",
+              `${bullet} ship faster`,
+              `${bullet} learn what people actually care about`,
+              `${bullet} turn every post into a feedback loop`,
+              "if you're building too, post the next rep today.",
+            ]
+          : [
+              "building xpo in public means shipping before it feels perfect.",
+              preferenceAllowProfanity
+                ? "this fucking grind gets real, but the reps are worth it."
+                : "this grind gets real, but the reps are worth it.",
+              `${bullet} testing ideas fast`,
+              `${bullet} listening to what people actually need`,
+              `${bullet} fixing what breaks and shipping again`,
+              "if you're building too, keep going.",
+            ];
 
     let nextDraft = lines.join("\n");
 
     if (preferenceUseEmojis) {
       nextDraft = nextDraft.replace(
-        "building xpo in public means shipping before it feels perfect.",
-        "building xpo in public means shipping before it feels perfect. 🚀",
+        lines[0],
+        `${lines[0]} ${preferenceWritingMode === "growth" ? "📈" : "🚀"}`,
       );
       nextDraft = nextDraft.replace(
-        "if you're building too, keep going.",
-        "if you're building too, keep going. 🔥",
+        lines[lines.length - 1],
+        `${lines[lines.length - 1]} ${preferenceWritingMode === "voice" ? "🙂" : "🔥"}`,
       );
     }
 
-    const blockedTerms = preferenceBlacklistedTerms
-      .split(",")
-      .map((term) => term.trim())
-      .filter(Boolean);
-
-    for (const blockedTerm of blockedTerms) {
+    for (const blockedTerm of preferenceBlacklistedTerms) {
       nextDraft = nextDraft.replace(
         new RegExp(escapeRegexLiteral(blockedTerm), "gi"),
         "",
@@ -1507,7 +1669,9 @@ function ChatPageContent() {
       .replace(/\s+([,.!?;:])/g, "$1")
       .trim();
 
-    if (preferenceCasing === "lowercase") {
+    if (preferenceCasing === "normal") {
+      nextDraft = applyNormalSentenceCasing(nextDraft);
+    } else if (preferenceCasing === "lowercase") {
       nextDraft = nextDraft.toLowerCase();
     } else if (preferenceCasing === "uppercase") {
       nextDraft = nextDraft.toUpperCase();
@@ -1515,11 +1679,13 @@ function ChatPageContent() {
 
     return nextDraft;
   }, [
+    autoPreferenceBulletMarker,
     preferenceAllowProfanity,
     preferenceBlacklistedTerms,
     preferenceBulletStyle,
     preferenceCasing,
     preferenceUseEmojis,
+    preferenceWritingMode,
   ]);
   const preferencesPreviewCounter = useMemo(
     () =>
@@ -1532,15 +1698,33 @@ function ChatPageContent() {
   const preferenceConstraintRules = useMemo(() => {
     const nextConstraints: string[] = [];
 
-    if (preferenceCasing === "lowercase") {
+    if (preferenceCasing === "normal") {
+      nextConstraints.push("Use normal capitalization.");
+    } else if (preferenceCasing === "lowercase") {
       nextConstraints.push("Write in all lowercase.");
     } else if (preferenceCasing === "uppercase") {
       nextConstraints.push("Write in uppercase.");
     }
 
-    nextConstraints.push(
-      `When using lists, use "${preferenceBulletStyle}" as the list marker.`,
-    );
+    if (preferenceBulletStyle !== "auto") {
+      nextConstraints.push(
+        `When using lists, use "${preferenceBulletStyle}" as the list marker.`,
+      );
+    }
+
+    if (preferenceWritingMode === "voice") {
+      nextConstraints.push(
+        "Prioritize sounding closest to how I would organically post over growth optimization.",
+      );
+    } else if (preferenceWritingMode === "growth") {
+      nextConstraints.push(
+        "Optimize for growth while staying recognizably in my voice.",
+      );
+    } else {
+      nextConstraints.push(
+        "Keep a balance between sounding like me and optimizing for growth.",
+      );
+    }
 
     if (preferenceUseEmojis) {
       nextConstraints.push("Emojis are allowed, but keep them light and intentional.");
@@ -1554,14 +1738,9 @@ function ChatPageContent() {
       nextConstraints.push("Avoid profanity.");
     }
 
-    const blockedTerms = preferenceBlacklistedTerms
-      .split(",")
-      .map((term) => term.trim())
-      .filter(Boolean);
-
-    if (blockedTerms.length > 0) {
+    if (preferenceBlacklistedTerms.length > 0) {
       nextConstraints.push(
-        `Never use these words or emojis: ${blockedTerms.join(", ")}.`,
+        `Never use these words or emojis: ${preferenceBlacklistedTerms.join(", ")}.`,
       );
     }
 
@@ -1580,6 +1759,7 @@ function ChatPageContent() {
     preferenceBulletStyle,
     preferenceCasing,
     preferenceUseEmojis,
+    preferenceWritingMode,
   ]);
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -4817,6 +4997,7 @@ function ChatPageContent() {
                         <div className="flex flex-wrap gap-2">
                           {[
                             { label: "Auto", value: "auto" },
+                            { label: "Normal", value: "normal" },
                             { label: "Lowercase", value: "lowercase" },
                             { label: "Uppercase", value: "uppercase" },
                           ].map((option) => (
@@ -4825,7 +5006,11 @@ function ChatPageContent() {
                               type="button"
                               onClick={() =>
                                 setPreferenceCasing(
-                                  option.value as "auto" | "lowercase" | "uppercase",
+                                  option.value as
+                                    | "auto"
+                                    | "normal"
+                                    | "lowercase"
+                                    | "uppercase",
                                 )
                               }
                               className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
@@ -4847,15 +5032,51 @@ function ChatPageContent() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {[
+                            { label: "Auto", value: "auto" },
                             { label: "Dash (-)", value: "-" },
                             { label: "Angle (>)", value: ">" },
                           ].map((option) => (
                             <button
                               key={option.value}
                               type="button"
-                              onClick={() => setPreferenceBulletStyle(option.value as "-" | ">")}
+                              onClick={() =>
+                                setPreferenceBulletStyle(
+                                  option.value as "auto" | "-" | ">",
+                                )
+                              }
                               className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                                 preferenceBulletStyle === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                          <BarChart3 className="h-4 w-4 text-zinc-500" />
+                          <span>Writing goal</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { label: "Closer to my voice", value: "voice" },
+                            { label: "Balanced", value: "balanced" },
+                            { label: "Optimize for growth", value: "growth" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setPreferenceWritingMode(
+                                  option.value as "voice" | "balanced" | "growth",
+                                )
+                              }
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                preferenceWritingMode === option.value
                                   ? "bg-white text-black"
                                   : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                               }`}
@@ -4925,13 +5146,34 @@ function ChatPageContent() {
                           <Ban className="h-4 w-4 text-zinc-500" />
                           <span>Blacklist words or emojis</span>
                         </label>
-                        <input
-                          type="text"
-                          value={preferenceBlacklistedTerms}
-                          onChange={(event) => setPreferenceBlacklistedTerms(event.target.value)}
-                          placeholder="comma-separated, e.g. grind, 🚀, damn"
-                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
-                        />
+                        <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              value={preferenceBlacklistInput}
+                              onChange={handlePreferenceBlacklistInputChange}
+                              onKeyDown={handlePreferenceBlacklistInputKeyDown}
+                              placeholder="type a word, then press enter or comma"
+                              className="min-w-[12rem] flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
+                            />
+                            {preferenceBlacklistedTerms.map((term, index) => (
+                              <span
+                                key={`${term}-${index}`}
+                                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300"
+                              >
+                                <span>{term}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removePreferenceBlacklistedTerm(index)}
+                                  className="text-zinc-500 transition hover:text-white"
+                                  aria-label={`Remove ${term} from blacklist`}
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
