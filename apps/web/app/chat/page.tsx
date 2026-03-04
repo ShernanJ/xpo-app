@@ -4957,14 +4957,14 @@ function ChatPageContent() {
       {
         extensionModalOpen ? (
           <div
-            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
             onClick={(event) => {
               if (event.target === event.currentTarget) {
                 setExtensionModalOpen(false);
               }
             }}
           >
-            <div className="relative w-full max-w-xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+            <div className="relative my-auto w-full max-w-xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl max-sm:max-h-[calc(100vh-2rem)] max-sm:overflow-y-auto">
               <button
                 type="button"
                 onClick={() => setExtensionModalOpen(false)}
@@ -5002,14 +5002,14 @@ function ChatPageContent() {
       {
         preferencesOpen && context ? (
           <div
-            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
             onClick={(event) => {
               if (event.target === event.currentTarget) {
                 setPreferencesOpen(false);
               }
             }}
           >
-            <div className="relative w-full max-w-5xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl">
+            <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
               <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
@@ -5041,236 +5041,252 @@ function ChatPageContent() {
                 </div>
               </div>
 
-              <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
-                <div className="space-y-6">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                    <div className="flex items-center gap-3">
-                      <Settings2 className="h-4 w-4 text-zinc-500" />
-                      <div>
-                        <p className="text-sm font-semibold text-white">Core Settings</p>
-                        <p className="text-xs text-zinc-500">Quick defaults for formatting and tone.</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 space-y-5">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-                          <Type className="h-4 w-4 text-zinc-500" />
-                          <span>Default casing</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { label: "Auto", value: "auto" },
-                            { label: "Normal", value: "normal" },
-                            { label: "Lowercase", value: "lowercase" },
-                            { label: "Uppercase", value: "uppercase" },
-                          ].map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setPreferenceCasing(
-                                  option.value as
-                                    | "auto"
-                                    | "normal"
-                                    | "lowercase"
-                                    | "uppercase",
-                                )
-                              }
-                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                preferenceCasing === option.value
-                                  ? "bg-white text-black"
-                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
+              <div className="overflow-y-auto px-6 py-6">
+                <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="space-y-6">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <Settings2 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Core Settings</p>
+                          <p className="text-xs text-zinc-500">Quick defaults for formatting and tone.</p>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-                          <List className="h-4 w-4 text-zinc-500" />
-                          <span>Bullet style</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { label: "Auto", value: "auto" },
-                            { label: "Dash (-)", value: "-" },
-                            { label: "Angle (>)", value: ">" },
-                          ].map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setPreferenceBulletStyle(
-                                  option.value as "auto" | "-" | ">",
-                                )
-                              }
-                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                preferenceBulletStyle === option.value
-                                  ? "bg-white text-black"
-                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-                          <BarChart3 className="h-4 w-4 text-zinc-500" />
-                          <span>Writing goal</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { label: "Closer to my voice", value: "voice" },
-                            { label: "Balanced", value: "balanced" },
-                            { label: "Optimize for growth", value: "growth" },
-                          ].map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setPreferenceWritingMode(
-                                  option.value as "voice" | "balanced" | "growth",
-                                )
-                              }
-                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                preferenceWritingMode === option.value
-                                  ? "bg-white text-black"
-                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => setPreferenceUseEmojis((current) => !current)}
-                          className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                            preferenceUseEmojis
-                              ? "border-white/20 bg-white/[0.06]"
-                              : "border-white/10 bg-black/20"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Smile className="h-4 w-4 text-zinc-500" />
-                            <span className="text-sm text-zinc-300">Use emojis</span>
+                      <div className="mt-5 space-y-5">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                            <Type className="h-4 w-4 text-zinc-500" />
+                            <span>Default casing</span>
                           </div>
-                          <span
-                            className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
-                              preferenceUseEmojis ? "bg-emerald-500/70" : "bg-zinc-800"
-                            }`}
-                          >
-                            <span
-                              className={`h-4 w-4 rounded-full bg-white transition-transform ${
-                                preferenceUseEmojis ? "translate-x-5" : "translate-x-0"
-                              }`}
-                            />
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setPreferenceAllowProfanity((current) => !current)}
-                          className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                            preferenceAllowProfanity
-                              ? "border-white/20 bg-white/[0.06]"
-                              : "border-white/10 bg-black/20"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Ban className="h-4 w-4 text-zinc-500" />
-                            <span className="text-sm text-zinc-300">Allow profanity</span>
-                          </div>
-                          <span
-                            className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
-                              preferenceAllowProfanity ? "bg-emerald-500/70" : "bg-zinc-800"
-                            }`}
-                          >
-                            <span
-                              className={`h-4 w-4 rounded-full bg-white transition-transform ${
-                                preferenceAllowProfanity ? "translate-x-5" : "translate-x-0"
-                              }`}
-                            />
-                          </span>
-                        </button>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-                          <Ban className="h-4 w-4 text-zinc-500" />
-                          <span>Blacklist words or emojis</span>
-                        </label>
-                        <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="text"
-                              value={preferenceBlacklistInput}
-                              onChange={handlePreferenceBlacklistInputChange}
-                              onKeyDown={handlePreferenceBlacklistInputKeyDown}
-                              placeholder="type a word, then press enter or comma"
-                              className="min-w-[12rem] flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
-                            />
-                            {preferenceBlacklistedTerms.map((term, index) => (
-                              <span
-                                key={`${term}-${index}`}
-                                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300"
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { label: "Auto", value: "auto" },
+                              { label: "Normal", value: "normal" },
+                              { label: "Lowercase", value: "lowercase" },
+                              { label: "Uppercase", value: "uppercase" },
+                            ].map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setPreferenceCasing(
+                                    option.value as
+                                      | "auto"
+                                      | "normal"
+                                      | "lowercase"
+                                      | "uppercase",
+                                  )
+                                }
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                  preferenceCasing === option.value
+                                    ? "bg-white text-black"
+                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                }`}
                               >
-                                <span>{term}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => removePreferenceBlacklistedTerm(index)}
-                                  className="text-zinc-500 transition hover:text-white"
-                                  aria-label={`Remove ${term} from blacklist`}
-                                >
-                                  x
-                                </button>
-                              </span>
+                                {option.label}
+                              </button>
                             ))}
                           </div>
                         </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                            <List className="h-4 w-4 text-zinc-500" />
+                            <span>Bullet style</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { label: "Auto", value: "auto" },
+                              { label: "Dash (-)", value: "-" },
+                              { label: "Angle (>)", value: ">" },
+                            ].map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setPreferenceBulletStyle(
+                                    option.value as "auto" | "-" | ">",
+                                  )
+                                }
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                  preferenceBulletStyle === option.value
+                                    ? "bg-white text-black"
+                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                            <BarChart3 className="h-4 w-4 text-zinc-500" />
+                            <span>Writing goal</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { label: "Closer to my voice", value: "voice" },
+                              { label: "Balanced", value: "balanced" },
+                              { label: "Optimize for growth", value: "growth" },
+                            ].map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setPreferenceWritingMode(
+                                    option.value as "voice" | "balanced" | "growth",
+                                  )
+                                }
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                  preferenceWritingMode === option.value
+                                    ? "bg-white text-black"
+                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setPreferenceUseEmojis((current) => !current)}
+                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                              preferenceUseEmojis
+                                ? "border-white/20 bg-white/[0.06]"
+                                : "border-white/10 bg-black/20"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Smile className="h-4 w-4 text-zinc-500" />
+                              <span className="text-sm text-zinc-300">Use emojis</span>
+                            </div>
+                            <span
+                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
+                                preferenceUseEmojis ? "bg-emerald-500/70" : "bg-zinc-800"
+                              }`}
+                            >
+                              <span
+                                className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                                  preferenceUseEmojis ? "translate-x-5" : "translate-x-0"
+                                }`}
+                              />
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setPreferenceAllowProfanity((current) => !current)}
+                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                              preferenceAllowProfanity
+                                ? "border-white/20 bg-white/[0.06]"
+                                : "border-white/10 bg-black/20"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Ban className="h-4 w-4 text-zinc-500" />
+                              <span className="text-sm text-zinc-300">Allow profanity</span>
+                            </div>
+                            <span
+                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
+                                preferenceAllowProfanity ? "bg-emerald-500/70" : "bg-zinc-800"
+                              }`}
+                            >
+                              <span
+                                className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                                  preferenceAllowProfanity ? "translate-x-5" : "translate-x-0"
+                                }`}
+                              />
+                            </span>
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                            <Ban className="h-4 w-4 text-zinc-500" />
+                            <span>Blacklist words or emojis</span>
+                          </label>
+                          <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={preferenceBlacklistInput}
+                                onChange={handlePreferenceBlacklistInputChange}
+                                onKeyDown={handlePreferenceBlacklistInputKeyDown}
+                                placeholder="type a word, then press enter or comma"
+                                className="min-w-[12rem] flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
+                              />
+                              {preferenceBlacklistedTerms.map((term, index) => (
+                                <span
+                                  key={`${term}-${index}`}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300"
+                                >
+                                  <span>{term}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removePreferenceBlacklistedTerm(index)}
+                                    className="text-zinc-500 transition hover:text-white"
+                                    aria-label={`Remove ${term} from blacklist`}
+                                  >
+                                    x
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                    <div className="flex items-center gap-3">
-                      {isVerifiedAccount ? (
-                        <Image
-                          src="/x-verified.svg"
-                          alt="Verified settings"
-                          width={16}
-                          height={16}
-                          className="h-4 w-4"
-                        />
-                      ) : (
-                        <BarChart3 className="h-4 w-4 text-zinc-500" />
-                      )}
-                      <div>
-                        <p className="text-sm font-semibold text-white">Verified Settings</p>
-                        <p className="text-xs text-zinc-500">
-                          Custom max length only applies to verified accounts. Unverified users are capped to 250 characters.
-                        </p>
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        {isVerifiedAccount ? (
+                          <Image
+                            src="/x-verified.svg"
+                            alt="Verified settings"
+                            width={16}
+                            height={16}
+                            className="h-4 w-4"
+                          />
+                        ) : (
+                          <BarChart3 className="h-4 w-4 text-zinc-500" />
+                        )}
+                        <div>
+                          <p className="text-sm font-semibold text-white">Verified Settings</p>
+                          <p className="text-xs text-zinc-500">
+                            Custom max length only applies to verified accounts. Unverified users are capped to 250 characters.
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="mt-5 space-y-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <label className="text-sm font-medium text-zinc-300">Maximum character count</label>
+                      <div className="mt-5 space-y-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <label className="text-sm font-medium text-zinc-300">Maximum character count</label>
+                          <input
+                            type="number"
+                            min={250}
+                            max={25000}
+                            step={10}
+                            value={effectivePreferenceMaxCharacters}
+                            disabled={!isVerifiedAccount}
+                            onChange={(event) =>
+                              setPreferenceMaxCharacters(
+                                Number.parseInt(event.target.value || "250", 10) || 250,
+                              )
+                            }
+                            className="w-28 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-right text-sm text-white outline-none disabled:cursor-not-allowed disabled:text-zinc-600"
+                          />
+                        </div>
                         <input
-                          type="number"
+                          type="range"
                           min={250}
                           max={25000}
-                          step={10}
+                          step={50}
                           value={effectivePreferenceMaxCharacters}
                           disabled={!isVerifiedAccount}
                           onChange={(event) =>
@@ -5278,30 +5294,15 @@ function ChatPageContent() {
                               Number.parseInt(event.target.value || "250", 10) || 250,
                             )
                           }
-                          className="w-28 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-right text-sm text-white outline-none disabled:cursor-not-allowed disabled:text-zinc-600"
+                          className="w-full accent-white disabled:cursor-not-allowed"
                         />
-                      </div>
-                      <input
-                        type="range"
-                        min={250}
-                        max={25000}
-                        step={50}
-                        value={effectivePreferenceMaxCharacters}
-                        disabled={!isVerifiedAccount}
-                        onChange={(event) =>
-                          setPreferenceMaxCharacters(
-                            Number.parseInt(event.target.value || "250", 10) || 250,
-                          )
-                        }
-                        className="w-full accent-white disabled:cursor-not-allowed"
-                      />
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-zinc-600">
-                        <span>250</span>
-                        <span>25,000</span>
+                        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-zinc-600">
+                          <span>250</span>
+                          <span>25,000</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="space-y-4">
                   <div>
@@ -5361,6 +5362,7 @@ function ChatPageContent() {
                     </div>
                   </div>
                 </div>
+                </div>
               </div>
             </div>
           </div>
@@ -5370,14 +5372,14 @@ function ChatPageContent() {
       {
         playbookModalOpen ? (
           <div
-            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
             onClick={(event) => {
               if (event.target === event.currentTarget) {
                 setPlaybookModalOpen(false);
               }
             }}
           >
-            <div className="relative w-full max-w-lg rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+            <div className="relative my-auto w-full max-w-lg rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl max-sm:max-h-[calc(100vh-2rem)] max-sm:overflow-y-auto">
               <button
                 type="button"
                 onClick={() => setPlaybookModalOpen(false)}
