@@ -45,6 +45,7 @@ interface PreviousVersionSnapshot {
   source: DraftVersionSource;
   createdAt: string;
   maxCharacterLimit?: number;
+  revisionChainId?: string;
 }
 
 interface SelectedDraftContext {
@@ -54,6 +55,7 @@ interface SelectedDraftContext {
   source?: DraftVersionSource;
   createdAt?: string;
   maxCharacterLimit?: number;
+  revisionChainId?: string;
 }
 
 const DEFAULT_THREAD_TITLE = "New Chat";
@@ -167,6 +169,15 @@ function normalizeDraftPayload(args: {
   return { reply, draft, drafts };
 }
 
+function buildRevisionChainId(seed?: string): string {
+  const normalizedSeed = typeof seed === "string" ? seed.trim() : "";
+  if (normalizedSeed) {
+    return `revision-chain-${normalizedSeed}`;
+  }
+
+  return `revision-chain-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -199,6 +210,10 @@ function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null 
     typeof candidate.maxCharacterLimit === "number" && candidate.maxCharacterLimit > 0
       ? candidate.maxCharacterLimit
       : undefined;
+  const revisionChainId =
+    typeof candidate.revisionChainId === "string" && candidate.revisionChainId.trim()
+      ? candidate.revisionChainId.trim()
+      : undefined;
 
   return {
     messageId,
@@ -207,6 +222,7 @@ function parseSelectedDraftContext(value: unknown): SelectedDraftContext | null 
     ...(source ? { source } : {}),
     ...(createdAt ? { createdAt } : {}),
     ...(maxCharacterLimit ? { maxCharacterLimit } : {}),
+    ...(revisionChainId ? { revisionChainId } : {}),
   };
 }
 
@@ -235,6 +251,7 @@ function buildInitialDraftVersionPayload(args: {
   draftVersions?: DraftVersionEntry[];
   activeDraftVersionId?: string;
   previousVersionSnapshot?: PreviousVersionSnapshot | null;
+  revisionChainId?: string;
 } {
   if (!args.draft) {
     return {
@@ -251,6 +268,9 @@ function buildInitialDraftVersionPayload(args: {
 
   const createdAt = new Date().toISOString();
   const versionId = `version-${Date.now()}`;
+  const revisionChainId =
+    args.selectedDraftContext?.revisionChainId ||
+    buildRevisionChainId(args.selectedDraftContext?.messageId);
   const primaryArtifact = buildDraftArtifact({
     id: `${artifactKind}-1`,
     title: buildDraftArtifactTitle(artifactKind, 0),
@@ -291,6 +311,9 @@ function buildInitialDraftVersionPayload(args: {
         ...(args.selectedDraftContext.maxCharacterLimit
           ? { maxCharacterLimit: args.selectedDraftContext.maxCharacterLimit }
           : {}),
+        ...(args.selectedDraftContext.revisionChainId
+          ? { revisionChainId: args.selectedDraftContext.revisionChainId }
+          : {}),
       }
     : undefined;
 
@@ -298,6 +321,7 @@ function buildInitialDraftVersionPayload(args: {
     draftArtifacts: [adjustedPrimaryArtifact],
     draftVersions: [draftVersion],
     activeDraftVersionId: versionId,
+    revisionChainId,
     ...(previousVersionSnapshot ? { previousVersionSnapshot } : {}),
   };
 }
@@ -409,6 +433,12 @@ export async function POST(request: NextRequest) {
   const activeDraft =
     selectedDraftContext?.content ||
     (typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined);
+  const effectiveExplicitIntent =
+    ["coach", "ideate", "plan", "planner_feedback", "draft", "review", "edit", "answer_question"].includes(intent)
+      ? (intent as "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit" | "answer_question")
+      : selectedDraftContext
+        ? "edit"
+        : null;
 
   try {
     const effectiveUserId = session.user.id;
@@ -431,9 +461,7 @@ export async function POST(request: NextRequest) {
       runId: storedRun?.id,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
-      explicitIntent: ["coach", "ideate", "plan", "planner_feedback", "draft", "review", "edit", "answer_question"].includes(intent)
-        ? intent as "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit" | "answer_question"
-        : null,
+      explicitIntent: effectiveExplicitIntent,
       activeDraft,
     });
 
@@ -503,6 +531,7 @@ export async function POST(request: NextRequest) {
       draftVersions: draftVersionPayload.draftVersions,
       activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
       previousVersionSnapshot: draftVersionPayload.previousVersionSnapshot,
+      revisionChainId: draftVersionPayload.revisionChainId,
       supportAsset: resultData?.supportAsset as string || null,
       outputShape: result.outputShape,
       whyThisWorks: [],

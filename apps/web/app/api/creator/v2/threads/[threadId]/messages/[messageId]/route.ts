@@ -10,6 +10,7 @@ interface DraftMessagePatchRequest extends Record<string, unknown> {
   draft?: unknown;
   drafts?: unknown;
   draftArtifacts?: unknown;
+  revisionChainId?: unknown;
 }
 
 export async function PATCH(
@@ -41,6 +42,8 @@ export async function PATCH(
   const draftVersions = Array.isArray(body.draftVersions) ? body.draftVersions : null;
   const drafts = Array.isArray(body.drafts) ? body.drafts : null;
   const draftArtifacts = Array.isArray(body.draftArtifacts) ? body.draftArtifacts : null;
+  const revisionChainId =
+    typeof body.revisionChainId === "string" ? body.revisionChainId.trim() : "";
 
   if (!activeDraftVersionId || !draft || !draftVersions || !drafts || !draftArtifacts) {
     return NextResponse.json(
@@ -89,6 +92,7 @@ export async function PATCH(
       draft,
       drafts: drafts as unknown as Prisma.JsonValue,
       draftArtifacts: draftArtifacts as unknown as Prisma.JsonValue,
+      ...(revisionChainId ? { revisionChainId } : {}),
     } as Prisma.InputJsonValue;
 
     const updatedMessage = await prisma.chatMessage.update({

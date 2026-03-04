@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -127,6 +127,7 @@ interface CreatorChatSuccess {
     draftVersions?: DraftVersionEntry[];
     activeDraftVersionId?: string;
     previousVersionSnapshot?: DraftVersionSnapshot | null;
+    revisionChainId?: string;
     supportAsset: string | null;
     outputShape:
     | "coach_question"
@@ -295,11 +296,23 @@ interface DraftVersionSnapshot {
   source: DraftVersionSource;
   createdAt: string;
   maxCharacterLimit?: number;
+  revisionChainId?: string;
 }
 
 interface DraftDrawerSelection {
   messageId: string;
   versionId: string;
+}
+
+interface DraftTimelineEntry {
+  messageId: string;
+  versionId: string;
+  content: string;
+  createdAt: string;
+  source: DraftVersionSource;
+  revisionChainId: string;
+  maxCharacterLimit: number;
+  isCurrentMessageVersion: boolean;
 }
 
 interface ChatMessage {
@@ -318,6 +331,7 @@ interface ChatMessage {
   draftVersions?: DraftVersionEntry[];
   activeDraftVersionId?: string;
   previousVersionSnapshot?: DraftVersionSnapshot | null;
+  revisionChainId?: string;
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
@@ -329,7 +343,7 @@ interface ChatMessage {
 }
 
 type ChatProviderPreference = "openai" | "groq";
-type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review";
+type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
 type ChatContentFocus =
   | "project_showcase"
   | "technical_insight"
@@ -674,6 +688,194 @@ function normalizeDraftVersionBundle(
   };
 }
 
+function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return "ignore";
+  }
+
+  if (
+    [
+      "give me ideas",
+      "post ideas",
+      "write a new post",
+      "different topic",
+      "start over",
+      "help me brainstorm",
+      "brainstorm",
+      "analyze my posts",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "ignore";
+  }
+
+  if (
+    [
+      "why does it say",
+      "why does it mention",
+      "don't say",
+      "dont say",
+      "remove \"",
+      "remove '",
+      "remove the",
+      "delete \"",
+      "delete '",
+      "make it shorter",
+      "shorten it",
+      "tighten this",
+      "make this clearer",
+      "change the hook",
+      "remove the last line",
+      "less hype",
+      "more casual",
+      "this part is weird",
+      "that line is off",
+      "this doesn't make sense",
+      "this doesnt make sense",
+      "too long",
+      "too much",
+      "make it punchier",
+      "make it sharper",
+      "fix this line",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "revise";
+  }
+
+  if (/["“'`](.+?)["”'`]/.test(prompt)) {
+    return "revise";
+  }
+
+  return "ignore";
+}
+
+function buildDraftRevisionTimeline(args: {
+  messages: ChatMessage[];
+  activeDraftSelection: DraftDrawerSelection | null;
+  fallbackCharacterLimit: number;
+}): DraftTimelineEntry[] {
+  if (!args.activeDraftSelection) {
+    return [];
+  }
+
+  const selectedMessage =
+    args.messages.find((message) => message.id === args.activeDraftSelection?.messageId) ?? null;
+  if (!selectedMessage) {
+    return [];
+  }
+
+  const selectedBundle = normalizeDraftVersionBundle(
+    selectedMessage,
+    args.fallbackCharacterLimit,
+  );
+  if (!selectedBundle) {
+    return [];
+  }
+
+  const resolvedChainId =
+    selectedMessage.revisionChainId?.trim() ||
+    selectedMessage.previousVersionSnapshot?.revisionChainId?.trim() ||
+    `legacy-chain-${selectedMessage.id}`;
+
+  if (selectedMessage.revisionChainId?.trim()) {
+    const chainedEntries = args.messages
+      .filter(
+        (message) =>
+          message.role === "assistant" &&
+          typeof message.revisionChainId === "string" &&
+          message.revisionChainId.trim() === resolvedChainId,
+      )
+      .sort((left, right) =>
+        (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
+      )
+      .flatMap((message) => {
+        const bundle = normalizeDraftVersionBundle(message, args.fallbackCharacterLimit);
+        if (!bundle) {
+          return [];
+        }
+
+        return bundle.versions.map((version) => ({
+          messageId: message.id,
+          versionId: version.id,
+          content: version.content,
+          createdAt: version.createdAt,
+          source: version.source,
+          revisionChainId: resolvedChainId,
+          maxCharacterLimit: version.maxCharacterLimit,
+          isCurrentMessageVersion: message.id === selectedMessage.id,
+        }));
+      });
+    const previousSnapshot = selectedBundle.previousSnapshot;
+    if (!previousSnapshot) {
+      return chainedEntries;
+    }
+
+    const snapshotAlreadyPresent = chainedEntries.some(
+      (entry) =>
+        entry.messageId === previousSnapshot.messageId &&
+        entry.versionId === previousSnapshot.versionId,
+    );
+    if (snapshotAlreadyPresent) {
+      return chainedEntries;
+    }
+
+    return [
+      {
+        messageId: previousSnapshot.messageId,
+        versionId: previousSnapshot.versionId,
+        content: previousSnapshot.content,
+        createdAt: previousSnapshot.createdAt,
+        source: previousSnapshot.source,
+        revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
+        maxCharacterLimit:
+          previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
+        isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
+      },
+      ...chainedEntries,
+    ];
+  }
+
+  const fallbackEntries = selectedBundle.versions.map((version) => ({
+    messageId: selectedMessage.id,
+    versionId: version.id,
+    content: version.content,
+    createdAt: version.createdAt,
+    source: version.source,
+    revisionChainId: resolvedChainId,
+    maxCharacterLimit: version.maxCharacterLimit,
+    isCurrentMessageVersion: true,
+  }));
+  const previousSnapshot = selectedBundle.previousSnapshot;
+
+  if (!previousSnapshot) {
+    return fallbackEntries;
+  }
+
+  const snapshotAlreadyPresent = fallbackEntries.some(
+    (entry) =>
+      entry.messageId === previousSnapshot.messageId &&
+      entry.versionId === previousSnapshot.versionId,
+  );
+  if (snapshotAlreadyPresent) {
+    return fallbackEntries;
+  }
+
+  return [
+    {
+      messageId: previousSnapshot.messageId,
+      versionId: previousSnapshot.versionId,
+      content: previousSnapshot.content,
+      createdAt: previousSnapshot.createdAt,
+      source: previousSnapshot.source,
+      revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
+      maxCharacterLimit:
+        previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
+      isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
+    },
+    ...fallbackEntries,
+  ];
+}
+
 function inferComposerIntent(input: string): ChatIntent {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -997,6 +1199,8 @@ function ChatPageContent() {
 
   // Guard against initializeThread re-fetching when we just created a thread in-session
   const threadCreatedInSessionRef = useRef(false);
+  const threadScrollRef = useRef<HTMLElement | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -1614,7 +1818,7 @@ function ChatPageContent() {
     );
   }, [activeDraftEditor, selectedDraftBundle]);
   const selectedDraftContext = useMemo(() => {
-    if (!activeDraftEditor || !selectedDraftVersion) {
+    if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
       return null;
     }
 
@@ -1625,10 +1829,35 @@ function ChatPageContent() {
       source: selectedDraftVersion.source,
       createdAt: selectedDraftVersion.createdAt,
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      revisionChainId: selectedDraftMessage.revisionChainId,
     };
-  }, [activeDraftEditor, editorDraftText, selectedDraftVersion]);
+  }, [activeDraftEditor, editorDraftText, selectedDraftMessage, selectedDraftVersion]);
+  const selectedDraftTimeline = useMemo(
+    () =>
+      buildDraftRevisionTimeline({
+        messages,
+        activeDraftSelection: activeDraftEditor,
+        fallbackCharacterLimit: composerCharacterLimit,
+      }),
+    [activeDraftEditor, composerCharacterLimit, messages],
+  );
+  const selectedDraftTimelineIndex = useMemo(
+    () =>
+      selectedDraftTimeline.findIndex(
+        (entry) =>
+          entry.messageId === activeDraftEditor?.messageId &&
+          entry.versionId === selectedDraftVersion?.id,
+      ),
+    [activeDraftEditor, selectedDraftTimeline, selectedDraftVersion],
+  );
   const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
   const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
+  const selectedDraftTimelinePosition =
+    selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
+  const canNavigateDraftBack = selectedDraftTimelineIndex > 0;
+  const canNavigateDraftForward =
+    selectedDraftTimelineIndex >= 0 &&
+    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
 
   const latestAssistantMessageId = useMemo(
     () =>
@@ -1652,6 +1881,38 @@ function ChatPageContent() {
     selectedDraftVersionContent,
     selectedDraftVersionId,
   ]);
+
+  const navigateDraftTimeline = useCallback(
+    (direction: "back" | "forward") => {
+      if (selectedDraftTimelineIndex < 0) {
+        return;
+      }
+
+      const targetIndex =
+        direction === "back"
+          ? selectedDraftTimelineIndex - 1
+          : selectedDraftTimelineIndex + 1;
+      const targetEntry = selectedDraftTimeline[targetIndex];
+      if (!targetEntry) {
+        return;
+      }
+
+      setActiveDraftEditor({
+        messageId: targetEntry.messageId,
+        versionId: targetEntry.versionId,
+      });
+
+      if (targetEntry.messageId !== activeDraftEditor?.messageId) {
+        window.requestAnimationFrame(() => {
+          messageRefs.current[targetEntry.messageId]?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        });
+      }
+    },
+    [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
+  );
 
   const togglePinnedPostId = useCallback(
     (postId: string, kind: "voice" | "evidence") => {
@@ -1718,6 +1979,8 @@ function ChatPageContent() {
       supportAsset:
         selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
     };
+    const revisionChainId =
+      selectedDraftMessage.revisionChainId || `revision-chain-${selectedDraftMessage.id}`;
     const baseVersions = selectedDraftBundle?.versions ?? [selectedDraftVersion];
     const nextVersions = [...baseVersions, nextVersion];
     const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
@@ -1749,6 +2012,7 @@ function ChatPageContent() {
               : [activeDraftArtifact],
           draftVersions: nextVersions,
           activeDraftVersionId: nextVersion.id,
+          revisionChainId,
         };
       }),
     );
@@ -1781,6 +2045,7 @@ function ChatPageContent() {
               selectedDraftMessage.draftArtifacts && selectedDraftMessage.draftArtifacts.length > 1
                 ? [activeDraftArtifact, ...selectedDraftMessage.draftArtifacts.slice(1)]
                 : [activeDraftArtifact],
+            revisionChainId,
           }),
         },
       );
@@ -1846,20 +2111,26 @@ function ChatPageContent() {
       }
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
-      const resolvedIntent = options.intent;
+      const selectedDraftAction =
+        selectedDraftContext && trimmedPrompt
+          ? inferSelectedDraftAction(trimmedPrompt)
+          : "ignore";
+      const effectiveIntent =
+        options.intent ??
+        (selectedDraftContext && selectedDraftAction === "revise" ? "edit" : undefined);
       const effectiveSelectedDraftContext =
         options.selectedDraftContextOverride !== undefined
           ? options.selectedDraftContextOverride
           : selectedDraftContext &&
               !options.selectedAngle &&
-              (!resolvedIntent || resolvedIntent === "draft" || resolvedIntent === "review")
+              (effectiveIntent === "edit" || effectiveIntent === "review")
             ? selectedDraftContext
             : null;
       const hasStructuredIntent =
         !!options.selectedAngle ||
-        (resolvedIntent === "coach" &&
+        (effectiveIntent === "coach" &&
           (!trimmedPrompt || !!resolvedContentFocus)) ||
-        ((resolvedIntent === "ideate" || resolvedIntent === "coach") &&
+        ((effectiveIntent === "ideate" || effectiveIntent === "coach") &&
           !!resolvedContentFocus);
 
       if (!trimmedPrompt && !hasStructuredIntent) {
@@ -1901,7 +2172,7 @@ function ChatPageContent() {
             history,
             provider: providerPreference,
             stream: true,
-            intent: resolvedIntent,
+            intent: effectiveIntent,
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
             ...(effectiveSelectedDraftContext
@@ -1944,6 +2215,7 @@ function ChatPageContent() {
               draftVersions: data.data.draftVersions,
               activeDraftVersionId: data.data.activeDraftVersionId,
               previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
+              revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
               whyThisWorks: data.data.whyThisWorks,
@@ -2101,6 +2373,7 @@ function ChatPageContent() {
             draftVersions: streamedResult.draftVersions,
             activeDraftVersionId: streamedResult.activeDraftVersionId,
             previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
+            revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
             whyThisWorks: streamedResult.whyThisWorks,
@@ -2797,7 +3070,7 @@ function ChatPageContent() {
             </div>
           </header>
 
-          <section className="min-h-0 flex-1 overflow-y-auto">
+          <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className={chatCanvasClassName}>
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
@@ -2903,6 +3176,9 @@ function ChatPageContent() {
                       {messages.map((message, index) => (
                         <div
                           key={message.id}
+                          ref={(node) => {
+                            messageRefs.current[message.id] = node;
+                          }}
                           className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
                             ? "text-zinc-100"
                             : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
@@ -3316,24 +3592,42 @@ function ChatPageContent() {
                           @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                         </p>
                         <p className="mt-1 text-[11px] font-medium text-zinc-500">
-                          Version {selectedDraftBundle.versions.findIndex(
-                            (version) => version.id === selectedDraftVersion.id,
-                          ) + 1}
-                          {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
+                          Version {selectedDraftTimelinePosition}
+                          {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
                             editorDraftText,
                           )}/{selectedDraftVersion.maxCharacterLimit}
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setActiveDraftEditor(null)}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                      aria-label="Close draft editor"
-                    >
-                      ×
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => navigateDraftTimeline("back")}
+                        disabled={!canNavigateDraftBack}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Previous draft version"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigateDraftTimeline("forward")}
+                        disabled={!canNavigateDraftForward}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Next draft version"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDraftEditor(null)}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                        aria-label="Close draft editor"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-5 pb-5">
@@ -3419,23 +3713,41 @@ function ChatPageContent() {
                         @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                       </p>
                       <p className="mt-1 text-[11px] text-zinc-500">
-                        Version {selectedDraftBundle.versions.findIndex(
-                          (version) => version.id === selectedDraftVersion.id,
-                        ) + 1}
-                        {" "}of {selectedDraftBundle.versions.length} · {computeXWeightedCharacterCount(
+                        Version {selectedDraftTimelinePosition}
+                        {" "}of {selectedDraftTimeline.length} · {computeXWeightedCharacterCount(
                           editorDraftText,
                         )}/{selectedDraftVersion.maxCharacterLimit}
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDraftEditor(null)}
-                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                    aria-label="Close draft editor"
-                  >
-                    ×
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => navigateDraftTimeline("back")}
+                      disabled={!canNavigateDraftBack}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="Previous draft version"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateDraftTimeline("forward")}
+                      disabled={!canNavigateDraftForward}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="Next draft version"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 pb-4">

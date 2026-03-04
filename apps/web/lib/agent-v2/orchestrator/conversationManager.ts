@@ -4,6 +4,7 @@ import { generatePlan } from "../agents/planner";
 import { generateIdeasMenu } from "../agents/ideator";
 import { generateDrafts } from "../agents/writer";
 import { critiqueDrafts } from "../agents/critic";
+import { generateRevisionDraft } from "../agents/reviser";
 import { extractStyleRules } from "../agents/styleExtractor";
 import { extractCoreFacts } from "../agents/factExtractor";
 import {
@@ -33,6 +34,7 @@ import {
   buildSemanticRepairState,
   inferCorrectionRepairQuestion,
 } from "./correctionRepair";
+import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import { buildDraftReply } from "./draftReply";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import type {
@@ -1210,6 +1212,101 @@ User Profile Summary:
     case "draft":
     case "review":
     case "edit": {
+      if (activeDraft && (mode === "review" || mode === "edit")) {
+        const revision = normalizeDraftRevisionInstruction(
+          draftInstruction,
+          activeDraft,
+        );
+        const reviserOutput = await generateRevisionDraft({
+          activeDraft,
+          revision,
+          styleCard,
+          topicAnchors: relevantTopicAnchors,
+          activeConstraints: memory.activeConstraints,
+          recentHistory: effectiveContext,
+          options: {
+            conversationState: "editing",
+            antiPatterns,
+            maxCharacterLimit,
+            goal,
+            draftPreference: turnDraftPreference,
+          },
+        });
+
+        if (!reviserOutput) {
+          return {
+            mode: "error",
+            outputShape: "coach_question",
+            response: "Failed to revise draft.",
+            memory,
+          };
+        }
+
+        const criticOutput = await critiqueDrafts(
+          {
+            angle: "Targeted revision",
+            draft: reviserOutput.revisedDraft,
+            supportAsset: reviserOutput.supportAsset ?? "",
+            whyThisWorks: "",
+            watchOutFor: "",
+          },
+          memory.activeConstraints,
+          styleCard,
+          {
+            maxCharacterLimit,
+            draftPreference: turnDraftPreference,
+          },
+        );
+
+        if (!criticOutput) {
+          return {
+            mode: "error",
+            outputShape: "coach_question",
+            response: "Failed to finalize revised draft.",
+            memory,
+          };
+        }
+
+        const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+          ? buildRollingSummary({
+              currentSummary: memory.rollingSummary,
+              topicSummary: memory.topicSummary,
+              approvedPlan: memory.pendingPlan,
+              activeConstraints: memory.activeConstraints,
+              latestDraftStatus: "Draft revised",
+            })
+          : memory.rollingSummary;
+
+        const issuesFixed = Array.from(
+          new Set([...(reviserOutput.issuesFixed || []), ...criticOutput.issues]),
+        );
+
+        await writeMemory({
+          conversationState: "editing",
+          pendingPlan: null,
+          clarificationState: null,
+          rollingSummary,
+          assistantTurnCount: nextAssistantTurnCount,
+        });
+
+        return {
+          mode: "draft",
+          outputShape: "short_form_post",
+          response: buildDraftReply({
+            userMessage,
+            draftPreference: turnDraftPreference,
+            isEdit: true,
+            issuesFixed,
+          }),
+          data: {
+            draft: criticOutput.finalDraft,
+            supportAsset: reviserOutput.supportAsset,
+            issuesFixed,
+          },
+          memory,
+        };
+      }
+
       const pastPosts = await prisma.post.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
