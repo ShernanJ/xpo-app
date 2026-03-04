@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyFinalDraftPolicy } from "./finalDraftPolicy.ts";
+import { applyFinalDraftPolicy, applyFinalDraftPolicyWithReport } from "./finalDraftPolicy.ts";
 
 test("strips unsupported markdown and weak phrase-only CTAs", () => {
   const result = applyFinalDraftPolicy({
@@ -58,4 +58,36 @@ test("keeps verified accounts shortform by default unless longform is explicit",
 
   assert.equal(shortformResult.length < sourceDraft.length, true);
   assert.equal(longformResult.length, sourceDraft.length);
+});
+
+test("applies style-card lowercase normalization inside the final policy layer", () => {
+  const result = applyFinalDraftPolicy({
+    draft: "This Is A Test.",
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    styleCard: {
+      sentenceOpenings: ["ship fast"],
+      sentenceClosers: ["keep going"],
+      pacing: "short, punchy",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: ["never uses capitalization"],
+      customGuidelines: [],
+      contextAnchors: [],
+      antiExamples: [],
+    },
+  });
+
+  assert.equal(result, "this is a test.");
+});
+
+test("returns adjustment metadata for downstream issue reporting", () => {
+  const result = applyFinalDraftPolicyWithReport({
+    draft: '**bold**\nreply "FOCUS" if you\'ll try it.',
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.adjustments.markdownAdjusted, true);
+  assert.equal(result.adjustments.engagementAdjusted, true);
 });

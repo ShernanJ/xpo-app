@@ -8,7 +8,7 @@ import {
   computeXWeightedCharacterCount,
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
-import { enforceVoiceStyleOnDraft } from "../core/voiceSignals";
+import { applyFinalDraftPolicyWithReport } from "../core/finalDraftPolicy";
 import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
@@ -56,75 +56,6 @@ function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
     default:
       return 0.55;
   }
-}
-
-function stripUnsupportedXMarkdown(value: string): string {
-  return value
-    .replace(/\*\*([\s\S]*?)\*\*/g, "$1")
-    .replace(/__([\s\S]*?)__/g, "$1")
-    .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=$|[\s).,!?:;])/g, "$1$2")
-    .replace(/(^|[\s(])_(?!\s)([^_\n]+?)_(?=$|[\s).,!?:;])/g, "$1$2")
-    .replace(/`([^`\n]+)`/g, "$1")
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .trim();
-}
-
-function hasCtaIncentiveCue(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return [
-    "i'll dm",
-    "ill dm",
-    "dm you",
-    "send you",
-    "i'll send",
-    "ill send",
-    "template",
-    "checklist",
-    "guide",
-    "link",
-    "copy",
-    "resource",
-    "download",
-    "access",
-    "freebie",
-    "follow back",
-    "follow-up",
-    "in return",
-  ].some((phrase) => normalized.includes(phrase));
-}
-
-function normalizeWeakEngagementBaitCta(value: string): {
-  nextDraft: string;
-  adjusted: boolean;
-} {
-  if (hasCtaIncentiveCue(value)) {
-    return { nextDraft: value, adjusted: false };
-  }
-
-  const lines = value.split("\n");
-  let adjusted = false;
-  const nextLines = lines.map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      return line;
-    }
-
-    const isWeakWordReplyCta =
-      /^(?:try|give|test|run|do).{0,80}(?:reply|comment)\s+["'][^"']+["']/i.test(trimmed) ||
-      /^(?:reply|comment)\s+["'][^"']+["']\s+if\b/i.test(trimmed);
-
-    if (!isWeakWordReplyCta) {
-      return line;
-    }
-
-    adjusted = true;
-    return "if you try it, let me know how it goes.";
-  });
-
-  return {
-    nextDraft: nextLines.join("\n"),
-    adjusted,
-  };
 }
 
 /**
@@ -192,43 +123,41 @@ Respond ONLY with a valid JSON matching this schema:
 
   try {
     const parsed = CriticOutputSchema.parse(data);
-    const normalizedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
-    const markdownSanitizedDraft = trimToXCharacterLimit(
-      stripUnsupportedXMarkdown(normalizedDraft),
+    const initialTrimmedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
+    const wasTrimmed = initialTrimmedDraft !== parsed.finalDraft;
+    const policyResult = applyFinalDraftPolicyWithReport({
+      draft: initialTrimmedDraft,
+      formatPreference,
+      isVerifiedAccount: maxCharacterLimit > 280,
+      styleCard,
       maxCharacterLimit,
-    );
-    const engagementCtaNormalized = normalizeWeakEngagementBaitCta(markdownSanitizedDraft);
-    const engagementAdjustedDraft = trimToXCharacterLimit(
-      engagementCtaNormalized.nextDraft,
-      maxCharacterLimit,
-    );
-    const styleAlignedDraft = trimToXCharacterLimit(
-      enforceVoiceStyleOnDraft(engagementAdjustedDraft, styleCard),
-      maxCharacterLimit,
-    );
-    const wasTrimmed = normalizedDraft !== parsed.finalDraft;
-    const markdownAdjusted = markdownSanitizedDraft !== normalizedDraft;
-    const engagementAdjusted = engagementAdjustedDraft !== markdownSanitizedDraft;
-    const styleAdjusted = styleAlignedDraft !== engagementAdjustedDraft;
+    });
+    const styleAlignedDraft = policyResult.draft;
     let nextIssues = wasTrimmed
       ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
       : parsed.issues;
-    if (markdownAdjusted) {
+    if (policyResult.adjustments.markdownAdjusted) {
       nextIssues = [
         ...nextIssues,
         "Removed unsupported markdown styling for X.",
       ];
     }
-    if (engagementAdjusted) {
+    if (policyResult.adjustments.engagementAdjusted) {
       nextIssues = [
         ...nextIssues,
         "Replaced a weak engagement-bait CTA with a more natural close.",
       ];
     }
-    if (styleAdjusted) {
+    if (policyResult.adjustments.styleAdjusted) {
       nextIssues = [
         ...nextIssues,
         "Normalized casing or list formatting to match the creator's voice.",
+      ];
+    }
+    if (policyResult.adjustments.trimmed && !nextIssues.includes(`Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`)) {
+      nextIssues = [
+        ...nextIssues,
+        `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`,
       ];
     }
     let approved =

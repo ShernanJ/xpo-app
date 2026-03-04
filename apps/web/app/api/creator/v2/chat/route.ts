@@ -629,6 +629,10 @@ export async function POST(request: NextRequest) {
             formatPreference: effectiveFormatPreference,
             isVerifiedAccount,
             userPreferences: effectiveUserPreferences,
+            styleCard:
+              parsedPersistedStyleCard?.success
+                ? parsedPersistedStyleCard.data
+                : null,
           })
         : normalizedDraftPayload.draft;
     const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
