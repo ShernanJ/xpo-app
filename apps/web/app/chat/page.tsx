@@ -114,6 +114,42 @@ interface DraftInspectorFailure {
 
 type DraftInspectorResponse = DraftInspectorSuccess | DraftInspectorFailure;
 
+interface DraftPromotionSuccess {
+  ok: true;
+  data: {
+    userMessage: {
+      id: string;
+      role: "user";
+      content: string;
+      createdAt: string;
+    };
+    assistantMessage: {
+      id: string;
+      role: "assistant";
+      content: string;
+      createdAt: string;
+      draft: string;
+      drafts: string[];
+      draftArtifacts: DraftArtifact[];
+      draftVersions: DraftVersionEntry[];
+      activeDraftVersionId: string;
+      previousVersionSnapshot: DraftVersionSnapshot | null;
+      revisionChainId?: string;
+      supportAsset: string | null;
+      outputShape: CreatorChatSuccess["data"]["outputShape"];
+      source: "deterministic";
+      model: string | null;
+    };
+  };
+}
+
+interface DraftPromotionFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
+
 interface BackfillJobStatusResponse {
   ok: true;
   job: {
@@ -561,10 +597,6 @@ function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
   };
 }
 
-function buildDraftVersionId(): string {
-  return `draft-version-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function resolveDraftArtifactKind(
   outputShape?: CreatorChatSuccess["data"]["outputShape"],
 ): DraftArtifact["kind"] {
@@ -654,7 +686,7 @@ function normalizeDraftVersionBundle(
     return null;
   }
 
-  const versions = rawVersions.map((version) => {
+  const mappedVersions = rawVersions.map((version) => {
     const content = typeof version.content === "string" ? version.content : "";
     const maxCharacterLimit =
       typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
@@ -675,9 +707,20 @@ function normalizeDraftVersionBundle(
 
   const activeVersionId =
     message.activeDraftVersionId &&
-    versions.some((version) => version.id === message.activeDraftVersionId)
+    mappedVersions.some((version) => version.id === message.activeDraftVersionId)
       ? message.activeDraftVersionId
-      : versions[versions.length - 1].id;
+      : mappedVersions[mappedVersions.length - 1].id;
+  const activeVersionIndex = mappedVersions.findIndex(
+    (version) => version.id === activeVersionId,
+  );
+  const versions =
+    activeVersionIndex >= 0 && activeVersionIndex < mappedVersions.length - 1
+      ? [
+          ...mappedVersions.slice(0, activeVersionIndex),
+          ...mappedVersions.slice(activeVersionIndex + 1),
+          mappedVersions[activeVersionIndex],
+        ]
+      : mappedVersions;
   const currentVersionIndex = Math.max(
     0,
     versions.findIndex((version) => version.id === activeVersionId),
@@ -1032,6 +1075,10 @@ function formatTypingStatusLabel(status?: string | null): string {
       return "tightening the wording";
     case "Finalizing the reply.":
       return "getting the final wording right";
+    case "Analyzing this draft.":
+      return "reviewing what works and what doesn't";
+    case "Comparing versions.":
+      return "comparing these versions";
     default:
       return "thinking this through";
   }
@@ -2059,14 +2106,33 @@ function ChatPageContent() {
       messageId,
       versionId:
         versionId && bundle.versions.some((version) => version.id === versionId)
-          ? versionId
+        ? versionId
           : bundle.activeVersionId,
       revisionChainId: message.revisionChainId ?? undefined,
     });
   }, [composerCharacterLimit, messages]);
 
+  const scrollThreadToBottom = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const node = threadScrollRef.current;
+      if (!node) {
+        return;
+      }
+
+      node.scrollTo({
+        top: node.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+  }, []);
+
   const saveDraftEditor = useCallback(async () => {
-    if (!activeDraftEditor || !selectedDraftMessage || !selectedDraftVersion) {
+    if (
+      !activeDraftEditor ||
+      !selectedDraftMessage ||
+      !selectedDraftVersion ||
+      !activeThreadId
+    ) {
       return;
     }
 
@@ -2079,34 +2145,123 @@ function ChatPageContent() {
       return;
     }
 
-    const nextVersion: DraftVersionEntry = {
-      id: buildDraftVersionId(),
-      content: nextContent,
-      source: "manual_save",
-      createdAt: new Date().toISOString(),
-      basedOnVersionId: selectedDraftVersion.id,
-      weightedCharacterCount: computeXWeightedCharacterCount(nextContent),
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      supportAsset:
-        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
-    };
     const revisionChainId =
-      selectedDraftMessage.revisionChainId || `revision-chain-${selectedDraftMessage.id}`;
-    const baseVersions = selectedDraftBundle?.versions ?? [selectedDraftVersion];
-    const nextVersions = [...baseVersions, nextVersion];
+      selectedDraftMessage.revisionChainId ||
+      activeDraftEditor.revisionChainId ||
+      `revision-chain-${selectedDraftMessage.id}`;
+
+    try {
+      const response = await fetch(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/draft-promotions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: nextContent,
+            outputShape: selectedDraftMessage.outputShape ?? "short_form_post",
+            supportAsset:
+              selectedDraftVersion.supportAsset ??
+              getDraftVersionSupportAsset(selectedDraftMessage),
+            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+            revisionChainId,
+            basedOn: {
+              messageId: selectedDraftMessage.id,
+              versionId: selectedDraftVersion.id,
+              content: selectedDraftVersion.content,
+              source: selectedDraftVersion.source,
+              createdAt: selectedDraftVersion.createdAt,
+              maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+              revisionChainId,
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("promotion failed");
+      }
+
+      const data = (await response.json()) as DraftPromotionResponse;
+      if (!data.ok) {
+        throw new Error(data.errors[0]?.message || "promotion failed");
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: data.data.userMessage.id,
+          role: "user",
+          content: data.data.userMessage.content,
+          createdAt: data.data.userMessage.createdAt,
+        },
+        {
+          id: data.data.assistantMessage.id,
+          role: "assistant",
+          content: data.data.assistantMessage.content,
+          createdAt: data.data.assistantMessage.createdAt,
+          draft: data.data.assistantMessage.draft,
+          drafts: data.data.assistantMessage.drafts,
+          draftArtifacts: data.data.assistantMessage.draftArtifacts,
+          draftVersions: data.data.assistantMessage.draftVersions,
+          activeDraftVersionId: data.data.assistantMessage.activeDraftVersionId,
+          previousVersionSnapshot: data.data.assistantMessage.previousVersionSnapshot,
+          revisionChainId: data.data.assistantMessage.revisionChainId,
+          supportAsset: data.data.assistantMessage.supportAsset,
+          outputShape: data.data.assistantMessage.outputShape,
+          source: data.data.assistantMessage.source,
+          model: data.data.assistantMessage.model,
+        },
+      ]);
+      setActiveDraftEditor({
+        messageId: data.data.assistantMessage.id,
+        versionId: data.data.assistantMessage.activeDraftVersionId,
+        revisionChainId: data.data.assistantMessage.revisionChainId,
+      });
+      scrollThreadToBottom();
+    } catch {
+      setErrorMessage("The draft could not be promoted yet.");
+    }
+  }, [
+    activeDraftEditor,
+    activeThreadId,
+    editorDraftText,
+    selectedDraftMessage,
+    selectedDraftVersion,
+    scrollThreadToBottom,
+  ]);
+
+  const revertToSelectedDraftVersion = useCallback(async () => {
+    if (!selectedDraftVersion || !selectedDraftMessage) {
+      return;
+    }
+
+    const nextContent = selectedDraftVersion.content.trim();
+    if (!nextContent) {
+      return;
+    }
+
+    const revisionChainId =
+      selectedDraftMessage.revisionChainId ??
+      activeDraftEditor?.revisionChainId ??
+      `revision-chain-${selectedDraftMessage.id}`;
+    const nextVersions =
+      selectedDraftMessage.draftVersions && selectedDraftMessage.draftVersions.length > 0
+        ? selectedDraftMessage.draftVersions
+        : (selectedDraftBundle?.versions ?? [selectedDraftVersion]);
     const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
     const activeDraftArtifact = buildDraftArtifactWithLimit({
-      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${nextVersion.id}`,
+      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
       title: sourceArtifact?.title ?? "Draft",
       kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
       content: nextContent,
-      supportAsset: nextVersion.supportAsset,
-      maxCharacterLimit: nextVersion.maxCharacterLimit,
+      supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
     });
 
     setMessages((current) =>
       current.map((message) => {
-        if (message.id !== activeDraftEditor.messageId) {
+        if (message.id !== selectedDraftMessage.id) {
           return message;
         }
 
@@ -2122,14 +2277,15 @@ function ChatPageContent() {
               ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
               : [activeDraftArtifact],
           draftVersions: nextVersions,
-          activeDraftVersionId: nextVersion.id,
+          activeDraftVersionId: selectedDraftVersion.id,
           revisionChainId,
         };
       }),
     );
+
     setActiveDraftEditor({
-      messageId: activeDraftEditor.messageId,
-      versionId: nextVersion.id,
+      messageId: selectedDraftMessage.id,
+      versionId: selectedDraftVersion.id,
       revisionChainId,
     });
 
@@ -2139,7 +2295,7 @@ function ChatPageContent() {
 
     try {
       const response = await fetch(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(activeDraftEditor.messageId)}`,
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
         {
           method: "PATCH",
           headers: {
@@ -2147,7 +2303,7 @@ function ChatPageContent() {
           },
           body: JSON.stringify({
             draftVersions: nextVersions,
-            activeDraftVersionId: nextVersion.id,
+            activeDraftVersionId: selectedDraftVersion.id,
             draft: nextContent,
             drafts:
               selectedDraftMessage.drafts && selectedDraftMessage.drafts.length > 1
@@ -2165,152 +2321,13 @@ function ChatPageContent() {
         throw new Error("persist failed");
       }
     } catch {
-      setErrorMessage("The draft saved locally, but it could not be persisted yet.");
-    }
-  }, [
-    activeDraftEditor,
-    activeThreadId,
-    editorDraftText,
-    selectedDraftBundle,
-    selectedDraftMessage,
-    selectedDraftVersion,
-  ]);
-
-  const revertToSelectedDraftVersion = useCallback(async () => {
-    if (!selectedDraftVersion || selectedDraftTimeline.length === 0) {
-      return;
-    }
-
-    const nextContent = selectedDraftVersion.content.trim();
-    if (!nextContent) {
-      return;
-    }
-
-    const latestTimelineEntry = selectedDraftTimeline[selectedDraftTimeline.length - 1];
-    if (!latestTimelineEntry) {
-      return;
-    }
-
-    const targetMessage =
-      messages.find((message) => message.id === latestTimelineEntry.messageId) ?? null;
-    if (!targetMessage) {
-      return;
-    }
-
-    const targetBundle = normalizeDraftVersionBundle(targetMessage, composerCharacterLimit);
-    if (!targetBundle) {
-      return;
-    }
-
-    if (targetBundle.activeVersion.content.trim() === nextContent) {
-      setActiveDraftEditor({
-        messageId: targetMessage.id,
-        versionId: targetBundle.activeVersionId,
-        revisionChainId:
-          targetMessage.revisionChainId ??
-          activeDraftEditor?.revisionChainId ??
-          `revision-chain-${targetMessage.id}`,
-      });
-      return;
-    }
-
-    const revisionChainId =
-      targetMessage.revisionChainId ??
-      activeDraftEditor?.revisionChainId ??
-      `revision-chain-${targetMessage.id}`;
-    const nextVersion: DraftVersionEntry = {
-      id: buildDraftVersionId(),
-      content: nextContent,
-      source: "manual_save",
-      createdAt: new Date().toISOString(),
-      basedOnVersionId: targetBundle.activeVersionId,
-      weightedCharacterCount: computeXWeightedCharacterCount(nextContent),
-      maxCharacterLimit:
-        selectedDraftVersion.maxCharacterLimit || targetBundle.activeVersion.maxCharacterLimit,
-      supportAsset:
-        selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(targetMessage),
-    };
-    const nextVersions = [...targetBundle.versions, nextVersion];
-    const sourceArtifact = targetMessage.draftArtifacts?.[0];
-    const activeDraftArtifact = buildDraftArtifactWithLimit({
-      id: sourceArtifact?.id ?? `${targetMessage.id}-${nextVersion.id}`,
-      title: sourceArtifact?.title ?? "Draft",
-      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(targetMessage.outputShape),
-      content: nextContent,
-      supportAsset: nextVersion.supportAsset,
-      maxCharacterLimit: nextVersion.maxCharacterLimit,
-    });
-
-    setMessages((current) =>
-      current.map((message) => {
-        if (message.id !== targetMessage.id) {
-          return message;
-        }
-
-        return {
-          ...message,
-          draft: nextContent,
-          drafts:
-            message.drafts && message.drafts.length > 1
-              ? [nextContent, ...message.drafts.slice(1)]
-              : [nextContent],
-          draftArtifacts:
-            message.draftArtifacts && message.draftArtifacts.length > 1
-              ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
-              : [activeDraftArtifact],
-          draftVersions: nextVersions,
-          activeDraftVersionId: nextVersion.id,
-          revisionChainId,
-        };
-      }),
-    );
-
-    setActiveDraftEditor({
-      messageId: targetMessage.id,
-      versionId: nextVersion.id,
-      revisionChainId,
-    });
-
-    if (!activeThreadId) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(targetMessage.id)}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            draftVersions: nextVersions,
-            activeDraftVersionId: nextVersion.id,
-            draft: nextContent,
-            drafts:
-              targetMessage.drafts && targetMessage.drafts.length > 1
-                ? [nextContent, ...targetMessage.drafts.slice(1)]
-                : [nextContent],
-            draftArtifacts:
-              targetMessage.draftArtifacts && targetMessage.draftArtifacts.length > 1
-                ? [activeDraftArtifact, ...targetMessage.draftArtifacts.slice(1)]
-                : [activeDraftArtifact],
-            revisionChainId,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error("persist failed");
-      }
-    } catch {
-      setErrorMessage("The reverted version saved locally, but it could not be persisted yet.");
+      setErrorMessage("The current version could not be updated yet.");
     }
   }, [
     activeDraftEditor?.revisionChainId,
     activeThreadId,
-    composerCharacterLimit,
-    messages,
-    selectedDraftTimeline,
+    selectedDraftBundle,
+    selectedDraftMessage,
     selectedDraftVersion,
   ]);
 
@@ -2359,6 +2376,30 @@ function ChatPageContent() {
       return;
     }
 
+    const prompt = shouldCompare
+      ? "compare this to the current version"
+      : "what do you think about this post?";
+    const nowIso = new Date().toISOString();
+    const temporaryUserMessageId = `draft-inspector-user-${Date.now()}`;
+    const temporaryAssistantMessageId = `draft-inspector-assistant-${Date.now() + 1}`;
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: temporaryUserMessageId,
+        role: "user",
+        content: prompt,
+        createdAt: nowIso,
+      },
+      {
+        id: temporaryAssistantMessageId,
+        role: "assistant",
+        content: shouldCompare ? "Comparing versions." : "Analyzing this draft.",
+        createdAt: nowIso,
+        isStreaming: true,
+      },
+    ]);
+    scrollThreadToBottom();
     setIsDraftInspectorLoading(true);
     setErrorMessage(null);
 
@@ -2379,6 +2420,17 @@ function ChatPageContent() {
       const data = (await response.json()) as DraftInspectorResponse;
 
       if (!response.ok || !data.ok) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === temporaryAssistantMessageId
+              ? {
+                  ...message,
+                  content: "I couldn't analyze that draft just now.",
+                  isStreaming: false,
+                }
+              : message,
+          ),
+        );
         setErrorMessage(
           data.ok
             ? "The draft analysis failed."
@@ -2387,23 +2439,40 @@ function ChatPageContent() {
         return;
       }
 
-      const nowIso = new Date().toISOString();
-      setMessages((current) => [
-        ...current,
-        {
-          id: data.data.userMessageId,
-          role: "user",
-          content: data.data.prompt,
-          createdAt: nowIso,
-        },
-        {
-          id: data.data.assistantMessageId,
-          role: "assistant",
-          content: data.data.summary.trim(),
-          createdAt: nowIso,
-        },
-      ]);
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id === temporaryUserMessageId) {
+            return {
+              ...message,
+              id: data.data.userMessageId,
+              content: data.data.prompt,
+            };
+          }
+
+          if (message.id === temporaryAssistantMessageId) {
+            return {
+              ...message,
+              id: data.data.assistantMessageId,
+              content: data.data.summary.trim(),
+              isStreaming: false,
+            };
+          }
+
+          return message;
+        }),
+      );
     } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === temporaryAssistantMessageId
+            ? {
+                ...message,
+                content: "I couldn't analyze that draft just now.",
+                isStreaming: false,
+              }
+            : message,
+        ),
+      );
       setErrorMessage("The draft analysis failed.");
     } finally {
       setIsDraftInspectorLoading(false);
@@ -2416,6 +2485,7 @@ function ChatPageContent() {
     isViewingHistoricalDraftVersion,
     latestDraftTimelineEntry,
     selectedDraftVersion,
+    scrollThreadToBottom,
   ]);
 
   const requestAssistantReply = useCallback(
@@ -3528,23 +3598,27 @@ function ChatPageContent() {
                             : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
                             }`}
                         >
-                          <p className="whitespace-pre-wrap">
-                            {message.role === "assistant" &&
-                              message.id === latestAssistantMessageId ? (
-                              <>
-                                {message.content.slice(
-                                  0,
-                                  typedAssistantLengths[message.id] ?? 0,
-                                )}
-                                {(typedAssistantLengths[message.id] ?? 0) <
-                                  message.content.length ? (
-                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                                ) : null}
-                              </>
-                            ) : (
-                              message.content
-                            )}
-                          </p>
+                          {message.role === "assistant" && message.isStreaming ? (
+                            <AssistantTypingBubble status={message.content || null} />
+                          ) : (
+                            <p className="whitespace-pre-wrap">
+                              {message.role === "assistant" &&
+                                message.id === latestAssistantMessageId ? (
+                                <>
+                                  {message.content.slice(
+                                    0,
+                                    typedAssistantLengths[message.id] ?? 0,
+                                  )}
+                                  {(typedAssistantLengths[message.id] ?? 0) <
+                                    message.content.length ? (
+                                    <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                                  ) : null}
+                                </>
+                              ) : (
+                                message.content
+                              )}
+                            </p>
+                          )}
 
                           {message.role === "assistant" &&
                             message.quickReplies?.length &&
@@ -3997,7 +4071,8 @@ function ChatPageContent() {
                       <textarea
                         value={editorDraftText}
                         onChange={(event) => setEditorDraftText(event.target.value)}
-                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
+                        readOnly={isViewingHistoricalDraftVersion}
+                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
                         placeholder="Draft content"
                       />
                     </div>
@@ -4013,7 +4088,7 @@ function ChatPageContent() {
                         disabled={isDraftInspectorLoading}
                         className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                        {draftInspectorActionLabel}
                       </button>
                       <div className="flex items-center gap-2">
                         <p className="text-xs text-zinc-500">
@@ -4146,7 +4221,8 @@ function ChatPageContent() {
                     <textarea
                       value={editorDraftText}
                       onChange={(event) => setEditorDraftText(event.target.value)}
-                      className="min-h-[15rem] w-full resize-none bg-transparent text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600"
+                      readOnly={isViewingHistoricalDraftVersion}
+                      className="min-h-[15rem] w-full resize-none bg-transparent text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
                       placeholder="Draft content"
                     />
                   </div>
@@ -4162,7 +4238,7 @@ function ChatPageContent() {
                       disabled={isDraftInspectorLoading}
                       className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {isDraftInspectorLoading ? "Thinking..." : draftInspectorActionLabel}
+                      {draftInspectorActionLabel}
                     </button>
                     <div className="flex items-center gap-2">
                       <p className="text-xs text-zinc-500">
