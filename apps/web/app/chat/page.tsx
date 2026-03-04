@@ -22,6 +22,7 @@ import {
   isMetaClarifyingPrompt,
   isThinCoachInput,
 } from "@/lib/onboarding/coachReply";
+import { buildWelcomeFallbackMessage } from "@/lib/agent-v2/welcomeMessage";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   XPublicProfile,
@@ -696,16 +697,37 @@ function ChatPageContent() {
   const confirmDeleteThread = async () => {
     if (!threadToDelete) return;
 
-    setChatThreads(current => current.filter(t => t.id !== threadToDelete.id));
-    if (activeThreadId === threadToDelete.id) {
-      setActiveThreadId(null);
-      window.history.replaceState({}, '', '/chat');
-    }
+    const deletingThread = threadToDelete;
 
     try {
-      await fetch(`/api/creator/v2/threads/${threadToDelete.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/creator/v2/threads/${deletingThread.id}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.ok || data?.data?.deleted !== true) {
+        throw new Error("Failed to delete thread");
+      }
+
+      setChatThreads((current) => current.filter((thread) => thread.id !== deletingThread.id));
+
+      if (activeThreadId === deletingThread.id) {
+        setActiveThreadId(null);
+        welcomeFetchedRef.current = false;
+        threadCreatedInSessionRef.current = false;
+        setMessages([]);
+        setDraftInput("");
+        setConversationMemory(null);
+        setActiveDraftEditor(null);
+        setEditorDraftText("");
+        setTypedAssistantLengths({});
+        setErrorMessage(null);
+
+        window.history.replaceState({}, "", "/chat");
+      }
     } catch (e) {
       console.error("Failed to delete thread", e);
+      setErrorMessage("Failed to delete the chat. Try again.");
     } finally {
       setThreadToDelete(null);
     }
@@ -1762,6 +1784,8 @@ function ChatPageContent() {
       return;
     }
 
+    const currentContext = context;
+
     async function initializeThread() {
       // If we have an active thread, try loading its history
       if (activeThreadId) {
@@ -1792,6 +1816,11 @@ function ChatPageContent() {
       if (messages.length === 0) {
         if (welcomeFetchedRef.current) return;
         welcomeFetchedRef.current = true;
+        const resolvedWelcomeAccount = accountName ?? currentContext.account ?? "there";
+        const fallbackWelcome = buildWelcomeFallbackMessage({
+          accountName: resolvedWelcomeAccount,
+          creatorProfile: currentContext.creatorProfile,
+        });
 
         try {
           setMessages([{
@@ -1801,7 +1830,7 @@ function ChatPageContent() {
             isStreaming: true, // Show typing indicator
           }]);
 
-          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${context!.runId}&account=${encodeURIComponent(accountName ?? "there")}`);
+          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${currentContext.runId}&account=${encodeURIComponent(resolvedWelcomeAccount)}`);
           const data = await res.json();
 
           if (data.ok && data.data?.response) {
@@ -1815,7 +1844,7 @@ function ChatPageContent() {
             setMessages([{
               id: `assistant-welcome-fallback`,
               role: "assistant",
-              content: `yo @${accountName ?? "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+              content: fallbackWelcome,
             }]);
           }
         } catch (err) {
@@ -1823,7 +1852,7 @@ function ChatPageContent() {
           setMessages([{
             id: `assistant-welcome-fallback`,
             role: "assistant",
-            content: `yo @${accountName ?? "there"} — what are we working on today? i can help you draft something, figure out what to post, or audit your recent posts.`,
+            content: fallbackWelcome,
           }]);
         }
       }
@@ -1831,6 +1860,7 @@ function ChatPageContent() {
 
     void initializeThread();
   }, [
+    accountName,
     activeThreadId,
     searchParams,
     activeContentFocus,
