@@ -22,7 +22,6 @@ import {
   isMetaClarifyingPrompt,
   isThinCoachInput,
 } from "@/lib/onboarding/coachReply";
-import { buildWelcomeFallbackMessage } from "@/lib/agent-v2/welcomeMessage";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   XPublicProfile,
@@ -342,6 +341,21 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
+const HERO_QUICK_ACTIONS = [
+  {
+    label: "Give me post ideas",
+    prompt: "Give me post ideas",
+  },
+  {
+    label: "Draft a post for me",
+    prompt: "Draft a post for me",
+  },
+  {
+    label: "Give me a random post I would use",
+    prompt: "Give me a random post I would use",
+  },
+] as const;
+
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -397,6 +411,74 @@ function inferInitialToneInputs(params: {
 
 function getComposerCharacterLimit(context: CreatorAgentContext | null): number {
   return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
+}
+
+function isClearlyCasualGreetingProfile(
+  context: CreatorAgentContext | null,
+  accountName: string | null,
+): boolean {
+  if (!context) {
+    return false;
+  }
+
+  const profile = context.creatorProfile;
+  const resolvedHandle = normalizeAccountHandle(
+    accountName ?? profile.identity.username ?? context.account,
+  );
+
+  if (resolvedHandle === "shernanjavier") {
+    return true;
+  }
+
+  const voiceSignals = [
+    ...profile.voice.styleNotes,
+    ...profile.styleCard.preferredOpeners,
+    ...profile.styleCard.signaturePhrases,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const hasFormalSignal =
+    /\b(formal|professional|polished|executive|authoritative|analytical|structured)\b/.test(
+      voiceSignals,
+    );
+  const hasCasualSignal =
+    /\b(casual|playful|relaxed|direct|conversational|unfiltered|fun|raw|loose)\b/.test(
+      voiceSignals,
+    );
+  const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
+  const isLowercaseHeavy =
+    profile.voice.primaryCasing === "lowercase" &&
+    profile.voice.lowercaseSharePercent >= 82;
+  const isShortFormLeaning =
+    profile.voice.averageLengthBand === "short" ||
+    profile.voice.averageLengthBand === "medium";
+
+  if (hasFormalSignal) {
+    return false;
+  }
+
+  return hasCasualSignal || hasSlangSignal || (isLowercaseHeavy && isShortFormLeaning);
+}
+
+function buildHeroGreeting(params: {
+  context: CreatorAgentContext | null;
+  accountName: string | null;
+}): string {
+  const resolvedHandle = normalizeAccountHandle(
+    params.accountName ??
+      params.context?.creatorProfile.identity.username ??
+      params.context?.account ??
+      "",
+  );
+  const opener = isClearlyCasualGreetingProfile(
+    params.context,
+    params.accountName,
+  )
+    ? "yo"
+    : "Hey";
+
+  return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
 
 function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
@@ -713,7 +795,6 @@ function ChatPageContent() {
 
       if (activeThreadId === deletingThread.id) {
         setActiveThreadId(null);
-        welcomeFetchedRef.current = false;
         threadCreatedInSessionRef.current = false;
         setMessages([]);
         setDraftInput("");
@@ -722,6 +803,7 @@ function ChatPageContent() {
         setEditorDraftText("");
         setTypedAssistantLengths({});
         setErrorMessage(null);
+        setIsLeavingHero(false);
 
         window.history.replaceState({}, "", "/chat");
       }
@@ -733,8 +815,6 @@ function ChatPageContent() {
     }
   };
 
-  // Guard against double fetching welcome message
-  const welcomeFetchedRef = useRef(false);
   // Guard against initializeThread re-fetching when we just created a thread in-session
   const threadCreatedInSessionRef = useRef(false);
 
@@ -742,6 +822,7 @@ function ChatPageContent() {
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draftInput, setDraftInput] = useState("");
+  const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -780,10 +861,15 @@ function ChatPageContent() {
     if (!accountName) return;
 
     setActiveThreadId(null);
-    welcomeFetchedRef.current = false;
     threadCreatedInSessionRef.current = false;
     setMessages([]);
     setDraftInput("");
+    setConversationMemory(null);
+    setActiveDraftEditor(null);
+    setEditorDraftText("");
+    setTypedAssistantLengths({});
+    setErrorMessage(null);
+    setIsLeavingHero(false);
 
     window.history.pushState({}, '', '/chat');
   }, [accountName]);
@@ -1083,7 +1169,28 @@ function ChatPageContent() {
     setPinnedVoicePostIds([]);
     setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
+    setIsLeavingHero(false);
   }, [accountName]);
+
+  useEffect(() => {
+    if (!isLeavingHero) {
+      return;
+    }
+
+    if (messages.length > 0) {
+      const timeoutId = window.setTimeout(() => {
+        setIsLeavingHero(false);
+      }, 320);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+
+    if (!isSending) {
+      setIsLeavingHero(false);
+    }
+  }, [isLeavingHero, isSending, messages.length]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -1784,8 +1891,6 @@ function ChatPageContent() {
       return;
     }
 
-    const currentContext = context;
-
     async function initializeThread() {
       // If we have an active thread, try loading its history
       if (activeThreadId) {
@@ -1812,50 +1917,6 @@ function ChatPageContent() {
         }
       }
 
-      // If no history was loaded, and the screen is blank, fetch the Welcome message
-      if (messages.length === 0) {
-        if (welcomeFetchedRef.current) return;
-        welcomeFetchedRef.current = true;
-        const resolvedWelcomeAccount = accountName ?? currentContext.account ?? "there";
-        const fallbackWelcome = buildWelcomeFallbackMessage({
-          accountName: resolvedWelcomeAccount,
-          creatorProfile: currentContext.creatorProfile,
-        });
-
-        try {
-          setMessages([{
-            id: `assistant-welcome-loading`,
-            role: "assistant",
-            content: "",
-            isStreaming: true, // Show typing indicator
-          }]);
-
-          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${currentContext.runId}&account=${encodeURIComponent(resolvedWelcomeAccount)}`);
-          const data = await res.json();
-
-          if (data.ok && data.data?.response) {
-            setMessages([{
-              id: `assistant-welcome-${Date.now()}`,
-              role: "assistant",
-              content: data.data.response,
-            }]);
-          } else {
-            // Fallback if the LLM fails
-            setMessages([{
-              id: `assistant-welcome-fallback`,
-              role: "assistant",
-              content: fallbackWelcome,
-            }]);
-          }
-        } catch (err) {
-          console.error("Failed to fetch welcome message", err);
-          setMessages([{
-            id: `assistant-welcome-fallback`,
-            role: "assistant",
-            content: fallbackWelcome,
-          }]);
-        }
-      }
     }
 
     void initializeThread();
@@ -1959,6 +2020,10 @@ function ChatPageContent() {
       return;
     }
 
+    if (!activeThreadId && messages.length === 0) {
+      setIsLeavingHero(true);
+    }
+
     setDraftInput("");
 
     await requestAssistantReply({
@@ -1969,6 +2034,40 @@ function ChatPageContent() {
       contentFocusOverride: activeContentFocus,
     });
   }
+
+  const submitQuickStarter = useCallback(
+    async (prompt: string) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || !context || !contract || isSending) {
+        return;
+      }
+
+      if (!activeStrategyInputs || !activeToneInputs) {
+        setErrorMessage("The planning model is still loading.");
+        return;
+      }
+
+      setIsLeavingHero(true);
+      setDraftInput("");
+
+      await requestAssistantReply({
+        prompt: trimmedPrompt,
+        appendUserMessage: true,
+        strategyInputOverride: activeStrategyInputs,
+        toneInputOverride: activeToneInputs,
+        contentFocusOverride: activeContentFocus,
+      });
+    },
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      activeToneInputs,
+      contract,
+      context,
+      isSending,
+      requestAssistantReply,
+    ],
+  );
 
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1987,6 +2086,25 @@ function ChatPageContent() {
       void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
   };
+
+  const isNewChatHero =
+    !activeThreadId && messages.length === 0 && !isSending && Boolean(context);
+  const heroGreeting = buildHeroGreeting({
+    context,
+    accountName,
+  });
+  const heroIdentityLabel =
+    context?.creatorProfile.identity.displayName ??
+    context?.creatorProfile.identity.username ??
+    accountName ??
+    context?.account ??
+    "X";
+  const heroInitials = heroIdentityLabel
+    .replace(/^@+/, "")
+    .slice(0, 2)
+    .toUpperCase();
+  const composerSurfaceClassName =
+    "relative flex w-full items-end overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[0.08] p-2 backdrop-blur-2xl shadow-[0_20px_70px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-300 ease-out focus-within:ring-1 focus-within:ring-white/20";
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -2313,7 +2431,10 @@ function ChatPageContent() {
           </header>
 
           <section className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24">
+            <div
+              className={`relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24 ${isNewChatHero ? "justify-center" : ""
+                }`}
+            >
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -2324,363 +2445,451 @@ function ChatPageContent() {
                     </div>
                   ) : null}
 
-                  {messages.map((message, index) => (
-                    <div
-                      key={message.id}
-                      className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
-                        ? "text-zinc-100"
-                        : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
-                        }`}
-                    >
-                      <p className="whitespace-pre-wrap">
-                        {message.role === "assistant" &&
-                          message.id === latestAssistantMessageId ? (
-                          <>
-                            {message.content.slice(
-                              0,
-                              typedAssistantLengths[message.id] ?? 0,
+                  {isNewChatHero || isLeavingHero ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
+                      <div
+                        className={`w-full max-w-3xl transition-all duration-300 ease-out ${isLeavingHero
+                          ? "translate-y-24 scale-[0.98] opacity-0"
+                          : "translate-y-0 scale-100 opacity-100"
+                          }`}
+                      >
+                        <div className="flex flex-col items-center gap-6">
+                          <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:h-32 sm:w-32">
+                            {context?.avatarUrl ? (
+                              <div
+                                className="h-full w-full bg-cover bg-center"
+                                style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                                role="img"
+                                aria-label={`${heroIdentityLabel} profile photo`}
+                              />
+                            ) : (
+                              <span className="text-3xl font-semibold text-white">{heroInitials}</span>
                             )}
-                            {(typedAssistantLengths[message.id] ?? 0) <
-                              message.content.length ? (
-                              <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                            ) : null}
-                          </>
-                        ) : (
-                          message.content
-                        )}
-                      </p>
+                          </div>
 
-                      {message.role === "assistant" &&
-                        message.quickReplies?.length &&
-                        index === messages.length - 1 ? (
-                        <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                          {message.quickReplies.map((quickReply) => (
-                            <button
-                              key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
-                              type="button"
-                              onClick={() => {
-                                void handleQuickReplySelect(quickReply);
-                              }}
-                              disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                              className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                            >
-                              {quickReply.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
+                          <p className="text-3xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
+                            {heroGreeting}
+                          </p>
 
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.angles?.length ? (
-                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                          {message.angles.map((angle, index) => {
-                            // Support both old string[] and new structured IdeaSchema objects
-                            const isStructured = typeof angle === "object" && angle !== null;
-                            const title = isStructured ? (angle as Record<string, string>).title : angle as string;
-                            const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
-                            const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
-
-                            // Old formats parsing
-                            const premise = isStructured ? (angle as Record<string, string>).premise : null;
-                            const format = isStructured ? (angle as Record<string, string>).format : null;
-
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => setDraftInput(`> ${title}\n\n`)}
-                                key={`${message.id}-angle-${index}`}
-                                className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
-                              >
-                                <div className="flex items-start gap-3">
-                                  <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
-                                  <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
-                                    {title}
-                                  </p>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.draftArtifacts?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.draftArtifacts.map((artifact, index) => (
-                            <div
-                              key={`${message.id}-draft-artifact-${artifact.id}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    {artifact.title}
-                                  </p>
-                                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                    {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                    {artifact.maxCharacterLimit}
-                                  </p>
-                                </div>
+                          <form onSubmit={handleComposerSubmit} className="w-full">
+                            <div className={composerSurfaceClassName}>
+                              <textarea
+                                value={draftInput}
+                                onChange={(event) => setDraftInput(event.target.value)}
+                                onKeyDown={handleComposerKeyDown}
+                                placeholder="What are we creating today?"
+                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                className="max-h-[200px] min-h-[56px] w-full resize-none bg-transparent px-4 py-4 pb-12 text-[16px] leading-6 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
+                                rows={1}
+                              />
+                              <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
                                 <button
-                                  type="button"
-                                  onClick={() => openDraftEditor(message.id, index)}
-                                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                  type="submit"
+                                  disabled={
+                                    !context ||
+                                    !contract ||
+                                    !activeStrategyInputs ||
+                                    !activeToneInputs ||
+                                    !draftInput.trim() ||
+                                    isSending
+                                  }
+                                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
+                                  aria-label="Send message"
                                 >
-                                  Edit
+                                  {isSending ? (
+                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                                  ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                                      <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  )}
                                 </button>
                               </div>
-                              <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {artifact.content}
-                              </p>
                             </div>
-                          ))}
-                        </div>
-                      ) : null}
+                          </form>
 
-                      {message.plan ? (
-                        <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
-                          <div className="mb-3 flex items-center gap-2">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
-                              S
-                            </span>
-                            <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
-                              Strategy Outline
-                            </span>
-                          </div>
-                          <div className="space-y-4">
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
-                              <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
-                            </div>
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
-                              <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
-                            </div>
-                            <div className="flex gap-6">
-                              <div>
-                                <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
-                                <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
-                              </div>
-                              {message.plan.hookType && (
-                                <div>
-                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
-                                  <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
-                                </div>
-                              )}
-                            </div>
+                          <div className="flex flex-wrap items-center justify-center gap-3">
+                            {HERO_QUICK_ACTIONS.map((action) => (
+                              <button
+                                key={action.prompt}
+                                type="button"
+                                onClick={() => {
+                                  void submitQuickStarter(action.prompt);
+                                }}
+                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                              >
+                                {action.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
-                      ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {messages.map((message, index) => (
+                        <div
+                          key={message.id}
+                          className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
+                            ? "text-zinc-100"
+                            : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
+                            }`}
+                        >
+                          <p className="whitespace-pre-wrap">
+                            {message.role === "assistant" &&
+                              message.id === latestAssistantMessageId ? (
+                              <>
+                                {message.content.slice(
+                                  0,
+                                  typedAssistantLengths[message.id] ?? 0,
+                                )}
+                                {(typedAssistantLengths[message.id] ?? 0) <
+                                  message.content.length ? (
+                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                                ) : null}
+                              </>
+                            ) : (
+                              message.content
+                            )}
+                          </p>
 
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        message.draft ? (() => {
-                          const username = context?.creatorProfile?.identity?.username || "user";
-                          const displayName = context?.creatorProfile?.identity?.displayName || username;
-                          const avatarUrl = context?.avatarUrl || null;
-                          const isEditing = activeDraftEditor?.messageId === message.id;
-                          const draftCounter = getXCharacterCounterMeta(
-                            isEditing ? editorDraftText : message.draft || "",
-                            composerCharacterLimit,
-                          );
-                          return (
-                            <div className="mt-4 border-t border-white/10 pt-4">
-                              {/* X Post Card */}
-                              <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
-                                {/* Header: avatar + name + handle */}
-                                <div className="flex items-start gap-3">
-                                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                    {avatarUrl ? (
-                                      <div
-                                        className="h-full w-full bg-cover bg-center"
-                                        style={{ backgroundImage: `url(${avatarUrl})` }}
-                                        role="img"
-                                        aria-label={`${displayName} profile photo`}
-                                      />
-                                    ) : (
-                                      displayName.charAt(0)
-                                    )}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-sm font-bold text-white truncate">{displayName}</span>
-                                      {isVerifiedAccount ? (
-                                        <Image
-                                          src="/x-verified.svg"
-                                          alt="Verified account"
-                                          width={16}
-                                          height={16}
-                                          className="h-4 w-4 shrink-0"
-                                        />
-                                      ) : null}
+                          {message.role === "assistant" &&
+                            message.quickReplies?.length &&
+                            index === messages.length - 1 ? (
+                            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                              {message.quickReplies.map((quickReply) => (
+                                <button
+                                  key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
+                                  type="button"
+                                  onClick={() => {
+                                    void handleQuickReplySelect(quickReply);
+                                  }}
+                                  disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                >
+                                  {quickReply.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.angles?.length ? (
+                            <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                              {message.angles.map((angle, index) => {
+                                // Support both old string[] and new structured IdeaSchema objects
+                                const isStructured = typeof angle === "object" && angle !== null;
+                                const title = isStructured ? (angle as Record<string, string>).title : angle as string;
+                                const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
+                                const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
+
+                                // Old formats parsing
+                                const premise = isStructured ? (angle as Record<string, string>).premise : null;
+                                const format = isStructured ? (angle as Record<string, string>).format : null;
+
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDraftInput(`> ${title}\n\n`)}
+                                    key={`${message.id}-angle-${index}`}
+                                    className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
+                                      <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
+                                        {title}
+                                      </p>
                                     </div>
-                                    <span className="text-xs text-zinc-500">@{username}</span>
-                                  </div>
-                                </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
 
-                                {/* Post Content */}
-                                <div className="mt-3">
-                                  {isEditing ? (
-                                    <textarea
-                                      value={editorDraftText}
-                                      onChange={(e) => setEditorDraftText(e.target.value)}
-                                      className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
-                                      rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
-                                    />
-                                  ) : (
-                                    <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                      {message.draft}
-                                    </p>
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.draftArtifacts?.length ? (
+                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                              {message.draftArtifacts.map((artifact, index) => (
+                                <div
+                                  key={`${message.id}-draft-artifact-${artifact.id}`}
+                                  className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                        {artifact.title}
+                                      </p>
+                                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                        {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
+                                        {artifact.maxCharacterLimit}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openDraftEditor(message.id, index)}
+                                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                  <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
+                                    {artifact.content}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {message.plan ? (
+                            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
+                              <div className="mb-3 flex items-center gap-2">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
+                                  S
+                                </span>
+                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                                  Strategy Outline
+                                </span>
+                              </div>
+                              <div className="space-y-4">
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
+                                  <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
+                                  <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
+                                </div>
+                                <div className="flex gap-6">
+                                  <div>
+                                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
+                                    <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
+                                  </div>
+                                  {message.plan.hookType && (
+                                    <div>
+                                      <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
+                                      <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
+                                    </div>
                                   )}
                                 </div>
-
-                                {/* Timestamp */}
-                                <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
-                                  <span>Just now</span>
-                                  <span>·</span>
-                                  <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
-                                </div>
-
-                                {/* Divider */}
-                                <div className="mt-3 border-t border-white/[0.06]" />
-
-                                {/* Action Buttons */}
-                                <div className="mt-2 flex items-center justify-between">
-                                  <div className="flex items-center gap-1">
-                                    {/* Edit / Save toggle */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isEditing) {
-                                          setActiveDraftEditor(null);
-                                        } else {
-                                          setActiveDraftEditor({
-                                            messageId: message.id,
-                                            artifactIndex: 0,
-                                          });
-                                          setEditorDraftText(message.draft || "");
-                                        }
-                                      }}
-                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                    >
-                                      {isEditing ? "Done" : "Edit"}
-                                    </button>
-                                    {/* Copy */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const text = isEditing ? editorDraftText : (message.draft || "");
-                                        void navigator.clipboard.writeText(text);
-                                      }}
-                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                    >
-                                      Copy
-                                    </button>
-                                  </div>
-                                </div>
                               </div>
                             </div>
-                          );
-                        })() : null}
+                          ) : null}
 
-                      {message.role === "assistant" &&
-                        message.supportAsset &&
-                        !message.draftArtifacts?.length ? (
-                        <div className="mt-4 border-t border-white/10 pt-4">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Visual / Demo Ideas
-                          </p>
-                          <p className="mt-2 text-xs leading-6 text-zinc-300">
-                            {message.supportAsset}
-                          </p>
-                        </div>
-                      ) : null}
+                          {message.role === "assistant" &&
+                            message.outputShape !== "coach_question" &&
+                            message.draft ? (() => {
+                              const username = context?.creatorProfile?.identity?.username || "user";
+                              const displayName = context?.creatorProfile?.identity?.displayName || username;
+                              const avatarUrl = context?.avatarUrl || null;
+                              const isEditing = activeDraftEditor?.messageId === message.id;
+                              const draftCounter = getXCharacterCounterMeta(
+                                isEditing ? editorDraftText : message.draft || "",
+                                composerCharacterLimit,
+                              );
+                              return (
+                                <div className="mt-4 border-t border-white/10 pt-4">
+                                  {/* X Post Card */}
+                                  <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
+                                    {/* Header: avatar + name + handle */}
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                        {avatarUrl ? (
+                                          <div
+                                            className="h-full w-full bg-cover bg-center"
+                                            style={{ backgroundImage: `url(${avatarUrl})` }}
+                                            role="img"
+                                            aria-label={`${displayName} profile photo`}
+                                          />
+                                        ) : (
+                                          displayName.charAt(0)
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-sm font-bold text-white truncate">{displayName}</span>
+                                          {isVerifiedAccount ? (
+                                            <Image
+                                              src="/x-verified.svg"
+                                              alt="Verified account"
+                                              width={16}
+                                              height={16}
+                                              className="h-4 w-4 shrink-0"
+                                            />
+                                          ) : null}
+                                        </div>
+                                        <span className="text-xs text-zinc-500">@{username}</span>
+                                      </div>
+                                    </div>
 
-                      {showDevTools && message.role === "assistant" &&
-                        ((message.whyThisWorks?.length ?? 0) > 0 ||
-                          (message.watchOutFor?.length ?? 0) > 0) ? (
-                        <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
-                          {message.whyThisWorks?.length ? (
-                            <div>
+                                    {/* Post Content */}
+                                    <div className="mt-3">
+                                      {isEditing ? (
+                                        <textarea
+                                          value={editorDraftText}
+                                          onChange={(e) => setEditorDraftText(e.target.value)}
+                                          className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
+                                          rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
+                                        />
+                                      ) : (
+                                        <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                          {message.draft}
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    {/* Timestamp */}
+                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+                                      <span>Just now</span>
+                                      <span>·</span>
+                                      <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
+                                    </div>
+
+                                    {/* Divider */}
+                                    <div className="mt-3 border-t border-white/[0.06]" />
+
+                                    {/* Action Buttons */}
+                                    <div className="mt-2 flex items-center justify-between">
+                                      <div className="flex items-center gap-1">
+                                        {/* Edit / Save toggle */}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (isEditing) {
+                                              setActiveDraftEditor(null);
+                                            } else {
+                                              setActiveDraftEditor({
+                                                messageId: message.id,
+                                                artifactIndex: 0,
+                                              });
+                                              setEditorDraftText(message.draft || "");
+                                            }
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                        >
+                                          {isEditing ? "Done" : "Edit"}
+                                        </button>
+                                        {/* Copy */}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const text = isEditing ? editorDraftText : (message.draft || "");
+                                            void navigator.clipboard.writeText(text);
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })() : null}
+
+                          {message.role === "assistant" &&
+                            message.supportAsset &&
+                            !message.draftArtifacts?.length ? (
+                            <div className="mt-4 border-t border-white/10 pt-4">
                               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Why This Works
+                                Visual / Demo Ideas
                               </p>
-                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                {message.whyThisWorks.map((item, index) => (
-                                  <li key={`${message.id}-why-${index}`}>{item}</li>
-                                ))}
-                              </ul>
+                              <p className="mt-2 text-xs leading-6 text-zinc-300">
+                                {message.supportAsset}
+                              </p>
                             </div>
                           ) : null}
 
-                          {message.watchOutFor?.length ? (
-                            <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Watch Out For
-                              </p>
-                              <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                {message.watchOutFor.map((item, index) => (
-                                  <li key={`${message.id}-watch-${index}`}>{item}</li>
-                                ))}
-                              </ul>
+                          {showDevTools && message.role === "assistant" &&
+                            ((message.whyThisWorks?.length ?? 0) > 0 ||
+                              (message.watchOutFor?.length ?? 0) > 0) ? (
+                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
+                              {message.whyThisWorks?.length ? (
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Why This Works
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                    {message.whyThisWorks.map((item, index) => (
+                                      <li key={`${message.id}-why-${index}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+
+                              {message.watchOutFor?.length ? (
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Watch Out For
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
+                                    {message.watchOutFor.map((item, index) => (
+                                      <li key={`${message.id}-watch-${index}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
+
                         </div>
-                      ) : null}
+                      ))}
 
-                    </div>
-                  ))}
+                      {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
+                    </>
+                  )}
 
-                  {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
                 </>
               )}
             </div>
           </section >
 
-          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
-            <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
-              <form onSubmit={handleComposerSubmit}>
-                <div className="relative flex w-full items-end overflow-hidden rounded-[1.5rem] bg-[#1a1a1f] p-2 shadow-[0_0_1px_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.5)] transition-all focus-within:ring-1 focus-within:ring-white/20">
-                  <textarea
-                    value={draftInput}
-                    onChange={(event) => setDraftInput(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="Send a message..."
-                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                    className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
-                    rows={1}
-                  />
-                  <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
-                    <button
-                      type="submit"
-                      disabled={
-                        !context ||
-                        !contract ||
-                        !activeStrategyInputs ||
-                        !activeToneInputs ||
-                        !draftInput.trim() ||
-                        isSending
-                      }
-                      className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
-                      aria-label="Send message"
-                    >
-                      {isSending ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
-                          <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </button>
+          {!isNewChatHero && !isLeavingHero ? (
+            <div className="shrink-0 pb-[env(safe-area-inset-bottom)]">
+              <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
+                <form onSubmit={handleComposerSubmit}>
+                  <div className={composerSurfaceClassName}>
+                    <textarea
+                      value={draftInput}
+                      onChange={(event) => setDraftInput(event.target.value)}
+                      onKeyDown={handleComposerKeyDown}
+                      placeholder="Send a message..."
+                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                      className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
+                      rows={1}
+                    />
+                    <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
+                      <button
+                        type="submit"
+                        disabled={
+                          !context ||
+                          !contract ||
+                          !activeStrategyInputs ||
+                          !activeToneInputs ||
+                          !draftInput.trim() ||
+                          isSending
+                        }
+                        className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
+                        aria-label="Send message"
+                      >
+                        {isSending ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                        ) : (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                            <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div >
       </div >
 
