@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense 
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, List, LogOut, MoreVertical, Plus, Settings2, Smile, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -461,6 +461,7 @@ const HERO_QUICK_ACTIONS = [
   },
 ] as const;
 const HERO_EXIT_TRANSITION_MS = 720;
+const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
 
 function formatEnumLabel(value: string): string {
   return value
@@ -471,6 +472,10 @@ function formatEnumLabel(value: string): string {
 
 function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeAccountHandle(value: string): string {
@@ -600,6 +605,13 @@ function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
   };
 }
 
+function getDisplayedDraftCharacterLimit(
+  storedMaxCharacterLimit: number,
+  fallbackCharacterLimit: number,
+): number {
+  return Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
+}
+
 function resolveDraftArtifactKind(
   outputShape?: CreatorChatSuccess["data"]["outputShape"],
 ): DraftArtifact["kind"] {
@@ -691,11 +703,10 @@ function normalizeDraftVersionBundle(
 
   const mappedVersions = rawVersions.map((version) => {
     const content = typeof version.content === "string" ? version.content : "";
-    const storedMaxCharacterLimit =
+    const maxCharacterLimit =
       typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
         ? version.maxCharacterLimit
-        : fallbackCharacterLimit;
-    const maxCharacterLimit = Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
+        : message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
 
     return {
       id: version.id,
@@ -764,6 +775,10 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
       "give me ideas",
       "post ideas",
       "write a new post",
+      "write me a post",
+      "write a post",
+      "draft a post",
+      "draft me a post",
       "different topic",
       "start over",
       "help me brainstorm",
@@ -811,7 +826,7 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
     return "revise";
   }
 
-  return "ignore";
+  return "revise";
 }
 
 function buildDraftRevisionTimeline(args: {
@@ -1404,6 +1419,13 @@ function ChatPageContent() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferenceCasing, setPreferenceCasing] = useState<"auto" | "lowercase" | "uppercase">("auto");
+  const [preferenceBulletStyle, setPreferenceBulletStyle] = useState<"-" | ">">("-");
+  const [preferenceUseEmojis, setPreferenceUseEmojis] = useState(false);
+  const [preferenceAllowProfanity, setPreferenceAllowProfanity] = useState(false);
+  const [preferenceBlacklistedTerms, setPreferenceBlacklistedTerms] = useState("");
+  const [preferenceMaxCharacters, setPreferenceMaxCharacters] = useState(25000);
   const [, setBackfillNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
@@ -1422,6 +1444,7 @@ function ChatPageContent() {
   const [editorDraftText, setEditorDraftText] = useState("");
   const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
+  const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
   const [pinnedVoicePostIds, setPinnedVoicePostIds] = useState<string[]>([]);
   const [pinnedEvidencePostIds, setPinnedEvidencePostIds] = useState<string[]>(
     [],
@@ -1437,6 +1460,75 @@ function ChatPageContent() {
     [context],
   );
   const isVerifiedAccount = Boolean(context?.creatorProfile?.identity?.isVerified);
+  const effectivePreferenceMaxCharacters = isVerifiedAccount
+    ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
+    : 250;
+  const preferencesPreviewDraft = useMemo(() => {
+    const bullet = preferenceBulletStyle;
+    const lines = [
+      "building xpo in public means shipping before it feels perfect.",
+      preferenceAllowProfanity
+        ? "this grind gets damn real, but the reps are worth it."
+        : "this grind gets real, but the reps are worth it.",
+      `${bullet} testing ideas fast`,
+      `${bullet} listening to what people actually need`,
+      `${bullet} fixing what breaks and shipping again`,
+      "if you're building too, keep going.",
+    ];
+
+    let nextDraft = lines.join("\n");
+
+    if (preferenceUseEmojis) {
+      nextDraft = nextDraft.replace(
+        "building xpo in public means shipping before it feels perfect.",
+        "building xpo in public means shipping before it feels perfect. 🚀",
+      );
+      nextDraft = nextDraft.replace(
+        "if you're building too, keep going.",
+        "if you're building too, keep going. 🔥",
+      );
+    }
+
+    const blockedTerms = preferenceBlacklistedTerms
+      .split(",")
+      .map((term) => term.trim())
+      .filter(Boolean);
+
+    for (const blockedTerm of blockedTerms) {
+      nextDraft = nextDraft.replace(
+        new RegExp(escapeRegexLiteral(blockedTerm), "gi"),
+        "",
+      );
+    }
+
+    nextDraft = nextDraft
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/\s+([,.!?;:])/g, "$1")
+      .trim();
+
+    if (preferenceCasing === "lowercase") {
+      nextDraft = nextDraft.toLowerCase();
+    } else if (preferenceCasing === "uppercase") {
+      nextDraft = nextDraft.toUpperCase();
+    }
+
+    return nextDraft;
+  }, [
+    preferenceAllowProfanity,
+    preferenceBlacklistedTerms,
+    preferenceBulletStyle,
+    preferenceCasing,
+    preferenceUseEmojis,
+  ]);
+  const preferencesPreviewCounter = useMemo(
+    () =>
+      getXCharacterCounterMeta(
+        preferencesPreviewDraft,
+        effectivePreferenceMaxCharacters,
+      ),
+    [effectivePreferenceMaxCharacters, preferencesPreviewDraft],
+  );
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
@@ -2007,6 +2099,7 @@ function ChatPageContent() {
   );
   const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
   const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
+  const selectedDraftMessageId = activeDraftEditor?.messageId ?? null;
   const selectedDraftTimelinePosition =
     selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
   const latestDraftTimelineEntry =
@@ -2078,12 +2171,6 @@ function ChatPageContent() {
         return;
       }
 
-      setActiveDraftEditor({
-        messageId: targetEntry.messageId,
-        versionId: targetEntry.versionId,
-        revisionChainId: targetEntry.revisionChainId,
-      });
-
       if (targetEntry.messageId !== activeDraftEditor?.messageId) {
         window.requestAnimationFrame(() => {
           messageRefs.current[targetEntry.messageId]?.scrollIntoView({
@@ -2091,7 +2178,21 @@ function ChatPageContent() {
             block: "center",
           });
         });
+        window.setTimeout(() => {
+          setActiveDraftEditor({
+            messageId: targetEntry.messageId,
+            versionId: targetEntry.versionId,
+            revisionChainId: targetEntry.revisionChainId,
+          });
+        }, DRAFT_TIMELINE_FOCUS_DELAY_MS);
+        return;
       }
+
+      setActiveDraftEditor({
+        messageId: targetEntry.messageId,
+        versionId: targetEntry.versionId,
+        revisionChainId: targetEntry.revisionChainId,
+      });
     },
     [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
   );
@@ -2396,6 +2497,25 @@ function ChatPageContent() {
 
   const shareDraftEditorToX = useCallback(() => {
     window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
+  }, []);
+
+  const copyPreviewDraft = useCallback(async (messageId: string, content: string) => {
+    const nextContent = content.trim();
+    if (!nextContent) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(nextContent);
+      setCopiedPreviewDraftMessageId(messageId);
+      window.setTimeout(() => {
+        setCopiedPreviewDraftMessageId((current) =>
+          current === messageId ? null : current,
+        );
+      }, 2200);
+    } catch {
+      setErrorMessage("Copy failed. Try selecting the text manually.");
+    }
   }, []);
 
   const runDraftInspector = useCallback(async () => {
@@ -2715,18 +2835,23 @@ function ChatPageContent() {
           ]);
           scrollThreadToBottom();
 
+          const nextDraftVersionId =
+            data.data.activeDraftVersionId ??
+            (data.data.draftVersions && data.data.draftVersions.length > 0
+              ? data.data.draftVersions[data.data.draftVersions.length - 1]?.id
+              : null);
+
           if (
             effectiveSelectedDraftContext &&
             data.data.messageId &&
-            data.data.activeDraftVersionId &&
-            data.data.draft
+            nextDraftVersionId
           ) {
-          setActiveDraftEditor({
-            messageId: data.data.messageId,
-            versionId: data.data.activeDraftVersionId,
-            revisionChainId: data.data.revisionChainId,
-          });
-        }
+            setActiveDraftEditor({
+              messageId: data.data.messageId,
+              versionId: nextDraftVersionId,
+              revisionChainId: data.data.revisionChainId,
+            });
+          }
 
           // Store returned memory blob
           if (data.data.memory) {
@@ -2949,6 +3074,48 @@ function ChatPageContent() {
       activeThreadId,
       syncThreadTitle,
     ],
+  );
+
+  const requestDraftCardRevision = useCallback(
+    async (messageId: string, prompt: string) => {
+      const message = messages.find((item) => item.id === messageId);
+      if (!message) {
+        return;
+      }
+
+      const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
+      if (!bundle) {
+        return;
+      }
+
+      const selectedVersion = bundle.activeVersion;
+      const revisionChainId =
+        message.revisionChainId ??
+        message.previousVersionSnapshot?.revisionChainId ??
+        `legacy-chain-${messageId}`;
+
+      setActiveDraftEditor({
+        messageId,
+        versionId: selectedVersion.id,
+        revisionChainId,
+      });
+
+      await requestAssistantReply({
+        prompt,
+        appendUserMessage: true,
+        intent: "edit",
+        selectedDraftContextOverride: {
+          messageId,
+          versionId: selectedVersion.id,
+          content: selectedVersion.content,
+          source: selectedVersion.source,
+          createdAt: selectedVersion.createdAt,
+          maxCharacterLimit: selectedVersion.maxCharacterLimit,
+          revisionChainId,
+        },
+      });
+    },
+    [composerCharacterLimit, messages, requestAssistantReply],
   );
 
   useEffect(() => {
@@ -3331,17 +3498,27 @@ function ChatPageContent() {
                 <div className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => setAnalysisOpen(true)}
-                    className="block w-full rounded-2xl px-3 py-2 text-left text-[11px] font-medium text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
+                    onClick={() => setPreferencesOpen(true)}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                   >
-                    View Profile Analysis
+                    <Settings2 className="h-4 w-4 shrink-0" />
+                    <span>Preferences</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnalysisOpen(true)}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
+                  >
+                    <BarChart3 className="h-4 w-4 shrink-0" />
+                    <span>View Profile Analysis</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setPlaybookModalOpen(true)}
-                    className="block w-full rounded-2xl px-3 py-2 text-left text-[11px] font-medium text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                   >
-                    Playbook
+                    <BookOpen className="h-4 w-4 shrink-0" />
+                    <span>Playbook</span>
                   </button>
                 </div>
               </div>
@@ -3808,7 +3985,7 @@ function ChatPageContent() {
                                       </p>
                                       <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
                                         {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                        {Math.max(artifact.maxCharacterLimit, composerCharacterLimit)}
+                                        {artifact.maxCharacterLimit}
                                       </p>
                                     </div>
                                     <button
@@ -3879,8 +4056,19 @@ function ChatPageContent() {
                                 draftBundle?.activeVersion.content ?? message.draft ?? "";
                               const draftCounter = getXCharacterCounterMeta(
                                 previewDraft,
-                                draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
+                                getDisplayedDraftCharacterLimit(
+                                  draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
+                                  composerCharacterLimit,
+                                ),
                               );
+                              const isLongformPreview =
+                                message.outputShape === "long_form_post" ||
+                                (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280;
+                              const transformDraftPrompt = isLongformPreview
+                                ? "turn this into a shortform post under 280 characters"
+                                : "turn this into a longform post with more detail";
+                              const isFocusedDraftPreview =
+                                selectedDraftMessageId === message.id;
                               return (
                                 <div className="mt-4 border-t border-white/10 pt-4">
                                   {/* X Post Card */}
@@ -3894,37 +4082,55 @@ function ChatPageContent() {
                                         openDraftEditor(message.id);
                                       }
                                     }}
-                                    className="rounded-2xl border border-white/[0.08] bg-[#000000] p-4 transition hover:border-white/15 hover:bg-[#0F0F0F] cursor-pointer"
+                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
+                                      isFocusedDraftPreview
+                                        ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
+                                        : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
+                                    }`}
+                                    aria-current={isFocusedDraftPreview ? "true" : undefined}
                                   >
                                     {/* Header: avatar + name + handle */}
-                                    <div className="flex items-start gap-3">
-                                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                        {avatarUrl ? (
-                                          <div
-                                            className="h-full w-full bg-cover bg-center"
-                                            style={{ backgroundImage: `url(${avatarUrl})` }}
-                                            role="img"
-                                            aria-label={`${displayName} profile photo`}
-                                          />
-                                        ) : (
-                                          displayName.charAt(0)
-                                        )}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1">
-                                          <span className="text-sm font-bold text-white truncate">{displayName}</span>
-                                          {isVerifiedAccount ? (
-                                            <Image
-                                              src="/x-verified.svg"
-                                              alt="Verified account"
-                                              width={16}
-                                              height={16}
-                                              className="h-4 w-4 shrink-0"
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                          {avatarUrl ? (
+                                            <div
+                                              className="h-full w-full bg-cover bg-center"
+                                              style={{ backgroundImage: `url(${avatarUrl})` }}
+                                              role="img"
+                                              aria-label={`${displayName} profile photo`}
                                             />
-                                          ) : null}
+                                          ) : (
+                                            displayName.charAt(0)
+                                          )}
                                         </div>
-                                        <span className="text-xs text-zinc-500">@{username}</span>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1">
+                                            <span className="truncate text-sm font-bold text-white">{displayName}</span>
+                                            {isVerifiedAccount ? (
+                                              <Image
+                                                src="/x-verified.svg"
+                                                alt="Verified account"
+                                                width={16}
+                                                height={16}
+                                                className="h-4 w-4 shrink-0"
+                                              />
+                                            ) : null}
+                                          </div>
+                                          <span className="text-xs text-zinc-500">@{username}</span>
+                                        </div>
                                       </div>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openDraftEditor(message.id);
+                                        }}
+                                        className="rounded-full p-2 text-zinc-500"
+                                        aria-label="Edit draft"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
                                     </div>
 
                                     {/* Post Content */}
@@ -3945,29 +4151,79 @@ function ChatPageContent() {
                                     <div className="mt-3 border-t border-white/[0.06]" />
 
                                     {/* Action Buttons */}
-                                    <div className="mt-2 flex items-center justify-between">
-                                      <div className="flex items-center gap-1">
-                                        {/* Edit / Save toggle */}
+                                    <div className="mt-2 flex items-center justify-between gap-3">
+                                      <div className="flex items-center gap-1.5">
                                         <button
                                           type="button"
+                                          disabled={isMainChatLocked}
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            openDraftEditor(message.id);
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it shorter",
+                                            );
                                           }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                                         >
-                                          Edit
+                                          Shorter
                                         </button>
-                                        {/* Copy */}
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it longer and more detailed",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Longer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              transformDraftPrompt,
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          {isLongformPreview
+                                            ? "Turn into Shortform"
+                                            : "Turn into Longform"}
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center gap-2">
                                         <button
                                           type="button"
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            void navigator.clipboard.writeText(previewDraft);
+                                            void copyPreviewDraft(message.id, previewDraft);
                                           }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                          className="rounded-full p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                          aria-label="Copy draft"
                                         >
-                                          Copy
+                                          {copiedPreviewDraftMessageId === message.id ? (
+                                            <Check className="h-4 w-4" />
+                                          ) : (
+                                            <Copy className="h-4 w-4" />
+                                          )}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            shareDraftEditorToX();
+                                          }}
+                                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200"
+                                        >
+                                          Post
+                                          <ArrowUpRight className="h-3.5 w-3.5" />
                                         </button>
                                       </div>
                                     </div>
@@ -4185,16 +4441,19 @@ function ChatPageContent() {
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto px-5 pb-5">
-                    <div className="p-0">
+                  <div className="flex-1 min-h-0 overflow-hidden px-5 pb-5">
+                    {isViewingHistoricalDraftVersion ? (
+                      <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[16px] leading-8 text-white">
+                        {editorDraftText}
+                      </div>
+                    ) : (
                       <textarea
                         value={editorDraftText}
                         onChange={(event) => setEditorDraftText(event.target.value)}
-                        readOnly={isViewingHistoricalDraftVersion}
-                        className="min-h-[19rem] w-full resize-none bg-transparent text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
+                        className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
                         placeholder="Draft content"
                       />
-                    </div>
+                    )}
                   </div>
 
                   <div className="border-t border-white/10 px-5 py-4">
@@ -4211,7 +4470,11 @@ function ChatPageContent() {
                       </button>
                       <div className="flex items-center gap-2">
                         <p className="text-xs text-zinc-500">
-                          {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                          {computeXWeightedCharacterCount(editorDraftText)}/
+                          {getDisplayedDraftCharacterLimit(
+                            selectedDraftVersion.maxCharacterLimit,
+                            composerCharacterLimit,
+                          )} chars
                         </p>
                         <button
                           type="button"
@@ -4334,16 +4597,19 @@ function ChatPageContent() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 pb-4">
-                  <div className="p-0">
+                <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
+                  {isViewingHistoricalDraftVersion ? (
+                    <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[15px] leading-7 text-white">
+                      {editorDraftText}
+                    </div>
+                  ) : (
                     <textarea
                       value={editorDraftText}
                       onChange={(event) => setEditorDraftText(event.target.value)}
-                      readOnly={isViewingHistoricalDraftVersion}
-                      className="min-h-[15rem] w-full resize-none bg-transparent text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600 read-only:cursor-default"
+                      className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600"
                       placeholder="Draft content"
                     />
-                  </div>
+                  )}
                 </div>
 
                 <div className="border-t border-white/10 px-4 py-4">
@@ -4360,7 +4626,11 @@ function ChatPageContent() {
                     </button>
                     <div className="flex items-center gap-2">
                       <p className="text-xs text-zinc-500">
-                        {computeXWeightedCharacterCount(editorDraftText)}/{selectedDraftVersion.maxCharacterLimit} chars
+                        {computeXWeightedCharacterCount(editorDraftText)}/
+                        {getDisplayedDraftCharacterLimit(
+                          selectedDraftVersion.maxCharacterLimit,
+                          composerCharacterLimit,
+                        )} chars
                       </p>
                       <button
                         type="button"
@@ -4433,6 +4703,282 @@ function ChatPageContent() {
                 >
                   Link to download
                 </button>
+              </div>
+            </div>
+          </div>
+        ) : null
+      }
+
+      {
+        preferencesOpen && context ? (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setPreferencesOpen(false);
+              }
+            }}
+          >
+            <div className="relative w-full max-w-5xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Preferences
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Tune how Xpo writes for this profile
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                    Set defaults for formatting, tone, and verified-only character controls. The preview updates instantly and does not need the model.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreferencesOpen(false)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center gap-3">
+                      <Settings2 className="h-4 w-4 text-zinc-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">Core Settings</p>
+                        <p className="text-xs text-zinc-500">Quick defaults for formatting and tone.</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 space-y-5">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                          <Type className="h-4 w-4 text-zinc-500" />
+                          <span>Default casing</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { label: "Auto", value: "auto" },
+                            { label: "Lowercase", value: "lowercase" },
+                            { label: "Uppercase", value: "uppercase" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setPreferenceCasing(
+                                  option.value as "auto" | "lowercase" | "uppercase",
+                                )
+                              }
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                preferenceCasing === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                          <List className="h-4 w-4 text-zinc-500" />
+                          <span>Bullet style</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { label: "Dash (-)", value: "-" },
+                            { label: "Angle (>)", value: ">" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setPreferenceBulletStyle(option.value as "-" | ">")}
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                preferenceBulletStyle === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreferenceUseEmojis((current) => !current)}
+                          className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                            preferenceUseEmojis
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Smile className="h-4 w-4 text-zinc-500" />
+                            <span className="text-sm text-zinc-300">Use emojis</span>
+                          </div>
+                          <span className={`h-2.5 w-2.5 rounded-full ${preferenceUseEmojis ? "bg-emerald-400" : "bg-zinc-700"}`} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setPreferenceAllowProfanity((current) => !current)}
+                          className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                            preferenceAllowProfanity
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Ban className="h-4 w-4 text-zinc-500" />
+                            <span className="text-sm text-zinc-300">Allow profanity</span>
+                          </div>
+                          <span className={`h-2.5 w-2.5 rounded-full ${preferenceAllowProfanity ? "bg-emerald-400" : "bg-zinc-700"}`} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                          <Ban className="h-4 w-4 text-zinc-500" />
+                          <span>Blacklist words or emojis</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={preferenceBlacklistedTerms}
+                          onChange={(event) => setPreferenceBlacklistedTerms(event.target.value)}
+                          placeholder="comma-separated, e.g. grind, 🚀, damn"
+                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center gap-3">
+                      {isVerifiedAccount ? (
+                        <Image
+                          src="/x-verified.svg"
+                          alt="Verified settings"
+                          width={16}
+                          height={16}
+                          className="h-4 w-4"
+                        />
+                      ) : (
+                        <BarChart3 className="h-4 w-4 text-zinc-500" />
+                      )}
+                      <div>
+                        <p className="text-sm font-semibold text-white">Verified Settings</p>
+                        <p className="text-xs text-zinc-500">
+                          Custom max length only applies to verified accounts. Unverified users are capped to 250 characters.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 space-y-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <label className="text-sm font-medium text-zinc-300">Maximum character count</label>
+                        <input
+                          type="number"
+                          min={250}
+                          max={25000}
+                          step={10}
+                          value={effectivePreferenceMaxCharacters}
+                          disabled={!isVerifiedAccount}
+                          onChange={(event) =>
+                            setPreferenceMaxCharacters(
+                              Number.parseInt(event.target.value || "250", 10) || 250,
+                            )
+                          }
+                          className="w-28 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-right text-sm text-white outline-none disabled:cursor-not-allowed disabled:text-zinc-600"
+                        />
+                      </div>
+                      <input
+                        type="range"
+                        min={250}
+                        max={25000}
+                        step={50}
+                        value={effectivePreferenceMaxCharacters}
+                        disabled={!isVerifiedAccount}
+                        onChange={(event) =>
+                          setPreferenceMaxCharacters(
+                            Number.parseInt(event.target.value || "250", 10) || 250,
+                          )
+                        }
+                        className="w-full accent-white disabled:cursor-not-allowed"
+                      />
+                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-zinc-600">
+                        <span>250</span>
+                        <span>25,000</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                      Preview Tweet
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      The preview updates as you change settings.
+                    </p>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-[#0F0F0F] p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
+                          />
+                        ) : (
+                          (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate text-sm font-bold text-white">
+                            {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
+                          </span>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={16}
+                              height={16}
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : null}
+                        </div>
+                        <span className="text-xs text-zinc-500">
+                          @{context.creatorProfile.identity.username || accountName || "user"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+                      {preferencesPreviewDraft}
+                    </p>
+
+                    <div className="mt-4 flex items-center gap-1.5 text-xs text-zinc-500">
+                      <span>Just now</span>
+                      <span>·</span>
+                      <span className={preferencesPreviewCounter.toneClassName}>
+                        {preferencesPreviewCounter.label}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
