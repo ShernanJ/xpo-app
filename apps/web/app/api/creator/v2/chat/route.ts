@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
-import type { CreatorChatReplyResult } from "@/lib/onboarding/chatAgent";
+import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
+import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
+
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/authOptions";
 
 interface CreatorChatRequest extends Record<string, unknown> {
+  threadId?: unknown;
   runId?: unknown;
   message?: unknown;
   history?: unknown;
@@ -12,27 +18,139 @@ interface CreatorChatRequest extends Record<string, unknown> {
   contentFocus?: unknown;
 }
 
-export async function POST(request: Request) {
+const DEFAULT_THREAD_TITLE = "New Chat";
+
+function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
+  const normalized = title?.trim() || "";
+  return !normalized || normalized === DEFAULT_THREAD_TITLE;
+}
+
+function isGenericThreadPrompt(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return [
+    "give me some ideas",
+    "i need some ideas",
+    "brainstorm with me",
+    "brainstorm",
+    "ideas",
+    "write me a post",
+    "write a post",
+    "write me something",
+    "write something",
+    "help me write",
+    "help me figure out what to post",
+    "what should i post",
+    "what do i post",
+    "write it",
+    "looks good",
+    "sounds good",
+    "ok",
+    "okay",
+  ].some((candidate) => normalized === candidate);
+}
+
+function canPromoteThreadTitle(args: {
+  currentTitle: string | null | undefined;
+  conversationState: string | null | undefined;
+  topicSummary: string | null | undefined;
+}): boolean {
+  const canPromote =
+    args.conversationState === "ready_to_ideate" ||
+    args.conversationState === "plan_pending_approval" ||
+    args.conversationState === "draft_ready";
+
+  if (!canPromote) {
+    return false;
+  }
+
+  if (!args.topicSummary?.trim()) {
+    return false;
+  }
+
+  if (isGenericThreadPrompt(args.topicSummary)) {
+    return false;
+  }
+
+  return isPlaceholderThreadTitle(args.currentTitle) || isGenericThreadPrompt(args.currentTitle || "");
+}
+
+function looksLikeDraftHandoff(reply: string): boolean {
+  const normalized = reply.trim().toLowerCase();
+
+  return [
+    "here's the draft. take a look.",
+    "here's a draft. take a look.",
+    "made the edit. take a look.",
+    "made the edit and kept it close to your voice. take a look.",
+    "made the edit and kept the hook sharper. take a look.",
+    "made the edit and tightened it to fit. take a look.",
+    "kept it natural and close to your voice. take a look.",
+    "leaned into a sharper hook for growth. take a look.",
+    "kept it tight enough to post. take a look.",
+  ].includes(normalized);
+}
+
+function normalizeDraftPayload(args: {
+  reply: string;
+  draft: string | null;
+  drafts: string[];
+  outputShape: string;
+}): {
+  reply: string;
+  draft: string | null;
+  drafts: string[];
+} {
+  let reply = args.reply;
+  let draft = args.draft;
+  let drafts = args.drafts;
+
+  if (!draft && drafts.length > 0) {
+    draft = drafts[0] || null;
+  }
+
+  if (args.outputShape === "short_form_post") {
+    const trimmedReply = reply.trim();
+    const replyLooksLikeDraft =
+      trimmedReply.length > 40 && !looksLikeDraftHandoff(trimmedReply);
+
+    if (!draft && replyLooksLikeDraft) {
+      draft = trimmedReply;
+      drafts = [trimmedReply];
+      reply = "here's the draft. take a look.";
+    } else if (draft) {
+      drafts = drafts.length > 0 ? drafts : [draft];
+
+      if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
+        reply = "here's the draft. take a look.";
+      }
+    }
+  }
+
+  return { reply, draft, drafts };
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
+  }
+
   let body: CreatorChatRequest;
 
   try {
     body = (await request.json()) as CreatorChatRequest;
   } catch {
     return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "Request body must be valid JSON." }] },
+      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
       { status: 400 },
     );
   }
 
+  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
-  const message = typeof body.message === "string" ? body.message.trim() : "";
+  // If no threadId or runId, we will automatically generate a thread below.
 
-  if (!runId) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "runId is required." }] },
-      { status: 400 },
-    );
-  }
+  const message = typeof body.message === "string" ? body.message.trim() : "";
 
   const intent = typeof body.intent === "string" ? body.intent.trim() : "";
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
@@ -64,12 +182,41 @@ export async function POST(request: Request) {
     );
   }
 
-  const storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-  if (!storedRun) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "runId", message: "Onboarding run not found." }] },
-      { status: 404 },
-    );
+  let storedThread = null;
+  let storedRun = null;
+
+  if (threadId) {
+    storedThread = await prisma.chatThread.findUnique({ where: { id: threadId } });
+    if (!storedThread || storedThread.userId !== session.user.id) {
+      return NextResponse.json(
+        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
+        { status: 404 },
+      );
+    }
+  } else {
+    const xHandle = session.user.activeXHandle || undefined;
+    storedThread = await prisma.chatThread.create({
+      data: {
+        userId: session.user.id,
+        ...(xHandle ? { xHandle } : {}),
+      }
+    });
+    console.log("[V2 Chat Checkpoint] New Thread generated:", storedThread.id);
+
+    await createConversationMemory({
+      threadId: storedThread.id,
+      userId: session.user.id,
+    });
+  }
+
+  if (runId) {
+    storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+    if (!storedRun) {
+      return NextResponse.json(
+        { ok: false, errors: [{ field: "runId", message: "Onboarding run not found." }] },
+        { status: 404 },
+      );
+    }
   }
 
   // Format recent history for V2 Orchestrator
@@ -78,27 +225,101 @@ export async function POST(request: Request) {
     .filter((entry: Record<string, unknown>) => typeof entry?.content === "string")
     .map((entry: Record<string, unknown>) => `${entry.role}: ${entry.content}`)
     .slice(-10) // Keep last 10 turns for context window management
-    .join("\\n");
+    .join("\n");
+
+  // Extract the most recent draft from history to support stateful editing
+  const lastDraftEntry = rawHistory
+    .slice()
+    .reverse()
+    .find((entry: Record<string, unknown>) => typeof entry?.draft === "string" && entry.draft.length > 0);
+  const activeDraft = typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined;
 
   try {
+    const effectiveUserId = session.user.id;
+
+    if (storedThread) {
+      await prisma.chatMessage.create({
+        data: {
+          threadId: storedThread.id,
+          role: "user",
+          content: effectiveMessage,
+        }
+      });
+    }
+
+    console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
     const result = await manageConversationTurn({
-      userId: storedRun.userId || "anonymous",
-      runId: runId,
+      userId: effectiveUserId,
+      xHandle: storedThread?.xHandle || null, // Pipeline context isolation
+      threadId: storedThread?.id,
+      runId: storedRun?.id,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
-      explicitIntent: ["coach", "ideate", "draft", "review", "edit", "answer_question"].includes(intent) ? intent as "coach" | "ideate" | "draft" | "review" | "edit" | "answer_question" : null,
+      explicitIntent: ["coach", "ideate", "plan", "planner_feedback", "draft", "review", "edit", "answer_question"].includes(intent)
+        ? intent as "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit" | "answer_question"
+        : null,
+      activeDraft,
     });
 
-    const isCoach = result.mode === "coach";
-    const isIdeate = result.mode === "ideate";
-
-    const mappedData: CreatorChatReplyResult = {
+    console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
+    const resultData = result.data as Record<string, unknown> | undefined;
+    const plan = (resultData?.plan || null) as {
+      objective?: string;
+      angle?: string;
+      targetLane?: "original" | "reply" | "quote";
+      mustInclude?: string[];
+      mustAvoid?: string[];
+      hookType?: string;
+      pitchResponse?: string;
+    } | null;
+    const shouldPromoteThreadTitle = canPromoteThreadTitle({
+      currentTitle: storedThread?.title,
+      topicSummary: result.memory.topicSummary,
+      conversationState: result.memory.conversationState,
+    });
+    const contextualThreadTitle = shouldPromoteThreadTitle
+      ? await generateThreadTitle({
+          topicSummary: result.memory.topicSummary,
+          recentHistory: recentHistoryStr || "None",
+          plan:
+            plan &&
+            typeof plan.objective === "string" &&
+            typeof plan.angle === "string" &&
+            (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
+            Array.isArray(plan.mustInclude) &&
+            Array.isArray(plan.mustAvoid) &&
+            typeof plan.hookType === "string" &&
+            typeof plan.pitchResponse === "string"
+              ? {
+                  objective: plan.objective,
+                  angle: plan.angle,
+                  targetLane: plan.targetLane,
+                  mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
+                  mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
+                  hookType: plan.hookType,
+                  pitchResponse: plan.pitchResponse,
+                }
+              : null,
+        })
+      : null;
+    const normalizedDraftPayload = normalizeDraftPayload({
       reply: result.response,
-      angles: (result.data as Record<string, unknown>)?.angles as string[] || [],
-      drafts: (result.data as Record<string, unknown>)?.drafts as string[] || [],
+      draft: resultData?.draft as string || null,
+      drafts: resultData?.draft
+        ? [resultData.draft as string]
+        : [],
+      outputShape: result.outputShape,
+    });
+    const mappedData = {
+      reply: normalizedDraftPayload.reply,
+      angles: resultData?.angles as unknown[] || [],
+      quickReplies: resultData?.quickReplies || [],
+      plan: resultData?.plan || null,
+      draft: normalizedDraftPayload.draft,
+      drafts: normalizedDraftPayload.drafts,
       draftArtifacts: [],
-      supportAsset: (result.data as Record<string, unknown>)?.supportAsset as string || null,
-      outputShape: isCoach ? "coach_question" : isIdeate ? "ideation_angles" : "short_form_post",
+      supportAsset: resultData?.supportAsset as string || null,
+      outputShape: result.outputShape,
       whyThisWorks: [],
       watchOutFor: [],
       debug: {
@@ -123,20 +344,41 @@ export async function POST(request: Request) {
       source: "deterministic",
       model: "v2-orchestrator",
       mode: "full_generation",
-      memory: {
-        conversationState: isCoach || isIdeate ? "ready_to_ideate" : "editing",
-        activeConstraints: [],
-        topicSummary: null,
-        concreteAnswerCount: 0,
-        currentDraftArtifactId: null,
-        voiceFidelity: "balanced",
-      }
+      memory: result.memory,
+      threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
     };
+
+    if (storedThread) {
+      await prisma.chatMessage.create({
+        data: {
+          threadId: storedThread.id,
+          role: "assistant",
+          content: mappedData.reply,
+          data: mappedData as unknown as Prisma.InputJsonValue,
+        }
+      });
+
+      const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
+
+      if (shouldPromoteThreadTitle && contextualThreadTitle) {
+        updateData.title = contextualThreadTitle;
+      }
+
+      const updatedThread = await prisma.chatThread.update({
+        where: { id: storedThread.id },
+        data: updateData
+      });
+
+      mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
+    }
 
     return NextResponse.json(
       {
         ok: true,
-        data: mappedData,
+        data: {
+          ...mappedData,
+          newThreadId: !threadId && storedThread ? storedThread.id : undefined
+        }
       },
       { status: 200 },
     );

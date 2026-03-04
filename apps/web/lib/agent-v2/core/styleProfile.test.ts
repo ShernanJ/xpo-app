@@ -15,11 +15,13 @@ async function runTest() {
     pacing: "Short and punchy.",
     emojiPatterns: ["🚀 when talking about growth"],
     slangAndVocabulary: ["10x", "ship it"],
-    formattingRules: ["no uppercase at start of sentence"]
+    formattingRules: ["no uppercase at start of sentence"],
+    customGuidelines: [],
+    contextAnchors: [],
   };
 
   console.log("Saving dummy profile to database...");
-  const saved = await saveStyleProfile(dummyUserId, dummyCard);
+  const saved = await saveStyleProfile(dummyUserId, "default", dummyCard);
   console.log("Saved successfully:", saved.id);
 
   // We could test the real LLM call here, but let's just make sure it compiles

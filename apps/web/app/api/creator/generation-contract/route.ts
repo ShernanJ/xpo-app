@@ -7,7 +7,9 @@ import {
   extractCreatorToneOverrides,
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategyOverrides";
-import { readOnboardingRunById } from "@/lib/onboarding/store";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/authOptions";
 
 interface CreatorGenerationContractRequest extends Record<string, unknown> {
   runId?: unknown;
@@ -28,23 +30,23 @@ export async function POST(request: Request) {
     );
   }
 
-  const runId = typeof body.runId === "string" ? body.runId.trim() : "";
-  if (!runId) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id || !session?.user?.activeXHandle) {
     return NextResponse.json(
       {
         ok: false,
-        errors: [{ field: "runId", message: "runId is required." }],
+        errors: [{ field: "auth", message: "Unauthorized or no active handle selected." }],
       },
-      { status: 400 },
+      { status: 401 },
     );
   }
 
-  const storedRun = await readOnboardingRunById(runId);
+  const storedRun = await readLatestOnboardingRunByHandle(session.user.id, session.user.activeXHandle);
   if (!storedRun) {
     return NextResponse.json(
       {
         ok: false,
-        errors: [{ field: "runId", message: "Onboarding run not found." }],
+        errors: [{ field: "auth", message: "No onboarding run found for this handle." }],
       },
       { status: 404 },
     );
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
     {
       ok: true,
       data: buildCreatorGenerationContract({
-        runId,
+        runId: storedRun.runId,
         onboarding,
         tonePreference,
       }),

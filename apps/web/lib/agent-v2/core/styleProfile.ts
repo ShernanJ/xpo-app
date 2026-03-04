@@ -9,14 +9,31 @@ export const StyleCardSchema = z.object({
   emojiPatterns: z.array(z.string()).describe("Specific emojis the user frequently uses and in what context"),
   slangAndVocabulary: z.array(z.string()).describe("Specific jargon, slang, or unique vocabulary words explicitly used by the user"),
   formattingRules: z.array(z.string()).describe("Rules around capitalization, punctuation, line breaks (e.g. 'never uses capitalization', 'double line breaks between sentences')"),
+  customGuidelines: z.array(z.string()).default([]).describe("Explicit stylistic feedback or rules the user dictates (e.g. 'Never use emojis', 'Make it less cringe')"),
+  contextAnchors: z.array(z.string()).default([]).describe("Explicit facts the user has told the bot about themselves or their project"),
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
 
-export async function generateStyleProfile(userId: string, limit: number = 50): Promise<VoiceStyleCard | null> {
+export async function generateStyleProfile(userId: string, xHandle: string, limit: number = 50): Promise<VoiceStyleCard | null> {
   try {
+    // 1. Check if profile already exists in DB to prevent wiping customGuidelines
+    const existing = await prisma.voiceProfile.findFirst({
+      where: { userId, xHandle }
+    });
+
+    if (existing && existing.styleCard) {
+      try {
+        const parsed = StyleCardSchema.parse(existing.styleCard);
+        return parsed;
+      } catch (e) {
+        console.warn("Existing styleCard failed schema validation, regenerating...", e);
+      }
+    }
+
+    // 2. Otherwise generate from scratch
     const recentPosts = await prisma.post.findMany({
-      where: { userId },
+      where: { userId, xHandle },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: { text: true },
@@ -47,7 +64,9 @@ Respond ONLY with a valid JSON object matching this schema:
   "pacing": "...",
   "emojiPatterns": ["..."],
   "slangAndVocabulary": ["..."],
-  "formattingRules": ["..."]
+  "formattingRules": ["..."],
+  "customGuidelines": [],
+  "contextAnchors": []
 }
 `;
 
@@ -90,7 +109,7 @@ Respond ONLY with a valid JSON object matching this schema:
     const validatedCard = StyleCardSchema.parse(parsedJson);
 
     // Save or update the profile in the DB
-    await saveStyleProfile(userId, validatedCard);
+    await saveStyleProfile(userId, xHandle, validatedCard);
 
     return validatedCard;
   } catch (error) {
@@ -100,9 +119,9 @@ Respond ONLY with a valid JSON object matching this schema:
 }
 
 // Safer database upsert wrapper specifically for the schema structure
-export async function saveStyleProfile(userId: string, styleCard: VoiceStyleCard) {
+export async function saveStyleProfile(userId: string, xHandle: string, styleCard: VoiceStyleCard) {
   const existing = await prisma.voiceProfile.findFirst({
-    where: { userId }
+    where: { userId, xHandle }
   });
 
   if (existing) {
@@ -115,6 +134,7 @@ export async function saveStyleProfile(userId: string, styleCard: VoiceStyleCard
   return prisma.voiceProfile.create({
     data: {
       userId,
+      xHandle,
       styleCard: styleCard as unknown as Prisma.InputJsonObject
     }
   });

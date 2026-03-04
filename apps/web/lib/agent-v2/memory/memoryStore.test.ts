@@ -1,5 +1,10 @@
 import "dotenv/config";
-import { getConversationMemory, createConversationMemory, updateConversationMemory } from "./memoryStore";
+import {
+  getConversationMemory,
+  createConversationMemory,
+  updateConversationMemory,
+  createConversationMemorySnapshot,
+} from "./memoryStore";
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { randomUUID } from "crypto";
@@ -31,14 +36,27 @@ async function runTest() {
     topicSummary: "User wants to write about Next.js features.",
     activeConstraints: ["No emojis", "Professional tone"],
     concreteAnswerCount: 1,
-    lastDraftArtifactId: "draft_123"
+    lastDraftArtifactId: "draft_123",
+    conversationState: "plan_pending_approval",
+    pendingPlan: {
+      objective: "Talk about shipping a tricky refactor",
+      angle: "The hard part is the messy middle, not the final screenshot",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: ["generic opener"],
+      hookType: "Counter-narrative",
+      pitchResponse: "i'm thinking we focus on the messy middle. sound good?",
+    },
+    rollingSummary: "Current topic: tricky refactor",
+    assistantTurnCount: 2,
   });
   console.log("Updated memory summary:", updated?.topicSummary);
   console.log("Updated memory constraints:", updated?.activeConstraints);
 
   console.log("3. Fetching memory...");
-  const fetched = await getConversationMemory(testRunId);
+  const fetched = await getConversationMemory({ runId: testRunId });
   console.log("Fetched memory concreteAnswerCount:", fetched?.concreteAnswerCount);
+  console.log("Fetched memory snapshot:", createConversationMemorySnapshot(fetched as any));
 
   console.log("4. Cleaning up test data...");
   await prisma.conversationMemory.deleteMany({

@@ -2,31 +2,70 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { PlannerOutput } from "./planner";
+import type {
+  ConversationState,
+  DraftPreference,
+} from "../contracts/chat";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildDraftPreferenceBlock,
+  buildGoalHydrationBlock,
+  buildStateHydrationBlock,
+  buildVoiceHydrationBlock,
+} from "../prompts/promptHydrator";
 
 export const WriterOutputSchema = z.object({
-  response: z.string().describe("A conversational lead-in like 'Here are a few options based on your style:'"),
-  angles: z.array(z.string()).describe("The underlying angle for each draft (e.g., 'Contrarian Take')"),
-  drafts: z.array(z.string()).describe("The actual generated X posts"),
+  angle: z.string().describe("The approach/angle used for this draft"),
+  draft: z.string().describe("The actual generated X post — one single draft"),
   supportAsset: z.string().describe("Idea for what image/video to attach"),
-  whyThisWorks: z.array(z.string()).describe("One-sentence rationale for why each draft works"),
-  watchOutFor: z.array(z.string()).describe("One-sentence warning about risk or tone for each draft"),
+  whyThisWorks: z.string().describe("One-sentence rationale for why this draft works"),
+  watchOutFor: z.string().describe("One-sentence warning about risk or tone"),
 });
 
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
 
 /**
  * High capability draft writer. Takes the constraints from the Planner and the StyleCard
- * from the Profile to generate exactly 3 variants.
+ * from the Profile to generate exactly 1 focused draft.
  */
 export async function generateDrafts(
   plan: PlannerOutput,
   styleCard: VoiceStyleCard | null,
   topicAnchors: string[],
   activeConstraints: string[],
+  recentHistory: string,
+  activeDraft?: string,
+  options?: {
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+    maxCharacterLimit?: number;
+    goal?: string;
+    draftPreference?: DraftPreference;
+  },
 ): Promise<WriterOutput | null> {
+  const isEditing = !!activeDraft;
+  const conversationState = options?.conversationState || "draft_ready";
+  const antiPatterns = options?.antiPatterns || [];
+  const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
+  const goal = options?.goal || "audience growth";
+  const draftPreference = options?.draftPreference || "balanced";
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
-Your task is to take a strict Strategy Plan and generate EXACTLY 3 distinct draft variations of a post.
+${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
+      : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
+
+${buildConversationToneBlock()}
+${buildGoalHydrationBlock(goal, "draft")}
+${buildStateHydrationBlock(conversationState, "draft")}
+${buildDraftPreferenceBlock(draftPreference, "draft")}
+${buildVoiceHydrationBlock(styleCard)}
+${buildAntiPatternBlock(antiPatterns)}
+
+${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${activeDraft}\n\n` : ""}
+
+RECENT CHAT HISTORY (Provides context on what the user is replying to):
+${recentHistory}
 
 STRATEGY PLAN:
 Objective: ${plan.objective}
@@ -37,48 +76,53 @@ Must Include: ${plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${activeConstraints.join(" | ") || "None"}
 
-USER'S HISTORICAL ANCHORS (Details to weave in if relevant):
-${topicAnchors.join("\\n---") || "None"}
+USER'S HISTORICAL POSTS (FOR VIBE AND TONE REFERENCE ONLY):
+${topicAnchors.join("\n---") || "None"}
+CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them ONLY to understand their voice and pacing.
 
 ${styleCard
       ? `
-USER'S SPECIFIC WRITING STYLE (CRITICAL - YOU MUST FOLLOW THIS EXACTLY):
+USER'S SPECIFIC WRITING STYLE:
 - Sentence Openings: ${styleCard.sentenceOpenings.join(", ")}
 - Sentence Closers: ${styleCard.sentenceClosers.join(", ")}
 - Pacing: ${styleCard.pacing}
-- Emojis: ${styleCard.emojiPatterns.join(", ") || "None"}
-- Slang/Vocaubulary: ${styleCard.slangAndVocabulary.join(", ")}
+- Emojis: IF the user rarely uses emojis, DO NOT USE THEM. If they do, use them sparingly. (Pattern: ${styleCard.emojiPatterns.join(", ") || "None"})
+- Slang/Vocabulary: ${styleCard.slangAndVocabulary.join(", ")}
 - Formatting: ${styleCard.formattingRules.join(", ")}
+${styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRITICAL): ${styleCard.customGuidelines.join(" | ")}` : ""}
 `
       : "No style card available. Write in a clean, punchy, conversational tone."
     }
 
 REQUIREMENTS:
-1. Generate exactly 3 text drafts.
-2. Draft 1 should be a direct execution of the plan.
-3. Draft 2 should be a more aggressive/confident execution of the plan.
-4. Draft 3 should be a very concise, punchy execution.
-5. Provide a brief conversational "response" introducing the drafts.
-6. Provide an idea for a "supportAsset" (image/video idea to attach).
+1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
+2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
+${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
+4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
+5. Provide an idea for a "supportAsset" (image/video idea to attach).
+6. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
+7. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
+8. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target. Stay concise unless the plan clearly calls for more detail.
+9. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
 
 Respond ONLY with a valid JSON matching this schema:
 {
-  "response": "...",
-  "angles": ["Direct", "Aggressive", "Concise"],
-  "drafts": ["Draft 1 text...", "Draft 2 text...", "Draft 3 text..."],
+  "angle": "...",
+  "draft": "The actual post text...",
   "supportAsset": "...",
-  "whyThisWorks": ["Why 1 works", "Why 2 works", "Why 3 works"],
-  "watchOutFor": ["Risk of 1", "Risk of 2", "Risk of 3"]
+  "whyThisWorks": "...",
+  "watchOutFor": "..."
 }
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({
-    model: "llama-3.3-70b-versatile", // High capability for drafting
-    temperature: 0.6, // Balanced creativity
-    max_tokens: 800,
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    reasoning_effort: "medium",
+    temperature: 0.75,
+    max_tokens: 4096,
     messages: [
       { role: "system", content: instruction },
-      { role: "user", content: "Generate the 3 drafts now." },
+      { role: "user", content: "Generate the draft now." },
     ],
   });
 

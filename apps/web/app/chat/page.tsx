@@ -1,13 +1,17 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useParams } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import { ChevronUp, Check, LogOut, Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
+  getXCharacterLimitForAccount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import {
@@ -18,8 +22,10 @@ import {
   isMetaClarifyingPrompt,
   isThinCoachInput,
 } from "@/lib/onboarding/coachReply";
+import { buildWelcomeFallbackMessage } from "@/lib/agent-v2/welcomeMessage";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
+  XPublicProfile,
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
   ToneCasing,
@@ -32,6 +38,39 @@ interface ValidationError {
   field: string;
   message: string;
 }
+
+interface OnboardingPreviewSuccess {
+  ok: true;
+  account: string;
+  preview: XPublicProfile | null;
+}
+
+interface OnboardingPreviewFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+
+interface OnboardingRunSuccess {
+  ok: true;
+  runId: string;
+}
+
+interface OnboardingRunFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
+
+const CHAT_ONBOARDING_LOADING_STEPS = [
+  "collecting the account...",
+  "reading how they write...",
+  "mapping the growth signals...",
+  "building the workspace...",
+  "locking in the new profile...",
+] as const;
 
 interface CreatorAgentContextSuccess {
   ok: true;
@@ -72,13 +111,25 @@ interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
-    angles: string[];
+    angles: unknown[];
+    quickReplies?: ChatQuickReply[];
+    plan?: {
+      objective: string;
+      angle: string;
+      targetLane: "original" | "reply" | "quote";
+      mustInclude: string[];
+      mustAvoid: string[];
+      hookType: string;
+      pitchResponse: string;
+    } | null;
+    draft?: string | null;
     drafts: string[];
     draftArtifacts: DraftArtifact[];
     supportAsset: string | null;
     outputShape:
     | "coach_question"
     | "ideation_angles"
+    | "planning_outline"
     | "short_form_post"
     | "long_form_post"
     | "thread_seed"
@@ -163,12 +214,31 @@ interface CreatorChatSuccess {
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
+    newThreadId?: string;
+    threadTitle?: string;
     memory?: {
       conversationState: string;
       activeConstraints: string[];
       topicSummary: string | null;
       concreteAnswerCount: number;
       currentDraftArtifactId: string | null;
+      rollingSummary?: string | null;
+      pendingPlan?: {
+        objective: string;
+        angle: string;
+        targetLane: "original" | "reply" | "quote";
+        mustInclude: string[];
+        mustAvoid: string[];
+        hookType: string;
+        pitchResponse: string;
+      } | null;
+      clarificationState?: {
+        branchKey: string;
+        stepKey: string;
+        seedTopic: string | null;
+      } | null;
+      assistantTurnCount?: number;
+      voiceFidelity?: "balanced";
     };
   };
 }
@@ -209,7 +279,10 @@ interface ChatMessage {
   content: string;
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
-  angles?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  angles?: any[];
+  plan?: CreatorChatSuccess["data"]["plan"];
+  draft?: string | null;
   drafts?: string[];
   draftArtifacts?: DraftArtifact[];
   supportAsset?: string | null;
@@ -219,10 +292,11 @@ interface ChatMessage {
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
+  isStreaming?: boolean;
 }
 
 type ChatProviderPreference = "openai" | "groq";
-type ChatIntent = "coach" | "ideate" | "draft" | "review";
+type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review";
 type ChatContentFocus =
   | "project_showcase"
   | "technical_insight"
@@ -231,10 +305,11 @@ type ChatContentFocus =
   | "social_observation";
 
 interface ChatQuickReply {
-  kind: "content_focus" | "example_reply";
+  kind: "content_focus" | "example_reply" | "planner_action" | "clarification_choice";
   value: string;
   label: string;
   suggestedFocus?: ChatContentFocus;
+  explicitIntent?: ChatIntent;
 }
 
 interface ChatStrategyInputs {
@@ -278,6 +353,10 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
+function normalizeAccountHandle(value: string): string {
+  return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
 function inferInitialToneInputs(params: {
   context: CreatorAgentContext;
   contract: CreatorGenerationContract;
@@ -313,6 +392,23 @@ function inferInitialToneInputs(params: {
   return {
     toneCasing: shouldUseLowercase ? "lowercase" : "normal",
     toneRisk: contract.writer.targetRisk,
+  };
+}
+
+function getComposerCharacterLimit(context: CreatorAgentContext | null): number {
+  return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
+}
+
+function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
+  label: string;
+  toneClassName: string;
+} {
+  const usedCharacterCount = computeXWeightedCharacterCount(text);
+  const isNearLimit = usedCharacterCount >= Math.floor(maxCharacterLimit * 0.9);
+
+  return {
+    label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
+    toneClassName: isNearLimit ? "text-red-400" : "text-zinc-500",
   };
 }
 
@@ -437,9 +533,210 @@ function AssistantTypingBubble(props: { status?: string | null }) {
 }
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center bg-black text-white">
+        <div className="animate-pulse text-zinc-500">Loading workspace...</div>
+      </div>
+    }>
+      <ChatPageContent />
+    </Suspense>
+  );
+}
+
+function ChatPageContent() {
+  const { data: session, update: refreshSession } = useSession();
   const searchParams = useSearchParams();
-  const runId = searchParams.get("runId")?.trim() ?? "";
+  const params = useParams();
+  const threadIdRaw = params?.threadId as string | string[] | undefined;
+
+  const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
+
+  const accountName = session?.user?.activeXHandle ?? null;
+
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
+  const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
+
+  // Sidebar Edit States
+  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  const [menuOpenThreadId, setMenuOpenThreadId] = useState<string | null>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [threadToDelete, setThreadToDelete] = useState<{ id: string, title: string } | null>(null);
+  const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
+  const [addAccountInput, setAddAccountInput] = useState("");
+  const [addAccountPreview, setAddAccountPreview] = useState<XPublicProfile | null>(null);
+  const [isAddAccountPreviewLoading, setIsAddAccountPreviewLoading] = useState(false);
+  const [isAddAccountSubmitting, setIsAddAccountSubmitting] = useState(false);
+  const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
+  const [addAccountError, setAddAccountError] = useState<string | null>(null);
+  const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
+  const hasValidAddAccountPreview =
+    Boolean(addAccountPreview) &&
+    normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpenThreadId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!isAddAccountSubmitting) {
+      setAddAccountLoadingStepIndex(0);
+      return;
+    }
+
+    setAddAccountLoadingStepIndex(0);
+    const interval = window.setInterval(() => {
+      setAddAccountLoadingStepIndex((current) =>
+        Math.min(current + 1, CHAT_ONBOARDING_LOADING_STEPS.length - 1),
+      );
+    }, 1200);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isAddAccountSubmitting]);
+
+  useEffect(() => {
+    if (!isAddAccountModalOpen) {
+      setAddAccountPreview(null);
+      setIsAddAccountPreviewLoading(false);
+      return;
+    }
+
+    const trimmed = addAccountInput.trim();
+    if (!trimmed || trimmed.length < 2 || readyAccountHandle) {
+      if (!readyAccountHandle) {
+        setAddAccountPreview(null);
+      }
+      setIsAddAccountPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsAddAccountPreviewLoading(true);
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
+          {
+            method: "GET",
+            signal: controller.signal,
+          },
+        );
+
+        const text = await response.text();
+        let data: OnboardingPreviewResponse | null = null;
+
+        try {
+          data = JSON.parse(text) as OnboardingPreviewResponse;
+        } catch {
+          data = null;
+        }
+
+        if (!response.ok || !data || !data.ok) {
+          setAddAccountPreview(null);
+          return;
+        }
+
+        setAddAccountPreview(data.preview);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        setAddAccountPreview(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsAddAccountPreviewLoading(false);
+        }
+      }
+    }, 650);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [addAccountInput, isAddAccountModalOpen, readyAccountHandle]);
+
+  const handleRenameSubmit = async (threadId: string) => {
+    if (!editingTitle.trim()) {
+      setEditingThreadId(null);
+      return;
+    }
+    const cleanTitle = editingTitle.trim();
+    setChatThreads(current => current.map(t => t.id === threadId ? { ...t, title: cleanTitle } : t));
+    setEditingThreadId(null);
+
+    try {
+      await fetch(`/api/creator/v2/threads/${threadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cleanTitle })
+      });
+    } catch (e) {
+      console.error("Failed to rename thread", e);
+    }
+  };
+
+  const requestDeleteThread = (id: string, title: string) => {
+    setThreadToDelete({ id, title });
+    setMenuOpenThreadId(null);
+  }
+
+  const confirmDeleteThread = async () => {
+    if (!threadToDelete) return;
+
+    const deletingThread = threadToDelete;
+
+    try {
+      const response = await fetch(`/api/creator/v2/threads/${deletingThread.id}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.ok || data?.data?.deleted !== true) {
+        throw new Error("Failed to delete thread");
+      }
+
+      setChatThreads((current) => current.filter((thread) => thread.id !== deletingThread.id));
+
+      if (activeThreadId === deletingThread.id) {
+        setActiveThreadId(null);
+        welcomeFetchedRef.current = false;
+        threadCreatedInSessionRef.current = false;
+        setMessages([]);
+        setDraftInput("");
+        setConversationMemory(null);
+        setActiveDraftEditor(null);
+        setEditorDraftText("");
+        setTypedAssistantLengths({});
+        setErrorMessage(null);
+
+        window.history.replaceState({}, "", "/chat");
+      }
+    } catch (e) {
+      console.error("Failed to delete thread", e);
+      setErrorMessage("Failed to delete the chat. Try again.");
+    } finally {
+      setThreadToDelete(null);
+    }
+  };
+
+  // Guard against double fetching welcome message
+  const welcomeFetchedRef = useRef(false);
+  // Guard against initializeThread re-fetching when we just created a thread in-session
+  const threadCreatedInSessionRef = useRef(false);
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -447,6 +744,49 @@ export default function ChatPage() {
   const [draftInput, setDraftInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountName) return;
+    fetch(`/api/creator/v2/threads?xHandle=${encodeURIComponent(accountName)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok && data.data?.threads) {
+          setChatThreads(data.data.threads);
+        }
+      })
+      .catch(err => console.error("Failed to fetch threads:", err));
+  }, [accountName]);
+
+  const syncThreadTitle = useCallback((threadId: string, title: string) => {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) {
+      return;
+    }
+
+    setChatThreads((current) =>
+      current.map((thread) =>
+        thread.id === threadId
+          ? {
+            ...thread,
+            title: cleanTitle,
+            updatedAt: new Date().toISOString(),
+          }
+          : thread,
+      ),
+    );
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    if (!accountName) return;
+
+    setActiveThreadId(null);
+    welcomeFetchedRef.current = false;
+    threadCreatedInSessionRef.current = false;
+    setMessages([]);
+    setDraftInput("");
+
+    window.history.pushState({}, '', '/chat');
+  }, [accountName]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [providerPreference, setProviderPreference] =
@@ -480,24 +820,181 @@ export default function ChatPage() {
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
     Record<string, number>
   >({});
+  const composerCharacterLimit = useMemo(
+    () => getComposerCharacterLimit(context),
+    [context],
+  );
+  const editorDraftCounter = useMemo(
+    () => getXCharacterCounterMeta(editorDraftText, composerCharacterLimit),
+    [editorDraftText, composerCharacterLimit],
+  );
+  const isVerifiedAccount = Boolean(context?.creatorProfile?.identity?.isVerified);
+
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [availableHandles, setAvailableHandles] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/creator/profile/handles")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && data.data?.handles) {
+          setAvailableHandles(data.data.handles);
+        }
+      })
+      .catch((err) => console.error("Failed to load available handles:", err));
+  }, []);
+
+  const switchActiveHandle = useCallback(async (handle: string) => {
+    if (handle === accountName) return;
+
+    setAccountMenuOpen(false);
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const resp = await fetch("/api/creator/profile/handles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle }),
+      });
+      if (!resp.ok) {
+        throw new Error("Failed to switch handle");
+      }
+
+      // Let reload clear state natively. Reusing load workspace breaks the NextAuth context boundary without a hard reload.
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Could not switch to account @" + handle);
+      setIsLoading(false);
+    }
+  }, [accountName]);
+
+  const closeAddAccountModal = useCallback(() => {
+    if (isAddAccountSubmitting) {
+      return;
+    }
+
+    setIsAddAccountModalOpen(false);
+    setAddAccountInput("");
+    setAddAccountPreview(null);
+    setAddAccountError(null);
+    setReadyAccountHandle(null);
+    setIsAddAccountPreviewLoading(false);
+  }, [isAddAccountSubmitting]);
+
+  const finalizeAddedAccount = useCallback(async () => {
+    if (!readyAccountHandle) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      await refreshSession();
+      closeAddAccountModal();
+      window.location.href = "/chat";
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(`Could not switch to @${readyAccountHandle}`);
+      setIsLoading(false);
+    }
+  }, [closeAddAccountModal, readyAccountHandle, refreshSession]);
+
+  const handleAddAccountSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (readyAccountHandle) {
+      await finalizeAddedAccount();
+      return;
+    }
+
+    if (!normalizedAddAccount) {
+      setAddAccountError("Enter an X username first.");
+      return;
+    }
+
+    if (normalizedAddAccount === accountName) {
+      setAddAccountError("That account is already active.");
+      return;
+    }
+
+    if (isAddAccountPreviewLoading) {
+      setAddAccountError("Wait for the profile preview to finish loading.");
+      return;
+    }
+
+    if (!hasValidAddAccountPreview) {
+      setAddAccountError("Enter an active X account that resolves in preview first.");
+      return;
+    }
+
+    setIsAddAccountSubmitting(true);
+    setAddAccountError(null);
+
+    try {
+      const startedAt = Date.now();
+      const response = await fetch("/api/onboarding/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          account: normalizedAddAccount,
+          goal: "followers",
+          timeBudgetMinutes: 30,
+          tone: { casing: "lowercase", risk: "safe" },
+        }),
+      });
+
+      const data = (await response.json()) as OnboardingRunResponse;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.ok ? "Failed to add account." : (data.errors[0]?.message ?? "Failed to add account."),
+        );
+      }
+
+      const remainingDelay = Math.max(0, 2600 - (Date.now() - startedAt));
+      if (remainingDelay > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingDelay));
+      }
+
+      setAvailableHandles((current) =>
+        current.includes(normalizedAddAccount)
+          ? current
+          : [...current, normalizedAddAccount],
+      );
+      setReadyAccountHandle(normalizedAddAccount);
+    } catch (error) {
+      console.error(error);
+      setAddAccountError(
+        error instanceof Error ? error.message : "Failed to analyze account. Please try again.",
+      );
+    } finally {
+      setIsAddAccountSubmitting(false);
+    }
+  }, [
+    accountName,
+    finalizeAddedAccount,
+    hasValidAddAccountPreview,
+    isAddAccountPreviewLoading,
+    normalizedAddAccount,
+    readyAccountHandle,
+  ]);
 
   const loadWorkspace = useCallback(
     async (
       overrides: ChatStrategyInputs | null = activeStrategyInputs,
       toneOverrides: ChatToneInputs | null = activeToneInputs,
     ): Promise<WorkspaceLoadResult> => {
-      if (!runId) {
-        setErrorMessage("Missing runId. Start from the landing page.");
-        setIsLoading(false);
-        return { ok: false };
-      }
 
       setIsLoading(true);
       setErrorMessage(null);
 
       try {
         const requestBody = {
-          runId,
           ...(overrides ?? {}),
           ...(toneOverrides ?? {}),
         };
@@ -557,7 +1054,7 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, activeToneInputs, runId],
+    [activeStrategyInputs, activeToneInputs, accountName],
   );
 
   useEffect(() => {
@@ -565,7 +1062,7 @@ export default function ChatPage() {
   }, [loadWorkspace]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!accountName) {
       return;
     }
 
@@ -586,7 +1083,7 @@ export default function ChatPage() {
     setPinnedVoicePostIds([]);
     setPinnedEvidencePostIds([]);
     setTypedAssistantLengths({});
-  }, [runId]);
+  }, [accountName]);
 
   useEffect(() => {
     const latestAssistantMessage = [...messages]
@@ -597,10 +1094,12 @@ export default function ChatPage() {
       return;
     }
 
-    const targetLength = latestAssistantMessage.content.length;
-    const currentLength = typedAssistantLengths[latestAssistantMessage.id] ?? 0;
 
-    if (currentLength >= targetLength) {
+
+    const targetLength = latestAssistantMessage.content.length;
+    const currentLength = typedAssistantLengths[latestAssistantMessage.id];
+
+    if (currentLength !== undefined && currentLength >= targetLength) {
       return;
     }
 
@@ -625,7 +1124,7 @@ export default function ChatPage() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [messages, typedAssistantLengths]);
+  }, [messages]);
 
   useEffect(() => {
     if (!backfillJobId) {
@@ -791,39 +1290,25 @@ export default function ChatPage() {
       return [];
     }
 
-    const strategyItems = context.strategyDelta.adjustments.slice(0, 3).map((item) => ({
-      id: `${item.area}-${item.direction}`,
-      label: `${formatEnumLabel(item.direction)} ${formatAreaLabel(item.area)}`,
-      meta: formatEnumLabel(item.priority),
-    }));
-
-    const anchorItems = context.positiveAnchors.slice(0, 3).map((post) => ({
-      id: post.id,
-      label: post.text.length > 50 ? `${post.text.slice(0, 50)}...` : post.text,
-      meta: `${formatEnumLabel(post.lane)} · ${post.goalFitScore}`,
+    const recentItems = chatThreads.slice(0, 10).map((t) => ({
+      id: t.id,
+      label: t.title || "Chat",
+      meta: new Date(t.updatedAt).toLocaleDateString(),
     }));
 
     return [
       {
-        section: "Active",
-        items: [
+        section: "Chats",
+        items: recentItems.length > 0 ? recentItems : [
           {
-            id: "current-workspace",
-            label: contract.planner.primaryAngle,
-            meta: formatEnumLabel(contract.planner.targetLane),
+            id: activeThreadId ?? "current-workspace",
+            label: "New Chat",
+            meta: "Active",
           },
         ],
       },
-      {
-        section: "Strategy",
-        items: strategyItems,
-      },
-      {
-        section: "Anchors",
-        items: anchorItems,
-      },
     ].filter((section) => section.items.length > 0);
-  }, [context, contract]);
+  }, [context, contract, chatThreads, activeThreadId]);
   const selectedDraftArtifact = useMemo(() => {
     if (!activeDraftEditor) {
       return null;
@@ -959,8 +1444,7 @@ export default function ChatPage() {
         options.contentFocusOverride ?? activeContentFocus;
 
       if (
-        !runId ||
-        !resolvedContext ||
+        !resolvedContext?.runId ||
         !resolvedContract ||
         !resolvedStrategyInputs ||
         !resolvedToneInputs ||
@@ -970,7 +1454,7 @@ export default function ChatPage() {
       }
 
       const trimmedPrompt = options.prompt?.trim() ?? "";
-      const resolvedIntent = options.intent ?? "draft";
+      const resolvedIntent = options.intent;
       const hasStructuredIntent =
         !!options.selectedAngle ||
         (resolvedIntent === "coach" &&
@@ -1011,7 +1495,8 @@ export default function ChatPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            runId,
+            runId: resolvedContext.runId,
+            threadId: activeThreadId,
             ...(trimmedPrompt ? { message: trimmedPrompt } : {}),
             history,
             provider: providerPreference,
@@ -1048,6 +1533,8 @@ export default function ChatPage() {
               role: "assistant",
               content: data.data.reply,
               angles: data.data.angles,
+              plan: data.data.plan ?? null,
+              draft: data.data.draft || null,
               drafts: data.data.drafts,
               draftArtifacts: data.data.draftArtifacts,
               supportAsset: data.data.supportAsset,
@@ -1058,27 +1545,29 @@ export default function ChatPage() {
               source: data.data.source,
               model: data.data.model ?? null,
               quickReplies:
-                current.length === 0 &&
-                  !trimmedPrompt &&
-                  !options.selectedAngle
-                  ? [
-                    {
-                      kind: "example_reply",
-                      value: "write a post in my voice",
-                      label: "Write a post in my voice",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "help me figure out what to post about",
-                      label: "Help me figure out what to post",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "analyze my recent posts and tell me what's working",
-                      label: "Analyze my recent posts",
-                    },
-                  ]
-                  : undefined,
+                data.data.quickReplies && data.data.quickReplies.length > 0
+                  ? data.data.quickReplies
+                  : current.length === 0 &&
+                      !trimmedPrompt &&
+                      !options.selectedAngle
+                    ? [
+                      {
+                        kind: "example_reply",
+                        value: "write a post in my voice",
+                        label: "Write a post in my voice",
+                      },
+                      {
+                        kind: "example_reply",
+                        value: "help me figure out what to post about",
+                        label: "Help me figure out what to post",
+                      },
+                      {
+                        kind: "example_reply",
+                        value: "analyze my recent posts and tell me what's working",
+                        label: "Analyze my recent posts",
+                      },
+                    ]
+                    : undefined,
             },
           ]);
 
@@ -1086,6 +1575,37 @@ export default function ChatPage() {
           if (data.data.memory) {
             setConversationMemory(data.data.memory);
           }
+
+          const responseThreadId = data.data.newThreadId ?? activeThreadId;
+          if (responseThreadId && data.data.threadTitle) {
+            syncThreadTitle(responseThreadId, data.data.threadTitle);
+          }
+
+          // Re-map the newly created backend thread if we just instantiated it
+          if (data.data.newThreadId) {
+            const newId = data.data.newThreadId as string;
+            setActiveThreadId(newId);
+            threadCreatedInSessionRef.current = true;
+            window.history.replaceState({}, '', `/chat/${newId}`);
+            setChatThreads((current) => {
+              // If the thread is already in the list (remapping), update it
+              const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
+              if (exists) {
+                return current.map(t =>
+                  t.id === "current-workspace" || t.id === activeThreadId
+                    ? { ...t, id: newId }
+                    : t
+                );
+              }
+              // Otherwise, insert the new thread at the top
+              const newTitle = data.data.threadTitle?.trim() || "New Chat";
+              return [
+                { id: newId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+                ...current
+              ];
+            });
+          }
+
           return;
         }
 
@@ -1154,6 +1674,8 @@ export default function ChatPage() {
             role: "assistant",
             content: streamedResult.reply,
             angles: streamedResult.angles,
+            plan: streamedResult.plan ?? null,
+            draft: streamedResult.draft || null,
             drafts: streamedResult.drafts,
             draftArtifacts: streamedResult.draftArtifacts,
             supportAsset: streamedResult.supportAsset,
@@ -1164,33 +1686,63 @@ export default function ChatPage() {
             source: streamedResult.source,
             model: streamedResult.model ?? null,
             quickReplies:
-              current.length === 0 &&
-                !trimmedPrompt &&
-                !options.selectedAngle
-                ? [
-                  {
-                    kind: "example_reply",
-                    value: "write a post in my voice",
-                    label: "Write a post in my voice",
-                  },
-                  {
-                    kind: "example_reply",
-                    value: "help me figure out what to post about",
-                    label: "Help me figure out what to post",
-                  },
-                  {
-                    kind: "example_reply",
-                    value: "analyze my recent posts and tell me what's working",
-                    label: "Analyze my recent posts",
-                  },
-                ]
-                : undefined,
+              streamedResult.quickReplies && streamedResult.quickReplies.length > 0
+                ? streamedResult.quickReplies
+                : current.length === 0 &&
+                    !trimmedPrompt &&
+                    !options.selectedAngle
+                  ? [
+                    {
+                      kind: "example_reply",
+                      value: "write a post in my voice",
+                      label: "Write a post in my voice",
+                    },
+                    {
+                      kind: "example_reply",
+                      value: "help me figure out what to post about",
+                      label: "Help me figure out what to post",
+                    },
+                    {
+                      kind: "example_reply",
+                      value: "analyze my recent posts and tell me what's working",
+                      label: "Analyze my recent posts",
+                    },
+                  ]
+                  : undefined,
           },
         ]);
 
         // Store returned memory blob from stream
         if (streamedResult.memory) {
           setConversationMemory(streamedResult.memory);
+        }
+
+        const responseThreadId = streamedResult.newThreadId ?? activeThreadId;
+        if (responseThreadId && streamedResult.threadTitle) {
+          syncThreadTitle(responseThreadId, streamedResult.threadTitle);
+        }
+
+        // Re-map the newly created backend thread if we just instantiated it
+        if (streamedResult.newThreadId) {
+          const generatedId = streamedResult.newThreadId;
+          setActiveThreadId(generatedId);
+          threadCreatedInSessionRef.current = true;
+          window.history.replaceState({}, '', `/chat/${generatedId}`);
+          setChatThreads((current) => {
+            const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
+            if (exists) {
+              return current.map(t =>
+                t.id === "current-workspace" || t.id === activeThreadId
+                  ? { ...t, id: generatedId }
+                  : t
+              );
+            }
+            const newTitle = streamedResult.threadTitle?.trim() || "New Chat";
+            return [
+              { id: generatedId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+              ...current
+            ];
+          });
         }
       } catch (error) {
         setErrorMessage(
@@ -1215,7 +1767,9 @@ export default function ChatPage() {
       providerPreference,
       pinnedEvidencePostIds,
       pinnedVoicePostIds,
-      runId,
+      accountName,
+      activeThreadId,
+      syncThreadTitle,
     ],
   );
 
@@ -1223,7 +1777,6 @@ export default function ChatPage() {
     if (
       !context ||
       !contract ||
-      messages.length > 0 ||
       isSending ||
       !activeStrategyInputs ||
       !activeToneInputs
@@ -1231,17 +1784,85 @@ export default function ChatPage() {
       return;
     }
 
-    void requestAssistantReply({
-      appendUserMessage: false,
-      intent: "coach",
-      historySeed: [],
-      strategyInputOverride: activeStrategyInputs,
-      toneInputOverride: activeToneInputs,
-      contentFocusOverride: activeContentFocus,
-      fallbackContext: context,
-      fallbackContract: contract,
-    });
+    const currentContext = context;
+
+    async function initializeThread() {
+      // If we have an active thread, try loading its history
+      if (activeThreadId) {
+        // Skip re-fetch if this thread was just created in the current session
+        if (threadCreatedInSessionRef.current) {
+          return;
+        }
+        try {
+          const res = await fetch(`/api/creator/v2/threads/${activeThreadId}`);
+          const data = await res.json();
+          if (data.ok && data.data?.messages?.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const mappedMessages: ChatMessage[] = data.data.messages.map((m: any) => ({
+              id: m.id,
+              role: m.role as "assistant" | "user",
+              content: m.content,
+              ...(m.data || {}),
+            }));
+            setMessages(mappedMessages);
+            return;
+          }
+        } catch (e) {
+          console.error("Failed to fetch historical messages", e);
+        }
+      }
+
+      // If no history was loaded, and the screen is blank, fetch the Welcome message
+      if (messages.length === 0) {
+        if (welcomeFetchedRef.current) return;
+        welcomeFetchedRef.current = true;
+        const resolvedWelcomeAccount = accountName ?? currentContext.account ?? "there";
+        const fallbackWelcome = buildWelcomeFallbackMessage({
+          accountName: resolvedWelcomeAccount,
+          creatorProfile: currentContext.creatorProfile,
+        });
+
+        try {
+          setMessages([{
+            id: `assistant-welcome-loading`,
+            role: "assistant",
+            content: "",
+            isStreaming: true, // Show typing indicator
+          }]);
+
+          const res = await fetch(`/api/creator/v2/chat/welcome?runId=${currentContext.runId}&account=${encodeURIComponent(resolvedWelcomeAccount)}`);
+          const data = await res.json();
+
+          if (data.ok && data.data?.response) {
+            setMessages([{
+              id: `assistant-welcome-${Date.now()}`,
+              role: "assistant",
+              content: data.data.response,
+            }]);
+          } else {
+            // Fallback if the LLM fails
+            setMessages([{
+              id: `assistant-welcome-fallback`,
+              role: "assistant",
+              content: fallbackWelcome,
+            }]);
+          }
+        } catch (err) {
+          console.error("Failed to fetch welcome message", err);
+          setMessages([{
+            id: `assistant-welcome-fallback`,
+            role: "assistant",
+            content: fallbackWelcome,
+          }]);
+        }
+      }
+    }
+
+    void initializeThread();
   }, [
+    accountName,
+    activeThreadId,
+    searchParams,
     activeContentFocus,
     activeStrategyInputs,
     activeToneInputs,
@@ -1249,7 +1870,6 @@ export default function ChatPage() {
     contract,
     isSending,
     messages.length,
-    requestAssistantReply,
   ]);
 
   const handleAngleSelect = useCallback(
@@ -1280,7 +1900,7 @@ export default function ChatPage() {
   );
 
   const handleQuickReplySelect = useCallback(
-    (quickReply: ChatQuickReply) => {
+    async (quickReply: ChatQuickReply) => {
       if (isSending) {
         return;
       }
@@ -1292,6 +1912,24 @@ export default function ChatPage() {
         return;
       }
 
+      if (quickReply.explicitIntent) {
+        if (!activeStrategyInputs || !activeToneInputs) {
+          setErrorMessage("The planning model is still loading.");
+          return;
+        }
+
+        await requestAssistantReply({
+          prompt: quickReply.value,
+          displayUserMessage: quickReply.label,
+          appendUserMessage: true,
+          intent: quickReply.explicitIntent,
+          strategyInputOverride: activeStrategyInputs,
+          toneInputOverride: activeToneInputs,
+          contentFocusOverride: activeContentFocus,
+        });
+        return;
+      }
+
       if (quickReply.suggestedFocus) {
         setActiveContentFocus(quickReply.suggestedFocus);
       }
@@ -1299,7 +1937,13 @@ export default function ChatPage() {
       setDraftInput(quickReply.value);
       setErrorMessage(null);
     },
-    [isSending],
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      activeToneInputs,
+      isSending,
+      requestAssistantReply,
+    ],
   );
 
   async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1326,26 +1970,29 @@ export default function ChatPage() {
     });
   }
 
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+
+      if (
+        !context ||
+        !contract ||
+        !activeStrategyInputs ||
+        !activeToneInputs ||
+        !draftInput.trim() ||
+        isSending
+      ) {
+        return;
+      }
+      void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
+    }
+  };
+
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
-      {showDevTools ? (
-        <div className="fixed bottom-24 right-4 z-20 md:bottom-6">
-          <button
-            type="button"
-            onClick={() =>
-              setProviderPreference((current) =>
-                current === "openai" ? "groq" : "openai",
-              )
-            }
-            className="rounded-full border border-white/10 bg-black/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur-xl transition hover:bg-white/[0.04]"
-          >
-            Provider: {providerPreference === "openai" ? "OpenAI" : "Groq"}
-          </button>
-        </div>
-      ) : null}
 
       <div className="relative flex h-full min-h-0">
         <aside
@@ -1408,6 +2055,7 @@ export default function ChatPage() {
           <div className="px-3 pt-3">
             <button
               type="button"
+              onClick={handleNewChat}
               className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-left transition hover:bg-white/[0.03] ${sidebarOpen ? "justify-start" : "justify-center"
                 }`}
             >
@@ -1427,18 +2075,92 @@ export default function ChatPage() {
                       {section.section}
                     </p>
                     {section.items.map((item) => (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
-                        className="block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03]"
+                        className="relative"
+                        onMouseEnter={() => setHoveredThreadId(item.id)}
+                        onMouseLeave={() => setHoveredThreadId(null)}
                       >
-                        <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
-                          {item.label}
-                        </span>
-                        <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                          {item.meta}
-                        </span>
-                      </button>
+                        {editingThreadId === item.id ? (
+                          <div className={`flex w-full items-center rounded-2xl px-2 py-2 ${activeThreadId === item.id ? "bg-white/[0.04]" : "hover:bg-white/[0.03]"}`}>
+                            <input
+                              autoFocus
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleRenameSubmit(item.id);
+                                if (e.key === "Escape") setEditingThreadId(null);
+                              }}
+                              onBlur={() => handleRenameSubmit(item.id)}
+                              className="w-full bg-transparent text-sm leading-6 text-zinc-200 outline-none"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (section.section === "Chats" && item.id !== "current-workspace") {
+                                setActiveThreadId(item.id);
+                                window.history.pushState({}, '', `/chat/${item.id}`);
+                              }
+                            }}
+                            className={`group block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 pr-4">
+                                <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
+                                  {item.label}
+                                </span>
+                                <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                  {item.meta}
+                                </span>
+                              </div>
+
+                              {section.section === "Chats" && item.id !== "current-workspace" && (hoveredThreadId === item.id || menuOpenThreadId === item.id) && (
+                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? menuRef : null}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
+                                    }}
+                                    className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-white"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </button>
+
+                                  {menuOpenThreadId === item.id && (
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-32 rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-xl">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingTitle(item.label);
+                                          setEditingThreadId(item.id);
+                                          setMenuOpenThreadId(null);
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/10 hover:text-white"
+                                      >
+                                        <Edit3 className="h-3 w-3" />
+                                        Rename
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          requestDeleteThread(item.id, item.label);
+                                        }}
+                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ))}
@@ -1449,7 +2171,13 @@ export default function ChatPage() {
                   <button
                     key={item.id}
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                    onClick={() => {
+                      if (item.id !== "current-workspace") {
+                        setActiveThreadId(item.id);
+                        window.history.pushState({}, '', `/chat/${item.id}`);
+                      }
+                    }}
+                    className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.03] text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500 transition hover:bg-white/[0.05] hover:text-white ${activeThreadId === item.id ? "ring-1 ring-white/20" : ""}`}
                     title={item.label}
                   >
                     {item.label.slice(0, 2)}
@@ -1459,19 +2187,96 @@ export default function ChatPage() {
             )}
           </div>
 
-          <div className="border-t border-white/10 px-3 py-4">
-            {sidebarOpen && context ? (
-              <div className="rounded-2xl border border-white/10 px-3 py-3">
-                <p className="text-sm font-semibold text-white">@{context.account}</p>
-                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                </p>
-              </div>
+          <div className="relative border-t border-white/10 px-3 py-4">
+            {sidebarOpen ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                  className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black text-sm font-bold overflow-hidden">
+                      {context?.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${accountName} profile photo`}
+                        />
+                      ) : (
+                        accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"
+                      )}
+                    </div>
+                    <div className="flex flex-col items-start overflow-hidden text-left">
+                      <span className="truncate text-xs font-semibold text-zinc-100 w-full">
+                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
+                      </span>
+                      {accountName ? (
+                        <span className="truncate text-[10px] text-zinc-500 w-full">
+                          {session?.user?.email ?? ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
+                </button>
+
+                {accountMenuOpen && (
+                  <div className="absolute bottom-[calc(100%+8px)] left-2 right-2 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl">
+                    <div className="max-h-[200px] overflow-y-auto px-1 py-1">
+                      <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                        X Accounts
+                      </p>
+                      {availableHandles.map((handleStr) => (
+                        <button
+                          key={handleStr}
+                          onClick={() => switchActiveHandle(handleStr)}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                        >
+                          <span className="truncate">@{handleStr}</span>
+                          {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          setIsAddAccountModalOpen(true);
+                          setAddAccountError(null);
+                          setReadyAccountHandle(null);
+                        }}
+                        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>Add Account</span>
+                      </button>
+                    </div>
+
+                    <div className="my-1 h-px bg-white/10" />
+
+                    <div className="px-1 py-1">
+                      <button
+                        onClick={() => signOut({ callbackUrl: "/" })}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        <span>Sign out</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="flex justify-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-sm font-semibold text-white">
-                  {context?.account.slice(0, 2).toUpperCase() ?? "X"}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black text-sm font-bold transition hover:opacity-80"
+                  aria-label="Open account menu"
+                >
+                  {accountName?.slice(0, 1).toUpperCase() ?? session?.user?.email?.slice(0, 1).toUpperCase() ?? "X"}
+                </button>
               </div>
             )}
           </div>
@@ -1508,7 +2313,7 @@ export default function ChatPage() {
           </header>
 
           <section className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 pb-32 pt-8 sm:px-6 sm:pb-24">
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
@@ -1519,7 +2324,7 @@ export default function ChatPage() {
                     </div>
                   ) : null}
 
-                  {messages.map((message) => (
+                  {messages.map((message, index) => (
                     <div
                       key={message.id}
                       className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
@@ -1545,7 +2350,9 @@ export default function ChatPage() {
                         )}
                       </p>
 
-                      {message.role === "assistant" && message.quickReplies?.length ? (
+                      {message.role === "assistant" &&
+                        message.quickReplies?.length &&
+                        index === messages.length - 1 ? (
                         <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
                           {message.quickReplies.map((quickReply) => (
                             <button
@@ -1566,30 +2373,36 @@ export default function ChatPage() {
                       {message.role === "assistant" &&
                         message.outputShape !== "coach_question" &&
                         message.angles?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.angles.map((angle, index) => (
-                            <div
-                              key={`${message.id}-angle-${index}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Angle {index + 1}
-                              </p>
-                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {angle}
-                              </p>
+                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                          {message.angles.map((angle, index) => {
+                            // Support both old string[] and new structured IdeaSchema objects
+                            const isStructured = typeof angle === "object" && angle !== null;
+                            const title = isStructured ? (angle as Record<string, string>).title : angle as string;
+                            const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
+                            const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
+
+                            // Old formats parsing
+                            const premise = isStructured ? (angle as Record<string, string>).premise : null;
+                            const format = isStructured ? (angle as Record<string, string>).format : null;
+
+                            return (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  void handleAngleSelect(angle);
-                                }}
-                                disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                                className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                onClick={() => setDraftInput(`> ${title}\n\n`)}
+                                key={`${message.id}-angle-${index}`}
+                                className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
                               >
-                                Turn Into Drafts
+                                <div className="flex items-start gap-3">
+                                  <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
+                                  <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
+                                    {title}
+                                  </p>
+                                </div>
                               </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : null}
 
@@ -1628,26 +2441,151 @@ export default function ChatPage() {
                         </div>
                       ) : null}
 
-                      {message.role === "assistant" &&
-                        message.outputShape !== "coach_question" &&
-                        !message.draftArtifacts?.length &&
-                        message.drafts?.length ? (
-                        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                          {message.drafts.map((draft, index) => (
-                            <div
-                              key={`${message.id}-draft-${index}`}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                            >
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Draft {index + 1}
-                              </p>
-                              <p className="mt-2 whitespace-pre-wrap leading-7 text-zinc-100">
-                                {draft}
-                              </p>
+                      {message.plan ? (
+                        <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4 text-left">
+                          <div className="mb-3 flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-[10px] text-blue-400">
+                              S
+                            </span>
+                            <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                              Strategy Outline
+                            </span>
+                          </div>
+                          <div className="space-y-4">
+                            <div>
+                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Objective</span>
+                              <p className="mt-0.5 text-[14px] leading-snug text-zinc-300">{message.plan.objective}</p>
                             </div>
-                          ))}
+                            <div>
+                              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Angle</span>
+                              <p className="mt-0.5 text-[15px] font-medium leading-snug text-white">{message.plan.angle}</p>
+                            </div>
+                            <div className="flex gap-6">
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider text-zinc-500">Lane</span>
+                                <p className="mt-0.5 text-[13px] text-zinc-400 capitalize">{message.plan.targetLane}</p>
+                              </div>
+                              {message.plan.hookType && (
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Hook Trigger</span>
+                                  <p className="mt-0.5 text-[13px] text-zinc-400">{message.plan.hookType}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ) : null}
+
+                      {message.role === "assistant" &&
+                        message.outputShape !== "coach_question" &&
+                        message.draft ? (() => {
+                          const username = context?.creatorProfile?.identity?.username || "user";
+                          const displayName = context?.creatorProfile?.identity?.displayName || username;
+                          const avatarUrl = context?.avatarUrl || null;
+                          const isEditing = activeDraftEditor?.messageId === message.id;
+                          const draftCounter = getXCharacterCounterMeta(
+                            isEditing ? editorDraftText : message.draft || "",
+                            composerCharacterLimit,
+                          );
+                          return (
+                            <div className="mt-4 border-t border-white/10 pt-4">
+                              {/* X Post Card */}
+                              <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-4">
+                                {/* Header: avatar + name + handle */}
+                                <div className="flex items-start gap-3">
+                                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                    {avatarUrl ? (
+                                      <div
+                                        className="h-full w-full bg-cover bg-center"
+                                        style={{ backgroundImage: `url(${avatarUrl})` }}
+                                        role="img"
+                                        aria-label={`${displayName} profile photo`}
+                                      />
+                                    ) : (
+                                      displayName.charAt(0)
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-sm font-bold text-white truncate">{displayName}</span>
+                                      {isVerifiedAccount ? (
+                                        <Image
+                                          src="/x-verified.svg"
+                                          alt="Verified account"
+                                          width={16}
+                                          height={16}
+                                          className="h-4 w-4 shrink-0"
+                                        />
+                                      ) : null}
+                                    </div>
+                                    <span className="text-xs text-zinc-500">@{username}</span>
+                                  </div>
+                                </div>
+
+                                {/* Post Content */}
+                                <div className="mt-3">
+                                  {isEditing ? (
+                                    <textarea
+                                      value={editorDraftText}
+                                      onChange={(e) => setEditorDraftText(e.target.value)}
+                                      className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[15px] leading-6 text-white outline-none focus:border-blue-500/40"
+                                      rows={Math.max(6, (editorDraftText.match(/\n/g) || []).length + 3)}
+                                    />
+                                  ) : (
+                                    <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                      {message.draft}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Timestamp */}
+                                <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+                                  <span>Just now</span>
+                                  <span>·</span>
+                                  <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
+                                </div>
+
+                                {/* Divider */}
+                                <div className="mt-3 border-t border-white/[0.06]" />
+
+                                {/* Action Buttons */}
+                                <div className="mt-2 flex items-center justify-between">
+                                  <div className="flex items-center gap-1">
+                                    {/* Edit / Save toggle */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isEditing) {
+                                          setActiveDraftEditor(null);
+                                        } else {
+                                          setActiveDraftEditor({
+                                            messageId: message.id,
+                                            artifactIndex: 0,
+                                          });
+                                          setEditorDraftText(message.draft || "");
+                                        }
+                                      }}
+                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                    >
+                                      {isEditing ? "Done" : "Edit"}
+                                    </button>
+                                    {/* Copy */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const text = isEditing ? editorDraftText : (message.draft || "");
+                                        void navigator.clipboard.writeText(text);
+                                      }}
+                                      className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })() : null}
 
                       {message.role === "assistant" &&
                         message.supportAsset &&
@@ -1701,26 +2639,22 @@ export default function ChatPage() {
                 </>
               )}
             </div>
-          </section>
+          </section >
 
-          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl">
-            <div className="mx-auto w-full max-w-4xl px-4 py-4 sm:px-6">
+          <div className="shrink-0 border-t border-white/10 bg-black/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+            <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
               <form onSubmit={handleComposerSubmit}>
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-3">
-                  <div className="flex items-end gap-3">
-                    <button
-                      type="button"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      +
-                    </button>
-                    <textarea
-                      value={draftInput}
-                      onChange={(event) => setDraftInput(event.target.value)}
-                      placeholder="What are we creating today?"
-                      disabled={isSending || !activeStrategyInputs || !activeToneInputs}
-                      className="min-h-[72px] flex-1 resize-none bg-transparent text-sm font-medium tracking-tight text-white outline-none placeholder:text-zinc-600"
-                    />
+                <div className="relative flex w-full items-end overflow-hidden rounded-[1.5rem] bg-[#1a1a1f] p-2 shadow-[0_0_1px_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.5)] transition-all focus-within:ring-1 focus-within:ring-white/20">
+                  <textarea
+                    value={draftInput}
+                    onChange={(event) => setDraftInput(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder="Send a message..."
+                    disabled={isSending || !activeStrategyInputs || !activeToneInputs}
+                    className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
+                    rows={1}
+                  />
+                  <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
                     <button
                       type="submit"
                       disabled={
@@ -1731,297 +2665,591 @@ export default function ChatPage() {
                         !draftInput.trim() ||
                         isSending
                       }
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:bg-zinc-500"
+                      className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
                       aria-label="Send message"
                     >
-                      {isSending ? "…" : "↑"}
+                      {isSending ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
+                          <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
                     </button>
                   </div>
                 </div>
               </form>
             </div>
           </div>
-        </div>
-      </div>
+        </div >
+      </div >
 
-      {selectedDraftArtifact ? (
-        <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl">
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                  {selectedDraftArtifact.title}
-                </p>
-                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
-                    editorDraftText,
-                  )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
-                    editorDraftText,
-                  ) <= selectedDraftArtifact.maxCharacterLimit
-                    ? "Within Limit"
-                    : "Over Limit"}
-                </p>
+      {
+        selectedDraftArtifact ? (
+          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    {selectedDraftArtifact.title}
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    {formatAreaLabel(selectedDraftArtifact.kind)} · {computeXWeightedCharacterCount(
+                      editorDraftText,
+                    )}/{selectedDraftArtifact.maxCharacterLimit} · {computeXWeightedCharacterCount(
+                      editorDraftText,
+                    ) <= selectedDraftArtifact.maxCharacterLimit
+                      ? "Within Limit"
+                      : "Over Limit"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDraftEditor(null)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                >
+                  Close
+                </button>
               </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <textarea
+                  value={editorDraftText}
+                  onChange={(event) => setEditorDraftText(event.target.value)}
+                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                  placeholder="Draft content"
+                />
+
+                {selectedDraftArtifact.supportAsset ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Visual / Demo Ideas
+                    </p>
+                    <p className="mt-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.supportAsset}
+                    </p>
+                  </div>
+                ) : null}
+
+                {selectedDraftArtifact.betterClosers.length ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Better Closers
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.betterClosers.map((closer, index) => (
+                        <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {selectedDraftArtifact.replyPlan.length ? (
+                  <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Reply Plan
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
+                      {selectedDraftArtifact.replyPlan.map((step, index) => (
+                        <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    Edit the draft here before you use it.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void copyDraftEditor();
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveDraftEditor}
+                      className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        ) : activeDraftEditor && editorDraftText ? (
+          <aside className="absolute inset-y-0 right-0 z-20 w-full border-l border-white/10 bg-black/95 backdrop-blur-xl sm:max-w-xl" >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Post Draft
+                  </p>
+                  <p className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${editorDraftCounter.toneClassName}`}>
+                    {editorDraftCounter.label}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDraftEditor(null)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <textarea
+                  value={editorDraftText}
+                  onChange={(event) => setEditorDraftText(event.target.value)}
+                  className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                  placeholder="Draft content"
+                />
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                    Edit the draft, then copy it to post.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void copyDraftEditor();
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        ) : null
+      }
+
+      {
+        analysisOpen && context ? (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
+            <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
               <button
                 type="button"
-                onClick={() => setActiveDraftEditor(null)}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                onClick={() => setAnalysisOpen(false)}
+                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
               >
                 Close
               </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <textarea
-                value={editorDraftText}
-                onChange={(event) => setEditorDraftText(event.target.value)}
-                className="min-h-[22rem] w-full resize-none rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                placeholder="Draft content"
-              />
-
-              {selectedDraftArtifact.supportAsset ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Visual / Demo Ideas
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
+                    Analysis Drawer
                   </p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.supportAsset}
-                  </p>
+                  <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
+                    The full model stays here.
+                  </h2>
                 </div>
-              ) : null}
 
-              {selectedDraftArtifact.betterClosers.length ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Better Closers
-                  </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.betterClosers.map((closer, index) => (
-                      <li key={`${selectedDraftArtifact.id}-closer-${index}`}>{closer}</li>
-                    ))}
-                  </ul>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatEnumLabel(context.creatorProfile.archetype)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatNicheSummary(context)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
+                    </p>
+                  </div>
+                  <div className="border border-white/10 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {context.readiness.score}
+                    </p>
+                  </div>
                 </div>
-              ) : null}
 
-              {selectedDraftArtifact.replyPlan.length ? (
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.02] px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Reply Plan
-                  </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-7 text-zinc-300">
-                    {selectedDraftArtifact.replyPlan.map((step, index) => (
-                      <li key={`${selectedDraftArtifact.id}-reply-${index}`}>{step}</li>
-                    ))}
-                  </ul>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Strategy Delta
+                    </p>
+                    <p className="mt-3 text-sm font-medium text-white">
+                      {context.strategyDelta.primaryGap}
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
+                        <li key={`${item.area}-${item.direction}`}>
+                          {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Confidence
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      <li>Sample: {context.confidence.sampleSize} posts</li>
+                      <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
+                      <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
+                      <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
+                    </ul>
+                  </div>
                 </div>
-              ) : null}
-            </div>
 
-            <div className="border-t border-white/10 px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                  Edit the draft here before you use it.
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void copyDraftEditor();
-                    }}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveDraftEditor}
-                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200"
-                  >
-                    Save
-                  </button>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="border border-white/10 p-5 md:col-span-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                          Pinned References
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-300">
+                          Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
+                        </p>
+                      </div>
+                      <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        <p>{pinnedVoicePostIds.length} / 2 voice</p>
+                        <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
+                      </div>
+                    </div>
+
+                    <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                      {pinnedReferenceCandidates.map((post) => {
+                        const isVoicePinned = pinnedVoicePostIds.includes(post.id);
+                        const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
+
+                        return (
+                          <li key={post.id} className="border border-white/10 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                                  {formatEnumLabel(post.lane)} | {post.selectionReason}
+                                </p>
+                                <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
+                                  {post.text}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => togglePinnedPostId(post.id, "voice")}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                    }`}
+                                >
+                                  {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => togglePinnedPostId(post.id, "evidence")}
+                                  className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
+                                    ? "border-white/20 bg-white/[0.06] text-white"
+                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
+                                    }`}
+                                >
+                                  {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
+                                </button>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Positive Anchors
+                    </p>
+                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                      {context.positiveAnchors.slice(0, 4).map((post) => (
+                        <li key={post.id} className="border border-white/10 p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                          </p>
+                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="border border-white/10 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                      Negative Anchors
+                    </p>
+                    <ul className="mt-3 space-y-3 text-sm text-zinc-300">
+                      {context.negativeAnchors.slice(0, 4).map((post) => (
+                        <li key={post.id} className="border border-white/10 p-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            {formatEnumLabel(post.lane)} | {post.goalFitScore}
+                          </p>
+                          <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </aside>
-      ) : null}
+        ) : null
+      }
 
-      {analysisOpen && context ? (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 px-4 py-8">
-          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto border border-white/10 bg-black p-6">
-            <button
-              type="button"
-              onClick={() => setAnalysisOpen(false)}
-              className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-            >
-              Close
-            </button>
-
-            <div className="space-y-6">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
-                  Analysis Drawer
-                </p>
-                <h2 className="mt-2 font-mono text-3xl font-semibold text-white">
-                  The full model stays here.
-                </h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatEnumLabel(context.creatorProfile.archetype)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Niche</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatNicheSummary(context)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Loop</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                  </p>
-                </div>
-                <div className="border border-white/10 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {context.readiness.score}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Strategy Delta
-                  </p>
-                  <p className="mt-3 text-sm font-medium text-white">
-                    {context.strategyDelta.primaryGap}
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
-                      <li key={`${item.area}-${item.direction}`}>
-                        {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)} ({formatEnumLabel(item.priority)})
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Confidence
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    <li>Sample: {context.confidence.sampleSize} posts</li>
-                    <li>Needs backfill: {context.confidence.needsBackfill ? "Yes" : "No"}</li>
-                    <li>Evaluation: {context.confidence.evaluationOverallScore}</li>
-                    <li>Anchor quality: {context.anchorSummary.anchorQualityScore ?? "N/A"}</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="border border-white/10 p-5 md:col-span-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                        Pinned References
-                      </p>
-                      <p className="mt-2 text-sm text-zinc-300">
-                        Pin up to 2 posts for voice and 2 for evidence. Voice pins shape tone and phrasing. Evidence pins shape facts, proof, and concrete grounding.
-                      </p>
-                    </div>
-                    <div className="space-y-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      <p>{pinnedVoicePostIds.length} / 2 voice</p>
-                      <p>{pinnedEvidencePostIds.length} / 2 evidence</p>
+      {isAddAccountModalOpen && (
+        <div
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeAddAccountModal();
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-[1.75rem] border border-white/10 bg-zinc-950 shadow-2xl animate-in fade-in zoom-in-95 duration-300"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {isAddAccountSubmitting ? (
+              <div className="px-6 py-8 sm:px-8 sm:py-10">
+                <div className="flex flex-col items-center text-center">
+                  <div className="relative flex h-24 w-24 items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border border-white/10" />
+                    <div className="absolute inset-2 rounded-full border border-white/15 animate-ping" />
+                    <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
+                      {addAccountPreview?.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${addAccountPreview.name} profile photo`}
+                        />
+                      ) : (
+                        (addAccountPreview?.name?.slice(0, 2) || normalizedAddAccount.slice(0, 2) || "X").toUpperCase()
+                      )}
                     </div>
                   </div>
 
-                  <ul className="mt-4 grid gap-3 md:grid-cols-2">
-                    {pinnedReferenceCandidates.map((post) => {
-                      const isVoicePinned = pinnedVoicePostIds.includes(post.id);
-                      const isEvidencePinned = pinnedEvidencePostIds.includes(post.id);
-
-                      return (
-                        <li key={post.id} className="border border-white/10 p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                                {formatEnumLabel(post.lane)} | {post.selectionReason}
-                              </p>
-                              <p className="mt-2 line-clamp-4 text-sm leading-6 text-zinc-300">
-                                {post.text}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 flex-col gap-2">
-                              <button
-                                type="button"
-                                onClick={() => togglePinnedPostId(post.id, "voice")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isVoicePinned
-                                  ? "border-white/20 bg-white/[0.06] text-white"
-                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                              >
-                                {isVoicePinned ? "Voice Pinned" : "Pin Voice"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => togglePinnedPostId(post.id, "evidence")}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${isEvidencePinned
-                                  ? "border-white/20 bg-white/[0.06] text-white"
-                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04]"
-                                  }`}
-                              >
-                                {isEvidencePinned ? "Evidence Pinned" : "Pin Evidence"}
-                              </button>
-                            </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Positive Anchors
+                  <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Mapping Account
                   </p>
-                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                    {context.positiveAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="border border-white/10 p-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                        </p>
-                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="border border-white/10 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                    Negative Anchors
+                  <p className="mt-3 text-lg font-semibold text-white">
+                    @{normalizedAddAccount}
                   </p>
-                  <ul className="mt-3 space-y-3 text-sm text-zinc-300">
-                    {context.negativeAnchors.slice(0, 4).map((post) => (
-                      <li key={post.id} className="border border-white/10 p-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                          {formatEnumLabel(post.lane)} | {post.goalFitScore}
-                        </p>
-                        <p className="mt-2 line-clamp-3 leading-6">{post.text}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    {CHAT_ONBOARDING_LOADING_STEPS[addAccountLoadingStepIndex]}
+                  </p>
+
+                  <div className="mt-6 h-1 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-white transition-all duration-[1200ms] ease-linear"
+                      style={{
+                        width: `${((addAccountLoadingStepIndex + 1) / CHAT_ONBOARDING_LOADING_STEPS.length) * 100}%`,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
+            ) : (
+              <form onSubmit={handleAddAccountSubmit} className="px-6 py-6 sm:px-8 sm:py-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Add X Account
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">
+                      Pull another profile into this workspace
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-zinc-400">
+                      Preview the account, run the scrape, then switch over without leaving chat.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeAddAccountModal}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <span className="mr-2 text-lg font-medium text-zinc-600">@</span>
+                    <input
+                      value={addAccountInput}
+                      onChange={(event) => {
+                        if (readyAccountHandle) {
+                          return;
+                        }
+                        setAddAccountInput(event.target.value);
+                        setAddAccountError(null);
+                      }}
+                      placeholder="username"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      disabled={Boolean(readyAccountHandle)}
+                      className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed disabled:text-zinc-500"
+                      aria-label="Add X account"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      isAddAccountSubmitting ||
+                      (!readyAccountHandle &&
+                        (!hasValidAddAccountPreview || isAddAccountPreviewLoading || !normalizedAddAccount))
+                    }
+                    className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {readyAccountHandle
+                      ? `Continue as @${readyAccountHandle}`
+                      : "Analyze Account"}
+                  </button>
+                </div>
+
+                {addAccountError ? (
+                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-rose-400">
+                    {addAccountError}
+                  </p>
+                ) : readyAccountHandle ? (
+                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-emerald-400">
+                    all set. the profile is ready to switch into.
+                  </p>
+                ) : null}
+
+                <div className="mt-5 min-h-[112px]">
+                  {isAddAccountPreviewLoading ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Loading Preview
+                      </p>
+                    </div>
+                  ) : addAccountPreview ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
+                          {addAccountPreview.avatarUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
+                              role="img"
+                              aria-label={`${addAccountPreview.name} profile photo`}
+                            />
+                          ) : (
+                            addAccountPreview.name.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-base font-semibold text-white">
+                              {addAccountPreview.name}
+                            </p>
+                            {addAccountPreview.isVerified ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
+                          </div>
+                          <p className="truncate text-sm text-zinc-500">
+                            @{addAccountPreview.username}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-semibold text-white">
+                            {new Intl.NumberFormat("en-US", {
+                              notation: "compact",
+                              maximumFractionDigits: 1,
+                            }).format(addAccountPreview.followersCount)}
+                          </p>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Followers
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : normalizedAddAccount ? (
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        No Account Found
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        Enter an active X account that resolves in preview first.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/[0.02] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Waiting For Handle
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Type an X username to preview it before you map it into this workspace.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {threadToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-white mb-2">Delete chat?</h3>
+              <p className="text-sm text-zinc-400">
+                This will delete <strong className="text-zinc-200">&quot;{threadToDelete.title}&quot;</strong>.
+              </p>
+            </div>
+            <div className="flex gap-2 border-t border-white/10 bg-zinc-900/50 p-4 justify-end">
+              <button
+                type="button"
+                onClick={() => setThreadToDelete(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteThread}
+                className="rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-500 transition hover:bg-red-500 flex items-center gap-2 hover:text-white"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>
-      ) : null}
-    </main>
+      )}
+    </main >
   );
 }

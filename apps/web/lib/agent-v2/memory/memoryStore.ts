@@ -1,27 +1,246 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
+import type {
+  ClarificationState,
+  ConversationState,
+  StrategyPlan,
+  V2ConversationMemory,
+} from "../contracts/chat";
 
 export interface CreateMemoryArgs {
-  runId: string;
+  runId?: string;
+  threadId?: string;
   userId?: string | null;
 }
 
 export interface UpdateMemoryArgs {
-  runId: string;
+  runId?: string;
+  threadId?: string;
   topicSummary?: string | null;
   activeConstraints?: string[];
   concreteAnswerCount?: number;
   lastDraftArtifactId?: string | null;
+  conversationState?: ConversationState;
+  pendingPlan?: StrategyPlan | null;
+  clarificationState?: ClarificationState | null;
+  rollingSummary?: string | null;
+  assistantTurnCount?: number;
 }
 
-export async function getConversationMemory(runId: string) {
+interface StoredMemoryEnvelope {
+  constraints: string[];
+  conversationState: ConversationState;
+  pendingPlan: StrategyPlan | null;
+  clarificationState: ClarificationState | null;
+  rollingSummary: string | null;
+  assistantTurnCount: number;
+}
+
+function normalizeConversationState(value: unknown): ConversationState {
+  if (
+    value === "collecting_context" ||
+    value === "needs_more_context" ||
+    value === "ready_to_ideate" ||
+    value === "plan_pending_approval" ||
+    value === "draft_ready" ||
+    value === "editing"
+  ) {
+    return value;
+  }
+
+  return "collecting_context";
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function normalizePlan(value: unknown): StrategyPlan | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.objective !== "string" ||
+    typeof record.angle !== "string" ||
+    (record.targetLane !== "original" && record.targetLane !== "reply" && record.targetLane !== "quote") ||
+    typeof record.hookType !== "string" ||
+    typeof record.pitchResponse !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    objective: record.objective,
+    angle: record.angle,
+    targetLane: record.targetLane,
+    mustInclude: normalizeStringArray(record.mustInclude),
+    mustAvoid: normalizeStringArray(record.mustAvoid),
+    hookType: record.hookType,
+    pitchResponse: record.pitchResponse,
+  };
+}
+
+function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => {
+      const kind:
+        | "content_focus"
+        | "example_reply"
+        | "planner_action"
+        | "clarification_choice" =
+        item.kind === "content_focus" ||
+        item.kind === "example_reply" ||
+        item.kind === "planner_action" ||
+        item.kind === "clarification_choice"
+          ? item.kind
+          : "example_reply";
+      const explicitIntent:
+        | "coach"
+        | "ideate"
+        | "plan"
+        | "planner_feedback"
+        | "draft"
+        | "review"
+        | "edit"
+        | "answer_question"
+        | undefined =
+        item.explicitIntent === "coach" ||
+        item.explicitIntent === "ideate" ||
+        item.explicitIntent === "plan" ||
+        item.explicitIntent === "planner_feedback" ||
+        item.explicitIntent === "draft" ||
+        item.explicitIntent === "review" ||
+        item.explicitIntent === "edit" ||
+        item.explicitIntent === "answer_question"
+          ? item.explicitIntent
+          : undefined;
+
+      return {
+        kind,
+        value: typeof item.value === "string" ? item.value : "",
+        label: typeof item.label === "string" ? item.label : "",
+        suggestedFocus: typeof item.suggestedFocus === "string" ? item.suggestedFocus : undefined,
+        explicitIntent,
+      };
+    })
+    .filter((item) => item.value && item.label);
+}
+
+function normalizeClarificationState(value: unknown): ClarificationState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    (record.branchKey !== "vague_draft_request" &&
+      record.branchKey !== "lazy_request" &&
+      record.branchKey !== "plan_reject") ||
+    typeof record.stepKey !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    branchKey: record.branchKey,
+    stepKey: record.stepKey,
+    seedTopic: typeof record.seedTopic === "string" ? record.seedTopic : null,
+    options: normalizeQuickReplies(record.options),
+  };
+}
+
+function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
+  if (Array.isArray(value)) {
+    return {
+      constraints: normalizeStringArray(value),
+      conversationState: "collecting_context",
+      pendingPlan: null,
+      clarificationState: null,
+      rollingSummary: null,
+      assistantTurnCount: 0,
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      constraints: [],
+      conversationState: "collecting_context",
+      pendingPlan: null,
+      clarificationState: null,
+      rollingSummary: null,
+      assistantTurnCount: 0,
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    constraints: normalizeStringArray(record.constraints),
+    conversationState: normalizeConversationState(record.conversationState),
+    pendingPlan: normalizePlan(record.pendingPlan),
+    clarificationState: normalizeClarificationState(record.clarificationState),
+    rollingSummary: typeof record.rollingSummary === "string" ? record.rollingSummary : null,
+    assistantTurnCount:
+      typeof record.assistantTurnCount === "number" && Number.isFinite(record.assistantTurnCount)
+        ? record.assistantTurnCount
+        : 0,
+  };
+}
+
+function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonValue {
+  return {
+    constraints: value.constraints,
+    conversationState: value.conversationState,
+    pendingPlan: value.pendingPlan,
+    clarificationState: value.clarificationState,
+    rollingSummary: value.rollingSummary,
+    assistantTurnCount: value.assistantTurnCount,
+  } as Prisma.InputJsonValue;
+}
+
+export function createConversationMemorySnapshot(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  memory: Record<string, any> | null | undefined,
+): V2ConversationMemory {
+  const envelope = parseMemoryEnvelope(memory?.activeConstraints);
+
+  return {
+    conversationState: envelope.conversationState,
+    activeConstraints: envelope.constraints,
+    topicSummary: typeof memory?.topicSummary === "string" ? memory.topicSummary : null,
+    concreteAnswerCount:
+      typeof memory?.concreteAnswerCount === "number" && Number.isFinite(memory.concreteAnswerCount)
+        ? memory.concreteAnswerCount
+        : 0,
+    currentDraftArtifactId:
+      typeof memory?.lastDraftArtifactId === "string" ? memory.lastDraftArtifactId : null,
+    rollingSummary: envelope.rollingSummary,
+    pendingPlan: envelope.pendingPlan,
+    clarificationState: envelope.clarificationState,
+    assistantTurnCount: envelope.assistantTurnCount,
+    voiceFidelity: "balanced",
+  };
+}
+
+export async function getConversationMemory({ runId, threadId }: { runId?: string, threadId?: string }) {
+  if (!runId && !threadId) return null;
   try {
     const memory = await prisma.conversationMemory.findFirst({
-      where: { runId },
+      where: threadId ? { threadId } : { runId },
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to fetch memory for runId ${runId}:`, error);
+    console.error(`Failed to fetch memory for thread ${threadId} / run ${runId}:`, error);
     return null;
   }
 }
@@ -31,33 +250,60 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
     const memory = await prisma.conversationMemory.create({
       data: {
         runId: args.runId,
+        threadId: args.threadId,
         userId: args.userId,
-        activeConstraints: [] as unknown as Prisma.InputJsonValue,
+        activeConstraints: serializeMemoryEnvelope({
+          constraints: [],
+          conversationState: "collecting_context",
+          pendingPlan: null,
+          clarificationState: null,
+          rollingSummary: null,
+          assistantTurnCount: 0,
+        }),
         concreteAnswerCount: 0,
       },
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to create memory for runId ${args.runId}:`, error);
+    console.error(`Failed to create memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;
   }
 }
 
 export async function updateConversationMemory(args: UpdateMemoryArgs) {
+  if (!args.runId && !args.threadId) return null;
   try {
-    // Find first since runId isn't marked @unique in the prisma schema
     const existing = await prisma.conversationMemory.findFirst({
-      where: { runId: args.runId },
+      where: args.threadId ? { threadId: args.threadId } : { runId: args.runId },
     });
 
     if (!existing) {
-      console.warn(`Attempted to update non-existent memory for runId ${args.runId}`);
+      console.warn(`Attempted to update non-existent memory for thread ${args.threadId} / run ${args.runId}`);
       return null;
     }
 
-    const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {};
+    const existingSnapshot = createConversationMemorySnapshot(existing as unknown as Record<string, unknown>);
+    const nextEnvelope: StoredMemoryEnvelope = {
+      constraints: args.activeConstraints ?? existingSnapshot.activeConstraints,
+      conversationState: args.conversationState ?? existingSnapshot.conversationState,
+      pendingPlan:
+        args.pendingPlan === undefined ? existingSnapshot.pendingPlan : args.pendingPlan,
+      clarificationState:
+        args.clarificationState === undefined
+          ? existingSnapshot.clarificationState
+          : args.clarificationState,
+      rollingSummary:
+        args.rollingSummary === undefined ? existingSnapshot.rollingSummary : args.rollingSummary,
+      assistantTurnCount:
+        args.assistantTurnCount === undefined
+          ? existingSnapshot.assistantTurnCount
+          : args.assistantTurnCount,
+    };
+
+    const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {
+      activeConstraints: serializeMemoryEnvelope(nextEnvelope),
+    };
     if (args.topicSummary !== undefined) dataToUpdate.topicSummary = args.topicSummary;
-    if (args.activeConstraints !== undefined) dataToUpdate.activeConstraints = args.activeConstraints as unknown as Prisma.InputJsonValue;
     if (args.concreteAnswerCount !== undefined) dataToUpdate.concreteAnswerCount = args.concreteAnswerCount;
     if (args.lastDraftArtifactId !== undefined) dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
 
@@ -67,7 +313,7 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
     });
     return memory;
   } catch (error) {
-    console.error(`Failed to update memory for runId ${args.runId}:`, error);
+    console.error(`Failed to update memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;
   }
 }
