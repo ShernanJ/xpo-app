@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  DragEvent,
   FormEvent,
   Fragment,
   KeyboardEvent,
@@ -15,7 +16,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, List, LogOut, MoreVertical, Plus, Settings2, Smile, Trash2, Type } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -180,6 +181,55 @@ interface PreferencesFailure {
 }
 
 type PreferencesResponse = PreferencesSuccess | PreferencesFailure;
+
+type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
+
+interface FeedbackAttachmentPayload {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "pending_upload";
+}
+
+interface FeedbackSubmitSuccess {
+  ok: true;
+  data: {
+    id: string;
+    createdAt: string;
+    profileId: string;
+  };
+}
+
+interface FeedbackSubmitFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type FeedbackSubmitResponse = FeedbackSubmitSuccess | FeedbackSubmitFailure;
+
+interface FeedbackHistoryItem {
+  id: string;
+  createdAt: string;
+  category: FeedbackCategory;
+  title?: string | null;
+  message: string;
+  attachments: FeedbackAttachmentPayload[];
+}
+
+interface FeedbackHistorySuccess {
+  ok: true;
+  data: {
+    submissions: FeedbackHistoryItem[];
+  };
+}
+
+interface FeedbackHistoryFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type FeedbackHistoryResponse = FeedbackHistorySuccess | FeedbackHistoryFailure;
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -494,6 +544,262 @@ const HERO_QUICK_ACTIONS = [
 ] as const;
 const HERO_EXIT_TRANSITION_MS = 720;
 const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
+const FEEDBACK_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const FEEDBACK_MAX_FILES = 6;
+const FEEDBACK_SUPPORTED_FILE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "video/mp4",
+]);
+
+interface FeedbackCategoryConfig {
+  label: string;
+  helper: string;
+  defaultTitle: string;
+  template: string;
+  exampleTitle: string;
+  exampleBody: string;
+}
+
+const FEEDBACK_CATEGORY_ORDER: FeedbackCategory[] = [
+  "feedback",
+  "feature_request",
+  "bug_report",
+];
+
+const FEEDBACK_CATEGORY_CONFIG: Record<FeedbackCategory, FeedbackCategoryConfig> = {
+  feature_request: {
+    label: "Feature Request",
+    helper: "Share the missing workflow and why it matters in your day-to-day.",
+    defaultTitle: "Feature request",
+    template:
+      "**🚧 Problem:**\nWhat slows you down right now?\n\n**✨ Requested feature:**\nWhat should happen instead?\n\n**📈 Expected impact:**\nHow this would improve your workflow or outcomes.",
+    exampleTitle: "Good example",
+    exampleBody:
+      "Problem: when i'm refining drafts, i keep opening each card to compare versions and lose context.\n\nRequested feature: add an inline diff toggle in the draft editor that shows added/removed lines between the selected version and current version.\n\nExpected impact: i'd ship revisions faster because i can compare changes in one view without bouncing around the thread.",
+  },
+  feedback: {
+    label: "Feedback",
+    helper: "Tell us what feels good and what still feels off in normal use.",
+    defaultTitle: "Feedback",
+    template:
+      "**✅ What worked well:**\n\n**🤔 What felt confusing or slow:**\n\n**🛠️ Suggested improvement:**\n\n**📝 Anything else:**",
+    exampleTitle: "Good example",
+    exampleBody:
+      "What worked well: the new growth guide is way easier to skim.\n\nWhat felt confusing or slow: evidence cards in profile analysis all look the same at first glance.\n\nSuggested improvement: add one-line labels that explain each card's unique signal before the post text.\n\nAnything else: i'm using this mostly on laptop + devtools split view.",
+  },
+  bug_report: {
+    label: "Bug Report",
+    helper: "Include repro steps + expected vs actual so we can fix it quickly.",
+    defaultTitle: "Bug report",
+    template:
+      "**🐞 Summary:**\n\n**🧪 Steps to reproduce:**\n1.\n2.\n3.\n\n**✅ Expected result:**\n\n**❌ Actual result:**\n\n**📊 Frequency / impact:**",
+    exampleTitle: "Good example",
+    exampleBody:
+      "Summary: draft editor jumps to 1/1 after pressing Back once.\n\nSteps to reproduce:\n1. open a draft with at least 3 versions.\n2. press Back in the version navigator.\n3. try pressing Forward.\n\nExpected result: forward returns to the newer version.\n\nActual result: it shows 1/1 and forward stays disabled.\n\nFrequency / impact: always reproducible. blocks revision workflow.",
+  },
+};
+
+function buildDefaultFeedbackDrafts(): Record<FeedbackCategory, string> {
+  return FEEDBACK_CATEGORY_ORDER.reduce(
+    (acc, category) => {
+      acc[category] = FEEDBACK_CATEGORY_CONFIG[category].template;
+      return acc;
+    },
+    {
+      feature_request: "",
+      feedback: "",
+      bug_report: "",
+    } as Record<FeedbackCategory, string>,
+  );
+}
+
+function buildDefaultFeedbackTitles(): Record<FeedbackCategory, string> {
+  return FEEDBACK_CATEGORY_ORDER.reduce(
+    (acc, category) => {
+      acc[category] = FEEDBACK_CATEGORY_CONFIG[category].defaultTitle;
+      return acc;
+    },
+    {
+      feedback: "",
+      feature_request: "",
+      bug_report: "",
+    } as Record<FeedbackCategory, string>,
+  );
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const kb = sizeBytes / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+function isSupportedFeedbackFile(file: File): boolean {
+  const mimeType = file.type.toLowerCase();
+  if (FEEDBACK_SUPPORTED_FILE_MIME_TYPES.has(mimeType)) {
+    return true;
+  }
+
+  const lowerName = file.name.toLowerCase();
+  return (
+    lowerName.endsWith(".png") ||
+    lowerName.endsWith(".jpg") ||
+    lowerName.endsWith(".jpeg") ||
+    lowerName.endsWith(".mp4")
+  );
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function applyInlineMarkdown(value: string): string {
+  return value
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>',
+    )
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/_([^_\n]+)_/g, "<em>$1</em>")
+    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+}
+
+function renderFeedbackMarkdownToHtml(markdown: string): string {
+  const source = escapeHtml(markdown).replace(/\r\n/g, "\n");
+  const lines = source.split("\n");
+  const html: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (!listType || listItems.length === 0) {
+      listType = null;
+      listItems = [];
+      return;
+    }
+
+    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
+    listType = null;
+    listItems = [];
+  };
+
+  for (const rawLine of lines) {
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine) {
+      flushList();
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmedLine)) {
+      const item = applyInlineMarkdown(trimmedLine.replace(/^[-*]\s+/, ""));
+      if (listType !== "ul") {
+        flushList();
+        listType = "ul";
+      }
+      listItems.push(`<li>${item}</li>`);
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmedLine)) {
+      const item = applyInlineMarkdown(trimmedLine.replace(/^\d+\.\s+/, ""));
+      if (listType !== "ol") {
+        flushList();
+        listType = "ol";
+      }
+      listItems.push(`<li>${item}</li>`);
+      continue;
+    }
+
+    flushList();
+
+    if (/^###\s+/.test(trimmedLine)) {
+      html.push(`<h3>${applyInlineMarkdown(trimmedLine.replace(/^###\s+/, ""))}</h3>`);
+      continue;
+    }
+
+    if (/^##\s+/.test(trimmedLine)) {
+      html.push(`<h2>${applyInlineMarkdown(trimmedLine.replace(/^##\s+/, ""))}</h2>`);
+      continue;
+    }
+
+    if (/^#\s+/.test(trimmedLine)) {
+      html.push(`<h1>${applyInlineMarkdown(trimmedLine.replace(/^#\s+/, ""))}</h1>`);
+      continue;
+    }
+
+    if (/^>\s+/.test(trimmedLine)) {
+      html.push(
+        `<blockquote>${applyInlineMarkdown(trimmedLine.replace(/^>\s+/, ""))}</blockquote>`,
+      );
+      continue;
+    }
+
+    if (/^---+$/.test(trimmedLine)) {
+      html.push("<hr />");
+      continue;
+    }
+
+    html.push(`<p>${applyInlineMarkdown(rawLine)}</p>`);
+  }
+
+  flushList();
+
+  if (html.length === 0) {
+    return "<p>Start typing your feedback…</p>";
+  }
+
+  return html.join("");
+}
+
+function extractFeedbackTemplateFields(text: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const lines = text.split(/\r?\n/);
+  let currentKey: string | null = null;
+  let currentValue: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const normalizedHeading = line.replace(/\*\*/g, "").trim();
+    if (/^[^:]{1,80}:$/.test(normalizedHeading)) {
+      if (currentKey && currentValue.length > 0) {
+        fields[currentKey] = currentValue.join(" ").trim();
+      }
+      currentKey = normalizedHeading.replace(/:$/, "").toLowerCase();
+      currentValue = [];
+      continue;
+    }
+
+    if (!line) {
+      continue;
+    }
+
+    if (currentKey) {
+      currentValue.push(line.replace(/^\d+\.\s*/, ""));
+    }
+  }
+
+  if (currentKey && currentValue.length > 0) {
+    fields[currentKey] = currentValue.join(" ").trim();
+  }
+
+  return fields;
+}
 
 type PlaybookStageKey = "0-1k" | "1k-10k" | "10k-50k" | "50k+";
 type PlaybookTemplateTab = "hook" | "reply" | "thread" | "cta";
@@ -1074,6 +1380,28 @@ function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
 }
 
+function dedupePreserveOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(normalized);
+  }
+
+  return deduped;
+}
+
 function personalizePlaybookTemplateText(params: {
   text: string;
   tab: PlaybookTemplateTab;
@@ -1227,15 +1555,7 @@ function inferInitialToneInputs(params: {
 }): ChatToneInputs {
   const { context, contract } = params;
   const voice = context.creatorProfile.voice;
-  if (context.creatorProfile.identity.isVerified) {
-    return {
-      toneCasing: "normal",
-      toneRisk: contract.writer.targetRisk,
-    };
-  }
-
   const isLongFormCreator =
-    context.creatorProfile.identity.isVerified ||
     contract.planner.outputShape === "long_form_post" ||
     contract.planner.outputShape === "thread_seed" ||
     voice.multiLinePostRate >= 30 ||
@@ -1243,11 +1563,11 @@ function inferInitialToneInputs(params: {
 
   const stronglyLowercaseShortForm =
     voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 72 &&
+    voice.lowercaseSharePercent >= 75 &&
     voice.multiLinePostRate < 35;
   const overwhelminglyLowercaseLongForm =
     voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 95 &&
+    voice.lowercaseSharePercent >= 92 &&
     voice.multiLinePostRate < 10;
   const shouldUseLowercase = isLongFormCreator
     ? overwhelminglyLowercaseLongForm
@@ -1293,13 +1613,13 @@ function isClearlyCasualGreetingProfile(
       voiceSignals,
     );
   const hasCasualSignal =
-    /\b(casual|playful|relaxed|direct|conversational|unfiltered|fun|raw|loose)\b/.test(
+    /\b(casual|playful|relaxed|unfiltered|fun|raw|loose)\b/.test(
       voiceSignals,
     );
   const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
   const isLowercaseHeavy =
     profile.voice.primaryCasing === "lowercase" &&
-    profile.voice.lowercaseSharePercent >= 82;
+    profile.voice.lowercaseSharePercent >= 96;
   const isShortFormLeaning =
     profile.voice.averageLengthBand === "short" ||
     profile.voice.averageLengthBand === "medium";
@@ -1308,7 +1628,11 @@ function isClearlyCasualGreetingProfile(
     return false;
   }
 
-  return hasCasualSignal || hasSlangSignal || (isLowercaseHeavy && isShortFormLeaning);
+  if (profile.identity.isVerified && !hasSlangSignal && !hasCasualSignal) {
+    return false;
+  }
+
+  return hasSlangSignal || hasCasualSignal || (isLowercaseHeavy && isShortFormLeaning);
 }
 
 function buildHeroGreeting(params: {
@@ -1895,12 +2219,6 @@ function buildPlaybookTemplateGroups(
   return groups;
 }
 
-const chatScanlineStyle = {
-  backgroundImage:
-    "linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
-  backgroundSize: "100% 6px",
-};
-
 function formatTypingStatusLabel(status?: string | null): string {
   switch (status) {
     case "Planning the next move.":
@@ -2172,6 +2490,7 @@ function ChatPageContent() {
   const threadCreatedInSessionRef = useRef(false);
   const threadScrollRef = useRef<HTMLElement | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const growthGuideSelectedPlaybookRef = useRef<HTMLElement | null>(null);
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -2236,8 +2555,37 @@ function ChatPageContent() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] =
+    useState<FeedbackCategory>("feedback");
+  const [feedbackTitlesByCategory, setFeedbackTitlesByCategory] = useState<
+    Record<FeedbackCategory, string>
+  >(() => buildDefaultFeedbackTitles());
+  const [feedbackDraftsByCategory, setFeedbackDraftsByCategory] = useState<
+    Record<FeedbackCategory, string>
+  >(() => buildDefaultFeedbackDrafts());
+  const [feedbackImages, setFeedbackImages] = useState<
+    Array<{
+      id: string;
+      file: File;
+      previewUrl: string;
+    }>
+  >([]);
+  const [isFeedbackSubmitting, setIsFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitNotice, setFeedbackSubmitNotice] = useState<string | null>(
+    null,
+  );
+  const [isFeedbackDropActive, setIsFeedbackDropActive] = useState(false);
+  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackHistoryItem[]>(
+    [],
+  );
+  const [isFeedbackHistoryLoading, setIsFeedbackHistoryLoading] = useState(false);
+  const feedbackEditorRef = useRef<HTMLTextAreaElement | null>(null);
+  const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
+  const feedbackImagesRef = useRef(feedbackImages);
   const [playbookStage, setPlaybookStage] = useState<PlaybookStageKey>("0-1k");
   const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
+  const [pendingGrowthGuidePlaybookId, setPendingGrowthGuidePlaybookId] = useState<string | null>(null);
   const [playbookTemplateTab, setPlaybookTemplateTab] =
     useState<PlaybookTemplateTab>("hook");
   const [activePlaybookTemplateId, setActivePlaybookTemplateId] = useState<string | null>(null);
@@ -2282,6 +2630,7 @@ function ChatPageContent() {
   const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
+  const [expandedPriorityIndex, setExpandedPriorityIndex] = useState<number | null>(null);
   const [conversationMemory, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
@@ -2348,6 +2697,322 @@ function ChatPageContent() {
 
     return `${weightedCharacterCount}/${characterLimit} chars`;
   }, [activePlaybookTemplate?.text, isVerifiedAccount]);
+  const activeFeedbackTitle = feedbackTitlesByCategory[feedbackCategory] ?? "";
+  const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
+  const activeFeedbackConfig = FEEDBACK_CATEGORY_CONFIG[feedbackCategory];
+  const feedbackPreviewHtml = useMemo(
+    () => renderFeedbackMarkdownToHtml(activeFeedbackDraft),
+    [activeFeedbackDraft],
+  );
+  const feedbackIdentityHandle = useMemo(
+    () => context?.account ?? accountName ?? "unknown",
+    [accountName, context?.account],
+  );
+  const applyFeedbackMarkdownToken = useCallback(
+    (token: "bold" | "italic" | "bullet" | "link") => {
+      const textarea = feedbackEditorRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      const currentText = feedbackDraftsByCategory[feedbackCategory] ?? "";
+      const start = textarea.selectionStart ?? currentText.length;
+      const end = textarea.selectionEnd ?? currentText.length;
+      const selected = currentText.slice(start, end);
+
+      let insertion = "";
+      let nextCursorStart = start;
+      let nextCursorEnd = start;
+
+      if (token === "bold") {
+        const content = selected || "bold text";
+        insertion = `**${content}**`;
+        nextCursorStart = start + 2;
+        nextCursorEnd = nextCursorStart + content.length;
+      } else if (token === "italic") {
+        const content = selected || "italic text";
+        insertion = `*${content}*`;
+        nextCursorStart = start + 1;
+        nextCursorEnd = nextCursorStart + content.length;
+      } else if (token === "bullet") {
+        const content = selected
+          ? selected
+              .split(/\r?\n/)
+              .map((line) => (line.trim() ? `- ${line.trim()}` : "- "))
+              .join("\n")
+          : "- list item";
+        insertion = content;
+        nextCursorStart = start + insertion.length;
+        nextCursorEnd = nextCursorStart;
+      } else {
+        const label = selected || "link text";
+        insertion = `[${label}](https://example.com)`;
+        const urlStart = insertion.indexOf("https://");
+        nextCursorStart = start + urlStart;
+        nextCursorEnd = nextCursorStart + "https://example.com".length;
+      }
+
+      const nextText =
+        currentText.slice(0, start) + insertion + currentText.slice(end);
+      setFeedbackDraftsByCategory((current) => ({
+        ...current,
+        [feedbackCategory]: nextText,
+      }));
+      setFeedbackSubmitNotice(null);
+
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.setSelectionRange(nextCursorStart, nextCursorEnd);
+      });
+    },
+    [feedbackCategory, feedbackDraftsByCategory],
+  );
+  const handleFeedbackEditorKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "b") {
+        event.preventDefault();
+        applyFeedbackMarkdownToken("bold");
+        return;
+      }
+
+      if (key === "i") {
+        event.preventDefault();
+        applyFeedbackMarkdownToken("italic");
+        return;
+      }
+
+      if (key === "k") {
+        event.preventDefault();
+        applyFeedbackMarkdownToken("link");
+      }
+    },
+    [applyFeedbackMarkdownToken],
+  );
+  const feedbackTrackedContextRows = useMemo(
+    () => [
+      `profile: @${context?.account ?? accountName ?? "unknown"}`,
+      `thread: ${activeThreadId ?? "new chat"}`,
+      `surface: chat`,
+      `route: ${activeThreadId ? `/chat/${activeThreadId}` : "/chat"}`,
+    ],
+    [accountName, activeThreadId, context?.account],
+  );
+  const clearFeedbackImages = useCallback(() => {
+    setFeedbackImages((current) => {
+      for (const image of current) {
+        URL.revokeObjectURL(image.previewUrl);
+      }
+      return [];
+    });
+  }, []);
+  const resetFeedbackDrafts = useCallback(() => {
+    clearFeedbackImages();
+    setFeedbackCategory("feedback");
+    setFeedbackTitlesByCategory(buildDefaultFeedbackTitles());
+    setFeedbackDraftsByCategory(buildDefaultFeedbackDrafts());
+    setIsFeedbackDropActive(false);
+    setFeedbackSubmitNotice(null);
+  }, [clearFeedbackImages]);
+  const loadFeedbackHistory = useCallback(async () => {
+    setIsFeedbackHistoryLoading(true);
+
+    try {
+      const response = await fetch("/api/creator/v2/feedback", {
+        method: "GET",
+      });
+      const result: FeedbackHistoryResponse = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(
+          !result.ok
+            ? result.errors[0]?.message || "Failed to load feedback history."
+            : "Failed to load feedback history.",
+        );
+      }
+
+      setFeedbackHistory(result.data.submissions);
+    } catch (error) {
+      console.error("Failed to load feedback history", error);
+      setFeedbackHistory([]);
+    } finally {
+      setIsFeedbackHistoryLoading(false);
+    }
+  }, []);
+  const appendFeedbackImageFiles = useCallback((files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    const supportedFiles = files.filter((file) => isSupportedFeedbackFile(file));
+    if (supportedFiles.length === 0) {
+      setFeedbackSubmitNotice("Only PNG, JPG, or MP4 files are supported.");
+      return;
+    }
+
+    const withinSizeLimitFiles = supportedFiles.filter(
+      (file) => file.size <= FEEDBACK_MAX_FILE_SIZE_BYTES,
+    );
+    if (withinSizeLimitFiles.length === 0) {
+      setFeedbackSubmitNotice(
+        `Files must be ${Math.round(FEEDBACK_MAX_FILE_SIZE_BYTES / (1024 * 1024))} MB or smaller.`,
+      );
+      return;
+    }
+
+    const oversizedCount = supportedFiles.length - withinSizeLimitFiles.length;
+
+    let acceptedCount = 0;
+    setFeedbackImages((current) => {
+      const availableSlots = Math.max(0, FEEDBACK_MAX_FILES - current.length);
+      const nextItems = withinSizeLimitFiles.slice(0, availableSlots).map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      acceptedCount = nextItems.length;
+      return [...current, ...nextItems];
+    });
+    if (acceptedCount === 0) {
+      setFeedbackSubmitNotice(`You can upload up to ${FEEDBACK_MAX_FILES} files.`);
+      return;
+    }
+
+    if (oversizedCount > 0) {
+      setFeedbackSubmitNotice(
+        `${oversizedCount} file${oversizedCount === 1 ? "" : "s"} skipped for exceeding ${Math.round(
+          FEEDBACK_MAX_FILE_SIZE_BYTES / (1024 * 1024),
+        )} MB.`,
+      );
+      return;
+    }
+
+    setFeedbackSubmitNotice(null);
+  }, []);
+  const handleFeedbackImageSelection = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      appendFeedbackImageFiles(Array.from(event.target.files ?? []));
+      event.target.value = "";
+    },
+    [appendFeedbackImageFiles],
+  );
+  const handleFeedbackDropZoneDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isFeedbackDropActive) {
+        setIsFeedbackDropActive(true);
+      }
+    },
+    [isFeedbackDropActive],
+  );
+  const handleFeedbackDropZoneDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsFeedbackDropActive(false);
+    },
+    [],
+  );
+  const handleFeedbackDropZoneDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsFeedbackDropActive(false);
+      appendFeedbackImageFiles(Array.from(event.dataTransfer.files ?? []));
+    },
+    [appendFeedbackImageFiles],
+  );
+  const removeFeedbackImage = useCallback((imageId: string) => {
+    setFeedbackImages((current) => {
+      const next = current.filter((image) => image.id !== imageId);
+      const removed = current.find((image) => image.id === imageId);
+      if (removed) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+  }, []);
+  const submitFeedback = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const message = activeFeedbackDraft.trim();
+      if (!message) {
+        setFeedbackSubmitNotice("Add details before sending.");
+        return;
+      }
+
+      setIsFeedbackSubmitting(true);
+      setFeedbackSubmitNotice(null);
+
+      try {
+        const payload = {
+          category: feedbackCategory,
+          title: activeFeedbackTitle.trim() || null,
+          message,
+          fields: extractFeedbackTemplateFields(activeFeedbackDraft),
+          context: {
+            pagePath: activeThreadId ? `/chat/${activeThreadId}` : "/chat",
+            threadId: activeThreadId,
+            activeModal: "feedback",
+            draftMessageId: activeDraftEditor?.messageId ?? null,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            userAgent: navigator.userAgent,
+            appSurface: "chat",
+          },
+          attachments: feedbackImages.map((image): FeedbackAttachmentPayload => ({
+            id: image.id,
+            name: image.file.name,
+            mimeType: image.file.type || "application/octet-stream",
+            sizeBytes: image.file.size,
+            status: "pending_upload",
+          })),
+        };
+
+        const response = await fetch("/api/creator/v2/feedback", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const result: FeedbackSubmitResponse = await response.json();
+        if (!response.ok || !result.ok) {
+          const fallbackMessage = !result.ok
+            ? result.errors[0]?.message
+            : "Failed to submit feedback.";
+          throw new Error(fallbackMessage || "Failed to submit feedback.");
+        }
+
+        setFeedbackSubmitNotice("Feedback submitted. Thanks for helping improve Xpo.");
+        resetFeedbackDrafts();
+        await loadFeedbackHistory();
+      } catch (error) {
+        const fallbackMessage =
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while submitting feedback.";
+        setFeedbackSubmitNotice(fallbackMessage);
+      } finally {
+        setIsFeedbackSubmitting(false);
+      }
+    },
+    [
+      activeDraftEditor?.messageId,
+      activeFeedbackDraft,
+      activeFeedbackTitle,
+      activeThreadId,
+      feedbackCategory,
+      feedbackImages,
+      loadFeedbackHistory,
+      resetFeedbackDrafts,
+    ],
+  );
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
@@ -2430,6 +3095,23 @@ function ChatPageContent() {
       preferenceBlacklistedTerms.length,
     ],
   );
+  useEffect(() => {
+    feedbackImagesRef.current = feedbackImages;
+  }, [feedbackImages]);
+  useEffect(() => {
+    return () => {
+      for (const image of feedbackImagesRef.current) {
+        URL.revokeObjectURL(image.previewUrl);
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (!feedbackModalOpen) {
+      return;
+    }
+
+    void loadFeedbackHistory();
+  }, [feedbackModalOpen, loadFeedbackHistory]);
 
   useEffect(() => {
     setPlaybookStage(currentPlaybookStage);
@@ -2453,6 +3135,27 @@ function ChatPageContent() {
   useEffect(() => {
     setActivePlaybookTemplateId(personalizedPlaybookTemplates[0]?.id ?? null);
   }, [personalizedPlaybookTemplates]);
+  useEffect(() => {
+    if (
+      !playbookModalOpen ||
+      !pendingGrowthGuidePlaybookId ||
+      activePlaybookId !== pendingGrowthGuidePlaybookId
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      growthGuideSelectedPlaybookRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      setPendingGrowthGuidePlaybookId(null);
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activePlaybookId, pendingGrowthGuidePlaybookId, playbookModalOpen]);
 
   const handleCopyPlaybookTemplate = useCallback(async (template: PlaybookTemplate) => {
     try {
@@ -3121,29 +3824,361 @@ function ChatPageContent() {
     toneInputs,
   ]);
 
-  const pinnedReferenceCandidates = useMemo(() => {
+  const analysisPriorityItems = useMemo(
+    () => context?.strategyDelta.adjustments.slice(0, 3) ?? [],
+    [context],
+  );
+  const analysisFollowerProgress = useMemo(() => {
+    if (!context) {
+      return {
+        currentFollowersLabel: "0",
+        targetFollowersLabel: "1k",
+        progressPercent: 0,
+      };
+    }
+
+    const followers = Math.max(0, context.creatorProfile.identity.followersCount);
+    let stageStart = 0;
+    let stageEnd = 1000;
+    let targetFollowersLabel = "1k";
+
+    switch (currentPlaybookStage) {
+      case "0-1k":
+        stageStart = 0;
+        stageEnd = 1000;
+        targetFollowersLabel = "1k";
+        break;
+      case "1k-10k":
+        stageStart = 1000;
+        stageEnd = 10000;
+        targetFollowersLabel = "10k";
+        break;
+      case "10k-50k":
+        stageStart = 10000;
+        stageEnd = 50000;
+        targetFollowersLabel = "50k";
+        break;
+      case "50k+":
+        stageStart = 50000;
+        stageEnd = 100000;
+        targetFollowersLabel = "100k";
+        break;
+      default:
+        stageStart = 0;
+        stageEnd = 1000;
+        targetFollowersLabel = "1k";
+        break;
+    }
+
+    const rawProgress =
+      stageEnd > stageStart
+        ? ((followers - stageStart) / (stageEnd - stageStart)) * 100
+        : 0;
+
+    return {
+      currentFollowersLabel: new Intl.NumberFormat("en-US").format(followers),
+      targetFollowersLabel,
+      progressPercent: Math.max(0, Math.min(100, rawProgress)),
+    };
+  }, [context, currentPlaybookStage]);
+  const analysisEvidencePosts = useMemo(() => {
     if (!context) {
       return [];
     }
 
     const seen = new Set<string>();
+    const weakIds = new Set<string>([
+      ...context.negativeAnchors.map((post) => post.id),
+      ...context.creatorProfile.examples.cautionExamples.map((post) => post.id),
+      ...context.creatorProfile.examples.goalConflictExamples.map((post) => post.id),
+    ]);
+    const replyIds = new Set<string>(
+      context.creatorProfile.examples.replyVoiceAnchors.map((post) => post.id),
+    );
 
     return [
+      ...context.positiveAnchors,
+      ...context.negativeAnchors,
       ...context.creatorProfile.examples.voiceAnchors,
       ...context.creatorProfile.examples.replyVoiceAnchors,
       ...context.creatorProfile.examples.quoteVoiceAnchors,
       ...context.creatorProfile.examples.bestPerforming,
       ...context.creatorProfile.examples.strategyAnchors,
       ...context.creatorProfile.examples.goalAnchors,
-    ].filter((post) => {
-      if (seen.has(post.id)) {
-        return false;
+      ...context.creatorProfile.examples.cautionExamples,
+      ...context.creatorProfile.examples.goalConflictExamples,
+    ]
+      .filter((post) => {
+        if (seen.has(post.id)) {
+          return false;
+        }
+
+        seen.add(post.id);
+        return true;
+      })
+      .slice(0, 8)
+      .map((post) => {
+        const label = weakIds.has(post.id)
+          ? "Weak anchor"
+          : replyIds.has(post.id) || post.lane === "reply"
+            ? "Reply anchor"
+            : "Strong anchor";
+        const reason =
+          post.selectionReason ||
+          (label === "Weak anchor"
+            ? "xpo flagged this as a pattern to reduce."
+            : label === "Reply anchor"
+              ? "xpo flagged this as a representative reply voice sample."
+              : "xpo flagged this as a strong profile signal to keep.");
+
+        return { ...post, label, reason };
+      });
+  }, [context]);
+  const analysisRecommendedPlaybooks = useMemo(() => {
+    if (!context) {
+      return [] as Array<{
+        stage: PlaybookStageKey;
+        playbook: PlaybookDefinition;
+        whyFit: string;
+      }>;
+    }
+
+    const currentStageIndex = PLAYBOOK_STAGE_ORDER.indexOf(currentPlaybookStage);
+    const stageCandidates: PlaybookStageKey[] = [
+      currentPlaybookStage,
+      PLAYBOOK_STAGE_ORDER[Math.min(PLAYBOOK_STAGE_ORDER.length - 1, currentStageIndex + 1)],
+      PLAYBOOK_STAGE_ORDER[Math.max(0, currentStageIndex - 1)],
+    ].filter((stage): stage is PlaybookStageKey => Boolean(stage));
+
+    const candidatePool: Array<{ stage: PlaybookStageKey; playbook: PlaybookDefinition }> =
+      [];
+    const seen = new Set<string>();
+
+    for (const stage of stageCandidates) {
+      for (const playbook of PLAYBOOK_LIBRARY[stage]) {
+        const key = `${stage}:${playbook.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          candidatePool.push({ stage, playbook });
+        }
+      }
+    }
+
+    if (candidatePool.length < 3) {
+      for (const stage of PLAYBOOK_STAGE_ORDER) {
+        for (const playbook of PLAYBOOK_LIBRARY[stage]) {
+          const key = `${stage}:${playbook.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            candidatePool.push({ stage, playbook });
+          }
+        }
+      }
+    }
+
+    const gapText = `${context.strategyDelta.primaryGap} ${context.strategyDelta.adjustments
+      .map((item) => `${item.area} ${item.note}`)
+      .join(" ")}`.toLowerCase();
+
+    const scorePlaybook = (playbookId: string, stage: PlaybookStageKey): number => {
+      let score = stage === currentPlaybookStage ? 35 : 10;
+
+      if (/\breply|conversation|discovery|reach\b/.test(gapText)) {
+        if (playbookId.includes("reply") || playbookId.includes("network")) {
+          score += 22;
+        }
       }
 
-      seen.add(post.id);
-      return true;
-    }).slice(0, 6);
+      if (/\bformat|topic|position|consisten|identity|clarity\b/.test(gapText)) {
+        if (playbookId.includes("weekly") || playbookId.includes("content-ip")) {
+          score += 18;
+        }
+      }
+
+      if (/\btrust|retention|community|conversion\b/.test(gapText)) {
+        if (playbookId.includes("community") || playbookId.includes("narrative")) {
+          score += 16;
+        }
+      }
+
+      if (/\bproof|story|hook\b/.test(gapText)) {
+        if (playbookId.includes("daily") || playbookId.includes("contrarian")) {
+          score += 14;
+        }
+      }
+
+      return score;
+    };
+
+    const buildWhyFit = (playbook: PlaybookDefinition): string => {
+      if (playbook.id.includes("reply")) {
+        return `your gap is ${context.strategyDelta.primaryGap.toLowerCase()}, and this strengthens discovery from replies.`;
+      }
+      if (playbook.id.includes("weekly") || playbook.id.includes("content-ip")) {
+        return `your current signals need clearer repetition, and this builds a recognizable format.`;
+      }
+      if (playbook.id.includes("network")) {
+        return `you already have a base signal; this helps expand reach through collaboration.`;
+      }
+      if (playbook.id.includes("daily") || playbook.id.includes("contrarian")) {
+        return `this directly sharpens proof and positioning without adding complexity.`;
+      }
+      if (playbook.id.includes("community") || playbook.id.includes("narrative")) {
+        return `this aligns with a trust-first growth path and tighter audience retention.`;
+      }
+      return `this targets the current gap: ${context.strategyDelta.primaryGap.toLowerCase()}.`;
+    };
+
+    return candidatePool
+      .map(({ stage, playbook }) => ({
+        stage,
+        playbook,
+        score: scorePlaybook(playbook.id, stage),
+        whyFit: buildWhyFit(playbook),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }, [context, currentPlaybookStage]);
+  const openGrowthGuideForRecommendation = useCallback(
+    (stage: PlaybookStageKey, playbookId: string) => {
+      setPlaybookStage(stage);
+      setActivePlaybookId(playbookId);
+      setPendingGrowthGuidePlaybookId(playbookId);
+      setAnalysisOpen(false);
+      setPlaybookModalOpen(true);
+    },
+    [],
+  );
+  const analysisDiagnosisSummary = useMemo(() => {
+    if (!context) {
+      return "insufficient data";
+    }
+
+    return `xpo sees a ${formatEnumLabel(context.creatorProfile.archetype).toLowerCase()} in ${formatNicheSummary(
+      context,
+    ).toLowerCase()}. biggest gap: ${context.strategyDelta.primaryGap.toLowerCase()}.`;
   }, [context]);
+  const analysisSnapshotCards = useMemo(() => {
+    if (!context) {
+      return [] as Array<{ label: string; value: string; meta?: string }>;
+    }
+
+    return [
+      {
+        label: "Archetype",
+        value: formatEnumLabel(context.creatorProfile.archetype),
+      },
+      {
+        label: "Niche",
+        value: formatNicheSummary(context),
+      },
+      {
+        label: "Distribution loop",
+        value: formatEnumLabel(context.creatorProfile.distribution.primaryLoop),
+      },
+      {
+        label: "Readiness",
+        value: `${context.readiness.score}`,
+        meta: `sample ${context.confidence.sampleSize} posts`,
+      },
+    ];
+  }, [context]);
+  const analysisVoiceSignalChips = useMemo(() => {
+    if (!context) {
+      return [] as Array<{ label: string; value: string }>;
+    }
+
+    const lowerBoundedMultiLineRate =
+      context.creatorProfile.voice.multiLinePostRate <= 1
+        ? context.creatorProfile.voice.multiLinePostRate * 100
+        : context.creatorProfile.voice.multiLinePostRate;
+    const hasBulletSignal =
+      context.creatorProfile.styleCard.punctuationGuidelines.some(
+        (rule) => rule.includes("-") || rule.includes(">"),
+      ) ||
+      context.creatorProfile.voice.styleNotes.some((note) =>
+        /bullet|list|hyphen|dash|angle/i.test(note),
+      );
+    const topTopic = context.creatorProfile.topics.dominantTopics[0];
+    const topicConsistency = topTopic
+      ? formatEnumLabel(topTopic.stability).toLowerCase()
+      : context.creatorProfile.niche.confidence >= 70
+        ? "high"
+        : context.creatorProfile.niche.confidence >= 45
+          ? "medium"
+          : "low";
+    const lowercaseShare = context.creatorProfile.voice.lowercaseSharePercent;
+    const casingValue =
+      context.creatorProfile.voice.primaryCasing === "lowercase"
+        ? lowercaseShare >= 85
+          ? "lowercase"
+          : "mixed"
+        : lowercaseShare >= 80
+          ? "mixed"
+          : "normal";
+    const ctaRate = context.creatorProfile.execution.ctaUsageRate;
+    const ctaUsageValue =
+      ctaRate >= 25 ? "high" : ctaRate >= 10 ? "medium" : "low";
+
+    return [
+      {
+        label: "casing",
+        value: casingValue,
+      },
+      {
+        label: "typical length",
+        value: context.creatorProfile.voice.averageLengthBand
+          ? formatEnumLabel(context.creatorProfile.voice.averageLengthBand).toLowerCase()
+          : "insufficient data",
+      },
+      {
+        label: "structure",
+        value: hasBulletSignal
+          ? "bullet-friendly"
+          : lowerBoundedMultiLineRate >= 50
+            ? "multi-line"
+            : "single-line",
+      },
+      {
+        label: "cta usage",
+        value: ctaUsageValue,
+      },
+      {
+        label: "topic consistency",
+        value: topicConsistency,
+      },
+    ];
+  }, [context]);
+  const analysisKeepList = useMemo(() => {
+    if (!context) {
+      return [] as string[];
+    }
+
+    return dedupePreserveOrder([
+      ...context.strategyDelta.preserveTraits,
+      ...context.creatorProfile.strategy.currentStrengths,
+      ...context.creatorProfile.playbook.toneGuidelines,
+    ]).slice(0, 5);
+  }, [context]);
+  const analysisAvoidList = useMemo(() => {
+    if (!context) {
+      return [] as string[];
+    }
+
+    return dedupePreserveOrder([
+      ...context.strategyDelta.shiftTraits,
+      ...context.creatorProfile.strategy.currentWeaknesses,
+      ...context.creatorProfile.styleCard.forbiddenPhrases,
+    ]).slice(0, 5);
+  }, [context]);
+
+  useEffect(() => {
+    if (!analysisOpen) {
+      return;
+    }
+
+    setExpandedPriorityIndex(null);
+  }, [analysisOpen, context?.account]);
 
   const sidebarThreads = useMemo(() => {
     if (!context || !contract) {
@@ -4555,10 +5590,6 @@ function ChatPageContent() {
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
-      <div className="pointer-events-none absolute inset-0 opacity-20" style={chatScanlineStyle} />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
-
       <div className="relative flex h-full min-h-0">
         {sidebarOpen ? (
           <button
@@ -4639,6 +5670,17 @@ function ChatPageContent() {
                   >
                     <BookOpen className="h-4 w-4 shrink-0" />
                     <span>Playbook</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedbackSubmitNotice(null);
+                      setFeedbackModalOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
+                  >
+                    <MessageSquareText className="h-4 w-4 shrink-0" />
+                    <span>Feedback</span>
                   </button>
                 </div>
               </div>
@@ -4869,16 +5911,14 @@ function ChatPageContent() {
                 </button>
               </div>
               <div className="flex justify-center">
-                <div className="rounded-full border border-white/10 px-4 py-2">
-                  <Image
-                    src="/xpo-logo-white.svg"
-                    alt="Xpo"
-                    width={846}
-                    height={834}
-                    className="h-5 w-auto"
-                    priority
-                  />
-                </div>
+                <Image
+                  src="/xpo-logo-white.svg"
+                  alt="Xpo"
+                  width={846}
+                  height={834}
+                  className="h-8 w-auto"
+                  priority
+                />
               </div>
               <div className="flex items-center justify-end gap-3">
                 <button
@@ -5757,6 +6797,369 @@ function ChatPageContent() {
       }
 
       {
+        feedbackModalOpen ? (
+          <div
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setFeedbackModalOpen(false);
+              }
+            }}
+          >
+            <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Feedback
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Help us improve Xpo
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                    Choose a category, keep your message in the template, and submit. Switching tabs keeps your draft intact.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFeedbackModalOpen(false)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
+              </div>
+
+              <form onSubmit={submitFeedback} className="flex min-h-0 flex-1 flex-col">
+                <div className="overflow-y-auto px-6 py-6">
+                  <div className="space-y-5">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Message type
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {FEEDBACK_CATEGORY_ORDER.map((category) => {
+                          const Icon =
+                            category === "feature_request"
+                              ? Lightbulb
+                              : category === "bug_report"
+                                ? Bug
+                                : MessageSquareText;
+                          const isActive = feedbackCategory === category;
+                          return (
+                            <button
+                              key={category}
+                              type="button"
+                              onClick={() => setFeedbackCategory(category)}
+                              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                isActive
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                              <span>{FEEDBACK_CATEGORY_CONFIG[category].label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-3 text-xs text-zinc-500">{activeFeedbackConfig.helper}</p>
+                    </div>
+
+                    <div className="grid gap-5 lg:grid-cols-2">
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              Submit your message
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">Markdown compatible.</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => applyFeedbackMarkdownToken("bold")}
+                              className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              aria-label="Insert bold markdown"
+                              title="Bold"
+                            >
+                              B
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyFeedbackMarkdownToken("italic")}
+                              className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] italic text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              aria-label="Insert italic markdown"
+                              title="Italic"
+                            >
+                              i
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyFeedbackMarkdownToken("bullet")}
+                              className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              aria-label="Insert bullet markdown"
+                              title="Bullet list"
+                            >
+                              •
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyFeedbackMarkdownToken("link")}
+                              className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              aria-label="Insert link markdown"
+                              title="Link"
+                            >
+                              🔗
+                            </button>
+                          </div>
+                        </div>
+                        <input
+                          type="text"
+                          value={activeFeedbackTitle}
+                          onChange={(event) => {
+                            const nextTitle = event.target.value;
+                            setFeedbackTitlesByCategory((current) => ({
+                              ...current,
+                              [feedbackCategory]: nextTitle,
+                            }));
+                            setFeedbackSubmitNotice(null);
+                          }}
+                          placeholder={`${activeFeedbackConfig.label} title`}
+                          className="mt-3 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/20"
+                        />
+                        <textarea
+                          ref={feedbackEditorRef}
+                          value={activeFeedbackDraft}
+                          onKeyDown={handleFeedbackEditorKeyDown}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            setFeedbackDraftsByCategory((current) => ({
+                              ...current,
+                              [feedbackCategory]: nextValue,
+                            }));
+                            setFeedbackSubmitNotice(null);
+                          }}
+                          placeholder={activeFeedbackConfig.template}
+                          className="mt-3 min-h-[14rem] w-full resize-y rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600 focus:border-white/20"
+                        />
+                        <p className="mt-2 text-[11px] text-zinc-500">
+                          {activeFeedbackDraft.trim().length} chars
+                        </p>
+
+                        <div
+                          className={`mt-3 rounded-2xl border border-dashed p-4 transition ${
+                            isFeedbackDropActive
+                              ? "border-white/25 bg-white/[0.06]"
+                              : "border-white/10 bg-black/30"
+                          }`}
+                          onClick={() => feedbackFileInputRef.current?.click()}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              feedbackFileInputRef.current?.click();
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onDragOver={handleFeedbackDropZoneDragOver}
+                          onDragLeave={handleFeedbackDropZoneDragLeave}
+                          onDrop={handleFeedbackDropZoneDrop}
+                        >
+                          <div className="flex flex-col items-center justify-center gap-2 text-center">
+                            <ImagePlus className="h-4 w-4 text-zinc-400" />
+                            <p className="text-xs text-zinc-300">
+                              Drag and drop files here, or click to upload
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              Supported files: PNG / JPG / MP4 • Max {Math.round(FEEDBACK_MAX_FILE_SIZE_BYTES / (1024 * 1024))} MB per file
+                            </p>
+                            <input
+                              id="feedback-image-upload"
+                              ref={feedbackFileInputRef}
+                              type="file"
+                              accept=".png,.jpg,.jpeg,.mp4,image/png,image/jpeg,video/mp4"
+                              multiple
+                              onChange={handleFeedbackImageSelection}
+                              className="hidden"
+                            />
+                          </div>
+                        </div>
+
+                        {feedbackImages.length > 0 ? (
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            {feedbackImages.map((image) => (
+                              <div
+                                key={image.id}
+                                className="rounded-2xl border border-white/10 bg-black/30 p-3"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  {image.file.type.toLowerCase() === "video/mp4" ? (
+                                    <video
+                                      src={image.previewUrl}
+                                      className="h-14 w-14 rounded-xl object-cover"
+                                      muted
+                                      playsInline
+                                      preload="metadata"
+                                    />
+                                  ) : (
+                                    <Image
+                                      src={image.previewUrl}
+                                      alt={image.file.name}
+                                      width={56}
+                                      height={56}
+                                      unoptimized
+                                      className="h-14 w-14 rounded-xl object-cover"
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeFeedbackImage(image.id)}
+                                    className="rounded-full border border-white/10 p-1 text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                    aria-label={`Remove ${image.file.name}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                <p className="mt-2 line-clamp-1 text-xs text-zinc-300">
+                                  {image.file.name}
+                                </p>
+                                <p className="text-[11px] text-zinc-500">
+                                  {formatFileSize(image.file.size)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                          Live preview
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                          <span className="text-zinc-300">
+                            Submitting as <span className="font-semibold text-white">{session?.user?.email ?? "email unavailable"}</span>
+                          </span>
+                          <span>•</span>
+                          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-[10px] font-bold text-white uppercase">
+                            {context?.avatarUrl ? (
+                              <div
+                                className="h-full w-full bg-cover bg-center"
+                                style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                                role="img"
+                                aria-label={`${feedbackIdentityHandle} profile photo`}
+                              />
+                            ) : (
+                              feedbackIdentityHandle.charAt(0)
+                            )}
+                          </div>
+                          <span>@{feedbackIdentityHandle}</span>
+                        </div>
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                          {activeFeedbackTitle.trim() ? (
+                            <p className="text-xl font-semibold leading-8 text-white">
+                              {activeFeedbackTitle.trim()}
+                            </p>
+                          ) : null}
+                          <div
+                            className="mt-3 h-[20rem] overflow-y-auto pr-1 space-y-2 text-sm leading-6 text-zinc-200 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-200 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc md:h-[24rem]"
+                            dangerouslySetInnerHTML={{ __html: feedbackPreviewHtml }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                          {activeFeedbackConfig.exampleTitle}
+                        </p>
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                          <p className="whitespace-pre-line text-sm leading-6 text-zinc-200">
+                            {activeFeedbackConfig.exampleBody}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                          Auto-tracked context
+                        </p>
+                        <ul className="mt-3 space-y-2 text-xs text-zinc-400">
+                          {feedbackTrackedContextRows.map((row) => (
+                            <li key={row}>• {row}</li>
+                          ))}
+                          <li>• timestamp: captured server-side on submit</li>
+                          <li>• account + user identity: attached server-side</li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                          Submitted reports
+                        </p>
+                        {isFeedbackHistoryLoading ? (
+                          <span className="text-xs text-zinc-500">Loading…</span>
+                        ) : null}
+                      </div>
+
+                      {feedbackHistory.length > 0 ? (
+                        <div className="mt-4 space-y-3">
+                          {feedbackHistory.map((entry) => (
+                            <article
+                              key={entry.id}
+                              className="rounded-2xl border border-white/10 bg-black/30 p-4"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                                  {FEEDBACK_CATEGORY_CONFIG[entry.category].label}
+                                </span>
+                                <span className="text-[11px] text-zinc-500">
+                                  {new Date(entry.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-sm font-medium text-white">
+                                {entry.title?.trim() || "Untitled report"}
+                              </p>
+                              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                                {entry.message}
+                              </p>
+                              {entry.attachments.length > 0 ? (
+                                <p className="mt-2 text-[11px] text-zinc-500">
+                                  {entry.attachments.length} image
+                                  {entry.attachments.length === 1 ? "" : "s"} attached
+                                </p>
+                              ) : null}
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-4 text-sm text-zinc-500">
+                          No feedback submitted yet for this profile.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
+                  <p className="text-xs text-zinc-500">
+                    {feedbackSubmitNotice ?? "submissions are tracked per profile to improve product quality."}
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={isFeedbackSubmitting || activeFeedbackDraft.trim().length === 0}
+                    className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                  >
+                    {isFeedbackSubmitting ? "Submitting" : "Submit feedback"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null
+      }
+
+      {
         extensionModalOpen ? (
           <div
             className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
@@ -6178,6 +7581,7 @@ function ChatPageContent() {
             onClick={(event) => {
               if (event.target === event.currentTarget) {
                 setPlaybookModalOpen(false);
+                setPendingGrowthGuidePlaybookId(null);
               }
             }}
           >
@@ -6195,7 +7599,10 @@ function ChatPageContent() {
 
                   <button
                     type="button"
-                    onClick={() => setPlaybookModalOpen(false)}
+                    onClick={() => {
+                      setPlaybookModalOpen(false);
+                      setPendingGrowthGuidePlaybookId(null);
+                    }}
                     className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/[0.04]"
                   >
                     Close
@@ -6343,7 +7750,12 @@ function ChatPageContent() {
                   </div>
 
                   {selectedPlaybook ? (
-                    <section className="space-y-4">
+                    <section
+                      ref={(node) => {
+                        growthGuideSelectedPlaybookRef.current = node;
+                      }}
+                      className="space-y-4"
+                    >
                       <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                           <div>
@@ -6686,11 +8098,26 @@ function ChatPageContent() {
                   </p>
 
                 <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlaybookModalOpen(false);
+                      setPendingGrowthGuidePlaybookId(null);
+                      setFeedbackSubmitNotice(null);
+                      setFeedbackModalOpen(true);
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                    aria-label="Open feedback"
+                    title="Feedback"
+                  >
+                    <MessageSquareText className="h-4 w-4" />
+                  </button>
 
                   <button
                     type="button"
                     onClick={() => {
                       setPlaybookModalOpen(false);
+                      setPendingGrowthGuidePlaybookId(null);
                       setAnalysisOpen(true);
                     }}
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
@@ -6727,16 +8154,22 @@ function ChatPageContent() {
                         aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
                       />
                     ) : (
-                      (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
+                      (
+                        context.creatorProfile.identity.displayName ||
+                        context.creatorProfile.identity.username ||
+                        "X"
+                      ).charAt(0)
                     )}
                   </div>
+
                   <div className="min-w-0">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
                       Profile Analysis
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <h2 className="truncate text-2xl font-semibold text-white">
-                        {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
+                        {context.creatorProfile.identity.displayName ||
+                          context.creatorProfile.identity.username}
                       </h2>
                       {isVerifiedAccount ? (
                         <Image
@@ -6747,25 +8180,33 @@ function ChatPageContent() {
                           className="h-[18px] w-[18px] shrink-0"
                         />
                       ) : null}
-                    </div>
-                    <p className="mt-2 text-sm leading-7 text-zinc-400">
-                      xpo sees a{" "}
-                      <span className="font-medium text-zinc-200">
-                        {formatEnumLabel(context.creatorProfile.archetype).toLowerCase()}
-                      </span>{" "}
-                      creator in{" "}
-                      <span className="font-medium text-zinc-200">
-                        {formatNicheSummary(context).toLowerCase()}
-                      </span>{" "}
-                      with a{" "}
-                      <span className="font-medium text-zinc-200">
-                        {formatEnumLabel(context.creatorProfile.distribution.primaryLoop).toLowerCase()}
-                      </span>{" "}
-                      distribution loop. the biggest gap right now is{" "}
-                      <span className="font-medium text-zinc-200">
-                        {context.strategyDelta.primaryGap}
+                      <span className="text-sm text-zinc-500">
+                        @{context.creatorProfile.identity.username}
                       </span>
-                      .
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                        Stage {PLAYBOOK_STAGE_META[currentPlaybookStage].label}
+                      </span>
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                        {PLAYBOOK_STAGE_META[currentPlaybookStage].highlight}
+                      </span>
+                    </div>
+                    <div className="mt-3 max-w-lg">
+                      <div className="flex items-center justify-between text-xs text-zinc-500">
+                        <span>{analysisFollowerProgress.currentFollowersLabel}</span>
+                        <span>{analysisFollowerProgress.targetFollowersLabel}</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full border border-white/10 bg-black/40">
+                        <div
+                          className="h-full rounded-full bg-white/80"
+                          style={{ width: `${analysisFollowerProgress.progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-3 whitespace-normal break-words text-sm leading-7 text-zinc-300">
+                      {analysisDiagnosisSummary}
                     </p>
                   </div>
                 </div>
@@ -6781,184 +8222,394 @@ function ChatPageContent() {
 
               <div className="overflow-y-auto px-6 py-6">
                 <div className="space-y-6">
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Archetype</p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        {formatEnumLabel(context.creatorProfile.archetype)}
+                  <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {analysisSnapshotCards.map((card) => (
+                      <article
+                        key={card.label}
+                        className="rounded-3xl border border-white/10 bg-white/[0.02] p-4"
+                      >
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                          {card.label}
+                        </p>
+                        <p className="mt-2 text-base font-semibold text-white">{card.value}</p>
+                        {card.meta ? (
+                          <p className="mt-1 text-xs text-zinc-500">{card.meta}</p>
+                        ) : null}
+                      </article>
+                    ))}
+                  </section>
+
+                  <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                        Top priorities
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-300">
+                        biggest gap: {context.strategyDelta.primaryGap}
                       </p>
                     </div>
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Niche</p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        {formatNicheSummary(context)}
-                      </p>
-                    </div>
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Loop</p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        {formatEnumLabel(context.creatorProfile.distribution.primaryLoop)}
-                      </p>
-                    </div>
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Readiness</p>
-                      <p className="mt-2 text-lg font-semibold text-white">
-                        {context.readiness.score}
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        sample {context.confidence.sampleSize} posts
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                      <div className="flex items-center gap-3">
-                        <BarChart3 className="h-4 w-4 text-zinc-500" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">What Xpo sees</p>
-                          <p className="text-xs text-zinc-500">Top strategic moves based on recent signals.</p>
-                        </div>
-                      </div>
+                    <div className="mt-4 space-y-2">
+                      {analysisPriorityItems.length > 0 ? (
+                        analysisPriorityItems.slice(0, 3).map((item, index) => {
+                          const isExpanded = expandedPriorityIndex === index;
+                          const severityTone =
+                            item.priority === "high"
+                              ? "border-rose-500/30 text-rose-300"
+                              : item.priority === "medium"
+                                ? "border-amber-500/30 text-amber-300"
+                                : "border-emerald-500/30 text-emerald-300";
 
-                      <ul className="mt-4 space-y-3 text-sm text-zinc-300">
-                        {context.strategyDelta.adjustments.slice(0, 4).map((item) => (
-                          <li
-                            key={`${item.area}-${item.direction}`}
-                            className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-medium text-white">
-                                {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)}
-                              </p>
-                              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                {formatEnumLabel(item.priority)}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                      <div className="flex items-center gap-3">
-                        <Settings2 className="h-4 w-4 text-zinc-500" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">Confidence snapshot</p>
-                          <p className="text-xs text-zinc-500">How strong the current profile read is.</p>
-                        </div>
-                      </div>
-
-                      <ul className="mt-4 space-y-3 text-sm text-zinc-300">
-                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                          <span>Overall evaluation</span>
-                          <span className="font-medium text-white">{context.confidence.evaluationOverallScore}</span>
-                        </li>
-                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                          <span>Anchor quality</span>
-                          <span className="font-medium text-white">{context.anchorSummary.anchorQualityScore ?? "N/A"}</span>
-                        </li>
-                        <li className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                          <span>Needs backfill</span>
-                          <span className="font-medium text-white">{context.confidence.needsBackfill ? "Yes" : "No"}</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                      <div className="flex items-center gap-3">
-                        <Edit3 className="h-4 w-4 text-zinc-500" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">Voice signals</p>
-                          <p className="text-xs text-zinc-500">How this account tends to sound and structure posts.</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {[
-                          ...context.creatorProfile.voice.styleNotes.slice(0, 3),
-                          ...context.creatorProfile.styleCard.signaturePhrases.slice(0, 2),
-                          ...context.creatorProfile.styleCard.preferredOpeners.slice(0, 1),
-                        ]
-                          .filter(Boolean)
-                          .slice(0, 5)
-                          .map((item, index) => (
-                            <span
-                              key={`${item}-${index}`}
-                              className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                          return (
+                            <article
+                              key={`${item.area}-${item.direction}-${index}`}
+                              className="rounded-2xl border border-white/10 bg-black/20"
                             >
-                              {item}
-                            </span>
-                          ))}
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
-                        {context.positiveAnchors[0]?.text ? (
-                          <p className="line-clamp-4 leading-6">{context.positiveAnchors[0].text}</p>
-                        ) : (
-                          <p className="text-zinc-500">Not enough positive anchor data yet.</p>
-                        )}
-                      </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedPriorityIndex((current) =>
+                                    current === index ? null : index,
+                                  )
+                                }
+                                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-white">
+                                    {index + 1}. {formatEnumLabel(item.direction)}{" "}
+                                    {formatAreaLabel(item.area)}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${severityTone}`}
+                                  >
+                                    {formatEnumLabel(item.priority)}
+                                  </span>
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-4 w-4 text-zinc-500" />
+                                  ) : (
+                                    <ChevronDown className="h-4 w-4 text-zinc-500" />
+                                  )}
+                                </div>
+                              </button>
+                              {isExpanded ? (
+                                <div className="border-t border-white/10 px-4 py-3">
+                                  <p className="text-sm leading-6 text-zinc-300">{item.note}</p>
+                                </div>
+                              ) : null}
+                            </article>
+                          );
+                        })
+                      ) : (
+                        <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
+                          insufficient data
+                        </p>
+                      )}
                     </div>
+                  </section>
 
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                      <div className="flex items-center gap-3">
-                        <BookOpen className="h-4 w-4 text-zinc-500" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">What to keep / what to avoid</p>
-                          <p className="text-xs text-zinc-500">Fast reference from strong and weak examples.</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Positive anchor
-                          </p>
-                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
-                            {context.positiveAnchors[1]?.text || context.positiveAnchors[0]?.text || "No standout positive anchor yet."}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Negative anchor
-                          </p>
-                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
-                            {context.negativeAnchors[0]?.text || "No standout negative anchor yet."}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                    <div className="flex items-start justify-between gap-3">
+                  <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center gap-3">
+                      <BookOpen className="h-4 w-4 text-zinc-500" />
                       <div>
-                        <p className="text-sm font-semibold text-white">Reference posts</p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          A quick read on the strongest examples xpo is using to understand this profile.
+                        <p className="text-sm font-semibold text-white">Recommended playbooks for you</p>
+                        <p className="text-xs text-zinc-500">
+                          personalized routes based on your stage + gaps
                         </p>
                       </div>
                     </div>
 
-                    <ul className="mt-4 grid gap-3 lg:grid-cols-2">
-                      {pinnedReferenceCandidates.slice(0, 4).map((post) => (
-                        <li
-                          key={post.id}
-                          className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                        >
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                            {formatEnumLabel(post.lane)} · {post.selectionReason}
+                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                      {analysisRecommendedPlaybooks.length > 0 ? (
+                        analysisRecommendedPlaybooks.map((recommendation, index) => (
+                          <article
+                            key={`${recommendation.stage}-${recommendation.playbook.id}`}
+                            className={`rounded-2xl border p-4 ${
+                              index === 0
+                                ? "border-white/25 bg-white/[0.06]"
+                                : "border-white/10 bg-black/20"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                                {PLAYBOOK_STAGE_META[recommendation.stage].label}
+                              </span>
+                              {index === 0 ? (
+                                <span className="rounded-full border border-white/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+                                  Primary
+                                </span>
+                              ) : (
+                                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                  Alternate
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-3 text-base font-semibold text-white">
+                              {recommendation.playbook.name}
+                            </p>
+                            <p className="mt-1 text-sm text-zinc-400">{recommendation.playbook.outcome}</p>
+                            <p className="mt-3 text-xs text-zinc-300">{recommendation.whyFit}</p>
+
+                            <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                                Start in 15 min
+                              </p>
+                              <ol className="mt-2 space-y-1.5 text-xs text-zinc-300">
+                                {recommendation.playbook.quickStart.slice(0, 3).map((step, stepIndex) => (
+                                  <li key={step} className="leading-5">
+                                    {stepIndex + 1}. {step}
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openGrowthGuideForRecommendation(
+                                  recommendation.stage,
+                                  recommendation.playbook.id,
+                                )
+                              }
+                              className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                            >
+                              <span>Open in Growth Guide</span>
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            </button>
+                          </article>
+                        ))
+                      ) : (
+                        <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
+                          insufficient data
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="grid gap-4 xl:grid-cols-2">
+                    <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <Settings2 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Voice signals</p>
+                          <p className="text-xs text-zinc-500">how this profile naturally writes</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {analysisVoiceSignalChips.map((chip) => (
+                          <span
+                            key={`${chip.label}-${chip.value}`}
+                            className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                          >
+                            {chip.label}: <span className="text-zinc-100">{chip.value}</span>
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Style anchor
+                        </p>
+                        {context.positiveAnchors[0]?.text ? (
+                          <div className="mt-3 rounded-2xl border border-white/10 bg-[#0F0F0F] p-4">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                {context.avatarUrl ? (
+                                  <div
+                                    className="h-full w-full bg-cover bg-center"
+                                    style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                                    role="img"
+                                    aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
+                                  />
+                                ) : (
+                                  (
+                                    context.creatorProfile.identity.displayName ||
+                                    context.creatorProfile.identity.username ||
+                                    "X"
+                                  ).charAt(0)
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1">
+                                  <span className="truncate text-sm font-bold text-white">
+                                    {context.creatorProfile.identity.displayName ||
+                                      context.creatorProfile.identity.username}
+                                  </span>
+                                  {isVerifiedAccount ? (
+                                    <Image
+                                      src="/x-verified.svg"
+                                      alt="Verified account"
+                                      width={16}
+                                      height={16}
+                                      className="h-4 w-4 shrink-0"
+                                    />
+                                  ) : null}
+                                </div>
+                                <span className="text-xs text-zinc-500">
+                                  @{context.creatorProfile.identity.username || accountName || "user"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7 text-zinc-100">
+                              {context.positiveAnchors[0].text}
+                            </p>
+
+                            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                              <span>{new Date(context.positiveAnchors[0].createdAt).toLocaleDateString()}</span>
+                              <span>·</span>
+                              <span>
+                                {computeXWeightedCharacterCount(
+                                  context.positiveAnchors[0].text,
+                                )}
+                                /
+                                {getXCharacterLimitForAccount(
+                                  context.creatorProfile.identity.isVerified,
+                                )}{" "}
+                                chars
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-zinc-500">insufficient data</p>
+                        )}
+                      </div>
+                    </article>
+
+                    <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-center gap-3">
+                        <Edit3 className="h-4 w-4 text-zinc-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Keep / Avoid</p>
+                          <p className="text-xs text-zinc-500">fast reference while drafting</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-emerald-500/25 bg-black/25 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+                            Keep doing
                           </p>
-                          <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
-                            {post.text}
+                          <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                            {analysisKeepList.length > 0 ? (
+                              analysisKeepList.map((item) => (
+                                <li key={item} className="leading-6">
+                                  • {item}
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-zinc-500">insufficient data</li>
+                            )}
+                          </ul>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-500/25 bg-black/25 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300">
+                            Avoid
                           </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                          <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                            {analysisAvoidList.length > 0 ? (
+                              analysisAvoidList.map((item) => (
+                                <li key={item} className="leading-6">
+                                  • {item}
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-zinc-500">insufficient data</li>
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+                    </article>
+                  </section>
+
+                  <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">Evidence</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          posts xpo used for this diagnosis
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      {analysisEvidencePosts.slice(0, 6).map((post) => {
+                        const labelTone =
+                          post.label === "Strong anchor"
+                            ? "border-emerald-500/30 text-emerald-300"
+                            : post.label === "Weak anchor"
+                              ? "border-amber-500/30 text-amber-300"
+                              : "border-sky-500/30 text-sky-300";
+
+                        return (
+                          <article key={post.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${labelTone}`}
+                              >
+                                {post.label}
+                              </span>
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
+                                {formatEnumLabel(post.lane)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-zinc-300">{post.reason}</p>
+                            <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-200">
+                              {post.text}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-500">
+                              <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                engagement {post.engagementTotal}
+                              </span>
+                              <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                goal fit {Math.round(post.goalFitScore)}
+                              </span>
+                              <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                {new Date(post.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-zinc-500">
+                  work in progress: profile analysis is still improving. share feedback so we can improve result quality :)
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnalysisOpen(false);
+                      setFeedbackSubmitNotice(null);
+                      setFeedbackModalOpen(true);
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                    aria-label="Open feedback"
+                    title="Feedback"
+                  >
+                    <MessageSquareText className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnalysisOpen(false);
+                      setPlaybookStage(currentPlaybookStage);
+                      setPendingGrowthGuidePlaybookId(null);
+                      setPlaybookModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                  >
+                    <span>Open Growth Guide</span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             </div>

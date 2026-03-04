@@ -12,6 +12,53 @@ export const UserPreferencesSchema = z.object({
   verifiedMaxChars: z.number().int().min(250).max(25000).nullable().optional(),
 });
 
+export const FeedbackCategorySchema = z.enum([
+  "feature_request",
+  "feedback",
+  "bug_report",
+]);
+
+export const FeedbackAttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  status: z.literal("pending_upload"),
+});
+
+export const FeedbackSubmissionStatusSchema = z.enum([
+  "open",
+  "resolved",
+  "cancelled",
+]);
+
+export const FeedbackSubmissionSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  category: FeedbackCategorySchema,
+  status: FeedbackSubmissionStatusSchema.default("open"),
+  statusUpdatedAt: z.string().optional(),
+  title: z.string().nullable().optional(),
+  message: z.string(),
+  fields: z.record(z.string(), z.string()).default({}),
+  submittedBy: z.object({
+    userId: z.string(),
+    userHandle: z.string().nullable().optional(),
+    xHandle: z.string().nullable().optional(),
+  }),
+  context: z.object({
+    pagePath: z.string().default("/chat"),
+    threadId: z.string().nullable().optional(),
+    activeModal: z.string().nullable().optional(),
+    draftMessageId: z.string().nullable().optional(),
+    viewportWidth: z.number().int().positive().optional(),
+    viewportHeight: z.number().int().positive().optional(),
+    userAgent: z.string().optional(),
+    appSurface: z.string().default("chat"),
+  }),
+  attachments: z.array(FeedbackAttachmentSchema).default([]),
+});
+
 export const StyleCardSchema = z.object({
   sentenceOpenings: z.array(z.string()).describe("Typical ways the user starts sentences or posts (e.g. 'Hot take:', 'Unpopular opinion:', 'Here is why...')"),
   sentenceClosers: z.array(z.string()).describe("Typical ways the user ends sentences or posts (e.g. 'Thoughts?', 'Let that sink in.', 'Do you agree?')"),
@@ -33,10 +80,18 @@ export const StyleCardSchema = z.object({
     .default([])
     .describe("Recent rejected style patterns to avoid repeating"),
   userPreferences: UserPreferencesSchema.optional().describe("Durable profile-level writing preferences set by the user"),
+  feedbackSubmissions: z
+    .array(FeedbackSubmissionSchema)
+    .optional()
+    .describe("Recent product feedback submissions from this profile"),
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+export type FeedbackCategory = z.infer<typeof FeedbackCategorySchema>;
+export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
+export type FeedbackSubmissionStatus = z.infer<typeof FeedbackSubmissionStatusSchema>;
+export type FeedbackSubmission = z.infer<typeof FeedbackSubmissionSchema>;
 
 export async function generateStyleProfile(userId: string, xHandle: string, limit: number = 50): Promise<VoiceStyleCard | null> {
   try {

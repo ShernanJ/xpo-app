@@ -1130,8 +1130,13 @@ function inferPrimaryCasing(posts: XPublicPost[]): ToneCasing {
   const averageLowercaseShare = average(
     alphaPosts.map((post) => computeLowercaseLetterShare(post.text)),
   );
+  const lowercaseOnlyPostShare =
+    alphaPosts.filter((post) => isLowercaseOnlyPost(post.text)).length /
+    alphaPosts.length;
 
-  return averageLowercaseShare >= 0.88 ? "lowercase" : "normal";
+  return averageLowercaseShare >= 0.93 && lowercaseOnlyPostShare >= 0.65
+    ? "lowercase"
+    : "normal";
 }
 
 function computeLowercaseSharePercent(posts: XPublicPost[]): number {
@@ -1203,7 +1208,7 @@ function buildStyleNotes(params: {
 
   notes.push(
     params.primaryCasing === "lowercase"
-      ? "Voice leans casual and lowercase."
+      ? "Voice often uses lowercase delivery."
       : "Voice reads more standard-case and direct.",
   );
 
@@ -1613,7 +1618,7 @@ function buildLaneVoiceAnchors(params: {
   const lowercaseShare =
     analyzed.filter((item) => item.isLowercase).length / analyzed.length;
   const primaryCasing =
-    lowercaseShare >= 0.55 ? "lowercase" : params.fallbackPrimaryCasing;
+    lowercaseShare >= 0.72 ? "lowercase" : params.fallbackPrimaryCasing;
 
   const scored = analyzed
     .map((item) => {
@@ -2185,6 +2190,18 @@ function getDependenceLevel(rate: number): DependenceLevel {
   return "low";
 }
 
+function getCtaIntensity(rate: number): DependenceLevel {
+  if (rate >= 30) {
+    return "high";
+  }
+
+  if (rate >= 12) {
+    return "moderate";
+  }
+
+  return "low";
+}
+
 function inferDeliveryStyle(replyStyleRate: number): DeliveryStyle {
   if (replyStyleRate >= 45) {
     return "reply_led";
@@ -2224,7 +2241,7 @@ function buildExecutionProfile(posts: XPublicPost[]): CreatorExecutionProfile {
   const standaloneStyleRate = rate(features.filter((item) => !item.isReply).length);
   const linkDependence = getDependenceLevel(linkUsageRate);
   const mentionDependence = getDependenceLevel(mentionUsageRate);
-  const ctaIntensity = getDependenceLevel(ctaUsageRate);
+  const ctaIntensity = getCtaIntensity(ctaUsageRate);
   const deliveryStyle = inferDeliveryStyle(replyStyleRate);
   const distributionNotes: string[] = [];
 

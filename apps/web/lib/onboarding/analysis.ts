@@ -358,6 +358,15 @@ export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
   const mentionMatches = post.text.match(/@\w+/g) ?? [];
   const linkMatches = post.text.match(/https?:\/\/\S+/gi) ?? [];
   const emojiMatches = post.text.match(/\p{Extended_Pictographic}/gu) ?? [];
+  const normalizedText = post.text.replace(/\s+/g, " ").trim();
+
+  const hasStrongCtaSignal = [
+    /\b(reply|comment|repost|retweet|follow|bookmark|share|subscribe|sign up|apply(?: now)?|download|join (?:the )?(?:waitlist|newsletter|community))\b/i,
+    /\b(?:dm|message)\s+me\b/i,
+    /\b(?:drop|send|shoot)\s+(?:a\s+)?(?:dm|message)\b/i,
+    /\bif you (?:want|need|are interested).{0,90}\b(reply|comment|dm|message|follow|join|sign up|apply|download)\b/i,
+    /\b(?:reply|comment)\s+[\"“'][^\"”']{2,40}[\"”']/i,
+  ].some((pattern) => pattern.test(normalizedText));
 
   return {
     contentType: classifyContentType(post.text),
@@ -369,10 +378,7 @@ export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
     mentionCount: mentionMatches.length,
     hasQuestion: trimmed.includes("?"),
     hasNumbers: /\d/.test(post.text),
-    hasCta:
-      /\b(reply|retweet|repost|dm|follow|comment|share|bookmark|read|watch|join|apply|check out|sign up|subscribe|let'?s chat)\b/i.test(
-        post.text,
-      ),
+    hasCta: hasStrongCtaSignal,
     lineCount: lines.length,
     wordCount,
     emojiCount: emojiMatches.length,

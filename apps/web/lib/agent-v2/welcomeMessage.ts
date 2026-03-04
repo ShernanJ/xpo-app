@@ -15,6 +15,7 @@ interface WelcomeFallbackParams extends WelcomeVoiceContextParams {
 interface WelcomeToneProfile {
   lower: boolean;
   casual: boolean;
+  prefersYo: boolean;
 }
 
 const TOPIC_STOPWORDS = new Set([
@@ -168,21 +169,29 @@ function inferWelcomeTone(params: WelcomeFallbackParams): WelcomeToneProfile {
   const lower = hasCreatorProfile(params)
     ? prefersLowercase({ creatorProfile: params.creatorProfile })
     : prefersLowercaseFromExamples(exampleValues);
+  const hasStrongSlangSignal = /\b(yo|sup|ay|lol|lmao|bro|dawg|bet|nah|wanna|gonna)\b/.test(
+    styleText,
+  );
 
   const casualSignalCount = [
     explicitOpener === "yo" || explicitOpener === "sup" || explicitOpener === "ay",
-    /\b(casual|conversational|playful|punchy|internet-native|loose)\b/.test(styleText),
-    /\b(yo|sup|ay|lol|lmao|bro|dawg|bet|nah|wanna|gonna)\b/.test(styleText),
+    /\b(casual|playful|internet-native|loose|raw|unfiltered)\b/.test(styleText),
+    hasStrongSlangSignal,
   ].filter(Boolean).length;
 
   const professionalSignalCount = [
-    /\b(professional|analytical|operator|structured|clear|concise|clean|formal|executive)\b/.test(styleText),
+    /\b(professional|analytical|operator|structured|clear|concise|clean|formal|executive|authoritative)\b/.test(styleText),
     explicitOpener === "hi",
   ].filter(Boolean).length;
+  const prefersYo = explicitOpener === "yo" || /\b(yo|sup|ay)\b/.test(styleText);
+  const casual =
+    hasStrongSlangSignal ||
+    casualSignalCount >= 2 && casualSignalCount > professionalSignalCount;
 
   return {
     lower,
-    casual: casualSignalCount > professionalSignalCount,
+    casual,
+    prefersYo,
   };
 }
 
@@ -210,7 +219,11 @@ function inferWelcomeOpener(params: WelcomeFallbackParams, tone: WelcomeToneProf
   }
 
   if (tone.casual) {
-    return formatWelcomeOpener(pickVariant(seed, ["hey", "yo", "hey"]), tone.lower);
+    if (tone.prefersYo) {
+      return formatWelcomeOpener(pickVariant(seed, ["yo", "hey"]), tone.lower);
+    }
+
+    return formatWelcomeOpener(pickVariant(seed, ["hey", "hi"]), tone.lower);
   }
 
   return formatWelcomeOpener(pickVariant(seed, ["hey", "hi"]), tone.lower);
