@@ -3419,7 +3419,7 @@ function ChatPageContent() {
 
       await requestAssistantReply({
         prompt: "",
-        displayUserMessage: angle,
+        displayUserMessage: `> ${angle}`,
         includeUserMessageInHistory: false,
         selectedAngle: angle,
         appendUserMessage: true,
@@ -4188,7 +4188,9 @@ function ChatPageContent() {
                                 return (
                                   <button
                                     type="button"
-                                    onClick={() => setDraftInput(`> ${title}\n\n`)}
+                                    onClick={() => {
+                                      void handleAngleSelect(title);
+                                    }}
                                     key={`${message.id}-angle-${index}`}
                                     className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
                                   >

@@ -152,29 +152,106 @@ function buildAnchoredQuestion(focusTopic: string, index: number): string {
   return patterns[index % patterns.length];
 }
 
+function buildSafeBroadQuestion(index: number): string {
+  const patterns = [
+    "what's the real tension here?",
+    "what do people get wrong about this?",
+    "where does this break down in practice?",
+    "what's one lesson hiding in this?",
+    "what feels most overlooked here?",
+  ];
+
+  return patterns[index % patterns.length];
+}
+
+function titleIntroducesUnsupportedSpecifics(
+  title: string,
+  sourceContext: string,
+): boolean {
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedContext = sourceContext.toLowerCase();
+  const titleHasNumericSpecifics = /\$\s?\d|\b\d+(?:\.\d+)?%/.test(normalizedTitle);
+  const contextHasNumericSpecifics = /\$\s?\d|\b\d+(?:\.\d+)?%/.test(normalizedContext);
+
+  if (titleHasNumericSpecifics && !contextHasNumericSpecifics) {
+    return true;
+  }
+
+  const riskyScenarioPhrases = [
+    "credit card",
+    "credit cards",
+    "employees",
+    "employee",
+    "team",
+    "office",
+    "conference",
+    "tech event",
+    "board",
+    "investor",
+    "investors",
+    "layoff",
+    "layoffs",
+    "acquisition",
+    "unrestricted",
+  ];
+
+  return riskyScenarioPhrases.some(
+    (phrase) =>
+      normalizedTitle.includes(phrase) && !normalizedContext.includes(phrase),
+  );
+}
+
 function personalizeAngles(
   angles: IdeasMenu["angles"],
   focusTopic: string | null,
 ): IdeasMenu["angles"] {
-  if (!focusTopic) {
-    return angles;
-  }
-
   return angles.map((angle, index) => {
     const cleanTitle = angle.title.trim().replace(/\s+/g, " ");
 
-    if (cleanTitle && titleTouchesFocusTopic(cleanTitle, focusTopic)) {
+    if (focusTopic && cleanTitle && titleTouchesFocusTopic(cleanTitle, focusTopic)) {
       return angle;
     }
 
-    if (!cleanTitle || looksGenericIdeaTitle(cleanTitle)) {
+    if (focusTopic) {
       return {
         ...angle,
         title: buildAnchoredQuestion(focusTopic, index),
       };
     }
 
+    if (!cleanTitle || looksGenericIdeaTitle(cleanTitle)) {
+      return {
+        ...angle,
+        title: buildSafeBroadQuestion(index),
+      };
+    }
+
     return angle;
+  });
+}
+
+function groundAngles(
+  angles: IdeasMenu["angles"],
+  focusTopic: string | null,
+  sourceContext: string,
+): IdeasMenu["angles"] {
+  return angles.map((angle, index) => {
+    const cleanTitle = angle.title.trim().replace(/\s+/g, " ");
+
+    if (!cleanTitle) {
+      return angle;
+    }
+
+    if (!titleIntroducesUnsupportedSpecifics(cleanTitle, sourceContext)) {
+      return angle;
+    }
+
+    return {
+      ...angle,
+      title: focusTopic
+        ? buildAnchoredQuestion(focusTopic, index)
+        : buildSafeBroadQuestion(index),
+    };
   });
 }
 
@@ -248,6 +325,8 @@ NICHE ENFORCEMENT:
 - NEVER invent generic topics like "5 ways to be productive".
 - If the user already gave a concrete topic, every angle should feel like a sharper slice of that topic, not a total reset.
 - Do not invent hyper-specific emotional scenarios (like "the moment you cried"). Keep it professional but casual.
+- Do not invent exact dollar amounts, percentages, company policies, or made-up events unless the user or retrieved context already mentioned them.
+- If you're not sure, stay broad and ask a safer question instead of creating a specific story premise.
 
 ${userContextString || ""}
 
@@ -277,10 +356,19 @@ Respond ONLY with valid JSON matching the exact schema requirements.
 
   try {
     const parsed = IdeasMenuSchema.parse(data);
+    const sourceContext = [
+      userMessage,
+      topicSummary || "",
+      userContextString,
+      ...topicAnchors.slice(0, 3),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const personalizedAngles = personalizeAngles(parsed.angles, focusTopic);
 
     return {
       ...parsed,
-      angles: personalizeAngles(parsed.angles, focusTopic),
+      angles: groundAngles(personalizedAngles, focusTopic, sourceContext),
     };
   } catch (err) {
     console.error("Ideator validation failed.", err);
