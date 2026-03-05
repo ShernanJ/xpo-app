@@ -6549,8 +6549,8 @@ function ChatPageContent() {
                             }}
                             className={`group block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
                           >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1 pr-4">
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1 pr-1">
                                 <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
                                   {item.label}
                                 </span>
@@ -6559,14 +6559,18 @@ function ChatPageContent() {
                                 </span>
                               </div>
 
-                              {section.section === "Chats" && item.id !== "current-workspace" && (hoveredThreadId === item.id || menuOpenThreadId === item.id) && (
-                                <div className="relative flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? threadMenuRef : null}>
+                              {section.section === "Chats" && item.id !== "current-workspace" ? (
+                                <div className="relative w-8 flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? threadMenuRef : null}>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
                                     }}
-                                    className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-white"
+                                    className={`ml-auto flex h-6 w-6 items-center justify-center rounded p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white ${
+                                      hoveredThreadId === item.id || menuOpenThreadId === item.id
+                                        ? "pointer-events-auto opacity-100"
+                                        : "pointer-events-none opacity-0"
+                                    }`}
                                   >
                                     <MoreVertical className="h-4 w-4" />
                                   </button>
@@ -6598,7 +6602,7 @@ function ChatPageContent() {
                                     </div>
                                   )}
                                 </div>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         )}
