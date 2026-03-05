@@ -1,11 +1,18 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
+import os from "os";
 import path from "path";
+import pg from "pg";
+
+const { Pool } = pg;
 
 export const DEFAULT_STATE_FILE = path.resolve(
-  process.cwd(),
-  "tmp",
+  os.tmpdir(),
+  "xpo-scrape",
   "x-http-scrape-state.json",
 );
+const DEFAULT_STATE_BACKEND = "auto";
+const DEFAULT_STATE_TABLE = "x_web_scrape_state";
+const DEFAULT_STATE_ROW_ID = "global";
 
 function asRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -17,6 +24,14 @@ function asRecord(value) {
 
 function asString(value) {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function sanitizeSqlIdentifier(identifier, label) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Invalid ${label} "${identifier}". Use only letters, numbers, and underscores.`);
+  }
+
+  return `"${identifier}"`;
 }
 
 export function getCookieValue(cookieString, key) {
@@ -144,7 +159,7 @@ function normalizeBrokerState(raw) {
   return state;
 }
 
-async function readBrokerState(statePath) {
+async function readBrokerStateFromFile(statePath) {
   try {
     const raw = await readFile(statePath, "utf8");
     return normalizeBrokerState(JSON.parse(raw));
@@ -153,9 +168,128 @@ async function readBrokerState(statePath) {
   }
 }
 
-async function writeBrokerState(statePath, state) {
+async function writeBrokerStateToFile(statePath, state) {
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+async function createFileStateStore(statePath) {
+  const resolvedStatePath = path.resolve(statePath);
+  return {
+    backend: "file",
+    async read() {
+      return readBrokerStateFromFile(resolvedStatePath);
+    },
+    async write(state) {
+      await writeBrokerStateToFile(resolvedStatePath, state);
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
+
+async function createPostgresStateStore(params) {
+  const {
+    databaseUrl,
+    schemaName,
+    tableName,
+    rowId,
+  } = params;
+  if (!databaseUrl) {
+    throw new Error("Postgres scrape state backend requires DATABASE_URL.");
+  }
+
+  const schemaIdentifier = sanitizeSqlIdentifier(schemaName, "state schema");
+  const tableIdentifier = sanitizeSqlIdentifier(tableName, "state table");
+  const qualifiedTable = `${schemaIdentifier}.${tableIdentifier}`;
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    allowExitOnIdle: true,
+  });
+
+  await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schemaIdentifier}`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${qualifiedTable} (
+      id TEXT PRIMARY KEY,
+      state JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  return {
+    backend: "postgres",
+    async read() {
+      const result = await pool.query(
+        `SELECT state FROM ${qualifiedTable} WHERE id = $1 LIMIT 1`,
+        [rowId],
+      );
+      if (result.rowCount === 0) {
+        return createEmptyBrokerState();
+      }
+
+      const rawState = result.rows[0]?.state ?? null;
+      return normalizeBrokerState(rawState);
+    },
+    async write(state) {
+      await pool.query(
+        `
+          INSERT INTO ${qualifiedTable} (id, state, updated_at)
+          VALUES ($1, $2::jsonb, NOW())
+          ON CONFLICT (id)
+          DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()
+        `,
+        [rowId, JSON.stringify(state)],
+      );
+    },
+    async close() {
+      await pool.end();
+    },
+  };
+}
+
+async function createBrokerStateStore(params) {
+  const {
+    statePath,
+    stateBackend,
+    databaseUrl,
+    stateSchema,
+    stateTable,
+    stateRowId,
+  } = params;
+  const normalizedBackend = (stateBackend ?? DEFAULT_STATE_BACKEND).trim().toLowerCase();
+
+  const shouldUsePostgres =
+    normalizedBackend === "postgres" ||
+    (normalizedBackend === "auto" && Boolean(databaseUrl));
+  if (shouldUsePostgres) {
+    try {
+      const stateStore = await createPostgresStateStore({
+        databaseUrl,
+        schemaName: stateSchema,
+        tableName: stateTable,
+        rowId: stateRowId,
+      });
+      console.log(`[state] Using ${stateStore.backend} scrape-state backend.`);
+      return stateStore;
+    } catch (error) {
+      if (normalizedBackend === "postgres") {
+        throw error;
+      }
+
+      const message = error instanceof Error ? error.message : "unknown error";
+      console.warn(
+        `[state] Postgres scrape-state backend unavailable (${message}). Falling back to file state.`,
+      );
+    }
+  }
+
+  const stateStore = await createFileStateStore(statePath);
+  console.log(`[state] Using ${stateStore.backend} scrape-state backend.`);
+  return stateStore;
 }
 
 function pruneOldRequests(bucket, nowMs) {
@@ -392,17 +526,29 @@ export async function createSessionBroker(params) {
     sessionFilePath = null,
     maxRequestsPerHour,
     minIntervalMs,
+    stateBackend = process.env.X_WEB_SCRAPE_STATE_BACKEND ?? DEFAULT_STATE_BACKEND,
+    databaseUrl = process.env.DATABASE_URL ?? null,
+    stateSchema = process.env.X_WEB_SCRAPE_STATE_SCHEMA ?? "public",
+    stateTable = process.env.X_WEB_SCRAPE_STATE_TABLE ?? DEFAULT_STATE_TABLE,
+    stateRowId = process.env.X_WEB_SCRAPE_STATE_ROW_ID ?? DEFAULT_STATE_ROW_ID,
   } = params;
 
-  const resolvedStatePath = path.resolve(statePath);
   const resolvedSessionFilePath = sessionFilePath
     ? path.resolve(sessionFilePath)
     : null;
-  const state = await readBrokerState(resolvedStatePath);
+  const stateStore = await createBrokerStateStore({
+    statePath,
+    stateBackend,
+    databaseUrl,
+    stateSchema,
+    stateTable,
+    stateRowId,
+  });
+  const state = await stateStore.read();
   const sessionPool = await loadSessionPool(resolvedSessionFilePath);
 
   async function persistState() {
-    await writeBrokerState(resolvedStatePath, state);
+    await stateStore.write(state);
   }
 
   return {
@@ -481,6 +627,10 @@ export async function createSessionBroker(params) {
       }
 
       await persistState();
+    },
+
+    async close() {
+      await stateStore.close();
     },
   };
 }
