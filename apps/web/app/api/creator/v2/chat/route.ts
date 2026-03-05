@@ -18,8 +18,7 @@ import {
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
@@ -517,7 +516,7 @@ function resolveChatTurnCreditCost(args: {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }

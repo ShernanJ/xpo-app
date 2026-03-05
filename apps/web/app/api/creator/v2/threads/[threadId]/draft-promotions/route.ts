@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { authOptions } from "@/lib/auth/authOptions";
 import { prisma } from "@/lib/db";
 import {
   buildDraftArtifact,
@@ -146,7 +145,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

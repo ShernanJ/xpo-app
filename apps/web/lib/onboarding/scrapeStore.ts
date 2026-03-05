@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
-import { access, appendFile, mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
 
+import { prisma } from "../db";
+import { Prisma } from "../generated/prisma/client";
 import type { XPublicPost, XPublicProfile } from "./types";
 
 export interface StoredScrapeCapture {
@@ -20,30 +20,8 @@ export interface StoredScrapeCapture {
 
 export const SCRAPE_CAPTURE_TTL_MS = 1000 * 60 * 60 * 24 * 2;
 
-function candidateScrapeStorePaths(): string[] {
-  if (process.env.SCRAPE_STORE_PATH) {
-    return [process.env.SCRAPE_STORE_PATH];
-  }
-
-  const cwd = process.cwd();
-  return [
-    path.resolve(cwd, "db", "x-scrape-captures.jsonl"),
-    path.resolve(cwd, "..", "..", "db", "x-scrape-captures.jsonl"),
-  ];
-}
-
-async function resolveScrapeStorePath(): Promise<string> {
-  const candidates = candidateScrapeStorePaths();
-  for (const candidate of candidates) {
-    try {
-      await access(path.dirname(candidate));
-      return candidate;
-    } catch {
-      // Try next candidate.
-    }
-  }
-
-  return candidates[0];
+function ttlExpiryFor(capturedAt: Date): Date {
+  return new Date(capturedAt.getTime() + SCRAPE_CAPTURE_TTL_MS);
 }
 
 export function isScrapeCaptureExpired(
@@ -58,62 +36,70 @@ export function isScrapeCaptureExpired(
   return nowMs - capturedAtMs >= SCRAPE_CAPTURE_TTL_MS;
 }
 
-function parseStoredCaptureLine(line: string): StoredScrapeCapture | null {
-  try {
-    const parsed = JSON.parse(line) as StoredScrapeCapture;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      typeof parsed.account !== "string" ||
-      typeof parsed.capturedAt !== "string"
-    ) {
-      return null;
-    }
-
-    return {
-      ...parsed,
-      account: parsed.account.toLowerCase(),
-      profile: {
-        ...parsed.profile,
-        username: parsed.profile.username.toLowerCase(),
-      },
-    };
-  } catch {
-    return null;
-  }
+function normalizeProfile(
+  profile: XPublicProfile,
+  account: string,
+): XPublicProfile {
+  return {
+    ...profile,
+    username: account,
+  };
 }
 
-async function writeAllCaptures(
-  storePath: string,
-  captures: StoredScrapeCapture[],
-): Promise<void> {
-  await mkdir(path.dirname(storePath), { recursive: true });
-  const body = captures.map((capture) => JSON.stringify(capture)).join("\n");
-  await writeFile(storePath, body ? `${body}\n` : "", "utf8");
-}
-
-async function readAllCaptures(): Promise<StoredScrapeCapture[]> {
-  const storePath = await resolveScrapeStorePath();
-
-  try {
-    const parsed = (await readFile(storePath, "utf8"))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => parseStoredCaptureLine(line))
-      .filter((capture): capture is StoredScrapeCapture => capture !== null);
-    const activeCaptures = parsed.filter(
-      (capture) => !isScrapeCaptureExpired(capture.capturedAt),
-    );
-
-    if (activeCaptures.length !== parsed.length) {
-      await writeAllCaptures(storePath, activeCaptures);
-    }
-
-    return activeCaptures;
-  } catch {
+function asPostArray(value: unknown): XPublicPost[] {
+  if (!Array.isArray(value)) {
     return [];
   }
+
+  return value as XPublicPost[];
+}
+
+function mapSource(raw: string): "manual_import" | "agent" {
+  return raw === "manual_import" ? "manual_import" : "agent";
+}
+
+function toInputJson(value: XPublicProfile | XPublicPost[]): Prisma.InputJsonValue {
+  return value as unknown as Prisma.InputJsonValue;
+}
+
+function mapRowToStoredCapture(row: {
+  captureId: string;
+  capturedAt: Date;
+  account: string;
+  profile: unknown;
+  posts: unknown;
+  replyPosts: unknown;
+  quotePosts: unknown;
+  source: string;
+  userAgent: string | null;
+}): StoredScrapeCapture {
+  return {
+    captureId: row.captureId,
+    capturedAt: row.capturedAt.toISOString(),
+    account: row.account,
+    profile: normalizeProfile(
+      row.profile as XPublicProfile,
+      row.account.toLowerCase(),
+    ),
+    posts: asPostArray(row.posts),
+    replyPosts: asPostArray(row.replyPosts),
+    quotePosts: asPostArray(row.quotePosts),
+    metadata: {
+      source: mapSource(row.source),
+      userAgent: row.userAgent,
+    },
+  };
+}
+
+async function pruneExpiredCaptures(account?: string): Promise<void> {
+  await prisma.scrapeCaptureCache.deleteMany({
+    where: {
+      ...(account ? { account: account.toLowerCase() } : {}),
+      expiresAt: {
+        lte: new Date(),
+      },
+    },
+  });
 }
 
 export async function persistScrapeCapture(params: {
@@ -125,52 +111,99 @@ export async function persistScrapeCapture(params: {
   source?: "manual_import" | "agent";
   userAgent: string | null;
 }): Promise<{ captureId: string; capturedAt: string }> {
-  const storePath = await resolveScrapeStorePath();
-  const activeCaptures = await readAllCaptures();
-  await writeAllCaptures(storePath, activeCaptures);
-  await mkdir(path.dirname(storePath), { recursive: true });
-
+  const normalizedAccount = params.account.toLowerCase();
+  const capturedAt = new Date();
   const captureId = `sc_${randomUUID()}`;
-  const capturedAt = new Date().toISOString();
-  const record: StoredScrapeCapture = {
-    captureId,
-    capturedAt,
-    account: params.account.toLowerCase(),
-    profile: {
-      ...params.profile,
-      username: params.account.toLowerCase(),
-    },
-    posts: params.posts,
-    replyPosts: params.replyPosts ?? [],
-    quotePosts: params.quotePosts ?? [],
-    metadata: {
-      source: params.source ?? "manual_import",
+  const source = params.source ?? "manual_import";
+
+  await pruneExpiredCaptures(normalizedAccount);
+
+  await prisma.scrapeCaptureCache.upsert({
+    where: { account: normalizedAccount },
+    create: {
+      captureId,
+      account: normalizedAccount,
+      capturedAt,
+      expiresAt: ttlExpiryFor(capturedAt),
+      profile: toInputJson(normalizeProfile(params.profile, normalizedAccount)),
+      posts: toInputJson(params.posts),
+      replyPosts: toInputJson(params.replyPosts ?? []),
+      quotePosts: toInputJson(params.quotePosts ?? []),
+      source,
       userAgent: params.userAgent,
     },
+    update: {
+      captureId,
+      capturedAt,
+      expiresAt: ttlExpiryFor(capturedAt),
+      profile: toInputJson(normalizeProfile(params.profile, normalizedAccount)),
+      posts: toInputJson(params.posts),
+      replyPosts: toInputJson(params.replyPosts ?? []),
+      quotePosts: toInputJson(params.quotePosts ?? []),
+      source,
+      userAgent: params.userAgent,
+    },
+  });
+
+  return {
+    captureId,
+    capturedAt: capturedAt.toISOString(),
   };
-
-  await appendFile(storePath, `${JSON.stringify(record)}\n`, "utf8");
-
-  return { captureId, capturedAt };
 }
 
 export async function readLatestScrapeCaptureByAccount(
   account: string,
 ): Promise<StoredScrapeCapture | null> {
-  const normalized = account.toLowerCase();
-  const all = await readAllCaptures();
-  for (let index = all.length - 1; index >= 0; index -= 1) {
-    if (all[index]?.account === normalized) {
-      return all[index];
-    }
+  const normalizedAccount = account.toLowerCase();
+  await pruneExpiredCaptures(normalizedAccount);
+
+  const capture = await prisma.scrapeCaptureCache.findUnique({
+    where: { account: normalizedAccount },
+    select: {
+      captureId: true,
+      capturedAt: true,
+      account: true,
+      profile: true,
+      posts: true,
+      replyPosts: true,
+      quotePosts: true,
+      source: true,
+      userAgent: true,
+    },
+  });
+
+  if (!capture) {
+    return null;
   }
 
-  return null;
+  if (isScrapeCaptureExpired(capture.capturedAt.toISOString())) {
+    await pruneExpiredCaptures(normalizedAccount);
+    return null;
+  }
+
+  return mapRowToStoredCapture(capture);
 }
 
 export async function readRecentScrapeCaptures(
   limit = 10,
 ): Promise<StoredScrapeCapture[]> {
-  const all = await readAllCaptures();
-  return all.slice(-Math.max(1, limit)).reverse();
+  await pruneExpiredCaptures();
+
+  const captures = await prisma.scrapeCaptureCache.findMany({
+    orderBy: { capturedAt: "desc" },
+    take: Math.max(1, limit),
+    select: {
+      captureId: true,
+      capturedAt: true,
+      account: true,
+      profile: true,
+      posts: true,
+      replyPosts: true,
+      quotePosts: true,
+      source: true,
+      userAgent: true,
+    },
+  });
+
+  return captures.map((capture) => mapRowToStoredCapture(capture));
 }

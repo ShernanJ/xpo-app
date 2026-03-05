@@ -51,10 +51,10 @@ export default function LoginPage() {
                   X Growth Engine
                 </p>
                 <h1 className="mt-5 font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                  Welcome back.
+                  Welcome
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-zinc-400 sm:text-base">
-                  Sign in to continue building your X workspace with Stanley.
+                  Sign in to continue your stage-aware X growth workflow.
                 </p>
 
                 <LoginForm />

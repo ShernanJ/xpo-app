@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
 
 interface MessageFeedbackRequest extends Record<string, unknown> {
@@ -81,7 +80,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
@@ -216,7 +215,7 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

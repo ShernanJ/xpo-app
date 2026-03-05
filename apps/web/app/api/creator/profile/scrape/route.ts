@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 
-import { authOptions } from "@/lib/auth/authOptions";
 import { runOnboarding } from "@/lib/onboarding/service";
 import {
   persistOnboardingRun,
@@ -83,8 +82,7 @@ function buildRefreshInput(baseInput: OnboardingInput, account: string): Onboard
       casing: baseInput.tone?.casing === "normal" ? "normal" : "lowercase",
       risk: baseInput.tone?.risk === "bold" ? "bold" : "safe",
     },
-    scrapeFreshness: "always",
-    forceFreshScrape: true,
+    scrapeFreshness: "if_stale",
   };
 }
 
@@ -106,7 +104,7 @@ function parseRequestError(field: string, message: string): ScrapeRefreshError[]
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id || !session?.user?.activeXHandle) {
     return NextResponse.json(
       {

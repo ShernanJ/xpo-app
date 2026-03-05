@@ -6,8 +6,7 @@ import {
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategyOverrides";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getServerSession } from "@/lib/auth/serverSession";
 
 interface CreatorAgentContextRequest extends Record<string, unknown> {
   runId?: unknown;
@@ -28,7 +27,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id || !session?.user?.activeXHandle) {
     return NextResponse.json(
       {

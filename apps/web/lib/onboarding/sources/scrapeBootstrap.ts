@@ -6,9 +6,20 @@ import { promisify } from "util";
 
 import { importUserTweetsPayload } from "../importScrapePayload";
 import { parseUserTweetsGraphqlPayload } from "../scrapeUserTweetsParser";
+import { readLatestScrapeCaptureByAccount } from "../scrapeStore";
 import type { XPublicPost } from "../types";
 
 const execFileAsync = promisify(execFile);
+
+interface BootstrapImportResult {
+  captureId: string;
+  capturedAt: string;
+  account: string;
+  profile: unknown;
+  postsImported: number;
+  replyPostsImported: number;
+  quotePostsImported: number;
+}
 
 async function resolveScrapeScriptPath(): Promise<string> {
   const cwd = process.cwd();
@@ -123,6 +134,19 @@ export async function bootstrapScrapeCaptureWithOptions(
     userAgent: string;
   },
 ) {
+  const existingCapture = await readLatestScrapeCaptureByAccount(account);
+  if (existingCapture) {
+    return {
+      captureId: existingCapture.captureId,
+      capturedAt: existingCapture.capturedAt,
+      account: existingCapture.account,
+      profile: existingCapture.profile,
+      postsImported: existingCapture.posts.length,
+      replyPostsImported: existingCapture.replyPosts?.length ?? 0,
+      quotePostsImported: existingCapture.quotePosts?.length ?? 0,
+    } satisfies BootstrapImportResult;
+  }
+
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-"));
   const outputPath = path.join(tmpDir, `${account}-payload.json`);
   const scriptPath = await resolveScrapeScriptPath();

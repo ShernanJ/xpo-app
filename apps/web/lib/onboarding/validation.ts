@@ -21,8 +21,7 @@ type OnboardingField =
   | "scrapeFreshness"
   | "tone.casing"
   | "tone.risk"
-  | "forceMock"
-  | "forceFreshScrape";
+  | "forceMock";
 
 export interface OnboardingValidationError {
   field: OnboardingField;
@@ -55,7 +54,6 @@ const TRANSFORMATION_MODE_SOURCES: ReadonlySet<TransformationModeSource> = new S
   "user_selected",
 ]);
 const SCRAPE_FRESHNESS_MODES: ReadonlySet<ScrapeFreshnessMode> = new Set([
-  "always",
   "if_stale",
   "cache_only",
 ]);
@@ -233,7 +231,7 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
     ) {
       errors.push({
         field: "scrapeFreshness",
-        message: "scrapeFreshness must be one of: always, if_stale, cache_only.",
+        message: "scrapeFreshness must be one of: if_stale, cache_only.",
       });
     } else {
       scrapeFreshness = body.scrapeFreshness as ScrapeFreshnessMode;
@@ -273,18 +271,6 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
     }
   }
 
-  let forceFreshScrape: boolean | undefined;
-  if (body.forceFreshScrape !== undefined) {
-    if (typeof body.forceFreshScrape !== "boolean") {
-      errors.push({
-        field: "forceFreshScrape",
-        message: "forceFreshScrape must be a boolean when provided.",
-      });
-    } else {
-      forceFreshScrape = body.forceFreshScrape;
-    }
-  }
-
   if (errors.length > 0 || !account || !goal || !casing || !risk) {
     return { ok: false, errors };
   }
@@ -305,7 +291,6 @@ export function parseOnboardingInput(raw: unknown): OnboardingValidationResult {
         risk,
       },
       forceMock,
-      forceFreshScrape,
     },
   };
 }

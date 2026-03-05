@@ -16,10 +16,6 @@ function getScrapeFreshnessMode(input: OnboardingInput) {
     return input.scrapeFreshness;
   }
 
-  if (input.forceFreshScrape) {
-    return "always" as const;
-  }
-
   return "if_stale" as const;
 }
 
@@ -33,16 +29,12 @@ export async function resolveScrapeDataSource(
   let latestCapture = await readLatestScrapeCaptureByAccount(input.account);
   const warnings: string[] = [];
   const freshnessMode = getScrapeFreshnessMode(input);
-  const shouldForceRefresh = freshnessMode === "always";
   const existingCaptureExpired = latestCapture
     ? isCaptureStale(latestCapture.capturedAt)
     : false;
   const shouldRefreshIfStale =
     freshnessMode === "if_stale" && (!latestCapture || existingCaptureExpired);
-  const shouldBootstrap =
-    shouldForceRefresh ||
-    shouldRefreshIfStale ||
-    (!latestCapture && freshnessMode !== "cache_only");
+  const shouldBootstrap = shouldRefreshIfStale;
 
   if (shouldBootstrap) {
     const priorCapture = latestCapture;
@@ -60,31 +52,17 @@ export async function resolveScrapeDataSource(
 
     if (!latestCapture) {
       warnings.push("No cached scrape found. Ran live onboarding bootstrap scrape.");
-    } else if (
-      shouldForceRefresh &&
-      refreshedCapture &&
-      refreshedCapture.captureId !== priorCapture?.captureId
-    ) {
-      warnings.push("Ran a fresh onboarding scrape before analysis.");
-    } else if (shouldForceRefresh && priorCapture) {
-      warnings.push(
-        "Attempted a fresh onboarding scrape, but kept the cached capture when no newer result was available.",
-      );
-    } else if (
-      freshnessMode === "if_stale" &&
-      refreshedCapture &&
-      refreshedCapture.captureId !== priorCapture?.captureId
-    ) {
+    } else if (refreshedCapture && refreshedCapture.captureId !== priorCapture?.captureId) {
       warnings.push(
         hadExpiredPriorCapture
           ? "Refreshed an expired scrape capture before analysis."
-          : "Refreshed the scrape capture before analysis.",
+          : "No cached scrape found. Ran live onboarding bootstrap scrape.",
       );
-    } else if (freshnessMode === "if_stale" && priorCapture) {
+    } else if (priorCapture) {
       warnings.push(
         hadExpiredPriorCapture
           ? "Detected an expired scrape capture and attempted refresh, but kept the cached capture when no newer result was available."
-          : "Attempted to refresh the scrape capture, but kept the cached capture when no newer result was available.",
+          : "Attempted to bootstrap a missing scrape capture, but kept the cached capture when no newer result was available.",
       );
     } else {
       warnings.push("No cached scrape found. Ran live onboarding bootstrap scrape.");

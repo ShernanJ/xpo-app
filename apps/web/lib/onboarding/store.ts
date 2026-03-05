@@ -46,22 +46,6 @@ export async function persistOnboardingRun(params: {
 }
 
 /**
- * Upserts a User record by X handle. Returns the userId.
- * If the user already exists (same handle), returns their existing id.
- */
-export async function upsertUserByHandle(handle: string): Promise<string> {
-  const normalized = handle.replace(/^@/, "").toLowerCase();
-
-  const existing = await prisma.user.findUnique({ where: { handle: normalized } });
-  if (existing) return existing.id;
-
-  const created = await prisma.user.create({
-    data: { handle: normalized },
-  });
-  return created.id;
-}
-
-/**
  * Upserts scraped posts from an OnboardingResult into the Prisma Post table.
  * This ensures the retrieval and style profiling queries can find user posts.
  */
@@ -165,7 +149,7 @@ export async function readLatestOnboardingRunByHandle(
     });
 
     const match = runs.find((r) => {
-      const input = r.input as any;
+      const input = r.input as { account?: string } | null;
       return input?.account?.toLowerCase() === handle.toLowerCase();
     });
 

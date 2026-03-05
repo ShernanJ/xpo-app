@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 import { Sparkles } from "lucide-react";
 import { LegalFooter } from "@/components/legal-footer";
 import { BackHomeButton } from "@/components/back-home-button";
+import { useSession } from "@/lib/auth/client";
 
 interface ValidationError {
   field: string;

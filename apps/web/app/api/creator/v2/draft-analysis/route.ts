@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { inspectDraft, type DraftInspectorMode } from "@/lib/agent-v2/agents/draftInspector";
 import { buildDraftReviewPrompt } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { prisma } from "@/lib/db";
@@ -23,7 +22,7 @@ function parseMode(value: unknown): DraftInspectorMode | null {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

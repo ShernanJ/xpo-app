@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 
 import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/backfill";
 import { runOnboarding } from "@/lib/onboarding/service";
 import { persistOnboardingRun, syncOnboardingPostsToDb } from "@/lib/onboarding/store";
 import { parseOnboardingInput } from "@/lib/onboarding/validation";
-import { authOptions } from "@/lib/auth/authOptions";
 import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized." }] },
@@ -40,7 +39,6 @@ export async function POST(request: Request) {
   const effectiveInput = {
     ...parsed.data,
     scrapeFreshness: "if_stale" as const,
-    forceFreshScrape: false,
   };
   const userId = session.user.id;
   const handleLimitCheck = await validateHandleLimit({

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { z } from "zod";
 
-import { authOptions } from "@/lib/auth/authOptions";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import {
@@ -222,7 +221,7 @@ async function backfillLegacyFeedbackSubmissions(args: {
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
@@ -277,7 +276,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
@@ -411,7 +410,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

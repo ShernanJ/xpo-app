@@ -1,15 +1,20 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 import { FormEvent, Suspense, useState } from "react";
+import { signIn } from "@/lib/auth/client";
 
 function LoginFormContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [focusedField, setFocusedField] = useState<"email" | "password" | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [loadingState, setLoadingState] = useState<"idle" | "signin" | "verify" | "resend">(
+    "idle",
+  );
+  const [focusedField, setFocusedField] = useState<"email" | "password" | "code" | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const xHandle = searchParams.get("xHandle");
@@ -17,33 +22,120 @@ function LoginFormContent() {
     focusedField === "email" ? "is-focused" : email.trim() ? "is-filled" : "is-idle";
   const passwordInputState =
     focusedField === "password" ? "is-focused" : password.trim() ? "is-filled" : "is-idle";
+  const codeInputState =
+    focusedField === "code"
+      ? "is-focused"
+      : verificationCode.trim()
+        ? "is-filled"
+        : "is-idle";
+
+  const completeLogin = async () => {
+    if (xHandle) {
+      // Automatically save this onboarding handle as the active context
+      await fetch("/api/creator/profile/handles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: xHandle }),
+      });
+    }
+
+    router.push("/chat");
+    router.refresh();
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
+    setLoadingState("signin");
     setError(null);
+    setNotice(null);
+
+    const normalizedEmail = email.trim().toLowerCase();
 
     const res = await signIn("credentials", {
-      email,
+      email: normalizedEmail,
       password,
       redirect: false,
     });
 
     if (res?.error) {
-      setError("Invalid email or password");
-      setLoading(false);
-    } else {
-      if (xHandle) {
-        // Automatically save this onboarding handle as the active context
-        await fetch("/api/creator/profile/handles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ handle: xHandle }),
-        });
+      if (res.code === "verification_code_required") {
+        setPendingVerificationEmail(normalizedEmail);
+        setVerificationCode("");
+        setNotice(res.error);
+      } else {
+        setPendingVerificationEmail(null);
+        setError(res.error);
       }
-      router.push("/chat");
-      router.refresh();
+      setLoadingState("idle");
+      return;
     }
+
+    await completeLogin();
+  };
+
+  const handleVerifyCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedEmail = (pendingVerificationEmail ?? email).trim().toLowerCase();
+    if (!normalizedEmail || !verificationCode.trim()) {
+      setError("Email and verification code are required.");
+      return;
+    }
+
+    setLoadingState("verify");
+    setError(null);
+    setNotice(null);
+
+    const response = await fetch("/api/auth/email-code/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: normalizedEmail,
+        code: verificationCode.trim(),
+      }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    if (!response.ok || !payload?.ok) {
+      setError(payload?.error ?? "Could not verify your code.");
+      setLoadingState("idle");
+      return;
+    }
+
+    await completeLogin();
+  };
+
+  const handleResendCode = async () => {
+    const normalizedEmail = (pendingVerificationEmail ?? email).trim().toLowerCase();
+    if (!normalizedEmail) {
+      setError("Email is required.");
+      return;
+    }
+
+    setLoadingState("resend");
+    setError(null);
+    setNotice(null);
+
+    const response = await fetch("/api/auth/email-code/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalizedEmail }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    if (!response.ok || !payload?.ok) {
+      setError(payload?.error ?? "Could not resend verification code.");
+      setLoadingState("idle");
+      return;
+    }
+
+    setNotice("A new verification code was sent to your email.");
+    setLoadingState("idle");
   };
 
   return (
@@ -55,6 +147,15 @@ function LoginFormContent() {
               Auth Error
             </p>
             <p className="mt-1 text-sm text-rose-100">{error}</p>
+          </div>
+        ) : null}
+
+        {notice ? (
+          <div className="rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-4 py-3 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200">
+              Auth Update
+            </p>
+            <p className="mt-1 text-sm text-emerald-100">{notice}</p>
           </div>
         ) : null}
 
@@ -110,16 +211,83 @@ function LoginFormContent() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loadingState !== "idle"}
           className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
         >
-          {loading ? "Signing in..." : xHandle ? `Continue as @${xHandle}` : "Login"}
+          {loadingState === "signin" ? "Signing in..." : xHandle ? `Continue as @${xHandle}` : "Login"}
         </button>
 
         <p className="mt-2 text-center text-xs leading-6 text-zinc-500">
-          Don&apos;t have an account? Enter a new email and password to auto-register.
+          New account? Enter your email + password and confirm with the email code.
         </p>
       </form>
+
+      {pendingVerificationEmail ? (
+        <form onSubmit={handleVerifyCode} className="mt-4 flex w-full max-w-md flex-col gap-4">
+          <div className="rounded-xl border border-white/12 bg-white/[0.02] px-4 py-3 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+              Verify Email
+            </p>
+            <p className="mt-1 text-sm text-zinc-200">
+              Enter the code sent to <strong className="text-white">{pendingVerificationEmail}</strong>.
+            </p>
+          </div>
+
+          <div className="space-y-2 text-left">
+            <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Verification Code
+            </label>
+            <div className={`login-input-shell ${codeInputState}`}>
+              <input
+                type="text"
+                value={verificationCode}
+                onChange={(event) =>
+                  setVerificationCode(event.target.value.replace(/\s+/g, "").toUpperCase())
+                }
+                onFocus={() => setFocusedField("code")}
+                onBlur={() => setFocusedField((current) => (current === "code" ? null : current))}
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                className="login-input-field"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loadingState !== "idle"}
+            className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+          >
+            {loadingState === "verify" ? "Verifying..." : "Verify code"}
+          </button>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={handleResendCode}
+              disabled={loadingState !== "idle"}
+              className="inline-flex items-center justify-center rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+            >
+              {loadingState === "resend" ? "Sending..." : "Resend code"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingVerificationEmail(null);
+                setVerificationCode("");
+                setNotice(null);
+                setError(null);
+              }}
+              disabled={loadingState !== "idle"}
+              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:border-white/35 hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+            >
+              Change email
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       <style jsx global>{`
         @keyframes loginInputShimmer {

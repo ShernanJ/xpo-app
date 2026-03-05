@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getServerSession } from "@/lib/auth/serverSession";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -25,14 +24,16 @@ export async function GET() {
 
     // Extract handles from Onboarding JSON inputs
     const onboardingHandles = onboardingRuns
-      .map(run => {
-        const input = run.input as any;
+      .map((run) => {
+        const input = run.input as { account?: string } | null;
         return input?.account ? input.account.replace(/^@/, "").toLowerCase() : null;
       })
       .filter(Boolean);
 
     // Create a distinct list combining both sources
-    const profileHandles = userProfiles.map(p => p.xHandle).filter((h): h is string => h !== null);
+    const profileHandles = userProfiles
+      .map((p) => p.xHandle)
+      .filter((h): h is string => h !== null);
     const handles = Array.from(new Set([...profileHandles, ...onboardingHandles]));
 
     return NextResponse.json({ ok: true, data: { handles } });
@@ -43,7 +44,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }

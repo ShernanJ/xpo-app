@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { redirect } from "next/navigation";
 
-import { authOptions } from "@/lib/auth/authOptions";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -15,7 +14,7 @@ export const metadata: Metadata = {
 export default async function ChatLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
 
   if (!session?.user?.id) {
     redirect("/");

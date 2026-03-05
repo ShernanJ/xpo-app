@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { z } from "zod";
 
-import { authOptions } from "@/lib/auth/authOptions";
 import {
   BILLING_OFFER_CONFIG,
   STRIPE_PRICE_IDS,
@@ -72,7 +71,7 @@ function conflictError(message: string, code = "ALREADY_SUBSCRIBED") {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

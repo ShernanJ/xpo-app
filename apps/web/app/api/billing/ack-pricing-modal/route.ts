@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "@/lib/auth/serverSession";
 
-import { authOptions } from "@/lib/auth/authOptions";
 import {
   getBillingStateForUser,
   markPricingModalSeen,
 } from "@/lib/billing/entitlements";
 
 export async function POST() {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },

@@ -41,7 +41,6 @@ export interface OnboardingInput {
   transformationModeSource?: TransformationModeSource;
   scrapeFreshness?: ScrapeFreshnessMode;
   forceMock?: boolean;
-  forceFreshScrape?: boolean;
 }
 
 export interface XPublicProfile {
@@ -257,7 +256,7 @@ export type TransformationMode =
 
 export type TransformationModeSource = "default" | "user_selected";
 
-export type ScrapeFreshnessMode = "always" | "if_stale" | "cache_only";
+export type ScrapeFreshnessMode = "if_stale" | "cache_only";
 
 export interface TopicSignal {
   label: string;

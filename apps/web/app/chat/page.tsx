@@ -15,7 +15,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { signOut, useSession } from "@/lib/auth/client";
 import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
