@@ -7,11 +7,11 @@ import { signIn } from "@/lib/auth/client";
 function LoginFormContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [loadingState, setLoadingState] = useState<"idle" | "signin" | "verify" | "resend">(
+  const [loadingState, setLoadingState] = useState<"idle" | "signin" | "verify" | "resend" | "setup">(
     "idle",
   );
   const [focusedField, setFocusedField] = useState<"email" | "password" | "code" | null>(null);
@@ -30,23 +30,61 @@ function LoginFormContent() {
         : "is-idle";
 
   const completeLogin = async () => {
-    if (xHandle) {
-      // Automatically save this onboarding handle as the active context
-      await fetch("/api/creator/profile/handles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: xHandle }),
-      });
-    }
+    const normalizedHandle = xHandle?.trim().replace(/^@/, "").toLowerCase() ?? "";
 
-    router.push("/chat");
-    router.refresh();
+    try {
+      if (normalizedHandle) {
+        setLoadingState("setup");
+        setError(null);
+
+        const handleResponse = await fetch("/api/creator/profile/handles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handle: normalizedHandle }),
+        });
+        if (!handleResponse.ok) {
+          throw new Error("Could not attach this X handle to your account.");
+        }
+
+        const onboardingResponse = await fetch("/api/onboarding/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account: normalizedHandle,
+            goal: "followers",
+            timeBudgetMinutes: 30,
+            tone: { casing: "lowercase", risk: "safe" },
+          }),
+        });
+        const onboardingPayload = (await onboardingResponse.json().catch(() => null)) as
+          | {
+              ok?: boolean;
+              errors?: Array<{ message?: string }>;
+            }
+          | null;
+        if (!onboardingResponse.ok || !onboardingPayload?.ok) {
+          throw new Error(
+            onboardingPayload?.errors?.[0]?.message ??
+              "Could not finish account setup. Please try again.",
+          );
+        }
+      }
+
+      router.push("/chat");
+      router.refresh();
+    } catch (setupError) {
+      setLoadingState("idle");
+      setError(
+        setupError instanceof Error
+          ? setupError.message
+          : "Could not finish setting up your account.",
+      );
+    }
   };
 
   const handleCredentialSubmit = async () => {
     setLoadingState("signin");
     setError(null);
-    setNotice(null);
 
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -60,7 +98,6 @@ function LoginFormContent() {
       if (res.code === "verification_code_required") {
         setPendingVerificationEmail(normalizedEmail);
         setVerificationCode("");
-        setNotice(res.error);
       } else {
         setPendingVerificationEmail(null);
         setError(res.error);
@@ -81,7 +118,6 @@ function LoginFormContent() {
 
     setLoadingState("verify");
     setError(null);
-    setNotice(null);
 
     const response = await fetch("/api/auth/email-code/verify", {
       method: "POST",
@@ -114,7 +150,6 @@ function LoginFormContent() {
 
     setLoadingState("resend");
     setError(null);
-    setNotice(null);
 
     const response = await fetch("/api/auth/email-code/request", {
       method: "POST",
@@ -131,8 +166,6 @@ function LoginFormContent() {
       setLoadingState("idle");
       return;
     }
-
-    setNotice("A new verification code was sent to your email.");
     setLoadingState("idle");
   };
 
@@ -159,15 +192,6 @@ function LoginFormContent() {
               Auth Error
             </p>
             <p className="mt-1 text-sm text-rose-100">{error}</p>
-          </div>
-        ) : null}
-
-        {notice ? (
-          <div className="rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-4 py-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200">
-              Auth Update
-            </p>
-            <p className="mt-1 text-sm text-emerald-100">{notice}</p>
           </div>
         ) : null}
 
@@ -210,7 +234,11 @@ function LoginFormContent() {
               disabled={isBusy}
               className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
-              {loadingState === "verify" ? "Verifying..." : "Verify code"}
+              {loadingState === "setup"
+                ? "Setting things up..."
+                : loadingState === "verify"
+                  ? "Verifying..."
+                  : "Verify code"}
             </button>
 
             <div className="grid grid-cols-2 gap-3">
@@ -227,7 +255,6 @@ function LoginFormContent() {
                 onClick={() => {
                   setPendingVerificationEmail(null);
                   setVerificationCode("");
-                  setNotice(null);
                   setError(null);
                 }}
                 disabled={isBusy}
@@ -264,7 +291,7 @@ function LoginFormContent() {
               </label>
               <div className={`login-input-shell ${passwordInputState}`}>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   onFocus={() => setFocusedField("password")}
@@ -272,8 +299,16 @@ function LoginFormContent() {
                   required
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="login-input-field"
+                  className="login-input-field pr-20"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:text-zinc-100"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
               </div>
             </div>
 
@@ -282,11 +317,13 @@ function LoginFormContent() {
               disabled={isBusy}
               className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
-              {loadingState === "signin"
-                ? "Signing in..."
-                : xHandle
-                  ? `Continue as @${xHandle}`
-                  : "Login"}
+              {loadingState === "setup"
+                ? "Setting things up..."
+                : loadingState === "signin"
+                  ? "Signing in..."
+                  : xHandle
+                    ? `Continue as @${xHandle}`
+                    : "Login"}
             </button>
 
             <p className="mt-2 text-center text-xs leading-6 text-zinc-500">

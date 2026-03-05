@@ -39,7 +39,7 @@ function isEmailDeliveryError(message: string): boolean {
 
 async function responseWithVerificationCode(email: string): Promise<NextResponse> {
   const codeRequest = await requestSupabaseEmailCode(email, { createUser: true });
-  if (!codeRequest.ok) {
+  if (!codeRequest.ok && codeRequest.error.code !== "rate_limited") {
     const status = codeRequest.error.code === "missing_configuration" ? 500 : 400;
     return NextResponse.json({ ok: false, error: codeRequest.error.message }, { status });
   }
@@ -47,7 +47,10 @@ async function responseWithVerificationCode(email: string): Promise<NextResponse
   return NextResponse.json(
     {
       ok: false,
-      error: "We sent a verification code to your email. Enter it below to continue.",
+      error:
+        codeRequest.ok
+          ? "We sent a verification code to your email. Enter it below to continue."
+          : "A verification code was just sent. Enter it below to continue.",
       code: "verification_code_required",
     },
     { status: 409 },
@@ -56,11 +59,14 @@ async function responseWithVerificationCode(email: string): Promise<NextResponse
 
 async function responseWithEmailDeliveryError(email: string): Promise<NextResponse> {
   const codeRequest = await requestSupabaseEmailCode(email, { createUser: true });
-  if (codeRequest.ok) {
+  if (codeRequest.ok || codeRequest.error.code === "rate_limited") {
     return NextResponse.json(
       {
         ok: false,
-        error: "We sent a verification code to your email. Enter it below to continue.",
+        error:
+          codeRequest.ok
+            ? "We sent a verification code to your email. Enter it below to continue."
+            : "A verification code was just sent. Enter it below to continue.",
         code: "verification_code_required",
       },
       { status: 409 },

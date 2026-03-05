@@ -34,7 +34,14 @@ export async function GET() {
     const profileHandles = userProfiles
       .map((p) => p.xHandle)
       .filter((h): h is string => h !== null);
-    const handles = Array.from(new Set([...profileHandles, ...onboardingHandles]));
+    const activeHandle = session.user.activeXHandle?.replace(/^@/, "").toLowerCase() ?? null;
+    const handles = Array.from(
+      new Set([
+        ...profileHandles,
+        ...onboardingHandles,
+        ...(activeHandle ? [activeHandle] : []),
+      ]),
+    );
 
     return NextResponse.json({ ok: true, data: { handles } });
   } catch (error) {

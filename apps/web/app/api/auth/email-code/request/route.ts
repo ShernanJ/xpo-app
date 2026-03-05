@@ -22,7 +22,12 @@ export async function POST(request: Request) {
 
   const result = await requestSupabaseEmailCode(email, { createUser: true });
   if (!result.ok) {
-    const status = result.error.code === "missing_configuration" ? 500 : 400;
+    const status =
+      result.error.code === "missing_configuration"
+        ? 500
+        : result.error.code === "rate_limited"
+          ? 429
+          : 400;
     return NextResponse.json({ ok: false, error: result.error.message }, { status });
   }
 

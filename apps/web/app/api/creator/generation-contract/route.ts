@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: false,
+        code: "MISSING_ONBOARDING_RUN",
         errors: [{ field: "auth", message: "No onboarding run found for this handle." }],
       },
       { status: 404 },

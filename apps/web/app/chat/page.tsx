@@ -129,6 +129,7 @@ interface CreatorAgentContextSuccess {
 
 interface CreatorAgentContextFailure {
   ok: false;
+  code?: "MISSING_ONBOARDING_RUN";
   errors: ValidationError[];
 }
 
@@ -141,6 +142,7 @@ interface CreatorGenerationContractSuccess {
 
 interface CreatorGenerationContractFailure {
   ok: false;
+  code?: "MISSING_ONBOARDING_RUN";
   errors: ValidationError[];
 }
 
@@ -2976,6 +2978,7 @@ function ChatPageContent() {
   const threadScrollRef = useRef<HTMLElement | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const growthGuideSelectedPlaybookRef = useRef<HTMLElement | null>(null);
+  const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -2987,6 +2990,7 @@ function ChatPageContent() {
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [billingState, setBillingState] = useState<BillingStatePayload | null>(null);
   const [isBillingLoading, setIsBillingLoading] = useState(false);
@@ -4398,6 +4402,74 @@ function ChatPageContent() {
     readyAccountHandle,
   ]);
 
+  const runMissingOnboardingSetup = useCallback(async (): Promise<boolean> => {
+    const normalizedHandle = normalizeAccountHandle(accountName ?? "");
+    if (!normalizedHandle) {
+      setErrorMessage("This account is not ready yet. Select a valid X handle first.");
+      return false;
+    }
+
+    if (missingOnboardingSetupAttemptedRef.current.has(normalizedHandle)) {
+      setErrorMessage(
+        "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
+      );
+      return false;
+    }
+    missingOnboardingSetupAttemptedRef.current.add(normalizedHandle);
+
+    setIsWorkspaceInitializing(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/onboarding/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          account: normalizedHandle,
+          goal: "followers",
+          timeBudgetMinutes: 30,
+          tone: { casing: "lowercase", risk: "safe" },
+        }),
+      });
+
+      const data = (await response.json().catch(() => null)) as OnboardingRunResponse | null;
+      if (!response.ok || !data || !data.ok) {
+        if (data && !data.ok && data.data?.billing) {
+          setBillingState((current) =>
+            current
+              ? {
+                  ...current,
+                  billing: data.data?.billing ?? current.billing,
+                }
+              : current,
+          );
+        }
+        if (response.status === 403) {
+          setPricingModalOpen(true);
+        }
+        const errorText =
+          data && !data.ok
+            ? (data.errors[0]?.message ?? "Could not finish setup for this account.")
+            : "Could not finish setup for this account.";
+        missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
+        setErrorMessage(errorText);
+        return false;
+      }
+
+      return true;
+    } catch {
+      missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
+      setErrorMessage(
+        "Could not finish setting up this account automatically. Run onboarding once, then reopen chat.",
+      );
+      return false;
+    } finally {
+      setIsWorkspaceInitializing(false);
+    }
+  }, [accountName]);
+
   const loadWorkspace = useCallback(
     async (
       overrides: ChatStrategyInputs | null = activeStrategyInputs,
@@ -4439,6 +4511,29 @@ function ChatPageContent() {
         const contractData: CreatorGenerationContractResponse =
           await contractResponse.json();
 
+        const contextMissingOnboarding =
+          (!contextData.ok &&
+            (contextData.code === "MISSING_ONBOARDING_RUN" ||
+              (contextResponse.status === 404 &&
+                contextData.errors.some((error) =>
+                  error.message.toLowerCase().includes("no onboarding run"),
+                ))));
+        const contractMissingOnboarding =
+          (!contractData.ok &&
+            (contractData.code === "MISSING_ONBOARDING_RUN" ||
+              (contractResponse.status === 404 &&
+                contractData.errors.some((error) =>
+                  error.message.toLowerCase().includes("no onboarding run"),
+                ))));
+
+        if (contextMissingOnboarding || contractMissingOnboarding) {
+          const didSetup = await runMissingOnboardingSetup();
+          if (didSetup) {
+            return await loadWorkspace(overrides, toneOverrides);
+          }
+          return { ok: false };
+        }
+
         if (!contextResponse.ok || !contextData.ok) {
           setErrorMessage(
             contextData.ok
@@ -4473,7 +4568,12 @@ function ChatPageContent() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, activeToneInputs, requiresXAccountGate],
+    [
+      activeStrategyInputs,
+      activeToneInputs,
+      requiresXAccountGate,
+      runMissingOnboardingSetup,
+    ],
   );
 
   const analysisScrapeCooldownRemainingMs = useMemo(() => {
@@ -4578,7 +4678,7 @@ function ChatPageContent() {
 
       if (result.data.reason === "missing_onboarding_run") {
         setAnalysisScrapeNoticeTone("error");
-        setAnalysisScrapeNotice("no onboarding run found for this account yet.");
+        setAnalysisScrapeNotice("this account still needs setup. run onboarding once, then try again.");
         return;
       }
 
@@ -4657,12 +4757,14 @@ function ChatPageContent() {
       return;
     }
 
+    missingOnboardingSetupAttemptedRef.current.clear();
     setContext(null);
     setContract(null);
     setMessages([]);
     setDraftInput("");
     setErrorMessage(null);
     setStreamStatus(null);
+    setIsWorkspaceInitializing(false);
     setAnalysisOpen(false);
     setBackfillNotice(null);
     setIsAnalysisScrapeRefreshing(false);
@@ -7295,8 +7397,22 @@ function ChatPageContent() {
 
           <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className={`${chatCanvasClassName} ${threadCanvasTransitionClassName}`}>
-              {isLoading && !context && !contract ? (
-                <div className="text-sm text-zinc-400">Loading the agent context...</div>
+              {(isLoading || isWorkspaceInitializing) && !context && !contract ? (
+                <div className="flex min-h-[34vh] flex-col items-center justify-center gap-4 text-center">
+                  <div className="relative h-11 w-11">
+                    <span className="absolute inset-0 rounded-full border border-white/10" />
+                    <span className="absolute inset-1 rounded-full border border-white/20 border-t-white animate-spin" />
+                    <span className="absolute inset-3 rounded-full bg-white/20 animate-pulse" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium tracking-[0.08em] text-zinc-200">
+                      Setting things up...
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      We&apos;re preparing your workspace.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className={threadContentTransitionClassName}>
                   {errorMessage ? (

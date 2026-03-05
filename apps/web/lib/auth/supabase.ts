@@ -32,6 +32,7 @@ export type SupabaseAuthErrorCode =
   | "invalid_otp"
   | "user_exists"
   | "email_confirmation_required"
+  | "rate_limited"
   | "missing_configuration"
   | "request_failed";
 
@@ -98,6 +99,18 @@ function deriveSupabaseError(data: unknown, fallback: string): SupabaseAuthError
     return {
       code: "email_confirmation_required",
       message: "Please verify your email before signing in.",
+    };
+  }
+
+  if (
+    normalized.includes("too many") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("request this after") ||
+    (normalized.includes("after") && normalized.includes("seconds"))
+  ) {
+    return {
+      code: "rate_limited",
+      message: "A verification code was just sent. Please wait a moment before requesting another one.",
     };
   }
 
