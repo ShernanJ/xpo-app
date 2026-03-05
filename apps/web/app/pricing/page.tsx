@@ -230,6 +230,7 @@ export default function PricingPage() {
   const isProAnnualCurrent = isProActive && activeBilling.billingCycle === "annual";
   const isFounderCurrent =
     activeBilling?.plan === "lifetime" && activeBilling.status === "active";
+  const isFreeCurrent = activeBilling?.plan === "free";
   const proMonthlyButtonLabel = isFounderCurrent
     ? "Included"
     : isProMonthlyCurrent
@@ -300,13 +301,21 @@ export default function PricingPage() {
               >
                 Start free
               </Link>
-            ) : (
+            ) : isFreeCurrent || !activeBilling ? (
               <Link
                 href="/chat"
                 className="mt-5 inline-flex rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05]"
               >
                 Start free
               </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="mt-5 inline-flex cursor-not-allowed rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500"
+              >
+                {activeBilling?.plan === "pro" ? "On Pro Plan" : "On Founder Pass"}
+              </button>
             )}
           </article>
 

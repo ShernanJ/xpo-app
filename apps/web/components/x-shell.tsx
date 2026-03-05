@@ -6,7 +6,12 @@ const scanlineStyle = {
   backgroundSize: "100% 6px",
 };
 
-export function XShell({ children }: { children: ReactNode }) {
+interface XShellProps {
+  children: ReactNode;
+  footerContent?: ReactNode;
+}
+
+export function XShell({ children, footerContent }: XShellProps) {
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="mx-auto min-h-screen max-w-7xl px-2 py-2 sm:px-4 sm:py-4">
@@ -16,15 +21,17 @@ export function XShell({ children }: { children: ReactNode }) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
           <div className="relative flex-1">{children}</div>
           <footer className="relative border-t border-white/10 px-6 py-4">
-            <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3 text-[10px] font-medium uppercase tracking-[0.28em] text-zinc-500 sm:text-[11px]">
-              <span>Dev</span>
-              <span className="h-3 w-px bg-white/10" />
-              <span>Growth Scan</span>
-              <span className="h-3 w-px bg-white/10" />
-              <span>Live</span>
-              <span className="h-3 w-px bg-white/10" />
-              <span>Agent Ready</span>
-            </div>
+            {footerContent ?? (
+              <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3 text-[10px] font-medium uppercase tracking-[0.28em] text-zinc-500 sm:text-[11px]">
+                <span>Dev</span>
+                <span className="h-3 w-px bg-white/10" />
+                <span>Growth Scan</span>
+                <span className="h-3 w-px bg-white/10" />
+                <span>Live</span>
+                <span className="h-3 w-px bg-white/10" />
+                <span>Agent Ready</span>
+              </div>
+            )}
           </footer>
         </div>
       </div>
