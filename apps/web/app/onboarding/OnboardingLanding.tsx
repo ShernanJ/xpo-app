@@ -940,7 +940,7 @@ export default function OnboardingLanding() {
               </p>
             </div>
 
-            <div className="px-6 pt-2 pb-10 sm:px-12 sm:pt-3 sm:pb-16">
+            <div className="px-6 pt-10 pb-10 sm:px-12 sm:pt-14 sm:pb-16">
               <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-10 sm:gap-12">
                 <div className="space-y-4 text-center">
                   <Image
@@ -953,7 +953,7 @@ export default function OnboardingLanding() {
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
                     X Growth Engine
                   </p>
-                  <h1 className="font-mono text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+                  <h1 className="mt-6 font-mono text-4xl font-semibold tracking-tight text-white sm:mt-7 sm:text-5xl">
                     Go From Random Posting To Xponential Growth.
                   </h1>
                   <p className="mx-auto max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
