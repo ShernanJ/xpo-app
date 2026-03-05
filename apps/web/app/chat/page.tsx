@@ -9175,20 +9175,16 @@ function ChatPageContent() {
                     Companion App
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold text-white">
-                    Companion App
+                    Coming soon!
                   </h2>
                   <p className="mt-3 text-sm leading-7 text-zinc-400">
-                    We&apos;ll wire the real extension flow next. For now, this is the placeholder entry point.
+                    Companion App is in progress and will be available soon.
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {}}
-                  className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.04]"
-                >
-                  Link to download
-                </button>
+                <span className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-zinc-300">
+                  Coming soon!
+                </span>
               </div>
             </div>
           </div>
