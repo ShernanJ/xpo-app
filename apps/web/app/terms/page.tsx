@@ -17,8 +17,8 @@ export default function TermsPage() {
   return (
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-3xl">
-        <BackHomeButton />
-        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+        <BackHomeButton className="mb-5" />
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
           Terms of Service
         </p>
         <h1 className="mt-3 text-4xl font-semibold">Terms of Service</h1>
