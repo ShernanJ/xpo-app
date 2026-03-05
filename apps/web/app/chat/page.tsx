@@ -129,7 +129,7 @@ interface CreatorAgentContextSuccess {
 
 interface CreatorAgentContextFailure {
   ok: false;
-  code?: "MISSING_ONBOARDING_RUN";
+  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
   errors: ValidationError[];
 }
 
@@ -142,7 +142,7 @@ interface CreatorGenerationContractSuccess {
 
 interface CreatorGenerationContractFailure {
   ok: false;
-  code?: "MISSING_ONBOARDING_RUN";
+  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
   errors: ValidationError[];
 }
 
@@ -4525,8 +4525,27 @@ function ChatPageContent() {
                 contractData.errors.some((error) =>
                   error.message.toLowerCase().includes("no onboarding run"),
                 ))));
+        const contextInvalidOnboardingSource =
+          !contextData.ok &&
+          (contextData.code === "ONBOARDING_SOURCE_INVALID" ||
+            (contextResponse.status === 409 &&
+              contextData.errors.some((error) =>
+                error.message.toLowerCase().includes("fallback data"),
+              )));
+        const contractInvalidOnboardingSource =
+          !contractData.ok &&
+          (contractData.code === "ONBOARDING_SOURCE_INVALID" ||
+            (contractResponse.status === 409 &&
+              contractData.errors.some((error) =>
+                error.message.toLowerCase().includes("fallback data"),
+              )));
 
-        if (contextMissingOnboarding || contractMissingOnboarding) {
+        if (
+          contextMissingOnboarding ||
+          contractMissingOnboarding ||
+          contextInvalidOnboardingSource ||
+          contractInvalidOnboardingSource
+        ) {
           const didSetup = await runMissingOnboardingSetup();
           if (didSetup) {
             return await loadWorkspace(overrides, toneOverrides);
