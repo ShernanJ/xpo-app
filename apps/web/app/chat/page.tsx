@@ -193,6 +193,7 @@ interface FeedbackAttachmentPayload {
   sizeBytes: number;
   status: "pending_upload";
   signatureHex?: string | null;
+  thumbnailDataUrl?: string | null;
 }
 
 interface FeedbackSubmitSuccess {
@@ -217,6 +218,7 @@ interface FeedbackHistoryItem {
   category: FeedbackCategory;
   status?: FeedbackReportStatus;
   statusUpdatedAt?: string;
+  statusUpdatedByUserId?: string | null;
   title?: string | null;
   message: string;
   attachments: FeedbackAttachmentPayload[];
@@ -683,6 +685,53 @@ async function readFeedbackFileSignatureHex(file: File): Promise<string | null> 
     return Array.from(signatureBytes)
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
+  } catch {
+    return null;
+  }
+}
+
+async function buildFeedbackImageThumbnailDataUrl(
+  file: File,
+): Promise<string | null> {
+  if (!file.type.toLowerCase().startsWith("image/")) {
+    return null;
+  }
+
+  try {
+    const sourceDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Invalid image data"));
+        }
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new window.Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("Failed to decode image"));
+      nextImage.src = sourceDataUrl;
+    });
+
+    const maxDimension = 220;
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.72);
   } catch {
     return null;
   }
@@ -3170,6 +3219,7 @@ function ChatPageContent() {
             sizeBytes: image.file.size,
             status: "pending_upload",
             signatureHex: await readFeedbackFileSignatureHex(image.file),
+            thumbnailDataUrl: await buildFeedbackImageThumbnailDataUrl(image.file),
           })),
         );
 
@@ -7386,18 +7436,40 @@ function ChatPageContent() {
                                     {entry.attachments.length} file
                                     {entry.attachments.length === 1 ? "" : "s"} attached
                                   </p>
-                                  <div className="flex flex-wrap gap-1.5">
+                                  <div className="grid gap-2 sm:grid-cols-2">
                                     {entry.attachments.slice(0, 3).map((attachment) => (
-                                      <span
+                                      <div
                                         key={attachment.id}
-                                        className="rounded-full border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] text-zinc-400"
-                                        title={attachment.name}
+                                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2"
+                                        title={`${attachment.name} • ${formatFileSize(attachment.sizeBytes)}`}
                                       >
-                                        {attachment.name}
-                                      </span>
+                                        {attachment.thumbnailDataUrl &&
+                                        attachment.mimeType.startsWith("image/") ? (
+                                          <Image
+                                            src={attachment.thumbnailDataUrl}
+                                            alt={attachment.name}
+                                            width={36}
+                                            height={36}
+                                            unoptimized
+                                            className="h-9 w-9 flex-shrink-0 rounded-lg object-cover"
+                                          />
+                                        ) : (
+                                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-[10px] text-zinc-400">
+                                            {attachment.mimeType === "video/mp4" ? "MP4" : "FILE"}
+                                          </div>
+                                        )}
+                                        <div className="min-w-0">
+                                          <p className="truncate text-[11px] text-zinc-300">
+                                            {attachment.name}
+                                          </p>
+                                          <p className="text-[10px] text-zinc-500">
+                                            {formatFileSize(attachment.sizeBytes)}
+                                          </p>
+                                        </div>
+                                      </div>
                                     ))}
                                     {entry.attachments.length > 3 ? (
-                                      <span className="rounded-full border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] text-zinc-500">
+                                      <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] text-zinc-500">
                                         +{entry.attachments.length - 3} more
                                       </span>
                                     ) : null}
@@ -7406,7 +7478,12 @@ function ChatPageContent() {
                               ) : null}
                               {entry.statusUpdatedAt ? (
                                 <p className="mt-2 text-[11px] text-zinc-500">
-                                  status updated {new Date(entry.statusUpdatedAt).toLocaleString()}
+                                  status updated{" "}
+                                  {entry.statusUpdatedByUserId &&
+                                  entry.statusUpdatedByUserId === session?.user?.id
+                                    ? "by you"
+                                    : "by account owner"}{" "}
+                                  on {new Date(entry.statusUpdatedAt).toLocaleString()}
                                 </p>
                               ) : null}
                               <div className="mt-3 flex flex-wrap gap-2">
