@@ -1225,9 +1225,53 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     }
   }
 
+  const landingShellOverlay = (
+    <>
+      <span className="landing-infra-grid" />
+      <span className="landing-infra-vignette" />
+      <span className="landing-infra-rail" />
+      {AMBIENT_DOTS.map((dot, index) => (
+        <span
+          key={`shell-dot-${index}`}
+          className="landing-ambient-dot"
+          style={{
+            top: dot.top,
+            left: dot.left,
+            width: dot.size,
+            height: dot.size,
+            animationDelay: dot.delay,
+          }}
+        />
+      ))}
+      {AMBIENT_LINES.map((line, index) => (
+        <span
+          key={`shell-line-${index}`}
+          className="landing-ambient-line"
+          style={{
+            top: line.top,
+            left: line.left,
+            width: line.width,
+            animationDelay: line.delay,
+          }}
+        />
+      ))}
+      {AMBIENT_PACKETS.map((packet, index) => (
+        <span
+          key={`shell-packet-${index}`}
+          className="landing-ambient-packet"
+          style={{
+            top: packet.top,
+            animationDelay: packet.delay,
+            animationDuration: packet.duration,
+          }}
+        />
+      ))}
+    </>
+  );
+
   if (isLoading) {
     return (
-      <XShell footerContent={landingFooterLinks}>
+      <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
         <section className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center px-6 py-16 sm:py-24">
           <div className="relative w-full animate-in fade-in duration-700">
             <div className="landing-hero-shell overflow-hidden rounded-[2rem] border border-white/15 bg-[#060606] shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
@@ -1341,50 +1385,8 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     }
 
     return (
-      <XShell footerContent={landingFooterLinks}>
+      <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
         <div className="landing-root relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start px-4 pt-2 pb-6 sm:px-6 sm:pt-3 sm:pb-8 lg:h-full lg:min-h-0 lg:overflow-hidden lg:pb-4">
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <span className="landing-infra-grid" />
-            <span className="landing-infra-vignette" />
-            <span className="landing-infra-rail" />
-            {AMBIENT_DOTS.map((dot, index) => (
-              <span
-                key={`analysis-dot-${index}`}
-                className="landing-ambient-dot"
-                style={{
-                  top: dot.top,
-                  left: dot.left,
-                  width: dot.size,
-                  height: dot.size,
-                  animationDelay: dot.delay,
-                }}
-              />
-            ))}
-            {AMBIENT_LINES.map((line, index) => (
-              <span
-                key={`analysis-line-${index}`}
-                className="landing-ambient-line"
-                style={{
-                  top: line.top,
-                  left: line.left,
-                  width: line.width,
-                  animationDelay: line.delay,
-                }}
-              />
-            ))}
-            {AMBIENT_PACKETS.map((packet, index) => (
-              <span
-                key={`analysis-packet-${index}`}
-                className="landing-ambient-packet"
-                style={{
-                  top: packet.top,
-                  animationDelay: packet.delay,
-                  animationDuration: packet.duration,
-                }}
-              />
-            ))}
-          </div>
-
           <motion.section
             initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -1643,50 +1645,8 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   }
 
   return (
-    <XShell footerContent={landingFooterLinks}>
+    <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
       <div className="landing-root relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start px-6 pt-4 pb-16 sm:pt-6 sm:pb-24">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <span className="landing-infra-grid" />
-          <span className="landing-infra-vignette" />
-          <span className="landing-infra-rail" />
-          {AMBIENT_DOTS.map((dot, index) => (
-            <span
-              key={`ambient-dot-${index}`}
-              className="landing-ambient-dot"
-              style={{
-                top: dot.top,
-                left: dot.left,
-                width: dot.size,
-                height: dot.size,
-                animationDelay: dot.delay,
-              }}
-            />
-          ))}
-          {AMBIENT_LINES.map((line, index) => (
-            <span
-              key={`ambient-line-${index}`}
-              className="landing-ambient-line"
-              style={{
-                top: line.top,
-                left: line.left,
-                width: line.width,
-                animationDelay: line.delay,
-              }}
-            />
-          ))}
-          {AMBIENT_PACKETS.map((packet, index) => (
-            <span
-              key={`ambient-packet-${index}`}
-              className="landing-ambient-packet"
-              style={{
-                top: packet.top,
-                animationDelay: packet.delay,
-                animationDuration: packet.duration,
-              }}
-            />
-          ))}
-        </div>
-
         <motion.section
           initial="hidden"
           animate="visible"

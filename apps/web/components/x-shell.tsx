@@ -9,14 +9,20 @@ const scanlineStyle = {
 interface XShellProps {
   children: ReactNode;
   footerContent?: ReactNode;
+  backgroundOverlay?: ReactNode;
 }
 
-export function XShell({ children, footerContent }: XShellProps) {
+export function XShell({ children, footerContent, backgroundOverlay }: XShellProps) {
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="mx-auto min-h-screen max-w-7xl px-2 py-2 sm:px-4 sm:py-4">
         <div className="relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#050505] sm:min-h-[calc(100vh-2rem)]">
           <div className="pointer-events-none absolute inset-0 opacity-20" style={scanlineStyle} />
+          {backgroundOverlay ? (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              {backgroundOverlay}
+            </div>
+          ) : null}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
           <div className="relative flex-1">{children}</div>
