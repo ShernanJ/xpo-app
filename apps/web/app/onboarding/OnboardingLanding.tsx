@@ -323,12 +323,75 @@ const LANDING_SECTION_VIEWPORT = {
   amount: 0.18,
   margin: "0px 0px -8% 0px",
 } as const;
-const VOICE_PREVIEW_REGENERATE_LIMIT = 3;
+const LANDING_LOADING_TRANSITION_MS = 1100;
+const LANDING_MIN_ANALYSIS_LOADING_MS = 5200;
 const LANDING_CARD_HOVER = {
   y: -4,
   transition: {
     duration: 0.24,
     ease: [0.22, 1, 0.36, 1] as const,
+  },
+};
+
+const LANDING_ONBOARDING_STACK_REVEAL = {
+  hidden: {
+    opacity: 0,
+  },
+  visible: {
+    opacity: 1,
+    transition: {
+      duration: 0.26,
+      ease: [0.16, 1, 0.3, 1] as const,
+      delayChildren: 0.12,
+      staggerChildren: 0.12,
+    },
+  },
+};
+
+const LANDING_ONBOARDING_ITEM_REVEAL = {
+  hidden: {
+    opacity: 0,
+    y: 18,
+    filter: "blur(4px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.66,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  },
+};
+
+const LANDING_LOADING_STACK_REVEAL = {
+  hidden: {
+    opacity: 0,
+  },
+  visible: {
+    opacity: 1,
+    transition: {
+      delayChildren: 0.08,
+      staggerChildren: 0.12,
+    },
+  },
+};
+
+const LANDING_LOADING_ITEM_REVEAL = {
+  hidden: {
+    opacity: 0,
+    y: 14,
+    filter: "blur(3px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.46,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
   },
 };
 
@@ -556,6 +619,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const { status, update } = useSession();
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLaunchingLoading, setIsLaunchingLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
@@ -565,8 +629,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const [voicePreviewFormat, setVoicePreviewFormat] = useState<"shortform" | "longform">(
     "shortform",
   );
-  const [voicePreviewVariantSeed, setVoicePreviewVariantSeed] = useState(0);
-  const [voicePreviewRegensUsed, setVoicePreviewRegensUsed] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAccountFocused, setIsAccountFocused] = useState(false);
   const [openFaqIndexes, setOpenFaqIndexes] = useState<number[]>([0]);
@@ -1103,9 +1165,8 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   function resetGuestAnalysisPreview() {
     setGuestAnalysisPreview(null);
     setVoicePreviewFormat("shortform");
-    setVoicePreviewVariantSeed(0);
-    setVoicePreviewRegensUsed(0);
     setIsLoading(false);
+    setIsLaunchingLoading(false);
     setErrorMessage(null);
 
     window.setTimeout(() => {
@@ -1149,16 +1210,24 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
       return;
     }
 
-    setIsLoading(true);
+    if (isLaunchingLoading) {
+      return;
+    }
+
+    setIsLaunchingLoading(true);
     setErrorMessage(null);
     setGuestAnalysisPreview(null);
     setVoicePreviewFormat("shortform");
-    setVoicePreviewVariantSeed(0);
-    setVoicePreviewRegensUsed(0);
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, LANDING_LOADING_TRANSITION_MS);
+    });
+    setIsLoading(true);
+    setIsLaunchingLoading(false);
 
     if (status === "authenticated") {
       // Authenticated users run the scrape natively and skip login
       try {
+        const analysisStartedAt = Date.now();
         const resp = await fetch("/api/onboarding/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1174,6 +1243,13 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           throw new Error("Failed to map account");
         }
 
+        const elapsed = Date.now() - analysisStartedAt;
+        if (elapsed < LANDING_MIN_ANALYSIS_LOADING_MS) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, LANDING_MIN_ANALYSIS_LOADING_MS - elapsed);
+          });
+        }
+
         // Force a session refresh so the next page load has the new JWT activeXHandle,
         // then hard reload to /chat
         await update();
@@ -1182,6 +1258,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         console.error(err);
         setErrorMessage("Failed to analyze account. Please try again.");
         setIsLoading(false);
+        setIsLaunchingLoading(false);
       }
     } else {
       // Anonymous users get a value preview before the auth wall.
@@ -1207,11 +1284,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           throw new Error("Preview account unavailable.");
         }
 
-        const minimumLoadingMs = 5200;
         const elapsed = Date.now() - analysisStartedAt;
-        if (elapsed < minimumLoadingMs) {
+        if (elapsed < LANDING_MIN_ANALYSIS_LOADING_MS) {
           await new Promise((resolve) => {
-            window.setTimeout(resolve, minimumLoadingMs - elapsed);
+            window.setTimeout(resolve, LANDING_MIN_ANALYSIS_LOADING_MS - elapsed);
           });
         }
 
@@ -1221,6 +1297,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         setErrorMessage("Failed to analyze account. Please try again.");
       } finally {
         setIsLoading(false);
+        setIsLaunchingLoading(false);
       }
     }
   }
@@ -1273,7 +1350,12 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     return (
       <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
         <section className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center px-6 py-16 sm:py-24">
-          <div className="relative w-full animate-in fade-in duration-700">
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.62, ease: [0.16, 1, 0.3, 1] }}
+            className="relative w-full"
+          >
             <div className="landing-hero-shell overflow-hidden rounded-[2rem] border border-white/15 bg-[#060606] shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
                 <div className="flex items-center gap-2">
@@ -1289,8 +1371,14 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                 </span>
               </div>
 
-              <div className="px-6 pt-4 pb-8 sm:px-10 sm:pt-6 sm:pb-12">
+              <motion.div
+                initial="hidden"
+                animate="visible"
+                variants={LANDING_LOADING_STACK_REVEAL}
+                className="px-6 pt-4 pb-8 sm:px-10 sm:pt-6 sm:pb-12"
+              >
                 <div className="mx-auto max-w-2xl text-center">
+                  <motion.div variants={LANDING_LOADING_ITEM_REVEAL}>
                   <Image
                     src="/xpo-logo-white.webp"
                     alt="Xpo logo"
@@ -1301,19 +1389,35 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                   <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
                     Signal Pipeline Active
                   </p>
+                  </motion.div>
 
-                  <div className="mt-6 flex items-center justify-center gap-4">
-                    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white/20 bg-white/5 text-sm font-semibold text-white shadow-[0_0_32px_rgba(255,255,255,0.12)]">
-                      {preview?.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${preview.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${preview.name} profile photo`}
-                        />
-                      ) : (
-                        preview?.name?.slice(0, 2).toUpperCase() || account.slice(0, 2).toUpperCase()
-                      )}
+                  <motion.div
+                    variants={LANDING_LOADING_ITEM_REVEAL}
+                    className="mt-6 flex items-center justify-center gap-4"
+                  >
+                    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-visible rounded-full text-sm font-semibold text-white">
+                      <motion.span
+                        className="pointer-events-none absolute inset-0 rounded-full border border-white/20"
+                        animate={{ scale: [1, 1.2], opacity: [0.45, 0] }}
+                        transition={{ duration: 1.6, ease: "easeOut", repeat: Infinity }}
+                      />
+                      <motion.span
+                        className="pointer-events-none absolute inset-0 rounded-full border border-white/15"
+                        animate={{ scale: [1, 1.28], opacity: [0.35, 0] }}
+                        transition={{ duration: 1.8, ease: "easeOut", repeat: Infinity, delay: 0.65 }}
+                      />
+                      <div className="relative z-10 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-2 border-white/20 bg-white/5 shadow-[0_0_32px_rgba(255,255,255,0.12)]">
+                        {preview?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${preview.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${preview.name} profile photo`}
+                          />
+                        ) : (
+                          preview?.name?.slice(0, 2).toUpperCase() || account.slice(0, 2).toUpperCase()
+                        )}
+                      </div>
                     </div>
                     <div className="text-left">
                       <h1 className="font-mono text-xl font-semibold tracking-tight text-white sm:text-2xl">
@@ -1323,25 +1427,47 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                         @{preview?.username || normalizedAccount}
                       </p>
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <p className="mt-7 text-sm font-medium tracking-[0.1em] text-white animate-pulse">
-                    {LOADING_STEPS[loadingStepIndex]}
-                  </p>
-                  <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-white transition-all duration-[1400ms] ease-linear"
-                      style={{ width: `${((loadingStepIndex + 1) / LOADING_STEPS.length) * 100}%` }}
-                    />
-                  </div>
+                  <motion.div variants={LANDING_LOADING_ITEM_REVEAL}>
+                    <div className="relative mt-7 h-6 overflow-hidden">
+                      <AnimatePresence mode="wait" initial={false}>
+                        <motion.p
+                          key={loadingStepIndex}
+                          initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
+                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                          exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
+                          transition={{ duration: 0.34, ease: "easeOut" }}
+                          className="absolute inset-x-0 text-sm font-medium tracking-[0.1em] text-white"
+                        >
+                          {LOADING_STEPS[loadingStepIndex]}
+                        </motion.p>
+                      </AnimatePresence>
+                    </div>
 
-                  <p className="mt-4 text-xs text-zinc-500">
-                    Step {loadingStepIndex + 1} of {LOADING_STEPS.length}. Preparing your workspace.
-                  </p>
+                    <div className="relative mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                      <motion.div
+                        className="h-full rounded-full bg-white"
+                        animate={{
+                          width: `${((loadingStepIndex + 1) / LOADING_STEPS.length) * 100}%`,
+                        }}
+                        transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+                      />
+                      <motion.span
+                        className="pointer-events-none absolute inset-y-0 w-20 bg-gradient-to-r from-transparent via-white/70 to-transparent"
+                        animate={{ x: ["-140%", "640%"] }}
+                        transition={{ duration: 1.9, ease: "linear", repeat: Infinity }}
+                      />
+                    </div>
+
+                    <p className="mt-4 text-xs text-zinc-500">
+                      Step {loadingStepIndex + 1} of {LOADING_STEPS.length}. Preparing your workspace.
+                    </p>
+                  </motion.div>
                 </div>
-              </div>
+              </motion.div>
             </div>
-          </div>
+          </motion.div>
         </section>
         {autofillStyles}
         {landingMotionStyles}
@@ -1358,31 +1484,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         ? guestAnalysisPreview.voicePreview.shortform
         : guestAnalysisPreview.voicePreview.longform;
     const activeVoicePreviewLimit = voicePreviewFormat === "shortform" ? 250 : 700;
-    const remainingVoicePreviewRegens = Math.max(
-      0,
-      VOICE_PREVIEW_REGENERATE_LIMIT - voicePreviewRegensUsed,
-    );
-
-    function handleRegenerateVoicePreview() {
-      if (!guestAnalysisPreview || remainingVoicePreviewRegens <= 0) {
-        return;
-      }
-
-      const nextVariantSeed = voicePreviewVariantSeed + 1;
-      setVoicePreviewVariantSeed(nextVariantSeed);
-      setVoicePreviewRegensUsed((current) =>
-        Math.min(VOICE_PREVIEW_REGENERATE_LIMIT, current + 1),
-      );
-      setGuestAnalysisPreview({
-        ...guestAnalysisPreview,
-        voicePreview: buildVoicePreviewDraft(
-          guestAnalysisPreview.profile,
-          guestAnalysisPreview.stage,
-          guestAnalysisPreview.focus,
-          nextVariantSeed,
-        ),
-      });
-    }
 
     return (
       <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
@@ -1406,8 +1507,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
             </motion.button>
 
             <motion.article
-              whileHover={LANDING_CARD_HOVER}
-              className="landing-card-motion flex flex-1 flex-col rounded-[2rem] border border-white/12 bg-black/35 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] backdrop-blur-md sm:p-6 lg:min-h-0 lg:overflow-hidden"
+              className="flex flex-1 flex-col rounded-[2rem] border border-white/12 bg-black/35 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] backdrop-blur-md sm:p-6 lg:min-h-0 lg:overflow-hidden"
             >
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -1564,24 +1664,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                     <p className="mt-4 text-xs text-zinc-500">
                       {activeVoicePreviewCopy.length}/{activeVoicePreviewLimit} chars
                     </p>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={handleRegenerateVoicePreview}
-                        disabled={remainingVoicePreviewRegens <= 0}
-                        className={`inline-flex items-center justify-center rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${
-                          remainingVoicePreviewRegens <= 0
-                            ? "cursor-not-allowed border-white/10 text-zinc-600"
-                            : "cursor-pointer border-white/20 text-zinc-300 hover:border-white/35 hover:text-white"
-                        }`}
-                      >
-                        Regenerate Example
-                      </button>
-                      <p className="text-[11px] text-zinc-500">
-                        {remainingVoicePreviewRegens} regeneration
-                        {remainingVoicePreviewRegens === 1 ? "" : "s"} left
-                      </p>
-                    </div>
                   </div>
                 </motion.div>
 
@@ -1651,8 +1733,58 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           initial="hidden"
           animate="visible"
           variants={sectionReveal(0.08)}
-          className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 sm:pt-4"
+          className={`relative mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 transition-all duration-700 ease-out sm:pt-4 ${
+            isLaunchingLoading
+              ? "translate-y-2 scale-[0.99] opacity-0 blur-[2px]"
+              : "translate-y-0 scale-100 opacity-100 blur-0"
+          }`}
         >
+          <AnimatePresence>
+            {isLaunchingLoading ? (
+              <motion.div
+                key="launch-transition-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.52, ease: "easeOut" }}
+                className="pointer-events-none absolute inset-0 z-30 overflow-hidden rounded-[2rem]"
+              >
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.45, ease: "easeOut" }}
+                  className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+                />
+                <motion.div
+                  initial={{ opacity: 0.2, scale: 0.96 }}
+                  animate={{ opacity: 0.6, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.92, ease: [0.16, 1, 0.3, 1] }}
+                  className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(148,163,184,0.2)_0%,rgba(0,0,0,0.85)_70%)]"
+                />
+                <motion.span
+                  initial={{ x: "-120%", opacity: 0 }}
+                  animate={{ x: "120%", opacity: [0, 0.7, 0] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1.45, ease: "easeInOut" }}
+                  className="absolute top-1/2 h-px w-[180%] -translate-y-1/2 bg-gradient-to-r from-transparent via-slate-200/80 to-transparent"
+                />
+                <motion.div
+                  initial={{ y: 6, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -4, opacity: 0 }}
+                  transition={{ duration: 0.48, ease: "easeOut" }}
+                  className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                    Initializing profile scan
+                  </p>
+                </motion.div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
           <div className="landing-hero-shell overflow-hidden rounded-[2rem] border border-white/12 bg-[#060606] shadow-[0_24px_90px_rgba(0,0,0,0.45)]">
             <div className="relative flex items-center border-b border-white/10 px-5 py-3">
               <div className="flex items-center gap-2">
@@ -1666,8 +1798,13 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
             </div>
 
             <div className="px-6 pt-10 pb-10 sm:px-12 sm:pt-14 sm:pb-16">
-              <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-10 sm:gap-12">
-                <div className="space-y-4 text-center">
+              <motion.div
+                initial="hidden"
+                animate="visible"
+                variants={LANDING_ONBOARDING_STACK_REVEAL}
+                className="mx-auto flex w-full max-w-3xl flex-col items-center gap-10 sm:gap-12"
+              >
+                <motion.div variants={LANDING_ONBOARDING_ITEM_REVEAL} className="space-y-4 text-center">
                   <Image
                     src="/xpo-logo-white.webp"
                     alt="Xpo logo"
@@ -1684,9 +1821,13 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                   <p className="mx-auto max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
                     Drop your handle. Xpo reads your account and gives you the next best move.
                   </p>
-                </div>
+                </motion.div>
 
-                <div id="account-scan" className="w-full max-w-2xl">
+                <motion.div
+                  id="account-scan"
+                  variants={LANDING_ONBOARDING_ITEM_REVEAL}
+                  className="w-full max-w-2xl"
+                >
                   <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
                     Enter your X Handle
                   </p>
@@ -1708,13 +1849,12 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                             <input
                               id="account"
                               value={account}
+                              disabled={isLaunchingLoading}
                               onChange={(event) => {
                                 setAccount(event.target.value);
                                 setErrorMessage(null);
                                 setGuestAnalysisPreview(null);
                                 setVoicePreviewFormat("shortform");
-                                setVoicePreviewVariantSeed(0);
-                                setVoicePreviewRegensUsed(0);
                               }}
                               onFocus={() => setIsAccountFocused(true)}
                               onBlur={() => setIsAccountFocused(false)}
@@ -1824,10 +1964,15 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                       <div className="flex flex-col gap-2 sm:min-w-[210px]">
                         <button
                           type="submit"
-                          disabled={!hasValidPreview || isPreviewLoading || !normalizedAccount}
+                          disabled={
+                            !hasValidPreview ||
+                            isPreviewLoading ||
+                            !normalizedAccount ||
+                            isLaunchingLoading
+                          }
                           className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
                         >
-                          Analyze My X
+                          {isLaunchingLoading ? "Preparing Scan..." : "Analyze My X"}
                         </button>
                         <p className="text-center text-sm text-zinc-500">
                           have an account?{" "}
@@ -1847,20 +1992,23 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                       </p>
                     ) : null}
                   </form>
-                </div>
-                <div className="mx-auto mt-4 w-full max-w-4xl px-2">
-            <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 px-3 py-2 sm:gap-x-14">
-              {HERO_SIGNAL_STRIP.map((item) => (
-                <div key={item.title} className="inline-flex items-center gap-2">
-                  <item.Icon className="h-3.5 w-3.5 text-zinc-400" />
-                  <span className="text-[11px] font-medium tracking-[0.04em] text-zinc-300">
-                    {item.title}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-              </div>
+                </motion.div>
+                <motion.div
+                  variants={LANDING_ONBOARDING_ITEM_REVEAL}
+                  className="mx-auto mt-4 w-full max-w-4xl px-2"
+                >
+                  <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 px-3 py-2 sm:gap-x-14">
+                    {HERO_SIGNAL_STRIP.map((item) => (
+                      <div key={item.title} className="inline-flex items-center gap-2">
+                        <item.Icon className="h-3.5 w-3.5 text-zinc-400" />
+                        <span className="text-[11px] font-medium tracking-[0.04em] text-zinc-300">
+                          {item.title}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              </motion.div>
             </div>
           </div>
         </motion.section>

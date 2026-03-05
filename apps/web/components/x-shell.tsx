@@ -27,6 +27,17 @@ export function XShell({ children, footerContent, backgroundOverlay }: XShellPro
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
           <div className="relative flex-1">{children}</div>
           <footer className="relative border-t border-white/10 px-6 py-4">
+            <p className="absolute bottom-4 left-6 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500 sm:text-[11px]">
+              built by{" "}
+              <a
+                href="https://www.x.com/shernanjavier"
+                target="_blank"
+                rel="noreferrer"
+                className="text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+              >
+                shernan javier
+              </a>
+            </p>
             {footerContent ?? (
               <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3 text-[10px] font-medium uppercase tracking-[0.28em] text-zinc-500 sm:text-[11px]">
                 <span>Dev</span>

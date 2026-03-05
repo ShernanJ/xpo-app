@@ -37,10 +37,15 @@ export async function POST(request: Request) {
   if (!parsed.ok) {
     return NextResponse.json(parsed, { status: 400 });
   }
+  const effectiveInput = {
+    ...parsed.data,
+    scrapeFreshness: "if_stale" as const,
+    forceFreshScrape: false,
+  };
   const userId = session.user.id;
   const handleLimitCheck = await validateHandleLimit({
     userId,
-    targetHandle: parsed.data.account,
+    targetHandle: effectiveInput.account,
   });
   if (!handleLimitCheck.ok) {
     const billingState = await getBillingStateForUser(userId);
@@ -57,30 +62,30 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await runOnboarding(parsed.data);
+  const result = await runOnboarding(effectiveInput);
   const persisted = await persistOnboardingRun({
-    input: parsed.data,
+    input: effectiveInput,
     result,
     userAgent: request.headers.get("user-agent"),
     userId,
   });
 
   // 2b. Sync posts to Prisma so retrieval and style profiling can use them
-  await syncOnboardingPostsToDb(userId, parsed.data.account, result).catch((err) =>
+  await syncOnboardingPostsToDb(userId, effectiveInput.account, result).catch((err) =>
     console.error("Failed to sync posts to DB:", err),
   );
   const backfill = await maybeEnqueueOnboardingBackfillJob({
     runId: persisted.runId,
-    input: parsed.data,
+    input: effectiveInput,
     result,
   });
 
   await prisma.user.update({
     where: { id: userId },
-    data: { activeXHandle: parsed.data.account },
+    data: { activeXHandle: effectiveInput.account },
   });
 
-  const normalizedHandle = parsed.data.account.replace(/^@/, "").toLowerCase();
+  const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
 
   await prisma.voiceProfile.createMany({
     data: [{

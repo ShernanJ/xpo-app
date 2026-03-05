@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { access, appendFile, mkdir, readFile } from "fs/promises";
+import { access, appendFile, mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 
 import type { XPublicPost, XPublicProfile } from "./types";
@@ -17,6 +17,8 @@ export interface StoredScrapeCapture {
     userAgent: string | null;
   };
 }
+
+export const SCRAPE_CAPTURE_TTL_MS = 1000 * 60 * 60 * 24 * 2;
 
 function candidateScrapeStorePaths(): string[] {
   if (process.env.SCRAPE_STORE_PATH) {
@@ -44,15 +46,71 @@ async function resolveScrapeStorePath(): Promise<string> {
   return candidates[0];
 }
 
+export function isScrapeCaptureExpired(
+  capturedAt: string,
+  nowMs = Date.now(),
+): boolean {
+  const capturedAtMs = new Date(capturedAt).getTime();
+  if (!Number.isFinite(capturedAtMs)) {
+    return true;
+  }
+
+  return nowMs - capturedAtMs >= SCRAPE_CAPTURE_TTL_MS;
+}
+
+function parseStoredCaptureLine(line: string): StoredScrapeCapture | null {
+  try {
+    const parsed = JSON.parse(line) as StoredScrapeCapture;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.account !== "string" ||
+      typeof parsed.capturedAt !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      account: parsed.account.toLowerCase(),
+      profile: {
+        ...parsed.profile,
+        username: parsed.profile.username.toLowerCase(),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeAllCaptures(
+  storePath: string,
+  captures: StoredScrapeCapture[],
+): Promise<void> {
+  await mkdir(path.dirname(storePath), { recursive: true });
+  const body = captures.map((capture) => JSON.stringify(capture)).join("\n");
+  await writeFile(storePath, body ? `${body}\n` : "", "utf8");
+}
+
 async function readAllCaptures(): Promise<StoredScrapeCapture[]> {
   const storePath = await resolveScrapeStorePath();
 
   try {
-    return (await readFile(storePath, "utf8"))
+    const parsed = (await readFile(storePath, "utf8"))
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as StoredScrapeCapture);
+      .map((line) => parseStoredCaptureLine(line))
+      .filter((capture): capture is StoredScrapeCapture => capture !== null);
+    const activeCaptures = parsed.filter(
+      (capture) => !isScrapeCaptureExpired(capture.capturedAt),
+    );
+
+    if (activeCaptures.length !== parsed.length) {
+      await writeAllCaptures(storePath, activeCaptures);
+    }
+
+    return activeCaptures;
   } catch {
     return [];
   }
@@ -68,6 +126,8 @@ export async function persistScrapeCapture(params: {
   userAgent: string | null;
 }): Promise<{ captureId: string; capturedAt: string }> {
   const storePath = await resolveScrapeStorePath();
+  const activeCaptures = await readAllCaptures();
+  await writeAllCaptures(storePath, activeCaptures);
   await mkdir(path.dirname(storePath), { recursive: true });
 
   const captureId = `sc_${randomUUID()}`;
