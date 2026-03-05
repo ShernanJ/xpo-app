@@ -32,6 +32,7 @@ model User {
   memories       ConversationMemory[]
   voiceProfiles  VoiceProfile[]
   chatThreads    ChatThread[]
+  feedbackSubmissions FeedbackSubmission[]
 }
 
 model Account {
@@ -144,4 +145,28 @@ model VoiceProfile {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FeedbackSubmission {
+  id                    String   @id @default(uuid())
+  userId                String
+  xHandle               String
+  category              String
+  status                String   @default("open")
+  title                 String?
+  message               String   @db.Text
+  fields                Json
+  context               Json
+  attachments           Json
+  submittedByUserHandle String?
+  submittedByXHandle    String?
+  statusUpdatedAt       DateTime?
+  statusUpdatedByUserId String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, xHandle, createdAt])
+  @@index([userId, xHandle, status, createdAt])
 }

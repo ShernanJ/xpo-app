@@ -17,6 +17,11 @@ import {
   FEEDBACK_MAX_ATTACHMENTS,
 } from "./route.logic";
 
+const MAX_LEGACY_BACKFILL_COUNT = 250;
+const MAX_GUARD_LOOKBACK_COUNT = 250;
+const MAX_THUMBNAIL_DATA_URL_CHARS = 250_000;
+const VALID_THUMBNAIL_PREFIX = /^data:image\/(png|jpeg|jpg);base64,/i;
+
 const FeedbackRequestSchema = z.object({
   category: FeedbackCategorySchema,
   title: z.string().trim().min(2).max(140).nullable().optional(),
@@ -55,20 +60,6 @@ function getActiveHandle(session: {
   return normalized || null;
 }
 
-function buildEmptyStyleCard() {
-  return StyleCardSchema.parse({
-    sentenceOpenings: [],
-    sentenceClosers: [],
-    pacing: "",
-    emojiPatterns: [],
-    slangAndVocabulary: [],
-    formattingRules: [],
-    customGuidelines: [],
-    contextAnchors: [],
-    antiExamples: [],
-  });
-}
-
 function sanitizeFields(fields?: Record<string, string>): Record<string, string> {
   if (!fields) {
     return {};
@@ -80,6 +71,154 @@ function sanitizeFields(fields?: Record<string, string>): Record<string, string>
     .slice(0, 12);
 
   return Object.fromEntries(entries);
+}
+
+function sanitizeAttachments(
+  attachments: z.infer<typeof FeedbackAttachmentSchema>[],
+): z.infer<typeof FeedbackAttachmentSchema>[] {
+  return attachments.map((attachment) => {
+    const thumbnailDataUrl =
+      typeof attachment.thumbnailDataUrl === "string" &&
+      attachment.thumbnailDataUrl.length <= MAX_THUMBNAIL_DATA_URL_CHARS &&
+      VALID_THUMBNAIL_PREFIX.test(attachment.thumbnailDataUrl)
+        ? attachment.thumbnailDataUrl
+        : null;
+
+    return FeedbackAttachmentSchema.parse({
+      ...attachment,
+      thumbnailDataUrl,
+    });
+  });
+}
+
+function parseFeedbackAttachmentsJson(
+  value: Prisma.JsonValue | null | undefined,
+): z.infer<typeof FeedbackAttachmentSchema>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const parsed = z.array(FeedbackAttachmentSchema).safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+function toDateOrNow(value: string | null | undefined): Date {
+  if (value) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed);
+    }
+  }
+  return new Date();
+}
+
+function mapRecordToSubmission(
+  record: {
+    id: string;
+    userId: string;
+    category: string;
+    status: string;
+    title: string | null;
+    message: string;
+    fields: Prisma.JsonValue;
+    context: Prisma.JsonValue;
+    attachments: Prisma.JsonValue;
+    createdAt: Date;
+    statusUpdatedAt: Date | null;
+    statusUpdatedByUserId: string | null;
+    submittedByUserHandle: string | null;
+    submittedByXHandle: string | null;
+  },
+) {
+  const parsedFields = z.record(z.string(), z.string()).safeParse(record.fields);
+  const parsedContext = z
+    .object({
+      pagePath: z.string().default("/chat"),
+      threadId: z.string().nullable().optional(),
+      activeModal: z.string().nullable().optional(),
+      draftMessageId: z.string().nullable().optional(),
+      viewportWidth: z.number().int().positive().optional(),
+      viewportHeight: z.number().int().positive().optional(),
+      userAgent: z.string().optional(),
+      appSurface: z.string().default("chat"),
+    })
+    .safeParse(record.context);
+
+  return FeedbackSubmissionSchema.parse({
+    id: record.id,
+    createdAt: record.createdAt.toISOString(),
+    category: record.category,
+    status: record.status,
+    statusUpdatedAt: record.statusUpdatedAt?.toISOString(),
+    statusUpdatedByUserId: record.statusUpdatedByUserId,
+    title: record.title,
+    message: record.message,
+    attachments: parseFeedbackAttachmentsJson(record.attachments),
+    fields: parsedFields.success ? parsedFields.data : {},
+    submittedBy: {
+      userId: record.userId,
+      userHandle: record.submittedByUserHandle ?? null,
+      xHandle: record.submittedByXHandle ?? null,
+    },
+    context: parsedContext.success
+      ? parsedContext.data
+      : {
+          pagePath: "/chat",
+          appSurface: "chat",
+        },
+  });
+}
+
+async function backfillLegacyFeedbackSubmissions(args: {
+  userId: string;
+  xHandle: string;
+}) {
+  const voiceProfile = await prisma.voiceProfile.findFirst({
+    where: {
+      userId: args.userId,
+      xHandle: args.xHandle,
+    },
+    select: {
+      styleCard: true,
+    },
+  });
+
+  if (!voiceProfile?.styleCard) {
+    return;
+  }
+
+  const parsedStyleCard = StyleCardSchema.safeParse(voiceProfile.styleCard);
+  if (!parsedStyleCard.success) {
+    return;
+  }
+
+  const legacySubmissions = (parsedStyleCard.data.feedbackSubmissions ?? []).slice(
+    -MAX_LEGACY_BACKFILL_COUNT,
+  );
+  if (legacySubmissions.length === 0) {
+    return;
+  }
+
+  await prisma.feedbackSubmission.createMany({
+    data: legacySubmissions.map((submission) => ({
+      id: submission.id,
+      userId: args.userId,
+      xHandle: args.xHandle,
+      category: submission.category,
+      status: submission.status ?? "open",
+      title: submission.title ?? null,
+      message: submission.message,
+      fields: sanitizeFields(submission.fields),
+      context: submission.context,
+      attachments: sanitizeAttachments(submission.attachments ?? []),
+      submittedByUserHandle: submission.submittedBy?.userHandle ?? null,
+      submittedByXHandle: submission.submittedBy?.xHandle ?? null,
+      statusUpdatedAt: toDateOrNow(submission.statusUpdatedAt ?? submission.createdAt),
+      statusUpdatedByUserId: submission.submittedBy?.userId ?? args.userId,
+      createdAt: toDateOrNow(submission.createdAt),
+    })),
+    skipDuplicates: true,
+  });
 }
 
 export async function GET() {
@@ -99,26 +238,40 @@ export async function GET() {
     );
   }
 
-  const voiceProfile = await prisma.voiceProfile.findFirst({
+  await backfillLegacyFeedbackSubmissions({
+    userId: session.user.id,
+    xHandle,
+  });
+
+  const submissions = await prisma.feedbackSubmission.findMany({
     where: {
       userId: session.user.id,
       xHandle,
     },
+    orderBy: [{ createdAt: "desc" }],
+    take: 30,
+    select: {
+      id: true,
+      userId: true,
+      category: true,
+      status: true,
+      title: true,
+      message: true,
+      fields: true,
+      context: true,
+      attachments: true,
+      createdAt: true,
+      statusUpdatedAt: true,
+      statusUpdatedByUserId: true,
+      submittedByUserHandle: true,
+      submittedByXHandle: true,
+    },
   });
-
-  const parsedStyleCard = voiceProfile?.styleCard
-    ? StyleCardSchema.safeParse(voiceProfile.styleCard)
-    : null;
-  const feedbackSubmissions = parsedStyleCard?.success
-    ? [...(parsedStyleCard.data.feedbackSubmissions ?? [])]
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-        .slice(0, 30)
-    : [];
 
   return NextResponse.json({
     ok: true,
     data: {
-      submissions: feedbackSubmissions,
+      submissions: submissions.map((submission) => mapRecordToSubmission(submission)),
     },
   });
 }
@@ -158,25 +311,32 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const currentProfile = await prisma.voiceProfile.findFirst({
+  await backfillLegacyFeedbackSubmissions({
+    userId: session.user.id,
+    xHandle,
+  });
+
+  const existingRecords = await prisma.feedbackSubmission.findMany({
     where: {
       userId: session.user.id,
       xHandle,
     },
+    orderBy: [{ createdAt: "desc" }],
+    take: MAX_GUARD_LOOKBACK_COUNT,
+    select: {
+      createdAt: true,
+      message: true,
+      attachments: true,
+    },
   });
-
-  const parsedCurrentStyle = currentProfile?.styleCard
-    ? StyleCardSchema.safeParse(currentProfile.styleCard)
-    : null;
-  const baseStyleCard =
-    parsedCurrentStyle?.success && parsedCurrentStyle.data
-      ? parsedCurrentStyle.data
-      : buildEmptyStyleCard();
-  const existingSubmissions = baseStyleCard.feedbackSubmissions ?? [];
   const guardResult = evaluateFeedbackSubmissionGuards({
-    existingSubmissions,
+    existingSubmissions: existingRecords.map((record) => ({
+      createdAt: record.createdAt.toISOString(),
+      message: record.message,
+      attachments: parseFeedbackAttachmentsJson(record.attachments),
+    })),
     incomingMessage: parsedBody.data.message,
-    incomingAttachments: parsedBody.data.attachments ?? [],
+    incomingAttachments: sanitizeAttachments(parsedBody.data.attachments ?? []),
   });
   if (!guardResult.ok) {
     return NextResponse.json(
@@ -197,9 +357,9 @@ export async function POST(request: NextRequest) {
   const submission = FeedbackSubmissionSchema.parse({
     id: crypto.randomUUID(),
     createdAt: createdAtIso,
+    category: parsedBody.data.category,
     status: "open",
     statusUpdatedAt: createdAtIso,
-    category: parsedBody.data.category,
     title: parsedBody.data.title ?? null,
     message: parsedBody.data.message,
     fields: sanitizeFields(parsedBody.data.fields),
@@ -218,38 +378,34 @@ export async function POST(request: NextRequest) {
       userAgent: parsedBody.data.context?.userAgent,
       appSurface: parsedBody.data.context?.appSurface ?? "chat",
     },
-    attachments: parsedBody.data.attachments ?? [],
+    attachments: sanitizeAttachments(parsedBody.data.attachments ?? []),
   });
 
-  const nextStyleCard = StyleCardSchema.parse({
-    ...baseStyleCard,
-    feedbackSubmissions: [
-      ...(baseStyleCard.feedbackSubmissions ?? []),
-      submission,
-    ].slice(-100),
+  await prisma.feedbackSubmission.create({
+    data: {
+      id: submission.id,
+      userId: session.user.id,
+      xHandle,
+      category: submission.category,
+      status: submission.status,
+      title: submission.title ?? null,
+      message: submission.message,
+      fields: submission.fields,
+      context: submission.context,
+      attachments: submission.attachments,
+      submittedByUserHandle: submission.submittedBy.userHandle ?? null,
+      submittedByXHandle: submission.submittedBy.xHandle ?? null,
+      statusUpdatedAt: toDateOrNow(submission.statusUpdatedAt ?? submission.createdAt),
+      statusUpdatedByUserId: session.user.id,
+      createdAt: toDateOrNow(submission.createdAt),
+    },
   });
-
-  const savedProfile = currentProfile
-    ? await prisma.voiceProfile.update({
-        where: { id: currentProfile.id },
-        data: {
-          styleCard: nextStyleCard as unknown as Prisma.InputJsonObject,
-        },
-      })
-    : await prisma.voiceProfile.create({
-        data: {
-          userId: session.user.id,
-          xHandle,
-          styleCard: nextStyleCard as unknown as Prisma.InputJsonObject,
-        },
-      });
 
   return NextResponse.json({
     ok: true,
     data: {
       id: submission.id,
       createdAt: submission.createdAt,
-      profileId: savedProfile.id,
     },
   });
 }
@@ -289,64 +445,60 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const currentProfile = await prisma.voiceProfile.findFirst({
+  await backfillLegacyFeedbackSubmissions({
+    userId: session.user.id,
+    xHandle,
+  });
+
+  const existingSubmission = await prisma.feedbackSubmission.findFirst({
     where: {
+      id: parsedBody.data.submissionId,
       userId: session.user.id,
       xHandle,
     },
+    select: {
+      id: true,
+    },
   });
-
-  if (!currentProfile?.styleCard) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "feedback", message: "No feedback submissions found." }] },
-      { status: 404 },
-    );
-  }
-
-  const parsedCurrentStyle = StyleCardSchema.safeParse(currentProfile.styleCard);
-  if (!parsedCurrentStyle.success) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "feedback", message: "Feedback store is invalid." }] },
-      { status: 500 },
-    );
-  }
-
-  const existingSubmissions = parsedCurrentStyle.data.feedbackSubmissions ?? [];
-  const submissionIndex = existingSubmissions.findIndex(
-    (submission) => submission.id === parsedBody.data.submissionId,
-  );
-  if (submissionIndex === -1) {
+  if (!existingSubmission) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "feedback", message: "Submission not found." }] },
       { status: 404 },
     );
   }
 
-  const statusUpdatedAt = new Date().toISOString();
-  const updatedSubmission = FeedbackSubmissionSchema.parse({
-    ...existingSubmissions[submissionIndex],
-    status: parsedBody.data.status,
-    statusUpdatedAt,
-  });
-  const nextSubmissions = [...existingSubmissions];
-  nextSubmissions[submissionIndex] = updatedSubmission;
-
-  const nextStyleCard = StyleCardSchema.parse({
-    ...parsedCurrentStyle.data,
-    feedbackSubmissions: nextSubmissions,
-  });
-
-  await prisma.voiceProfile.update({
-    where: { id: currentProfile.id },
+  const statusUpdatedAt = new Date();
+  const updatedSubmission = await prisma.feedbackSubmission.update({
+    where: {
+      id: existingSubmission.id,
+    },
     data: {
-      styleCard: nextStyleCard as unknown as Prisma.InputJsonObject,
+      status: parsedBody.data.status,
+      statusUpdatedAt,
+      statusUpdatedByUserId: session.user.id,
+    },
+    select: {
+      id: true,
+      userId: true,
+      category: true,
+      status: true,
+      title: true,
+      message: true,
+      fields: true,
+      context: true,
+      attachments: true,
+      createdAt: true,
+      statusUpdatedAt: true,
+      statusUpdatedByUserId: true,
+      submittedByUserHandle: true,
+      submittedByXHandle: true,
     },
   });
 
   return NextResponse.json({
     ok: true,
     data: {
-      submission: updatedSubmission,
+      submission: mapRecordToSubmission(updatedSubmission),
     },
   });
 }

@@ -30,6 +30,7 @@ export const FeedbackAttachmentSchema = z.object({
     .max(64)
     .nullable()
     .optional(),
+  thumbnailDataUrl: z.string().nullable().optional(),
 });
 
 export const FeedbackSubmissionStatusSchema = z.enum([
@@ -44,6 +45,7 @@ export const FeedbackSubmissionSchema = z.object({
   category: FeedbackCategorySchema,
   status: FeedbackSubmissionStatusSchema.default("open"),
   statusUpdatedAt: z.string().optional(),
+  statusUpdatedByUserId: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   message: z.string(),
   fields: z.record(z.string(), z.string()).default({}),
