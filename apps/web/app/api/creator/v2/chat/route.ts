@@ -20,6 +20,9 @@ import {
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
+import { ACTION_CREDIT_COST } from "@/lib/billing/config";
+import { consumeCredits, refundCredits } from "@/lib/billing/credits";
+import { getBillingStateForUser } from "@/lib/billing/entitlements";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   threadId?: unknown;
@@ -373,6 +376,45 @@ export function resolveEffectiveExplicitIntent(args: {
       : null;
 }
 
+function resolveChatTurnCreditCost(args: {
+  explicitIntent:
+    | "coach"
+    | "ideate"
+    | "plan"
+    | "planner_feedback"
+    | "draft"
+    | "review"
+    | "edit"
+    | "answer_question"
+    | null;
+  message: string;
+  selectedDraftContext: SelectedDraftContext | null;
+}): number {
+  if (args.selectedDraftContext) {
+    return ACTION_CREDIT_COST.chat_draft_like;
+  }
+
+  if (
+    args.explicitIntent === "draft" ||
+    args.explicitIntent === "edit" ||
+    args.explicitIntent === "review" ||
+    args.explicitIntent === "planner_feedback"
+  ) {
+    return ACTION_CREDIT_COST.chat_draft_like;
+  }
+
+  const normalized = args.message.trim().toLowerCase();
+  if (
+    /\b(draft|rewrite|revise|edit|fix this draft|make this tighter|make it tighter)\b/.test(
+      normalized,
+    )
+  ) {
+    return ACTION_CREDIT_COST.chat_draft_like;
+  }
+
+  return ACTION_CREDIT_COST.chat_standard;
+}
+
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -536,9 +578,77 @@ export async function POST(request: NextRequest) {
     intent,
     selectedDraftContext,
   });
+  const turnCreditCost = resolveChatTurnCreditCost({
+    explicitIntent: effectiveExplicitIntent,
+    message: effectiveMessage,
+    selectedDraftContext,
+  });
+  let debitedCharge: { cost: number; idempotencyKey: string } | null = null;
 
   try {
     const effectiveUserId = session.user.id;
+    const debitIdempotencyKey = `chat:${effectiveUserId}:${storedThread?.id || "new"}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const creditResult = await consumeCredits({
+      userId: effectiveUserId,
+      cost: turnCreditCost,
+      idempotencyKey: debitIdempotencyKey,
+      source: "creator_v2_chat",
+      metadata: {
+        intent: effectiveExplicitIntent || "auto",
+        threadId: storedThread?.id || null,
+      },
+    });
+
+    if (!creditResult.ok) {
+      if (creditResult.reason === "RATE_LIMITED") {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "RATE_LIMITED",
+            errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          {
+            status: 429,
+            headers: creditResult.retryAfterSeconds
+              ? { "Retry-After": String(creditResult.retryAfterSeconds) }
+              : undefined,
+          },
+        );
+      }
+
+      if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "PLAN_REQUIRED",
+            errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          { status: 403 },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "INSUFFICIENT_CREDITS",
+          errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
+          data: {
+            billing: creditResult.snapshot,
+          },
+        },
+        { status: 402 },
+      );
+    }
+    debitedCharge = {
+      cost: creditResult.cost,
+      idempotencyKey: creditResult.idempotencyKey,
+    };
 
     if (storedThread) {
       await prisma.chatMessage.create({
@@ -682,6 +792,7 @@ export async function POST(request: NextRequest) {
       mode: "full_generation",
       memory: result.memory,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
+      billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
     };
     let createdAssistantMessageId: string | undefined;
 
@@ -710,6 +821,8 @@ export async function POST(request: NextRequest) {
       mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
     }
 
+    mappedData.billing = await getBillingStateForUser(effectiveUserId);
+
     return NextResponse.json(
       {
         ok: true,
@@ -722,6 +835,20 @@ export async function POST(request: NextRequest) {
       { status: 200 },
     );
   } catch (error) {
+    if (debitedCharge) {
+      await refundCredits({
+        userId: session.user.id,
+        amount: debitedCharge.cost,
+        idempotencyKey: `refund:${debitedCharge.idempotencyKey}`,
+        source: "creator_v2_chat_error_refund",
+        metadata: {
+          reason: "route_error",
+        },
+      }).catch((refundError) =>
+        console.error("Failed to refund chat credits after route error:", refundError),
+      );
+    }
+
     console.error("V2 Orchestrator Error:", error);
     return NextResponse.json(
       { ok: false, errors: [{ field: "server", message: "Failed to process turn." }] },

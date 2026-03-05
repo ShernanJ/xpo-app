@@ -4,6 +4,12 @@ import { authOptions } from "@/lib/auth/authOptions";
 import { inspectDraft, type DraftInspectorMode } from "@/lib/agent-v2/agents/draftInspector";
 import { buildDraftReviewPrompt } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { prisma } from "@/lib/db";
+import { ACTION_CREDIT_COST } from "@/lib/billing/config";
+import { consumeCredits, refundCredits } from "@/lib/billing/credits";
+import {
+  ensureBillingEntitlement,
+  getBillingStateForUser,
+} from "@/lib/billing/entitlements";
 
 interface DraftAnalysisRequest extends Record<string, unknown> {
   mode?: unknown;
@@ -65,7 +71,96 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const entitlement = await ensureBillingEntitlement(session.user.id);
+  if (entitlement.plan === "free") {
+    const billingState = await getBillingStateForUser(session.user.id);
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "PLAN_REQUIRED",
+        errors: [
+          {
+            field: "billing",
+            message: "Draft analysis is available on Pro and Lifetime.",
+          },
+        ],
+        data: { billing: billingState.billing },
+      },
+      { status: 403 },
+    );
+  }
+
+  const creditCost =
+    mode === "compare"
+      ? ACTION_CREDIT_COST.draft_analysis_compare
+      : ACTION_CREDIT_COST.draft_analysis_analyze;
+  let debitedCharge: { cost: number; idempotencyKey: string } | null = null;
+
   try {
+    const debitIdempotencyKey = `draft-analysis:${session.user.id}:${threadId}:${mode}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const creditResult = await consumeCredits({
+      userId: session.user.id,
+      cost: creditCost,
+      idempotencyKey: debitIdempotencyKey,
+      source: "creator_v2_draft_analysis",
+      metadata: {
+        mode,
+        threadId,
+      },
+    });
+
+    if (!creditResult.ok) {
+      if (creditResult.reason === "RATE_LIMITED") {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "RATE_LIMITED",
+            errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          {
+            status: 429,
+            headers: creditResult.retryAfterSeconds
+              ? { "Retry-After": String(creditResult.retryAfterSeconds) }
+              : undefined,
+          },
+        );
+      }
+
+      if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "PLAN_REQUIRED",
+            errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          { status: 403 },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "INSUFFICIENT_CREDITS",
+          errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
+          data: {
+            billing: creditResult.snapshot,
+          },
+        },
+        { status: 402 },
+      );
+    }
+
+    debitedCharge = {
+      cost: creditResult.cost,
+      idempotencyKey: creditResult.idempotencyKey,
+    };
+
     const thread = await prisma.chatThread.findUnique({
       where: { id: threadId },
     });
@@ -109,6 +204,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const billingState = await getBillingStateForUser(session.user.id);
+
     return NextResponse.json({
       ok: true,
       data: {
@@ -116,9 +213,24 @@ export async function POST(request: NextRequest) {
         prompt,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
+        billing: billingState,
       },
     });
   } catch (error) {
+    if (debitedCharge) {
+      await refundCredits({
+        userId: session.user.id,
+        amount: debitedCharge.cost,
+        idempotencyKey: `refund:${debitedCharge.idempotencyKey}`,
+        source: "creator_v2_draft_analysis_error_refund",
+        metadata: {
+          reason: "route_error",
+        },
+      }).catch((refundError) =>
+        console.error("Failed to refund draft-analysis credits after route error:", refundError),
+      );
+    }
+
     console.error("POST /api/creator/v2/draft-analysis failed", error);
     return NextResponse.json(
       { ok: false, errors: [{ field: "server", message: "Failed to analyze the draft." }] },

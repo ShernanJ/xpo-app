@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth/authOptions";
 import { runOnboarding } from "@/lib/onboarding/service";
 import { persistOnboardingRun, syncOnboardingPostsToDb } from "@/lib/onboarding/store";
 import { parseOnboardingInput } from "@/lib/onboarding/validation";
+import { getBillingStateForUser } from "@/lib/billing/entitlements";
+import { validateHandleLimit } from "@/lib/billing/handleLimits";
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -32,6 +34,24 @@ export async function POST(request: NextRequest) {
 
   const userId = session.user.id;
   const targetXHandle = parsed.data.account;
+  const handleLimitCheck = await validateHandleLimit({
+    userId,
+    targetHandle: targetXHandle,
+  });
+  if (!handleLimitCheck.ok) {
+    const billingState = await getBillingStateForUser(userId);
+    return NextResponse.json(
+      {
+        ok: false,
+        code: handleLimitCheck.code,
+        errors: [{ field: "account", message: handleLimitCheck.message }],
+        data: {
+          billing: billingState.billing,
+        },
+      },
+      { status: 403 },
+    );
+  }
 
   try {
     const result = await runOnboarding(parsed.data);

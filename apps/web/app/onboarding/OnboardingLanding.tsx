@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
+import { LegalFooter } from "@/components/legal-footer";
 import { XShell } from "@/components/x-shell";
 import type { XPublicProfile } from "@/lib/onboarding/types";
 
@@ -302,6 +303,10 @@ export default function OnboardingLanding() {
               <Link href="/login" className="text-sm text-zinc-500 hover:text-white transition-colors">
                 or sign in
               </Link>
+              <span className="mx-2 text-zinc-700">•</span>
+              <Link href="/pricing" className="text-sm text-zinc-500 hover:text-white transition-colors">
+                view pricing
+              </Link>
             </div>
           </form>
 
@@ -367,6 +372,7 @@ export default function OnboardingLanding() {
             </div>
           ) : null}
         </section>
+        <LegalFooter className="mx-auto mt-10 w-full max-w-3xl" />
         {autofillStyles}
       </div>
     </XShell>

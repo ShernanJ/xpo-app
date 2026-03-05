@@ -15,7 +15,8 @@
     "test:v2-feedback": "node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/feedback/route.test.mjs",
     "test:v2-preferences": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/orchestrator/preferenceConstraints.test.mjs",
     "test:v2-policy": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/core/finalDraftPolicy.test.mjs",
-    "test:v2": "pnpm run test:v2-response-quality && pnpm run test:v2-orchestrator && pnpm run test:v2-route && pnpm run test:v2-feedback && pnpm run test:v2-preferences && pnpm run test:v2-policy",
+    "test:billing-policy": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/billing/policy.test.mjs",
+    "test:v2": "pnpm run test:v2-response-quality && pnpm run test:v2-orchestrator && pnpm run test:v2-route && pnpm run test:v2-feedback && pnpm run test:v2-preferences && pnpm run test:v2-policy && pnpm run test:billing-policy",
     "capture:user-tweets": "node scripts/capture-user-tweets-playwright.mjs",
     "scrape:user-tweets:http": "node scripts/scrape-user-tweets-http.mjs"
   },
@@ -33,6 +34,7 @@
     "pg": "^8.19.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "stripe": "^20.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -1,4 +1,14 @@
+import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
+
+export const metadata: Metadata = {
+  title: "Login",
+  description: "Sign in to access your Stanley for X workspace.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 export default function LoginPage() {
   return (

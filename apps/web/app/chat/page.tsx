@@ -166,7 +166,13 @@ interface BillingStateSuccess {
 
 interface BillingStateFailure {
   ok: false;
-  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED" | "SOLD_OUT";
+  code?:
+    | "INSUFFICIENT_CREDITS"
+    | "PLAN_REQUIRED"
+    | "RATE_LIMITED"
+    | "SOLD_OUT"
+    | "ALREADY_SUBSCRIBED"
+    | "PLAN_SWITCH_IN_PORTAL";
   errors: ValidationError[];
   data?: {
     billing?: BillingSnapshotPayload;
@@ -640,6 +646,34 @@ function formatUsdPrice(amountCents: number): string {
     maximumFractionDigits: 2,
   }).format(amountCents / 100);
 }
+
+function parsePublicUsdToCents(rawValue: string | undefined, fallbackCents: number): number {
+  if (!rawValue) {
+    return fallbackCents;
+  }
+
+  const normalized = rawValue.trim().replace(/\$/g, "").replace(/,/g, "");
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackCents;
+  }
+
+  return Math.round(parsed * 100);
+}
+
+const DEFAULT_MODAL_PRO_MONTHLY_CENTS = parsePublicUsdToCents(
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
+  1999,
+);
+const DEFAULT_MODAL_PRO_ANNUAL_CENTS = parsePublicUsdToCents(
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
+  19999,
+);
+const DEFAULT_MODAL_LIFETIME_CENTS = parsePublicUsdToCents(
+  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
+  49900,
+);
 
 const HERO_QUICK_ACTIONS = [
   {
@@ -2734,11 +2768,44 @@ function ChatPageContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [billingState, setBillingState] = useState<BillingStatePayload | null>(null);
   const [isBillingLoading, setIsBillingLoading] = useState(false);
+  const [dismissedBillingWarningLevel, setDismissedBillingWarningLevel] = useState<
+    "low" | "critical" | null
+  >(null);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [checkoutLoadingOffer, setCheckoutLoadingOffer] = useState<
     "pro_monthly" | "pro_annual" | "lifetime" | null
   >(null);
   const [isOpeningBillingPortal, setIsOpeningBillingPortal] = useState(false);
+
+  const loadBillingState = useCallback(
+    async (options?: { openModalIfFirstVisit?: boolean }) => {
+      if (!session?.user?.id) {
+        return;
+      }
+
+      setIsBillingLoading(true);
+      try {
+        const response = await fetch("/api/billing/state", {
+          method: "GET",
+        });
+        const data = (await response.json()) as BillingStateResponse;
+
+        if (!response.ok || !data.ok) {
+          return;
+        }
+
+        setBillingState(data.data);
+        if (options?.openModalIfFirstVisit && data.data.billing.showFirstPricingModal) {
+          setPricingModalOpen(true);
+        }
+      } catch (error) {
+        console.error("Failed to load billing state", error);
+      } finally {
+        setIsBillingLoading(false);
+      }
+    },
+    [session?.user?.id],
+  );
 
   useEffect(() => {
     if (!accountName) return;
@@ -2774,6 +2841,13 @@ function ChatPageContent() {
     }
   }, [billingQueryStatus, loadBillingState, session?.user?.id]);
 
+  useEffect(() => {
+    const snapshot = billingState?.billing;
+    if (!snapshot || (!snapshot.lowCreditWarning && !snapshot.criticalCreditWarning)) {
+      setDismissedBillingWarningLevel(null);
+    }
+  }, [billingState?.billing?.criticalCreditWarning, billingState?.billing?.lowCreditWarning]);
+
   const syncThreadTitle = useCallback((threadId: string, title: string) => {
     const cleanTitle = title.trim();
     if (!cleanTitle) {
@@ -2792,36 +2866,6 @@ function ChatPageContent() {
       ),
     );
   }, []);
-
-  const loadBillingState = useCallback(
-    async (options?: { openModalIfFirstVisit?: boolean }) => {
-      if (!session?.user?.id) {
-        return;
-      }
-
-      setIsBillingLoading(true);
-      try {
-        const response = await fetch("/api/billing/state", {
-          method: "GET",
-        });
-        const data = (await response.json()) as BillingStateResponse;
-
-        if (!response.ok || !data.ok) {
-          return;
-        }
-
-        setBillingState(data.data);
-        if (options?.openModalIfFirstVisit && data.data.billing.showFirstPricingModal) {
-          setPricingModalOpen(true);
-        }
-      } catch (error) {
-        console.error("Failed to load billing state", error);
-      } finally {
-        setIsBillingLoading(false);
-      }
-    },
-    [session?.user?.id],
-  );
 
   const acknowledgePricingModal = useCallback(async () => {
     try {
@@ -3831,6 +3875,7 @@ function ChatPageContent() {
   );
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [rateLimitsMenuOpen, setRateLimitsMenuOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -3843,6 +3888,12 @@ function ChatPageContent() {
       })
       .catch((err) => console.error("Failed to load available handles:", err));
   }, []);
+
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      setRateLimitsMenuOpen(false);
+    }
+  }, [accountMenuOpen]);
 
   const applyPersistedPreferences = useCallback((preferences: UserPreferences) => {
     setPreferenceCasing(preferences.casing);
@@ -6097,23 +6148,84 @@ function ChatPageContent() {
   const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
   const shouldCenterHero = isNewChatHero || isLeavingHero;
   const activeBillingSnapshot = billingState?.billing ?? null;
-  const billingPlanLabel =
-    activeBillingSnapshot?.plan === "lifetime"
-      ? "Lifetime"
-      : activeBillingSnapshot?.plan === "pro"
-        ? "Pro"
-        : "Free";
   const billingOffers = billingState?.offers ?? [];
   const lifetimeOffer = billingOffers.find((offer) => offer.offer === "lifetime");
   const proMonthlyOffer = billingOffers.find((offer) => offer.offer === "pro_monthly");
   const proAnnualOffer = billingOffers.find((offer) => offer.offer === "pro_annual");
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
+  const modalMonthlyCents = proMonthlyOffer?.amountCents ?? DEFAULT_MODAL_PRO_MONTHLY_CENTS;
+  const modalAnnualCents = proAnnualOffer?.amountCents ?? DEFAULT_MODAL_PRO_ANNUAL_CENTS;
+  const modalAnnualSavingsCents = Math.max(0, modalMonthlyCents * 12 - modalAnnualCents);
+  const isProActive =
+    activeBillingSnapshot?.plan === "pro" && activeBillingSnapshot?.status === "active";
+  const isProMonthlyCurrent = isProActive && activeBillingSnapshot?.billingCycle === "monthly";
+  const isProAnnualCurrent = isProActive && activeBillingSnapshot?.billingCycle === "annual";
+  const isFounderCurrent =
+    activeBillingSnapshot?.plan === "lifetime" && activeBillingSnapshot?.status === "active";
+  const pricingModalDismissLabel = activeBillingSnapshot?.plan === "free" ? "Continue Free" : "Close";
+  const proMonthlyButtonLabel = isFounderCurrent
+    ? "Included"
+    : isProMonthlyCurrent
+      ? "Current Plan"
+      : isProAnnualCurrent
+        ? "Switch to Monthly"
+        : "Go Pro";
+  const proAnnualButtonLabel = isFounderCurrent
+    ? "Included"
+    : isProAnnualCurrent
+      ? "Current Plan"
+      : isProMonthlyCurrent
+        ? "Switch to Annual"
+        : "Go Pro Annual";
   const billingCreditsLabel = activeBillingSnapshot
     ? `${Math.max(0, activeBillingSnapshot.creditsRemaining)}/${Math.max(
       0,
       activeBillingSnapshot.creditLimit,
     )} credits`
     : "Credits loading";
+  const rateLimitsRemainingPercent = activeBillingSnapshot
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            (Math.max(0, activeBillingSnapshot.creditsRemaining) /
+              Math.max(1, activeBillingSnapshot.creditLimit)) *
+              100,
+          ),
+        ),
+      )
+    : null;
+  const rateLimitWindowLabel = activeBillingSnapshot
+    ? activeBillingSnapshot.plan === "lifetime"
+      ? "Founder Pass"
+      : activeBillingSnapshot.plan === "pro"
+        ? activeBillingSnapshot.billingCycle === "annual"
+          ? "Pro Annual"
+          : "Pro Monthly"
+        : "Free"
+    : "Free";
+  const rateLimitResetLabel = activeBillingSnapshot
+    ? new Date(activeBillingSnapshot.creditCycleResetsAt).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : isBillingLoading
+      ? "Loading..."
+      : "Unavailable";
+  const rateLimitUpgradeLabel =
+    activeBillingSnapshot?.plan === "pro" ? "Get Founder Pass" : "Upgrade to Pro";
+  const showRateLimitUpgradeCta = activeBillingSnapshot?.plan !== "lifetime";
+  const billingWarningLevel = activeBillingSnapshot?.criticalCreditWarning
+    ? "critical"
+    : activeBillingSnapshot?.lowCreditWarning
+      ? "low"
+      : "none";
+  const showBillingWarningBanner =
+    billingWarningLevel !== "none" &&
+    dismissedBillingWarningLevel !== billingWarningLevel;
   const canAddAccount =
     !activeBillingSnapshot ||
     activeBillingSnapshot.plan !== "free" ||
@@ -6161,17 +6273,6 @@ function ChatPageContent() {
         <div className="px-1 py-1">
           <button
             type="button"
-            onClick={() => {
-              setAccountMenuOpen(false);
-              setPricingModalOpen(true);
-            }}
-            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-          >
-            <span>Upgrade</span>
-            <ArrowUpRight className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
             disabled={isOpeningBillingPortal}
             onClick={() => {
               setAccountMenuOpen(false);
@@ -6182,6 +6283,42 @@ function ChatPageContent() {
             <span>{isOpeningBillingPortal ? "Opening portal…" : "Manage Billing"}</span>
             <ArrowUpRight className="h-4 w-4" />
           </button>
+          <button
+            type="button"
+            onClick={() => setRateLimitsMenuOpen((current) => !current)}
+            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+          >
+            <span>Rate limits remaining</span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${
+                rateLimitsMenuOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+          {rateLimitsMenuOpen ? (
+            <div className="mb-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-zinc-300">{rateLimitWindowLabel}</span>
+                <span className="font-semibold text-zinc-100">
+                  {rateLimitsRemainingPercent !== null ? `${rateLimitsRemainingPercent}%` : "—"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">Resets {rateLimitResetLabel}</p>
+              {showRateLimitUpgradeCta ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPricingModalOpen(true);
+                    setAccountMenuOpen(false);
+                  }}
+                  className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 transition hover:bg-white/5 hover:text-white"
+                >
+                  <span>{rateLimitUpgradeLabel}</span>
+                  <ArrowUpRight className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <button
             onClick={() => signOut({ callbackUrl: "/" })}
             className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
@@ -6313,36 +6450,6 @@ function ChatPageContent() {
                 </div>
               </div>
 
-              <div className="px-3 pt-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    {billingPlanLabel} Plan
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-zinc-200">
-                    {billingCreditsLabel}
-                  </p>
-                  {activeBillingSnapshot ? (
-                    <p className="mt-1 text-[11px] text-zinc-500">
-                      resets{" "}
-                      {new Date(activeBillingSnapshot.creditCycleResetsAt).toLocaleDateString()}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-[11px] text-zinc-500">
-                      {isBillingLoading ? "loading billing…" : "billing unavailable"}
-                    </p>
-                  )}
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setPricingModalOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
-                    >
-                      Upgrade
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
             </>
           ) : null}
 
@@ -6604,31 +6711,44 @@ function ChatPageContent() {
                     </div>
                   ) : null}
 
-                  {activeBillingSnapshot &&
-                  (activeBillingSnapshot.lowCreditWarning ||
-                    activeBillingSnapshot.criticalCreditWarning) ? (
-                    <div
-                      className={`rounded-3xl border px-4 py-3 text-sm ${
-                        activeBillingSnapshot.criticalCreditWarning
-                          ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                          : "border-amber-300/30 bg-amber-300/10 text-amber-100"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p>
-                          {activeBillingSnapshot.criticalCreditWarning
-                            ? "Critical credit balance. Upgrade now to avoid interruptions."
-                            : "Low credit balance. You may hit limits soon."}{" "}
-                          ({billingCreditsLabel})
+                  {showBillingWarningBanner && activeBillingSnapshot ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-zinc-300">
+                          <span
+                            className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${
+                              billingWarningLevel === "critical"
+                                ? "bg-rose-300"
+                                : "bg-amber-300"
+                            }`}
+                          />
+                          {billingWarningLevel === "critical"
+                            ? "Critical credits remaining."
+                            : "Low credits remaining."}{" "}
+                          <span className="text-zinc-500">({billingCreditsLabel})</span>
                         </p>
-                        <button
-                          type="button"
-                          onClick={() => setPricingModalOpen(true)}
-                          className="inline-flex items-center gap-1 rounded-full border border-current/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition hover:bg-white/[0.08]"
-                        >
-                          Upgrade
-                          <ArrowUpRight className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setPricingModalOpen(true)}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
+                          >
+                            Upgrade
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDismissedBillingWarningLevel(
+                                billingWarningLevel as "low" | "critical",
+                              )
+                            }
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
+                            aria-label="Dismiss billing warning"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -7495,99 +7615,206 @@ function ChatPageContent() {
               }
             }}
           >
-            <div className="relative my-auto w-full max-w-5xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
-              <div className="flex items-start justify-between gap-4">
+            <div className="relative my-auto w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+              <div className="pointer-events-none absolute -left-16 top-10 h-44 w-44 rounded-full bg-sky-500/10 blur-3xl animate-pulse" />
+              <div className="pointer-events-none absolute -right-14 top-24 h-40 w-40 rounded-full bg-amber-300/10 blur-3xl animate-pulse" />
+
+              <div className="relative flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
                     Pricing
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-white">Choose your plan</h2>
                   <p className="mt-2 text-sm text-zinc-400">
-                    Start free, then upgrade when you need more volume.
+                    Credits keep usage predictable. Start free, then upgrade when you need more scale.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPricingModalOpen(false);
-                    void acknowledgePricingModal();
-                  }}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
-                >
-                  Continue Free
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPricingModalOpen(false);
+                      void acknowledgePricingModal();
+                      window.location.href = "/pricing";
+                    }}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    More details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPricingModalOpen(false);
+                      void acknowledgePricingModal();
+                    }}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    {pricingModalDismissLabel}
+                  </button>
+                </div>
               </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
-                <article className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+              <div className="relative mt-6 grid gap-4 md:grid-cols-3">
+                <article className="group rounded-2xl border border-white/10 bg-white/[0.02] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.035]">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
                     Free
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">$0</p>
                   <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-                  <p className="mt-4 text-xs text-zinc-500">30 credits / month</p>
+                  <p className="mt-3 text-xs text-zinc-500">100 credits / month</p>
+                  <div className="mt-3 space-y-1.5 text-xs text-zinc-300">
+                    <p>• Core chat + onboarding</p>
+                    <p>• 1 workspace handle</p>
+                    <p>• ≈ 50 chat turns or ≈ 20 draft/review turns</p>
+                  </div>
                 </article>
 
-                <article className="rounded-2xl border border-white/20 bg-white/[0.05] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                <article className="group relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/35 hover:shadow-[0_14px_36px_rgba(255,255,255,0.1)]">
+                  <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
+                  <p className="inline-flex rounded-full border border-white/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-200">
+                    {isProActive ? "Current Plan" : "Most popular"}
+                  </p>
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">
                     Pro
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">
-                    {formatUsdPrice(proMonthlyOffer?.amountCents ?? 1999)}
+                    {formatUsdPrice(modalMonthlyCents)}
                     <span className="text-sm font-medium text-zinc-400"> / month</span>
                   </p>
                   <p className="mt-2 text-sm text-zinc-300">
-                    Early pricing — will increase as we ship more features.
+                    Best for consistent creators. Save more with annual billing.
                   </p>
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Annual option: {formatUsdPrice(proAnnualOffer?.amountCents ?? 19900)} / year
+                  <p className="mt-2 text-xs text-emerald-300">
+                    Annual {formatUsdPrice(modalAnnualCents)}/year - save {formatUsdPrice(
+                      modalAnnualSavingsCents,
+                    )}/year (about 2 months off)
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => void openCheckoutForOffer("pro_monthly")}
-                    disabled={checkoutLoadingOffer !== null || proMonthlyOffer?.enabled === false}
-                    className="mt-4 inline-flex items-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                  >
-                    {checkoutLoadingOffer === "pro_monthly" ? "Opening…" : "Start Pro"}
-                  </button>
+                  <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
+                    <p>• 1,000 credits/month</p>
+                    <p>• Draft analysis + compare</p>
+                    <p>• Up to 5 workspace handles</p>
+                    <p>• ≈ 500 chat turns or ≈ 200 draft/review turns</p>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isFounderCurrent || isProMonthlyCurrent) {
+                          return;
+                        }
+                        if (isProAnnualCurrent) {
+                          void openBillingPortal();
+                          return;
+                        }
+                        void openCheckoutForOffer("pro_monthly");
+                      }}
+                      disabled={
+                        checkoutLoadingOffer !== null ||
+                        isOpeningBillingPortal ||
+                        proMonthlyOffer?.enabled === false ||
+                        isFounderCurrent ||
+                        isProMonthlyCurrent
+                      }
+                      className="inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-black transition hover:scale-[1.02] hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    >
+                      {checkoutLoadingOffer === "pro_monthly"
+                        ? "Opening…"
+                        : isOpeningBillingPortal && isProAnnualCurrent
+                          ? "Opening…"
+                          : proMonthlyButtonLabel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isFounderCurrent || isProAnnualCurrent) {
+                          return;
+                        }
+                        if (isProMonthlyCurrent) {
+                          void openBillingPortal();
+                          return;
+                        }
+                        void openCheckoutForOffer("pro_annual");
+                      }}
+                      disabled={
+                        checkoutLoadingOffer !== null ||
+                        isOpeningBillingPortal ||
+                        proAnnualOffer?.enabled === false ||
+                        isFounderCurrent ||
+                        isProAnnualCurrent
+                      }
+                      className="inline-flex items-center rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:scale-[1.02] hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {checkoutLoadingOffer === "pro_annual"
+                        ? "Opening…"
+                        : isOpeningBillingPortal && isProMonthlyCurrent
+                          ? "Opening…"
+                          : proAnnualButtonLabel}
+                    </button>
+                  </div>
                 </article>
 
-                <article className="rounded-2xl border border-amber-200/25 bg-amber-200/5 p-4">
+                <article className="group relative overflow-hidden rounded-2xl border border-amber-200/25 bg-amber-200/5 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-amber-200/55 hover:bg-amber-200/10 hover:shadow-[0_14px_40px_rgba(251,191,36,0.18)]">
+                  <div className="pointer-events-none absolute -left-10 top-4 h-28 w-28 rounded-full bg-amber-200/20 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
-                    Founder Lifetime
+                    Founder Pass
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">
-                    {formatUsdPrice(lifetimeOffer?.amountCents ?? 39999)}
+                    {formatUsdPrice(lifetimeOffer?.amountCents ?? DEFAULT_MODAL_LIFETIME_CENTS)}
                   </p>
                   <p className="mt-2 text-sm text-zinc-300">
-                    Founder access (limited). One-time payment. Fair-use included.
+                    One-time founder access with Pro limits and monthly Pro credits.
                   </p>
-                  <p className="mt-2 text-xs text-zinc-500">
+                  <p className="mt-2 text-xs text-zinc-400">
                     {lifetimeSlotSummary
-                      ? `${lifetimeSlotSummary.remaining}/${lifetimeSlotSummary.total} founder slots remaining`
-                      : "Limited founder slots"}
+                      ? `${lifetimeSlotSummary.remaining}/${lifetimeSlotSummary.total} founder passes remaining`
+                      : "Limited founder passes"}
                   </p>
+                  <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
+                    <p>• 1,000 credits/month (same limits as Pro)</p>
+                    <p>• ≈ 500 chat turns or ≈ 200 draft/review turns</p>
+                    <p>• No recurring subscription</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => void openCheckoutForOffer("lifetime")}
+                    onClick={() => {
+                      if (isFounderCurrent) {
+                        return;
+                      }
+                      void openCheckoutForOffer("lifetime");
+                    }}
                     disabled={
                       checkoutLoadingOffer !== null ||
+                      isFounderCurrent ||
                       lifetimeOffer?.enabled === false ||
                       (lifetimeSlotSummary ? lifetimeSlotSummary.remaining <= 0 : false)
                     }
-                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/10 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-100 transition hover:scale-[1.02] hover:bg-amber-100/10 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
                   >
                     {checkoutLoadingOffer === "lifetime"
                       ? "Opening…"
+                      : isFounderCurrent
+                        ? "Current Plan"
                       : lifetimeSlotSummary && lifetimeSlotSummary.remaining <= 0
                         ? "Sold out"
-                        : "Buy Lifetime"}
+                        : "Get Founder Pass"}
                   </button>
+                  <p className="mt-3 text-[11px] leading-5 text-amber-100/75">
+                    Includes Pro plan limits and monthly Pro credits while Xpo and this plan are
+                    offered. If this plan is retired, we honor your purchase with an equivalent plan
+                    or account credit.
+                  </p>
                 </article>
               </div>
 
-              <p className="mt-5 text-xs text-zinc-500">
-                Need billing help? {billingState?.supportEmail ?? "support@yourdomain.com"}
+              <p className="relative mt-5 text-xs text-zinc-500">
+                Need billing help? {billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+              </p>
+              <p className="relative mt-1 text-xs text-zinc-500">
+                Refunds: subscriptions within 7 days (up to 120 credits), Founder Pass within 72
+                hours (up to 60 credits).{" "}
+                <a href="/refund-policy" className="underline transition hover:text-zinc-300">
+                  View refund policy
+                </a>
               </p>
             </div>
           </div>
