@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { APP_DESCRIPTION, APP_NAME, resolveMetadataBase } from "@/lib/seo";
+import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE, resolveMetadataBase } from "@/lib/seo";
 import { Providers } from "@/components/providers";
-
-const FAVICON_VERSION = "20260304-1";
 
 export const metadata: Metadata = {
   metadataBase: resolveMetadataBase(),
   title: {
-    default: APP_NAME,
+    default: `${APP_NAME} | ${APP_TAGLINE}`,
     template: `%s | ${APP_NAME}`,
   },
   description: APP_DESCRIPTION,
@@ -24,10 +22,15 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/",
   },
+  manifest: "/site.webmanifest",
   icons: {
-    icon: `/xpo-logo.ico?v=${FAVICON_VERSION}`,
-    shortcut: `/xpo-logo.ico?v=${FAVICON_VERSION}`,
-    apple: `/xpo-logo.ico?v=${FAVICON_VERSION}`,
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   robots: {
     index: true,
@@ -44,21 +47,21 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     siteName: APP_NAME,
-    title: APP_NAME,
+    title: `${APP_NAME} | ${APP_TAGLINE}`,
     description: APP_DESCRIPTION,
     url: "/",
     images: [
       {
-        url: "/xpo-logo.svg",
-        alt: "Stanley for X logo",
+        url: "/xpo-logo-square.png",
+        alt: "Xpo logo",
       },
     ],
   },
   twitter: {
     card: "summary",
-    title: APP_NAME,
+    title: `${APP_NAME} | ${APP_TAGLINE}`,
     description: APP_DESCRIPTION,
-    images: ["/xpo-logo.svg"],
+    images: ["/xpo-logo-square.png"],
   },
 };
 

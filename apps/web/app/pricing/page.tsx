@@ -83,8 +83,8 @@ const DEFAULT_LIFETIME_CENTS = parsePublicUsdToCents(
     process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
-const FREE_CREDITS_PER_MONTH = 100;
-const PRO_CREDITS_PER_MONTH = 1000;
+const FREE_CREDITS_PER_MONTH = 50;
+const PRO_CREDITS_PER_MONTH = 500;
 const CHAT_TURN_CREDIT_COST = 2;
 const DRAFT_TURN_CREDIT_COST = 5;
 
@@ -287,7 +287,7 @@ export default function PricingPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">Free</p>
             <p className="mt-2 text-3xl font-semibold">$0</p>
             <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-            <p className="mt-4 text-xs text-zinc-500">100 credits/month</p>
+            <p className="mt-4 text-xs text-zinc-500">{FREE_CREDITS_PER_MONTH} credits/month</p>
             <div className="mt-4 space-y-2 text-sm text-zinc-300">
               <p>• Core chat + onboarding included</p>
               <p>• 1 workspace handle</p>
@@ -367,7 +367,7 @@ export default function PricingPage() {
               Best for consistent creators. Save more with annual billing.
             </p>
             <div className="mt-4 space-y-2 text-sm text-zinc-200">
-              <p>• 1,000 credits/month</p>
+              <p>• {PRO_CREDITS_PER_MONTH} credits/month</p>
               <p>• Draft analysis: Analyze + Compare</p>
               <p>• Up to 5 workspace handles</p>
               <p>• Higher throughput + priority processing</p>
@@ -433,7 +433,7 @@ export default function PricingPage() {
             <p className="mt-2 text-xs text-amber-100/80">{lifetimeSlotsLabel}</p>
             <div className="mt-4 space-y-2 text-sm text-zinc-200">
               <p>• Includes Pro features + Pro monthly credits</p>
-              <p>• 1,000 credits/month (same limits as Pro)</p>
+              <p>• {PRO_CREDITS_PER_MONTH} credits/month (same limits as Pro)</p>
               <p>• No recurring subscription</p>
               <p>• ≈ {proApproxChatTurns} chat turns or ≈ {proApproxDraftTurns} draft/review turns</p>
               <p>• Founder priority support lane</p>

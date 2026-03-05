@@ -23,6 +23,7 @@ import { authOptions } from "@/lib/auth/authOptions";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
+import { buildConversationContextFromHistory } from "./route.logic";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   threadId?: unknown;
@@ -72,6 +73,63 @@ interface SelectedDraftContext {
 }
 
 const DEFAULT_THREAD_TITLE = "New Chat";
+const DRAFT_HANDOFF_REPLIES = new Set([
+  "here's the draft. take a look.",
+  "here's a draft. take a look.",
+  "draft's ready. take a look.",
+  "put together the draft. take a look.",
+  "draft is up. tell me what to tweak.",
+  "draft's ready. want any tweaks?",
+  "put together a draft. thoughts?",
+  "put together a draft. take a look.",
+  "made the edit. take a look.",
+  "updated it. give it a read.",
+  "made the edit. kept your voice tight.",
+  "updated it and kept your tone.",
+  "edited and stayed in your voice.",
+  "made the edit. sharpened the hook.",
+  "updated it with a punchier hook.",
+  "edited it for a stronger hook.",
+  "made the edit and tightened it.",
+  "updated and trimmed it down.",
+  "kept it natural and in your voice.",
+  "drafted it to sound like you.",
+  "kept your voice front and center.",
+  "leaned into a sharper hook.",
+  "drafted this with a growth hook.",
+  "optimized the hook for reach.",
+  "kept it tight enough to post.",
+  "tightened it so it's post-ready.",
+  "made the edit and kept it close to your voice. take a look.",
+  "made the edit and kept the hook sharper. take a look.",
+  "made the edit and tightened it to fit. take a look.",
+  "kept it natural and close to your voice. take a look.",
+  "leaned into a sharper hook for growth. take a look.",
+  "updated it and kept your voice intact. does this feel closer to how you'd post it?",
+  "made that edit in your tone. want another pass or is this good?",
+  "reworked it in your voice. does this version land better?",
+  "updated it with a sharper hook. want it punchier or does this hit?",
+  "tightened the framing for reach. do you want another tweak?",
+  "reworked the opening to hit faster. should i refine it more?",
+  "trimmed it down and kept the point tight. want me to tighten it one more step?",
+  "shortened it and cleaned the flow. does this feel post-ready?",
+  "made the edit. does this version work better for you?",
+  "updated it based on your note. want any tweaks before posting?",
+  "ran with your angle and kept it in your voice. want to tweak anything?",
+  "drafted this to sound like you. does it feel right, or should i adjust it?",
+  "put together a version that stays natural to your tone. want any edits?",
+  "ran with a stronger hook for reach. do you want a softer or punchier version?",
+  "drafted it with a growth-first opening. should i tune the tone?",
+  "leaned into a sharper framing. want me to push it further or keep it balanced?",
+  "kept it tight and post-ready. want to trim it even more?",
+  "tightened it up so it reads fast. does this feel good to post?",
+  "ran with that idea and drafted this. want any tweaks before you post?",
+  "put together the draft from that angle. does this feel right?",
+  "drafted it as-is. want to adjust tone, hook, or length?",
+  "drafted a version for you. what do you want to tweak?",
+  "here's one take. should we tune tone, hook, or length?",
+  "put together a draft you can use. does this feel on-brand for you?",
+]);
 
 function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
   const normalized = title?.trim() || "";
@@ -127,20 +185,63 @@ function canPromoteThreadTitle(args: {
   return isPlaceholderThreadTitle(args.currentTitle) || isGenericThreadPrompt(args.currentTitle || "");
 }
 
+function deterministicIndex(seed: string, modulo: number): number {
+  if (modulo <= 1) {
+    return 0;
+  }
+
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+
+  return hash % modulo;
+}
+
+function buildDefaultDraftHandoffReply(seed: string): string {
+  const options = [
+    "drafted a version for you. what do you want to tweak?",
+    "ran with that angle and drafted this. want any tweaks before you post?",
+    "here's one take. should we tune tone, hook, or length?",
+  ];
+  return options[deterministicIndex(seed, options.length)];
+}
+
 function looksLikeDraftHandoff(reply: string): boolean {
   const normalized = reply.trim().toLowerCase();
 
-  return [
-    "here's the draft. take a look.",
-    "here's a draft. take a look.",
-    "made the edit. take a look.",
-    "made the edit and kept it close to your voice. take a look.",
-    "made the edit and kept the hook sharper. take a look.",
-    "made the edit and tightened it to fit. take a look.",
-    "kept it natural and close to your voice. take a look.",
-    "leaned into a sharper hook for growth. take a look.",
-    "kept it tight enough to post. take a look.",
-  ].includes(normalized);
+  if (DRAFT_HANDOFF_REPLIES.has(normalized)) {
+    return true;
+  }
+
+  const followUpCues = [
+    "tweak",
+    "tone",
+    "hook",
+    "post-ready",
+    "post ready",
+    "before you post",
+    "does this feel",
+    "should i",
+    "want any",
+    "want to",
+    "another pass",
+  ];
+  const draftingActionCues = [
+    "drafted",
+    "put together",
+    "ran with",
+    "updated it",
+    "made the edit",
+    "reworked",
+    "tightened",
+    "shortened",
+  ];
+  const hasFollowUpCue = followUpCues.some((cue) => normalized.includes(cue));
+  const hasDraftingAction = draftingActionCues.some((cue) => normalized.includes(cue));
+  const isQuestion = normalized.includes("?");
+
+  return hasFollowUpCue && hasDraftingAction && isQuestion && normalized.length <= 180;
 }
 
 export function normalizeDraftPayload(args: {
@@ -169,12 +270,12 @@ export function normalizeDraftPayload(args: {
     if (!draft && replyLooksLikeDraft) {
       draft = trimmedReply;
       drafts = [trimmedReply];
-      reply = "here's the draft. take a look.";
+      reply = buildDefaultDraftHandoffReply(trimmedReply);
     } else if (draft) {
       drafts = drafts.length > 0 ? drafts : [draft];
 
       if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
-        reply = "here's the draft. take a look.";
+        reply = buildDefaultDraftHandoffReply(draft || trimmedReply || "draft");
       }
     }
   }
@@ -558,22 +659,11 @@ export async function POST(request: NextRequest) {
     ]),
   );
 
-  // Format recent history for V2 Orchestrator
-  const rawHistory = Array.isArray(body.history) ? body.history : [];
-  const recentHistoryStr = rawHistory
-    .filter((entry: Record<string, unknown>) => typeof entry?.content === "string")
-    .map((entry: Record<string, unknown>) => `${entry.role}: ${entry.content}`)
-    .slice(-10) // Keep last 10 turns for context window management
-    .join("\n");
-
-  // Extract the most recent draft from history to support stateful editing
-  const lastDraftEntry = rawHistory
-    .slice()
-    .reverse()
-    .find((entry: Record<string, unknown>) => typeof entry?.draft === "string" && entry.draft.length > 0);
-  const activeDraft =
-    selectedDraftContext?.content ||
-    (typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined);
+  const { recentHistory: recentHistoryStr, activeDraft } =
+    buildConversationContextFromHistory({
+      history: body.history,
+      selectedDraftContext,
+    });
   const effectiveExplicitIntent = resolveEffectiveExplicitIntent({
     intent,
     selectedDraftContext,
@@ -752,6 +842,7 @@ export async function POST(request: NextRequest) {
       supportAsset: (resultData?.supportAsset as string) || null,
       selectedDraftContext,
     });
+    const activeModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
     const mappedData = {
       reply: normalizedDraftPayload.reply,
       angles: resultData?.angles as unknown[] || [],
@@ -788,7 +879,7 @@ export async function POST(request: NextRequest) {
         draftDiagnostics: [],
       },
       source: "deterministic",
-      model: "v2-orchestrator",
+      model: activeModel,
       mode: "full_generation",
       memory: result.memory,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,

@@ -3,9 +3,9 @@ import type { BillingPlan } from "@/lib/generated/prisma/client";
 export const BILLING_RESET_INTERVAL_DAYS = 30;
 
 export const BILLING_CREDIT_LIMITS: Record<BillingPlan, number> = {
-  free: 100,
-  pro: 1000,
-  lifetime: 2500,
+  free: 50,
+  pro: 500,
+  lifetime: 500,
 };
 
 export const BILLING_HANDLE_LIMITS: Record<BillingPlan, number> = {
@@ -18,9 +18,9 @@ export const LIFETIME_SLOT_LIMIT = 10;
 export const LIFETIME_RESERVATION_TTL_MINUTES = 30;
 
 export const LIFETIME_FAIR_USE_THRESHOLDS = {
-  softWarning: 1600,
-  review: 2000,
-  hardStop: 2500,
+  softWarning: 320,
+  review: 400,
+  hardStop: 500,
 } as const;
 
 export const ACTION_CREDIT_COST = {

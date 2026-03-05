@@ -7,6 +7,8 @@ export interface DraftContextSlots {
   externalContextKnown: boolean;
   entityNeedsDefinition: boolean;
   namedEntity: string | null;
+  ambiguousReferenceNeedsClarification: boolean;
+  ambiguousReference: string | null;
   isProductLike: boolean;
   domainHint: DraftContextDomainHint;
 }
@@ -224,6 +226,55 @@ function hasCareerStakeDetail(normalized: string): boolean {
   ].some((cue) => normalized.includes(cue));
 }
 
+function inferAmbiguousReference(args: {
+  normalizedMessage: string;
+  contextAnchors: string[];
+}): { needsClarification: boolean; reference: string | null } {
+  const { normalizedMessage } = args;
+
+  const hasAmpmToken = /\bampm\b/i.test(normalizedMessage) || /\bam\/pm\b/i.test(normalizedMessage);
+  if (!hasAmpmToken) {
+    return {
+      needsClarification: false,
+      reference: null,
+    };
+  }
+
+  const messageHasAmpmDisambiguationCue = [
+    "club",
+    "downtown",
+    "toronto",
+    "convenience store",
+    "gas station",
+    "time of day",
+    "time-of-day",
+    "morning",
+    "night",
+    "am/pm",
+  ].some((cue) => normalizedMessage.includes(cue));
+
+  const anchorsJoined = args.contextAnchors.join(" ").toLowerCase();
+  const anchorDisambiguatesAmpm =
+    /\bampm\b/.test(anchorsJoined) &&
+    [
+      "club",
+      "downtown",
+      "toronto",
+      "convenience store",
+      "gas station",
+      "time of day",
+      "time-of-day",
+      "morning",
+      "night",
+      "am/pm",
+    ].some((cue) => anchorsJoined.includes(cue));
+
+  return {
+    needsClarification: !messageHasAmpmDisambiguationCue && !anchorDisambiguatesAmpm,
+    reference: "ampm",
+  };
+}
+
 export function evaluateDraftContextSlots(args: {
   userMessage: string;
   topicSummary: string | null;
@@ -235,6 +286,10 @@ export function evaluateDraftContextSlots(args: {
   const productCuePresent = ["tool", "app", "product", "extension", "plugin"].some((cue) =>
     normalized.includes(cue),
   );
+  const ambiguousReference = inferAmbiguousReference({
+    normalizedMessage: normalized,
+    contextAnchors: args.contextAnchors,
+  });
   const careerCuePresent = hasCareerCue(normalized);
   const looksLikeComparison = Boolean(inferComparisonReference(trimmed));
   const isProductLike =
@@ -275,6 +330,8 @@ export function evaluateDraftContextSlots(args: {
     externalContextKnown,
     entityNeedsDefinition,
     namedEntity,
+    ambiguousReferenceNeedsClarification: ambiguousReference.needsClarification,
+    ambiguousReference: ambiguousReference.reference,
     isProductLike,
     domainHint,
   };

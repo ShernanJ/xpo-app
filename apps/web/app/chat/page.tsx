@@ -16,7 +16,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Sparkles, Trash2, Type } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -562,8 +562,11 @@ interface DraftTimelineEntry {
   isCurrentMessageVersion: boolean;
 }
 
+type MessageFeedbackValue = "up" | "down";
+
 interface ChatMessage {
   id: string;
+  threadId?: string;
   role: "assistant" | "user";
   content: string;
   createdAt?: string;
@@ -586,6 +589,7 @@ interface ChatMessage {
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
+  feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
 }
 
@@ -618,6 +622,39 @@ interface ChatToneInputs {
   toneCasing: ToneCasing;
   toneRisk: ToneRisk;
 }
+
+interface MessageFeedbackMutationSuccess {
+  ok: true;
+  data: {
+    feedback: {
+      id: string;
+      userId: string;
+      threadId: string;
+      messageId: string;
+      value: MessageFeedbackValue;
+      createdAt: string;
+      updatedAt: string;
+    };
+  };
+}
+
+interface MessageFeedbackMutationFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+interface MessageFeedbackClearSuccess {
+  ok: true;
+  data: {
+    messageId: string;
+    cleared: boolean;
+  };
+}
+
+type MessageFeedbackMutationResponse =
+  | MessageFeedbackMutationSuccess
+  | MessageFeedbackMutationFailure
+  | MessageFeedbackClearSuccess;
 
 interface WorkspaceLoadResult {
   ok: boolean;
@@ -674,8 +711,24 @@ const DEFAULT_MODAL_LIFETIME_CENTS = parsePublicUsdToCents(
     process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
+const MODAL_FREE_CREDITS_PER_MONTH = 50;
+const MODAL_PRO_CREDITS_PER_MONTH = 500;
+const MODAL_CHAT_TURN_CREDIT_COST = 2;
+const MODAL_DRAFT_TURN_CREDIT_COST = 5;
+const MODAL_FREE_APPROX_CHAT_TURNS = Math.floor(
+  MODAL_FREE_CREDITS_PER_MONTH / MODAL_CHAT_TURN_CREDIT_COST,
+);
+const MODAL_FREE_APPROX_DRAFT_TURNS = Math.floor(
+  MODAL_FREE_CREDITS_PER_MONTH / MODAL_DRAFT_TURN_CREDIT_COST,
+);
+const MODAL_PRO_APPROX_CHAT_TURNS = Math.floor(
+  MODAL_PRO_CREDITS_PER_MONTH / MODAL_CHAT_TURN_CREDIT_COST,
+);
+const MODAL_PRO_APPROX_DRAFT_TURNS = Math.floor(
+  MODAL_PRO_CREDITS_PER_MONTH / MODAL_DRAFT_TURN_CREDIT_COST,
+);
 
-const HERO_QUICK_ACTIONS = [
+const BASE_HERO_QUICK_ACTIONS = [
   {
     label: "Give me post ideas",
     prompt: "Give me post ideas",
@@ -689,6 +742,53 @@ const HERO_QUICK_ACTIONS = [
     prompt: "Give me a random post I would use",
   },
 ] as const;
+
+function shouldUseLowercaseChipVoice(context: CreatorAgentContext | null): boolean {
+  const voice = context?.creatorProfile.voice;
+  return (
+    voice?.primaryCasing === "lowercase" &&
+    (voice.lowercaseSharePercent ?? 0) >= 70
+  );
+}
+
+function applyChipVoiceCase(value: string, lowercase: boolean): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return lowercase ? normalized.toLowerCase() : normalized;
+}
+
+function buildHeroQuickActions(lowercase: boolean): Array<{ label: string; prompt: string }> {
+  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
+    label: applyChipVoiceCase(action.label, lowercase),
+    prompt: applyChipVoiceCase(action.prompt, lowercase),
+  }));
+}
+
+function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
+  const baseReplies: ChatQuickReply[] = [
+    {
+      kind: "example_reply",
+      value: "write a post in my voice",
+      label: "Write a post in my voice",
+    },
+    {
+      kind: "example_reply",
+      value: "help me figure out what to post about",
+      label: "Help me figure out what to post",
+    },
+    {
+      kind: "example_reply",
+      value: "analyze my recent posts and tell me what's working",
+      label: "Analyze my recent posts",
+    },
+  ];
+
+  return baseReplies.map((reply) => ({
+    ...reply,
+    value: applyChipVoiceCase(reply.value, lowercase),
+    label: applyChipVoiceCase(reply.label, lowercase),
+  }));
+}
+
 const HERO_EXIT_TRANSITION_MS = 720;
 const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
 const FEEDBACK_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -1909,11 +2009,11 @@ function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
   toneClassName: string;
 } {
   const usedCharacterCount = computeXWeightedCharacterCount(text);
-  const isNearLimit = usedCharacterCount >= Math.floor(maxCharacterLimit * 0.9);
+  const isOverLimit = usedCharacterCount > maxCharacterLimit;
 
   return {
     label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
-    toneClassName: isNearLimit ? "text-red-400" : "text-zinc-500",
+    toneClassName: isOverLimit ? "text-red-400" : "text-zinc-500",
   };
 }
 
@@ -2082,63 +2182,83 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
     return "ignore";
   }
 
-  if (
-    [
-      "give me ideas",
-      "post ideas",
-      "write a new post",
-      "write me a post",
-      "write a post",
-      "draft a post",
-      "draft me a post",
-      "different topic",
-      "start over",
-      "help me brainstorm",
-      "brainstorm",
-      "analyze my posts",
-    ].some((cue) => normalized.includes(cue))
-  ) {
+  const explicitIgnoreCues = [
+    "give me ideas",
+    "post ideas",
+    "write a new post",
+    "write me a post",
+    "write a post",
+    "draft a post",
+    "draft me a post",
+    "different topic",
+    "start over",
+    "help me brainstorm",
+    "brainstorm",
+    "analyze my posts",
+    "that was a question",
+    "i was asking",
+    "what does",
+    "what do you mean",
+    "what did you mean",
+    "where did you get",
+    "where did that come from",
+    "wrong thread",
+    "explain this",
+    "explain that",
+    "explain the draft",
+    "explain the tweet",
+  ];
+
+  if (explicitIgnoreCues.some((cue) => normalized.includes(cue))) {
     return "ignore";
   }
 
+  const explicitReviseCues = [
+    "why does it say",
+    "why does it mention",
+    "don't say",
+    "dont say",
+    "remove \"",
+    "remove '",
+    "remove the",
+    "delete \"",
+    "delete '",
+    "make it shorter",
+    "shorten it",
+    "tighten this",
+    "make this clearer",
+    "change the hook",
+    "remove the last line",
+    "less hype",
+    "more casual",
+    "this part is weird",
+    "that line is off",
+    "too long",
+    "too much",
+    "make it punchier",
+    "make it sharper",
+    "fix this line",
+    "rewrite this",
+    "reword this",
+    "revise this",
+  ];
+
+  if (explicitReviseCues.some((cue) => normalized.includes(cue))) {
+    return "revise";
+  }
+
   if (
-    [
-      "why does it say",
-      "why does it mention",
-      "don't say",
-      "dont say",
-      "remove \"",
-      "remove '",
-      "remove the",
-      "delete \"",
-      "delete '",
-      "make it shorter",
-      "shorten it",
-      "tighten this",
-      "make this clearer",
-      "change the hook",
-      "remove the last line",
-      "less hype",
-      "more casual",
-      "this part is weird",
-      "that line is off",
-      "this doesn't make sense",
-      "this doesnt make sense",
-      "too long",
-      "too much",
-      "make it punchier",
-      "make it sharper",
-      "fix this line",
-    ].some((cue) => normalized.includes(cue))
+    /["“'`](.+?)["”'`]/.test(prompt) &&
+    /\b(remove|delete|replace|change|fix|cut|trim)\b/i.test(normalized)
   ) {
     return "revise";
   }
 
-  if (/["“'`](.+?)["”'`]/.test(prompt)) {
-    return "revise";
+  if (/^(what|why|how|where|which)\b/.test(normalized) || normalized.endsWith("?")) {
+    return "ignore";
   }
 
-  return "revise";
+  return "ignore";
 }
 
 function buildDraftRevisionTimeline(args: {
@@ -2554,6 +2674,8 @@ function ChatPageContent() {
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
+  const [threadTransitionPhase, setThreadTransitionPhase] = useState<"idle" | "out" | "in">("idle");
+  const [isThreadHydrating, setIsThreadHydrating] = useState(false);
 
   // Sidebar Edit States
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
@@ -2571,6 +2693,9 @@ function ChatPageContent() {
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const threadTransitionOutTimeoutRef = useRef<number | null>(null);
+  const threadTransitionInTimeoutRef = useRef<number | null>(null);
+  const shouldJumpToBottomAfterThreadSwitchRef = useRef(false);
   const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
@@ -2590,6 +2715,17 @@ function ChatPageContent() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (threadTransitionOutTimeoutRef.current) {
+        window.clearTimeout(threadTransitionOutTimeoutRef.current);
+      }
+      if (threadTransitionInTimeoutRef.current) {
+        window.clearTimeout(threadTransitionInTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -2752,6 +2888,37 @@ function ChatPageContent() {
     }
   };
 
+  const switchToThreadWithTransition = useCallback(
+    (nextThreadId: string) => {
+      if (!nextThreadId || nextThreadId === activeThreadId || threadTransitionPhase === "out") {
+        return;
+      }
+
+      if (threadTransitionOutTimeoutRef.current) {
+        window.clearTimeout(threadTransitionOutTimeoutRef.current);
+      }
+      if (threadTransitionInTimeoutRef.current) {
+        window.clearTimeout(threadTransitionInTimeoutRef.current);
+      }
+
+      setMenuOpenThreadId(null);
+      setIsThreadHydrating(true);
+      shouldJumpToBottomAfterThreadSwitchRef.current = true;
+      setThreadTransitionPhase("out");
+
+      threadTransitionOutTimeoutRef.current = window.setTimeout(() => {
+        setActiveThreadId(nextThreadId);
+        window.history.pushState({}, "", `/chat/${nextThreadId}`);
+        setThreadTransitionPhase("in");
+
+        threadTransitionInTimeoutRef.current = window.setTimeout(() => {
+          setThreadTransitionPhase("idle");
+        }, 280);
+      }, 140);
+    },
+    [activeThreadId, threadTransitionPhase],
+  );
+
   // Guard against initializeThread re-fetching when we just created a thread in-session
   const threadCreatedInSessionRef = useRef(false);
   const threadScrollRef = useRef<HTMLElement | null>(null);
@@ -2761,6 +2928,9 @@ function ChatPageContent() {
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messageFeedbackPendingById, setMessageFeedbackPendingById] = useState<
+    Record<string, boolean>
+  >({});
   const [draftInput, setDraftInput] = useState("");
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
@@ -5016,6 +5186,114 @@ function ChatPageContent() {
     });
   }, [composerCharacterLimit, messages]);
 
+  const submitAssistantMessageFeedback = useCallback(
+    async (messageId: string, value: MessageFeedbackValue) => {
+      if (
+        messageId.startsWith("assistant-") ||
+        messageId.startsWith("draft-inspector-assistant-")
+      ) {
+        return;
+      }
+
+      const targetMessage = messages.find((message) => message.id === messageId);
+      if (!targetMessage || targetMessage.role !== "assistant" || targetMessage.isStreaming) {
+        return;
+      }
+      const resolvedThreadId = targetMessage.threadId || activeThreadId;
+      if (!resolvedThreadId || resolvedThreadId === "current-workspace") {
+        return;
+      }
+
+      const previousValue = targetMessage.feedbackValue ?? null;
+      const nextValue = previousValue === value ? null : value;
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                feedbackValue: nextValue,
+              }
+            : message,
+        ),
+      );
+      setMessageFeedbackPendingById((current) => ({
+        ...current,
+        [messageId]: true,
+      }));
+
+      try {
+        const response = await fetch(
+          `/api/creator/v2/threads/${encodeURIComponent(resolvedThreadId)}/messages/${encodeURIComponent(messageId)}/feedback`,
+          {
+            method: nextValue ? "POST" : "DELETE",
+            ...(nextValue
+              ? {
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ value: nextValue }),
+                }
+              : {}),
+          },
+        );
+        const responseBodyText = await response.text();
+        let result: MessageFeedbackMutationResponse | null = null;
+        if (responseBodyText) {
+          try {
+            result = JSON.parse(responseBodyText) as MessageFeedbackMutationResponse;
+          } catch {
+            result = null;
+          }
+        }
+
+        if (!response.ok || !result?.ok) {
+          const failureMessage =
+            result && "errors" in result ? result.errors?.[0]?.message : null;
+          throw new Error(
+            failureMessage || `Failed to save message feedback (${response.status}).`,
+          );
+        }
+
+        const savedValue =
+          result && result.ok && "feedback" in result.data
+            ? result.data.feedback?.value
+            : null;
+        if (savedValue === "up" || savedValue === "down") {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === messageId
+                ? {
+                    ...message,
+                    feedbackValue: savedValue,
+                  }
+                : message,
+            ),
+          );
+        }
+      } catch (error) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  feedbackValue: previousValue,
+                }
+              : message,
+          ),
+        );
+        console.error("Failed to save assistant message feedback", error);
+      } finally {
+        setMessageFeedbackPendingById((current) => {
+          const next = { ...current };
+          delete next[messageId];
+          return next;
+        });
+      }
+    },
+    [activeThreadId, messages],
+  );
+
   const scrollThreadToBottom = useCallback(() => {
     setShowScrollToLatest(false);
     window.requestAnimationFrame(() => {
@@ -5117,12 +5395,14 @@ function ChatPageContent() {
         ...current,
         {
           id: data.data.userMessage.id,
+          threadId: activeThreadId ?? undefined,
           role: "user",
           content: data.data.userMessage.content,
           createdAt: data.data.userMessage.createdAt,
         },
         {
           id: data.data.assistantMessage.id,
+          threadId: activeThreadId ?? undefined,
           role: "assistant",
           content: data.data.assistantMessage.content,
           createdAt: data.data.assistantMessage.createdAt,
@@ -5137,6 +5417,7 @@ function ChatPageContent() {
           outputShape: data.data.assistantMessage.outputShape,
           source: data.data.assistantMessage.source,
           model: data.data.assistantMessage.model,
+          feedbackValue: null,
         },
       ]);
       setActiveDraftEditor({
@@ -5330,12 +5611,14 @@ function ChatPageContent() {
       ...current,
       {
         id: temporaryUserMessageId,
+        threadId: activeThreadId ?? undefined,
         role: "user",
         content: prompt,
         createdAt: nowIso,
       },
       {
         id: temporaryAssistantMessageId,
+        threadId: activeThreadId ?? undefined,
         role: "assistant",
         content: buildDraftReviewLoadingLabel(shouldCompare ? "compare" : "analyze"),
         createdAt: nowIso,
@@ -5516,6 +5799,7 @@ function ChatPageContent() {
       if (options.appendUserMessage) {
         const userMessage: ChatMessage = {
           id: `user-${Date.now()}`,
+          threadId: activeThreadId ?? undefined,
           role: "user",
           content: options.displayUserMessage?.trim() || trimmedPrompt,
           excludeFromHistory: options.includeUserMessageInHistory === false,
@@ -5598,6 +5882,7 @@ function ChatPageContent() {
             ...current,
             {
               id: data.data.messageId ?? `assistant-${Date.now() + 1}`,
+              threadId: data.data.newThreadId ?? activeThreadId ?? undefined,
               role: "assistant",
               content: data.data.reply,
               createdAt: new Date().toISOString(),
@@ -5617,29 +5902,14 @@ function ChatPageContent() {
               debug: data.data.debug,
               source: data.data.source,
               model: data.data.model ?? null,
+              feedbackValue: null,
               quickReplies:
                 data.data.quickReplies && data.data.quickReplies.length > 0
                   ? data.data.quickReplies
                   : current.length === 0 &&
                       !trimmedPrompt &&
                       !options.selectedAngle
-                    ? [
-                      {
-                        kind: "example_reply",
-                        value: "write a post in my voice",
-                        label: "Write a post in my voice",
-                      },
-                      {
-                        kind: "example_reply",
-                        value: "help me figure out what to post about",
-                        label: "Help me figure out what to post",
-                      },
-                      {
-                        kind: "example_reply",
-                        value: "analyze my recent posts and tell me what's working",
-                        label: "Analyze my recent posts",
-                      },
-                    ]
+                    ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                     : undefined,
             },
           ]);
@@ -5767,6 +6037,7 @@ function ChatPageContent() {
           ...current,
           {
             id: streamedResult.messageId ?? `assistant-${Date.now() + 1}`,
+            threadId: streamedResult.newThreadId ?? activeThreadId ?? undefined,
             role: "assistant",
             content: streamedResult.reply,
             createdAt: new Date().toISOString(),
@@ -5786,29 +6057,14 @@ function ChatPageContent() {
             debug: streamedResult.debug,
             source: streamedResult.source,
             model: streamedResult.model ?? null,
+            feedbackValue: null,
             quickReplies:
               streamedResult.quickReplies && streamedResult.quickReplies.length > 0
                 ? streamedResult.quickReplies
                 : current.length === 0 &&
                     !trimmedPrompt &&
                     !options.selectedAngle
-                  ? [
-                    {
-                      kind: "example_reply",
-                      value: "write a post in my voice",
-                      label: "Write a post in my voice",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "help me figure out what to post about",
-                      label: "Help me figure out what to post",
-                    },
-                    {
-                      kind: "example_reply",
-                      value: "analyze my recent posts and tell me what's working",
-                      label: "Analyze my recent posts",
-                    },
-                  ]
+                  ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                   : undefined,
           },
         ]);
@@ -5948,6 +6204,7 @@ function ChatPageContent() {
       if (activeThreadId) {
         // Skip re-fetch if this thread was just created in the current session
         if (threadCreatedInSessionRef.current) {
+          setIsThreadHydrating(false);
           return;
         }
         try {
@@ -5961,8 +6218,29 @@ function ChatPageContent() {
               content: m.content,
               createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
               ...(m.data || {}),
+              threadId: typeof m.threadId === "string" ? m.threadId : activeThreadId ?? undefined,
+              feedbackValue:
+                m.feedbackValue === "up" || m.feedbackValue === "down"
+                  ? m.feedbackValue
+                  : null,
             }));
             setMessages(mappedMessages);
+
+            if (shouldJumpToBottomAfterThreadSwitchRef.current) {
+              shouldJumpToBottomAfterThreadSwitchRef.current = false;
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  const node = threadScrollRef.current;
+                  if (!node) {
+                    return;
+                  }
+                  node.scrollTop = node.scrollHeight;
+                  setShowScrollToLatest(false);
+                });
+              });
+            }
+
+            setIsThreadHydrating(false);
             return;
           }
         } catch (e) {
@@ -5970,6 +6248,8 @@ function ChatPageContent() {
         }
       }
 
+      shouldJumpToBottomAfterThreadSwitchRef.current = false;
+      setIsThreadHydrating(false);
     }
 
     void initializeThread();
@@ -6162,6 +6442,9 @@ function ChatPageContent() {
     context,
     accountName,
   });
+  const heroQuickActions = buildHeroQuickActions(
+    shouldUseLowercaseChipVoice(context),
+  );
   const heroIdentityLabel =
     context?.creatorProfile.identity.displayName ??
     context?.creatorProfile.identity.username ??
@@ -6289,7 +6572,7 @@ function ChatPageContent() {
   const renderAccountMenuPanel = (className: string) =>
     accountMenuVisible ? (
       <div
-        className={`${className} origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`${className} [&_button:not(:disabled)]:cursor-pointer origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
           accountMenuOpen
             ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
             : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
@@ -6407,6 +6690,14 @@ function ChatPageContent() {
   );
   const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
     } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
+  const threadCanvasTransitionClassName = `transition-[filter,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[filter,opacity,transform] ${
+    threadTransitionPhase === "out"
+      ? "opacity-25 blur-[10px] scale-[0.995]"
+      : "opacity-100 blur-0 scale-100"
+  }`;
+  const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${
+    isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
+  }`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -6421,7 +6712,7 @@ function ChatPageContent() {
         ) : null}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden transition-[width,transform] duration-300 md:sticky md:top-0 ${sidebarOpen
+          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden transition-[width,transform] duration-300 md:sticky md:top-0 [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer ${sidebarOpen
             ? "w-[18.5rem] border-r border-white/10 bg-white/[0.02]"
             : "w-[18.5rem] -translate-x-full border-r border-white/10 bg-white/[0.02] md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"
             }`}
@@ -6543,11 +6834,10 @@ function ChatPageContent() {
                             tabIndex={0}
                             onClick={() => {
                               if (section.section === "Chats" && item.id !== "current-workspace") {
-                                setActiveThreadId(item.id);
-                                window.history.pushState({}, '', `/chat/${item.id}`);
+                                switchToThreadWithTransition(item.id);
                               }
                             }}
-                            className={`group block w-full rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
+                            className={`group block w-full cursor-pointer rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
                           >
                             <div className="flex items-start gap-2">
                               <div className="min-w-0 flex-1 pr-1">
@@ -6693,7 +6983,7 @@ function ChatPageContent() {
                   setAccountMenuOpen(false);
                   setSidebarOpen(true);
                 }}
-                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
+                className="pointer-events-auto flex h-10 w-10 cursor-pointer items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
                 aria-label="Expand sidebar"
               >
                 ≡
@@ -6707,7 +6997,7 @@ function ChatPageContent() {
                   setMenuOpenThreadId(null);
                   setAccountMenuOpen((current) => !current);
                 }}
-                className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${
+                className={`flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${
                   accountMenuOpen ? "scale-[1.04] ring-2 ring-white/30" : "scale-100 ring-0"
                 }`}
                 aria-label="Open account menu"
@@ -6745,7 +7035,7 @@ function ChatPageContent() {
               </div>
               <div className="flex justify-center">
                 <Image
-                  src="/xpo-logo-white.svg"
+                  src="/xpo-logo-white.webp"
                   alt="Xpo"
                   width={846}
                   height={834}
@@ -6767,11 +7057,11 @@ function ChatPageContent() {
           </header>
 
           <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
-            <div className={chatCanvasClassName}>
+            <div className={`${chatCanvasClassName} ${threadCanvasTransitionClassName}`}>
               {isLoading && !context && !contract ? (
                 <div className="text-sm text-zinc-400">Loading the agent context...</div>
               ) : (
-                <>
+                <div className={threadContentTransitionClassName}>
                   {errorMessage ? (
                     <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                       {errorMessage}
@@ -6893,7 +7183,7 @@ function ChatPageContent() {
                         ) : null}
 
                         <div className={`${heroChipsMotionClassName} mt-4`}>
-                            {HERO_QUICK_ACTIONS.map((action) => (
+                            {heroQuickActions.map((action) => (
                               <button
                                 key={action.prompt}
                                 type="button"
@@ -6917,9 +7207,14 @@ function ChatPageContent() {
                           ref={(node) => {
                             messageRefs.current[message.id] = node;
                           }}
-                          className={`max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
+                          className={`${index === 0
+                            ? ""
+                            : messages[index - 1]?.role !== message.role
+                              ? "mt-6"
+                              : "mt-3"
+                            } max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
                             ? "text-zinc-100"
-                            : "ml-auto rounded-[1.75rem] bg-white px-4 py-3 text-black"
+                            : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black"
                             }`}
                         >
                           {message.role === "assistant" && message.isStreaming ? (
@@ -6943,6 +7238,45 @@ function ChatPageContent() {
                               )}
                             </p>
                           )}
+
+                          {message.role === "assistant" && !message.isStreaming ? (
+                            <div className="mt-2 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void submitAssistantMessageFeedback(message.id, "up");
+                                }}
+                                disabled={
+                                  isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
+                                }
+                                aria-label="Thumbs up"
+                                className={`inline-flex items-center rounded-full p-1.5 transition ${
+                                  message.feedbackValue === "up"
+                                    ? "bg-emerald-300/10 text-emerald-300"
+                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                              >
+                                <ThumbsUp className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void submitAssistantMessageFeedback(message.id, "down");
+                                }}
+                                disabled={
+                                  isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
+                                }
+                                aria-label="Thumbs down"
+                                className={`inline-flex items-center rounded-full p-1.5 transition ${
+                                  message.feedbackValue === "down"
+                                    ? "bg-rose-300/10 text-rose-300"
+                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                              >
+                                <ThumbsDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : null}
 
                           {message.role === "assistant" &&
                             message.quickReplies?.length &&
@@ -7071,6 +7405,8 @@ function ChatPageContent() {
                               const isLongformPreview =
                                 message.outputShape === "long_form_post" ||
                                 (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280;
+                              const canToggleDraftFormat =
+                                isVerifiedAccount || isLongformPreview;
                               const transformDraftPrompt = isLongformPreview
                                 ? "turn this into a shortform post under 280 characters"
                                 : "turn this into a longform post with more detail";
@@ -7188,22 +7524,24 @@ function ChatPageContent() {
                                         >
                                           Longer
                                         </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              transformDraftPrompt,
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          {isLongformPreview
-                                            ? "Turn into Shortform"
-                                            : "Turn into Longform"}
-                                        </button>
+                                        {canToggleDraftFormat ? (
+                                          <button
+                                            type="button"
+                                            disabled={isMainChatLocked}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void requestDraftCardRevision(
+                                                message.id,
+                                                transformDraftPrompt,
+                                              );
+                                            }}
+                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                          >
+                                            {isLongformPreview
+                                              ? "Turn into Shortform"
+                                              : "Turn into Longform"}
+                                          </button>
+                                        ) : null}
                                       </div>
                                       <div className="flex items-center gap-2">
                                         <button
@@ -7291,7 +7629,7 @@ function ChatPageContent() {
                     </>
                   )}
 
-                </>
+                </div>
               )}
             </div>
           </section >
@@ -7876,11 +8214,16 @@ function ChatPageContent() {
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">$0</p>
                   <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-                  <p className="mt-3 text-xs text-zinc-500">100 credits / month</p>
+                  <p className="mt-3 text-xs text-zinc-500">
+                    {MODAL_FREE_CREDITS_PER_MONTH} credits / month
+                  </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-300">
                     <p>• Core chat + onboarding</p>
                     <p>• 1 workspace handle</p>
-                    <p>• ≈ 50 chat turns or ≈ 20 draft/review turns</p>
+                    <p>
+                      • ≈ {MODAL_FREE_APPROX_CHAT_TURNS} chat turns or ≈{" "}
+                      {MODAL_FREE_APPROX_DRAFT_TURNS} draft/review turns
+                    </p>
                   </div>
                 </article>
 
@@ -7936,10 +8279,13 @@ function ChatPageContent() {
                     Best for consistent creators. Save more with annual billing.
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
-                    <p>• 1,000 credits/month</p>
+                    <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month</p>
                     <p>• Draft analysis + compare</p>
                     <p>• Up to 5 workspace handles</p>
-                    <p>• ≈ 500 chat turns or ≈ 200 draft/review turns</p>
+                    <p>
+                      • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}
+                      {MODAL_PRO_APPROX_DRAFT_TURNS} draft/review turns
+                    </p>
                   </div>
                   <div className="mt-4">
                     <button
@@ -7992,8 +8338,11 @@ function ChatPageContent() {
                       : "Limited founder passes"}
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
-                    <p>• 1,000 credits/month (same limits as Pro)</p>
-                    <p>• ≈ 500 chat turns or ≈ 200 draft/review turns</p>
+                    <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month (same limits as Pro)</p>
+                    <p>
+                      • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}
+                      {MODAL_PRO_APPROX_DRAFT_TURNS} draft/review turns
+                    </p>
                     <p>• No recurring subscription</p>
                   </div>
                   <button

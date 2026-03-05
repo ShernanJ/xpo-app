@@ -27,6 +27,14 @@ export const WriterOutputSchema = z.object({
 
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
 
+function hasNoFabricationGuardrail(entries: string[]): boolean {
+  return entries.some((entry) =>
+    /(factual guardrail|invent(?:ed|ing)? personal anecdote|fabricat(?:ed|ing)|offline event|named place|timeline)/i.test(
+      entry,
+    ),
+  );
+}
+
 /**
  * High capability draft writer. Takes the constraints from the Planner and the StyleCard
  * from the Profile to generate exactly 1 focused draft.
@@ -54,6 +62,10 @@ export async function generateDrafts(
   const goal = options?.goal || "audience growth";
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || plan.formatPreference || "shortform";
+  const noFabricatedAnecdotesGuardrail = hasNoFabricationGuardrail([
+    ...plan.mustAvoid,
+    ...activeConstraints,
+  ]);
   const instruction = `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
@@ -102,6 +114,10 @@ ${styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRITICAL)
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
 2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
+2a. NEVER invent specific counts or quantities (for example years, teammates, launches, percentages, revenue, follower counts, timelines, or attendance) unless that exact number is explicitly present in RECENT CHAT HISTORY or Active Session Constraints.
+${noFabricatedAnecdotesGuardrail
+      ? `2b. STRICT FACTUAL MODE: Do NOT claim specific real-world events, attendance, conversations, travel, timelines, or named places (for example: "yesterday i was at ...") unless that fact is explicitly present in the chat history or active constraints. If details are missing, write a principle/opinion/framework post instead of an anecdote.`
+      : ""}
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
 4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
 5. If the user did not specify a concrete topic, stay inside the user's usual subject matter and angles from their historical posts instead of drifting into random generic business content.
@@ -128,7 +144,7 @@ Respond ONLY with a valid JSON matching this schema:
   const data = await fetchJsonFromGroq<unknown>({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     reasoning_effort: "medium",
-    temperature: 0.75,
+    temperature: 0.45,
     max_tokens: 4096,
     messages: [
       { role: "system", content: instruction },

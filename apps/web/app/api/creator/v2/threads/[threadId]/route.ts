@@ -27,7 +27,38 @@ export async function GET(
       orderBy: { createdAt: "asc" },
     });
 
-    return NextResponse.json({ ok: true, data: { thread, messages } });
+    const feedbackByMessageId = new Map<string, "up" | "down">();
+    if (messages.length > 0) {
+      try {
+        const feedbackRows = await prisma.chatMessageFeedback.findMany({
+          where: {
+            userId: session.user.id,
+            messageId: {
+              in: messages.map((message) => message.id),
+            },
+          },
+          select: {
+            messageId: true,
+            value: true,
+          },
+        });
+        for (const row of feedbackRows) {
+          if (row.value === "up" || row.value === "down") {
+            feedbackByMessageId.set(row.messageId, row.value);
+          }
+        }
+      } catch (feedbackError) {
+        // Keep thread history available even if feedback table isn't migrated yet.
+        console.warn("GET thread feedback lookup skipped:", feedbackError);
+      }
+    }
+
+    const responseMessages = messages.map((message) => ({
+      ...message,
+      feedbackValue: feedbackByMessageId.get(message.id) ?? null,
+    }));
+
+    return NextResponse.json({ ok: true, data: { thread, messages: responseMessages } });
   } catch (error) {
     console.error("GET thread history error:", error);
     return NextResponse.json({ ok: false, errors: [{ field: "server", message: "Failed to fetch thread history." }] }, { status: 500 });
@@ -101,4 +132,3 @@ export async function DELETE(
     return NextResponse.json({ ok: false, errors: [{ field: "server", message: "Failed to delete thread." }] }, { status: 500 });
   }
 }
-

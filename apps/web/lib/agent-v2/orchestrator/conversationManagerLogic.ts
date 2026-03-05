@@ -1,6 +1,10 @@
 export function isBareDraftRequest(message: string): boolean {
-  const normalized = message.trim().toLowerCase().replace(/[.?!,]+$/, "");
-  return [
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+  if ([
     "write me a post",
     "write a post for me",
     "write me a post for me",
@@ -12,7 +16,58 @@ export function isBareDraftRequest(message: string): boolean {
     "give me a post",
     "give me a post to use",
     "give me a random post",
-  ].includes(normalized);
+    "give me random post",
+    "give me a random post i would use",
+    "give me random post i would use",
+    "give me a post i would use",
+  ].includes(normalized)) {
+    return true;
+  }
+
+  return /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?random\s+post(?:\s+i(?:\s+would|\s*'d)\s+use)?$/.test(
+    normalized,
+  );
+}
+
+export function isBareIdeationRequest(message: string): boolean {
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+
+  if (
+    [
+      "give me post ideas",
+      "give me some post ideas",
+      "give me more post ideas",
+      "give me ideas",
+      "give me some ideas",
+      "give me more ideas",
+      "more post ideas",
+      "more ideas",
+      "post ideas",
+      "ideas",
+      "brainstorm",
+      "brainstorm with me",
+      "what should i post",
+      "what do i post",
+      "help me figure out what to post",
+      "give me angles",
+      "give me some angles",
+      "give me more angles",
+    ].includes(normalized)
+  ) {
+    return true;
+  }
+
+  if (/^(?:give|show|share|suggest|brainstorm)\s+me\s+(?:(?:some|more)\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
+    return true;
+  }
+
+  return /^(?:give|show|share|suggest)\s+me\s+another\s+(?:post\s+)?idea$/.test(
+    normalized,
+  );
 }
 
 export function resolveConversationMode(args: {
@@ -22,14 +77,21 @@ export function resolveConversationMode(args: {
   activeDraft?: string;
 }): string {
   let mode = args.classifiedIntent;
+  const normalized = args.userMessage.toLowerCase().trim();
 
   if (
     !args.explicitIntent &&
-    ["hello", "hi", "help me grow", "i want to grow"].includes(
-      args.userMessage.toLowerCase().trim(),
-    )
+    ["hello", "hi", "help me grow", "i want to grow"].includes(normalized)
   ) {
     mode = "coach";
+  }
+
+  if (!args.explicitIntent && !args.activeDraft && isBareDraftRequest(args.userMessage)) {
+    return "plan";
+  }
+
+  if (!args.explicitIntent && isBareIdeationRequest(args.userMessage)) {
+    return "ideate";
   }
 
   if (!args.explicitIntent && mode === "draft" && !args.activeDraft) {

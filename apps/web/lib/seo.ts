@@ -1,8 +1,9 @@
 const FALLBACK_SITE_URL = "http://localhost:3000";
 
-export const APP_NAME = "Stanley for X";
+export const APP_NAME = "Xpo";
+export const APP_TAGLINE = "Grow Xponentially on X";
 export const APP_DESCRIPTION =
-  "Growth intelligence engine for X creators. Analyze your account, find what wins, and publish with confidence.";
+  "AI growth copilot for creators on X. Analyze your account, plan what to post next, draft in your voice, and grow with a repeatable system.";
 
 export function resolveSiteUrl(): string {
   const explicitSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;

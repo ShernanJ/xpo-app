@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import OnboardingLanding from "./OnboardingLanding";
+import { getPublicBillingOffers } from "@/lib/billing/public-offers";
 
 export const metadata: Metadata = {
   title: "Onboarding",
@@ -13,5 +14,5 @@ export const metadata: Metadata = {
 };
 
 export default function OnboardingPage() {
-  return <OnboardingLanding />;
+  return <OnboardingLanding pricingOffers={getPublicBillingOffers()} />;
 }

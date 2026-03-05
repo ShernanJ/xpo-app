@@ -47,6 +47,11 @@ enum LifetimeReservationStatus {
   canceled
 }
 
+enum ChatMessageFeedbackValue {
+  up
+  down
+}
+
 model User {
   id            String    @id @default(uuid())
   handle        String?   @unique
@@ -66,6 +71,7 @@ model User {
   memories       ConversationMemory[]
   voiceProfiles  VoiceProfile[]
   chatThreads    ChatThread[]
+  chatMessageFeedbacks ChatMessageFeedback[]
   feedbackSubmissions FeedbackSubmission[]
   billingEntitlement      BillingEntitlement?
   creditLedgerEntries     CreditLedgerEntry[]
@@ -130,6 +136,7 @@ model ChatThread {
   user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   memories ConversationMemory[]
   messages ChatMessage[]
+  messageFeedbacks ChatMessageFeedback[]
 }
 
 model ChatMessage {
@@ -141,6 +148,26 @@ model ChatMessage {
   createdAt DateTime @default(now())
 
   thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  feedback ChatMessageFeedback[]
+}
+
+model ChatMessageFeedback {
+  id        String                   @id @default(cuid())
+  userId    String
+  threadId  String
+  messageId String
+  value     ChatMessageFeedbackValue
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread  ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([messageId])
+  @@index([threadId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Post {

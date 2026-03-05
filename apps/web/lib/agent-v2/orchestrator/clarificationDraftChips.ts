@@ -11,6 +11,84 @@ const JUNK_TOPIC_VALUES = new Set([
   "stuff",
 ]);
 
+interface QuickReplyVoiceProfile {
+  lowercase: boolean;
+  concise: boolean;
+}
+
+function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
+  if (!styleCard) {
+    return false;
+  }
+
+  const explicitCasing = styleCard.userPreferences?.casing;
+  if (explicitCasing === "lowercase") {
+    return true;
+  }
+  if (explicitCasing === "normal" || explicitCasing === "uppercase") {
+    return false;
+  }
+
+  const signals = [
+    ...(styleCard.formattingRules || []),
+    ...(styleCard.customGuidelines || []),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    signals.includes("all lowercase") ||
+    signals.includes("always lowercase") ||
+    signals.includes("never uses capitalization") ||
+    signals.includes("no uppercase")
+  );
+}
+
+function inferConcisePreference(styleCard: VoiceStyleCard | null): boolean {
+  const pacing = styleCard?.pacing?.toLowerCase() || "";
+  const guidance = (styleCard?.customGuidelines || []).join(" ").toLowerCase();
+  const writingGoal = styleCard?.userPreferences?.writingGoal;
+
+  return (
+    writingGoal === "growth_first" ||
+    pacing.includes("short") ||
+    pacing.includes("punchy") ||
+    pacing.includes("bullet") ||
+    pacing.includes("scan") ||
+    guidance.includes("blunt") ||
+    guidance.includes("direct") ||
+    guidance.includes("tight")
+  );
+}
+
+function resolveQuickReplyVoiceProfile(
+  styleCard: VoiceStyleCard | null,
+): QuickReplyVoiceProfile {
+  return {
+    lowercase: inferLowercasePreference(styleCard),
+    concise: inferConcisePreference(styleCard),
+  };
+}
+
+function applyQuickReplyVoiceCase(value: string, voice: QuickReplyVoiceProfile): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!voice.lowercase) {
+    return normalized;
+  }
+
+  return normalized.toLowerCase();
+}
+
+function titleCaseLabel(value: string): string {
+  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function normalizeQuickReplyLabel(value: string, voice: QuickReplyVoiceProfile): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const base = voice.lowercase ? trimmed.toLowerCase() : titleCaseLabel(trimmed);
+  return base.length > 30 ? `${base.slice(0, 27).trimEnd()}...` : base;
+}
+
 function cleanTopicValue(value: string): string {
   return value
     .trim()
@@ -237,11 +315,16 @@ function buildPacingHint(styleCard: VoiceStyleCard | null): string {
 function buildTopicDraftChip(
   topic: string,
   styleCard: VoiceStyleCard | null,
+  voice: QuickReplyVoiceProfile,
 ): CreatorChatQuickReply {
+  const baseLabel = compactTopicLabel(topic);
   return {
     kind: "clarification_choice",
-    value: `draft a post about ${topic}. keep it in my voice and stay close to what i usually post about. ${buildPacingHint(styleCard)}`,
-    label: compactTopicLabel(topic),
+    value: applyQuickReplyVoiceCase(
+      `draft a post about ${topic}. keep it in my voice and stay close to what i usually post about. ${buildPacingHint(styleCard)}`,
+      voice,
+    ),
+    label: normalizeQuickReplyLabel(baseLabel, voice),
     explicitIntent: "plan",
   };
 }
@@ -250,16 +333,25 @@ function buildFormatAwareDraftChip(args: {
   topic: string | null;
   styleCard: VoiceStyleCard | null;
   formatPreference: "shortform" | "longform";
+  voice: QuickReplyVoiceProfile;
 }): CreatorChatQuickReply {
   const topicLabel = args.topic ? compactTopicLabel(args.topic) : "my usual lane";
   const label =
     args.formatPreference === "shortform"
       ? args.topic
-        ? `Shortform on ${topicLabel}`
-        : "Shortform in my usual lane"
+        ? args.voice.concise
+          ? `shortform ${topicLabel}`
+          : `shortform on ${topicLabel}`
+        : args.voice.concise
+          ? "shortform"
+          : "shortform in my usual lane"
       : args.topic
-        ? `Longform on ${topicLabel}`
-        : "Longform in my usual lane";
+        ? args.voice.concise
+          ? `longform ${topicLabel}`
+          : `longform on ${topicLabel}`
+        : args.voice.concise
+          ? "longform"
+          : "longform in my usual lane";
   const value =
     args.formatPreference === "shortform"
       ? args.topic
@@ -271,21 +363,33 @@ function buildFormatAwareDraftChip(args: {
 
   return {
     kind: "clarification_choice",
-    value,
-    label,
+    value: applyQuickReplyVoiceCase(value, args.voice),
+    label: normalizeQuickReplyLabel(label, args.voice),
     explicitIntent: "plan",
     formatPreference: args.formatPreference,
   };
 }
 
-function buildAngleChip(primaryTopic: string | null): CreatorChatQuickReply {
+function buildAngleChip(
+  primaryTopic: string | null,
+  voice: QuickReplyVoiceProfile,
+): CreatorChatQuickReply {
   const topicLabel = primaryTopic ? compactTopicLabel(primaryTopic) : null;
+  const label = topicLabel
+    ? voice.concise
+      ? `new angle ${topicLabel}`
+      : `angle on ${topicLabel}`
+    : voice.concise
+      ? "pick angle"
+      : "pick an angle first";
+  const value = primaryTopic
+    ? `give me 3 grounded angle options for ${primaryTopic}. stay inside that topic, keep them close to what i usually post about, and do not reset broader than it.`
+    : "give me 3 grounded angle options in my usual lane. keep them close to my normal topics and do not reset into something generic.";
+
   return {
     kind: "clarification_choice",
-    value: primaryTopic
-      ? `give me 3 grounded angle options for ${primaryTopic}. stay inside that topic, keep them close to what i usually post about, and do not reset broader than it.`
-      : "give me 3 grounded angle options in my usual lane. keep them close to my normal topics and do not reset into something generic.",
-    label: topicLabel ? `Angle on ${topicLabel}` : "Pick an angle first",
+    value: applyQuickReplyVoiceCase(value, voice),
+    label: normalizeQuickReplyLabel(label, voice),
     explicitIntent: "ideate",
   };
 }
@@ -294,6 +398,7 @@ function buildLooseFallbackChoices(args: {
   primaryTopic: string | null;
   styleCard: VoiceStyleCard | null;
   isVerifiedAccount: boolean;
+  voice: QuickReplyVoiceProfile;
 }): CreatorChatQuickReply[] {
   if (args.isVerifiedAccount) {
     return [
@@ -301,33 +406,47 @@ function buildLooseFallbackChoices(args: {
         topic: args.primaryTopic,
         styleCard: args.styleCard,
         formatPreference: "shortform",
+        voice: args.voice,
       }),
       buildFormatAwareDraftChip({
         topic: args.primaryTopic,
         styleCard: args.styleCard,
         formatPreference: "longform",
+        voice: args.voice,
       }),
-      buildAngleChip(args.primaryTopic),
+      buildAngleChip(args.primaryTopic, args.voice),
     ];
   }
 
   const topicChoices = args.primaryTopic
-    ? [buildTopicDraftChip(args.primaryTopic, args.styleCard)]
+    ? [buildTopicDraftChip(args.primaryTopic, args.styleCard, args.voice)]
     : [];
 
   const usualLaneChoice: CreatorChatQuickReply = {
     kind: "clarification_choice",
-    value: `draft something in my usual lane. keep it natural and close to my normal topics. ${buildPacingHint(args.styleCard)}`,
-    label: "my usual lane",
+    value: applyQuickReplyVoiceCase(
+      `draft something in my usual lane. keep it natural and close to my normal topics. ${buildPacingHint(args.styleCard)}`,
+      args.voice,
+    ),
+    label: normalizeQuickReplyLabel(
+      args.voice.concise ? "usual lane" : "my usual lane",
+      args.voice,
+    ),
     explicitIntent: "plan",
   };
   const recentChoice: CreatorChatQuickReply = {
     kind: "clarification_choice",
-    value: `draft something recent i could realistically post. keep it in my voice, make it feel current, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`,
-    label: "something recent",
+    value: applyQuickReplyVoiceCase(
+      `draft something recent i could realistically post. keep it in my voice, make it feel current, and stay close to my usual topics. ${buildPacingHint(args.styleCard)}`,
+      args.voice,
+    ),
+    label: normalizeQuickReplyLabel(
+      args.voice.concise ? "recent post" : "something recent",
+      args.voice,
+    ),
     explicitIntent: "plan",
   };
-  const angleChoice = buildAngleChip(args.primaryTopic);
+  const angleChoice = buildAngleChip(args.primaryTopic, args.voice);
 
   if (args.primaryTopic) {
     return [topicChoices[0], usualLaneChoice, angleChoice];
@@ -343,6 +462,7 @@ export function buildDynamicDraftChoices(args: {
   isVerifiedAccount: boolean;
   mode: "topic_known" | "loose";
 }): CreatorChatQuickReply[] {
+  const voice = resolveQuickReplyVoiceProfile(args.styleCard);
   const collectedChoices = collectDraftTopicCandidates(
     args.styleCard,
     args.topicAnchors,
@@ -369,21 +489,23 @@ export function buildDynamicDraftChoices(args: {
         topic: primaryTopic,
         styleCard: args.styleCard,
         formatPreference: "shortform",
+        voice,
       }),
       buildFormatAwareDraftChip({
         topic: primaryTopic,
         styleCard: args.styleCard,
         formatPreference: "longform",
+        voice,
       }),
-      buildAngleChip(primaryTopic),
+      buildAngleChip(primaryTopic, voice),
     ];
   }
 
   if (topicalChoices.length >= 2) {
     return [
-      buildTopicDraftChip(topicalChoices[0], args.styleCard),
-      buildTopicDraftChip(topicalChoices[1], args.styleCard),
-      buildAngleChip(primaryTopic),
+      buildTopicDraftChip(topicalChoices[0], args.styleCard, voice),
+      buildTopicDraftChip(topicalChoices[1], args.styleCard, voice),
+      buildAngleChip(primaryTopic, voice),
     ];
   }
 
@@ -391,5 +513,6 @@ export function buildDynamicDraftChoices(args: {
     primaryTopic,
     styleCard: args.styleCard,
     isVerifiedAccount: args.isVerifiedAccount,
+    voice,
   });
 }

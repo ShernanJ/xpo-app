@@ -9,6 +9,7 @@ import { PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
+import type { BillingStatePayload } from "@/lib/billing/types";
 import type { XPublicProfile } from "@/lib/onboarding/types";
 
 interface ValidationError {
@@ -28,6 +29,11 @@ interface OnboardingPreviewFailure {
 }
 
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+type LandingPricingOffer = BillingStatePayload["offers"][number];
+
+interface OnboardingLandingProps {
+  pricingOffers: LandingPricingOffer[];
+}
 
 const LOADING_STEPS = [
   "collecting your posts...",
@@ -196,7 +202,8 @@ const LANDING_LIFETIME_CENTS = parsePublicUsdToCents(
     process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
-const LANDING_PRO_CREDITS_PER_MONTH = 1000;
+const LANDING_FREE_CREDITS_PER_MONTH = 50;
+const LANDING_PRO_CREDITS_PER_MONTH = 500;
 const LANDING_CHAT_TURN_CREDIT_COST = 2;
 const LANDING_DRAFT_TURN_CREDIT_COST = 5;
 const LANDING_SECTION_VIEWPORT = {
@@ -236,7 +243,7 @@ function normalizeHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
-export default function OnboardingLanding() {
+export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
   const router = useRouter();
   const { status, update } = useSession();
   const [account, setAccount] = useState("");
@@ -248,14 +255,28 @@ export default function OnboardingLanding() {
   const [isAccountFocused, setIsAccountFocused] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [landingProCadence, setLandingProCadence] = useState<"monthly" | "annual">("monthly");
+  const proMonthlyOffer = pricingOffers.find((offer) => offer.offer === "pro_monthly");
+  const proAnnualOffer = pricingOffers.find((offer) => offer.offer === "pro_annual");
+  const lifetimeOffer = pricingOffers.find((offer) => offer.offer === "lifetime");
+  const landingProMonthlyCents = proMonthlyOffer?.amountCents ?? LANDING_PRO_MONTHLY_CENTS;
+  const landingProAnnualCents = proAnnualOffer?.amountCents ?? LANDING_PRO_ANNUAL_CENTS;
+  const landingLifetimeCents = lifetimeOffer?.amountCents ?? LANDING_LIFETIME_CENTS;
+  const landingProMonthlyEnabled = proMonthlyOffer?.enabled ?? true;
+  const landingProAnnualEnabled = proAnnualOffer?.enabled ?? true;
   const normalizedAccount = normalizeHandle(account);
   const hasValidPreview =
     Boolean(preview) && normalizeHandle(preview?.username ?? "") === normalizedAccount;
   const landingProIsAnnual = landingProCadence === "annual";
   const landingSelectedProCents = landingProIsAnnual
-    ? LANDING_PRO_ANNUAL_CENTS
-    : LANDING_PRO_MONTHLY_CENTS;
+    ? landingProAnnualCents
+    : landingProMonthlyCents;
   const landingSelectedProPriceSuffix = landingProIsAnnual ? " / year" : " / month";
+  const landingFreeApproxChatTurns = Math.floor(
+    LANDING_FREE_CREDITS_PER_MONTH / LANDING_CHAT_TURN_CREDIT_COST,
+  );
+  const landingFreeApproxDraftTurns = Math.floor(
+    LANDING_FREE_CREDITS_PER_MONTH / LANDING_DRAFT_TURN_CREDIT_COST,
+  );
   const landingProApproxChatTurns = Math.floor(
     LANDING_PRO_CREDITS_PER_MONTH / LANDING_CHAT_TURN_CREDIT_COST,
   );
@@ -710,6 +731,17 @@ export default function OnboardingLanding() {
     };
   }, [account]);
 
+  useEffect(() => {
+    if (landingProIsAnnual && !landingProAnnualEnabled && landingProMonthlyEnabled) {
+      setLandingProCadence("monthly");
+      return;
+    }
+
+    if (!landingProIsAnnual && !landingProMonthlyEnabled && landingProAnnualEnabled) {
+      setLandingProCadence("annual");
+    }
+  }, [landingProAnnualEnabled, landingProIsAnnual, landingProMonthlyEnabled]);
+
   function scrollToScraper() {
     const scraperSection = document.getElementById("account-scan");
     scraperSection?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -820,7 +852,7 @@ export default function OnboardingLanding() {
               <div className="px-6 pt-4 pb-8 sm:px-10 sm:pt-6 sm:pb-12">
                 <div className="mx-auto max-w-2xl text-center">
                   <Image
-                    src="/xpo-logo-white.svg"
+                    src="/xpo-logo-white.webp"
                     alt="Xpo logo"
                     width={100}
                     height={100}
@@ -944,7 +976,7 @@ export default function OnboardingLanding() {
               <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-10 sm:gap-12">
                 <div className="space-y-4 text-center">
                   <Image
-                    src="/xpo-logo-white.svg"
+                    src="/xpo-logo-white.webp"
                     alt="Xpo logo"
                     width={88}
                     height={88}
@@ -1245,21 +1277,28 @@ export default function OnboardingLanding() {
             Simple pricing. Predictable usage.
           </h2>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion h-full rounded-2xl border border-white/10 bg-white/[0.02] p-5 pb-7 flex flex-col">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">Free</p>
               <p className="mt-2 text-3xl font-semibold">$0</p>
               <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-              <p className="mt-4 text-xs text-zinc-500">100 credits/month</p>
+              <p className="mt-4 text-xs text-zinc-500">{LANDING_FREE_CREDITS_PER_MONTH} credits/month</p>
+              <div className="mt-4 space-y-2 text-sm text-zinc-300">
+                <p>• Core chat + onboarding included</p>
+                <p>• 1 workspace handle</p>
+                <p>
+                  • ≈ {landingFreeApproxChatTurns} chat turns or ≈ {landingFreeApproxDraftTurns} draft/review turns
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={scrollToScraper}
-                className="mt-5 inline-flex rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05]"
+                className="mt-auto inline-flex w-full items-center justify-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05]"
               >
-                Start Free
+                Start for Free
               </button>
             </motion.article>
 
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-5">
+            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-5 pb-7 flex flex-col">
               <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
               <div className="flex items-start justify-between gap-3">
                 <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
@@ -1275,8 +1314,13 @@ export default function OnboardingLanding() {
                     <button
                       type="button"
                       onClick={() => setLandingProCadence("monthly")}
+                      disabled={!landingProMonthlyEnabled}
                       className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                        landingProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
+                        !landingProMonthlyEnabled
+                          ? "cursor-not-allowed text-zinc-600"
+                          : landingProIsAnnual
+                            ? "text-zinc-300 hover:text-white"
+                            : "text-black"
                       }`}
                     >
                       Monthly
@@ -1285,16 +1329,23 @@ export default function OnboardingLanding() {
                       <button
                         type="button"
                         onClick={() => setLandingProCadence("annual")}
+                        disabled={!landingProAnnualEnabled}
                         className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                          landingProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
+                          !landingProAnnualEnabled
+                            ? "cursor-not-allowed text-zinc-600"
+                            : landingProIsAnnual
+                              ? "text-black"
+                              : "text-zinc-300 hover:text-white"
                         }`}
                       >
                         Annual
                       </button>
                     </div>
-                    <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
-                      2 months free
-                    </span>
+                    {landingProMonthlyEnabled && landingProAnnualEnabled ? (
+                      <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
+                        2 months free
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1304,24 +1355,24 @@ export default function OnboardingLanding() {
                 <span className="text-sm font-medium text-zinc-400">{landingSelectedProPriceSuffix}</span>
               </p>
               <div className="mt-4 space-y-2 text-sm text-zinc-200">
-                <p>• 1,000 credits/month</p>
+                <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month</p>
                 <p>• Draft analysis: Analyze + Compare</p>
                 <p>• Up to 5 workspace handles</p>
                 <p>• Higher throughput + priority processing</p>
                 <p>
                   • ≈ {landingProApproxChatTurns} chat turns or ≈ {landingProApproxDraftTurns} draft/review turns
                 </p>
-                <p>• Early pricing lock while your subscription stays active</p>
               </div>
-              <Link
-                href="/pricing"
-                className="mt-5 inline-flex rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
+              <button
+                type="button"
+                onClick={scrollToScraper}
+                className="mt-auto inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
               >
-                {landingProIsAnnual ? "View Pro Annual" : "View Pro Monthly"}
-              </Link>
+                Get Started
+              </button>
             </motion.article>
 
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-5">
+            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-5 pb-7 flex flex-col">
               <div className="pointer-events-none absolute -left-14 top-6 h-32 w-32 rounded-full bg-amber-300/25 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
               <div className="pointer-events-none absolute -right-16 -top-14 h-36 w-36 rounded-full bg-amber-200/20 blur-3xl animate-pulse" />
               <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_24%,rgba(251,191,36,0.2)_50%,transparent_76%)] opacity-40 transition-opacity duration-500 group-hover:opacity-70" />
@@ -1330,19 +1381,20 @@ export default function OnboardingLanding() {
                 <Sparkles className="h-3.5 w-3.5 text-amber-100" />
                 Founder Pass
               </p>
-              <p className="mt-2 text-3xl font-semibold">{formatUsdPrice(LANDING_LIFETIME_CENTS)}</p>
+              <p className="mt-2 text-3xl font-semibold">{formatUsdPrice(landingLifetimeCents)}</p>
               <p className="mt-2 text-sm text-zinc-200">One-time payment. No recurring billing.</p>
               <div className="mt-4 space-y-2 text-sm text-zinc-200">
                 <p>• Includes Pro features</p>
-                <p>• Pro monthly credits included</p>
+                <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month included</p>
                 <p>• Priority founder lane</p>
               </div>
-              <Link
-                href="/pricing"
-                className="mt-5 inline-flex rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
+              <button
+                type="button"
+                onClick={scrollToScraper}
+                className="mt-auto inline-flex w-full items-center justify-center rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
               >
-                Get Founder Pass
-              </Link>
+                Get Started
+              </button>
             </motion.article>
           </div>
         </motion.section>

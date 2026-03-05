@@ -13,6 +13,7 @@ import {
   buildTopicFocusReply,
 } from "./assistantReplyStyle";
 import { buildDynamicDraftChoices } from "./clarificationDraftChips";
+import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 
 interface ClarificationTreeArgs {
   branchKey: ClarificationBranchKey;
@@ -28,7 +29,87 @@ interface ClarificationTreeResult {
   clarificationState: ClarificationState;
 }
 
+interface QuickReplyVoiceProfile {
+  lowercase: boolean;
+  concise: boolean;
+}
+
+function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
+  if (!styleCard) {
+    return false;
+  }
+
+  const explicitCasing = styleCard.userPreferences?.casing;
+  if (explicitCasing === "lowercase") {
+    return true;
+  }
+  if (explicitCasing === "normal" || explicitCasing === "uppercase") {
+    return false;
+  }
+
+  const signals = [
+    ...(styleCard.formattingRules || []),
+    ...(styleCard.customGuidelines || []),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    signals.includes("all lowercase") ||
+    signals.includes("always lowercase") ||
+    signals.includes("never uses capitalization") ||
+    signals.includes("no uppercase")
+  );
+}
+
+function inferConcisePreference(styleCard: VoiceStyleCard | null): boolean {
+  const pacing = styleCard?.pacing?.toLowerCase() || "";
+  const guidance = (styleCard?.customGuidelines || []).join(" ").toLowerCase();
+  const writingGoal = styleCard?.userPreferences?.writingGoal;
+
+  return (
+    writingGoal === "growth_first" ||
+    pacing.includes("short") ||
+    pacing.includes("punchy") ||
+    pacing.includes("bullet") ||
+    pacing.includes("scan") ||
+    guidance.includes("blunt") ||
+    guidance.includes("direct") ||
+    guidance.includes("tight")
+  );
+}
+
+function resolveQuickReplyVoiceProfile(
+  styleCard: VoiceStyleCard | null,
+): QuickReplyVoiceProfile {
+  return {
+    lowercase: inferLowercasePreference(styleCard),
+    concise: inferConcisePreference(styleCard),
+  };
+}
+
+function applyQuickReplyVoiceCase(value: string, voice: QuickReplyVoiceProfile): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!voice.lowercase) {
+    return normalized;
+  }
+
+  return normalized.toLowerCase();
+}
+
+function titleCaseLabel(value: string): string {
+  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function normalizeQuickReplyLabel(value: string, voice: QuickReplyVoiceProfile): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const base = voice.lowercase ? trimmed.toLowerCase() : titleCaseLabel(trimmed);
+  return base.length > 30 ? `${base.slice(0, 27).trimEnd()}...` : base;
+}
+
 export function buildClarificationTree(args: ClarificationTreeArgs): ClarificationTreeResult {
+  const voice = resolveQuickReplyVoiceProfile(args.styleCard);
+
   const hasWeakSeed = (value: string | null): boolean => {
     const normalized = value?.trim().toLowerCase() || "";
     return (
@@ -38,26 +119,12 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
   };
 
   if (args.branchKey === "plan_reject") {
-    const quickReplies: CreatorChatQuickReply[] = [
-      {
-        kind: "planner_action",
-        value: "make it tighter and more blunt",
-        label: "Tighter and more blunt",
-        explicitIntent: "planner_feedback",
-      },
-      {
-        kind: "planner_action",
-        value: "make it more personal and story-driven",
-        label: "More personal/story-driven",
-        explicitIntent: "planner_feedback",
-      },
-      {
-        kind: "planner_action",
-        value: "different angle",
-        label: "Different angle",
-        explicitIntent: "planner_feedback",
-      },
-    ];
+    const quickReplies = buildPlannerQuickReplies({
+      plan: null,
+      styleCard: args.styleCard,
+      seedTopic: args.seedTopic,
+      context: "reject",
+    });
 
     return {
       reply: buildPlanRejectReply(),
@@ -97,20 +164,38 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     const quickReplies: CreatorChatQuickReply[] = [
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post with my actual take on it. keep it natural and opinionated.`,
-        label: "My take",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post with my actual take on it. keep it natural and opinionated.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel(
+          voice.concise ? "my take" : "my actual take",
+          voice,
+        ),
         explicitIntent: "plan",
       },
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post around a mistake people make.`,
-        label: "A mistake",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post around a mistake people make.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel(
+          voice.concise ? "common mistake" : "a common mistake",
+          voice,
+        ),
         explicitIntent: "plan",
       },
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post around something i learned the hard way.`,
-        label: "Something learned",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post around something i learned the hard way.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel(
+          voice.concise ? "hard lesson" : "something i learned",
+          voice,
+        ),
         explicitIntent: "plan",
       },
     ];
@@ -150,20 +235,29 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     const quickReplies: CreatorChatQuickReply[] = [
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post that sounds grateful and grounded.`,
-        label: "Grateful",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post that sounds grateful and grounded.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel("grateful", voice),
         explicitIntent: "plan",
       },
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post that sounds ambitious and determined.`,
-        label: "Ambitious",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post that sounds ambitious and determined.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel("ambitious", voice),
         explicitIntent: "plan",
       },
       {
         kind: "clarification_choice",
-        value: `draft a ${topicLabel} post that sounds reflective and honest.`,
-        label: "Reflective",
+        value: applyQuickReplyVoiceCase(
+          `draft a ${topicLabel} post that sounds reflective and honest.`,
+          voice,
+        ),
+        label: normalizeQuickReplyLabel("reflective", voice),
         explicitIntent: "plan",
       },
     ];

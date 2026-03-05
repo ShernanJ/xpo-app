@@ -43,6 +43,42 @@ const GENERIC_IDEA_QUESTION_FRAGMENTS = [
   "what is a hot take",
 ];
 
+const GENERIC_IDEATION_REQUEST_PHRASES = new Set([
+  "give me post ideas",
+  "give me some post ideas",
+  "give me more post ideas",
+  "give me ideas",
+  "give me some ideas",
+  "give me more ideas",
+  "more post ideas",
+  "more ideas",
+  "post ideas",
+  "ideas",
+  "brainstorm",
+  "brainstorm with me",
+  "what should i post",
+  "what do i post",
+  "help me figure out what to post",
+  "give me angles",
+  "give me some angles",
+  "give me more angles",
+]);
+
+const GENERIC_DRAFT_REQUEST_PHRASES = new Set([
+  "draft a post",
+  "draft a post for me",
+  "draft me a post",
+  "write a post",
+  "write me a post",
+  "write a post for me",
+  "make a post",
+  "make me a post",
+  "generate a post",
+  "create a post",
+  "give me a post",
+  "give me a random post i would use",
+]);
+
 const FOCUS_TOPIC_STOPWORDS = new Set([
   "about",
   "around",
@@ -73,6 +109,42 @@ function cleanFocusTopic(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+function normalizeTopicCandidate(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+}
+
+function looksLikeGenericRequestTopic(value: string): boolean {
+  const normalized = normalizeTopicCandidate(value);
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    GENERIC_IDEATION_REQUEST_PHRASES.has(normalized) ||
+    GENERIC_DRAFT_REQUEST_PHRASES.has(normalized)
+  ) {
+    return true;
+  }
+
+  if (/^(?:give|show|share|suggest|brainstorm)\s+me\s+(?:(?:some|more)\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:give|show|share|suggest)\s+me\s+another\s+(?:post\s+)?idea$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:write|draft|make|generate|create)\s+(?:me\s+)?(?:a\s+)?(?:random\s+)?post(?:\s+for me)?$/.test(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
 function inferFocusTopic(userMessage: string, topicSummary: string | null): string | null {
   const sources = [userMessage, topicSummary || ""].filter(Boolean);
 
@@ -83,19 +155,27 @@ function inferFocusTopic(userMessage: string, topicSummary: string | null): stri
 
     if (aboutMatch?.[1]) {
       const cleaned = cleanFocusTopic(aboutMatch[1]);
-      if (cleaned) {
+      if (cleaned && !looksLikeGenericRequestTopic(cleaned)) {
         return cleaned;
       }
     }
   }
 
   const topicCandidate = cleanFocusTopic(topicSummary || "");
-  if (topicCandidate && topicCandidate.split(/\s+/).length <= 10) {
+  if (
+    topicCandidate &&
+    topicCandidate.split(/\s+/).length <= 10 &&
+    !looksLikeGenericRequestTopic(topicCandidate)
+  ) {
     return topicCandidate;
   }
 
   const messageCandidate = cleanFocusTopic(userMessage);
-  if (messageCandidate && messageCandidate.split(/\s+/).length <= 8) {
+  if (
+    messageCandidate &&
+    messageCandidate.split(/\s+/).length <= 8 &&
+    !looksLikeGenericRequestTopic(messageCandidate)
+  ) {
     return messageCandidate;
   }
 

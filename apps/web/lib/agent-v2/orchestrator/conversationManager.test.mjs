@@ -5,6 +5,7 @@ import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
 import {
+  isBareIdeationRequest,
   isBareDraftRequest,
   resolveConversationMode,
   resolveDraftOutputShape,
@@ -16,7 +17,18 @@ import {
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
   assert.equal(isBareDraftRequest("write me a post"), true);
+  assert.equal(isBareDraftRequest("give me a random post I would use"), true);
+  assert.equal(isBareDraftRequest("give me random post i'd use"), true);
   assert.equal(isBareDraftRequest("write me a post about internship hunt"), false);
+});
+
+test("generic ideation prompts are detected deterministically", () => {
+  assert.equal(isBareIdeationRequest("give me post ideas"), true);
+  assert.equal(isBareIdeationRequest("give me more post ideas"), true);
+  assert.equal(isBareIdeationRequest("give me more ideas"), true);
+  assert.equal(isBareIdeationRequest("brainstorm with me"), true);
+  assert.equal(isBareIdeationRequest("give me post ideas about onboarding"), false);
+  assert.equal(isBareIdeationRequest("give me more post ideas about onboarding"), false);
 });
 
 test("plain draft intent without an active draft upgrades to plan mode", () => {
@@ -27,6 +39,26 @@ test("plain draft intent without an active draft upgrades to plan mode", () => {
   });
 
   assert.equal(mode, "plan");
+});
+
+test("bare draft requests force plan mode even when classifier misses", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "draft a post for me",
+    classifiedIntent: "ideate",
+  });
+
+  assert.equal(mode, "plan");
+});
+
+test("bare ideation requests force ideate mode when classifier is noisy", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "give me post ideas",
+    classifiedIntent: "coach",
+  });
+
+  assert.equal(mode, "ideate");
 });
 
 test("planner feedback only reuses pending plan when approval state is active", () => {
@@ -117,4 +149,26 @@ test("slot evaluator treats undefined product references as entity-definition ga
   assert.equal(slots.domainHint, "product");
   assert.equal(slots.entityNeedsDefinition, true);
   assert.equal(slots.namedEntity, "stanley");
+});
+
+test("slot evaluator flags ampm when reference is ambiguous", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage: "draft a post about the ampm event",
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  assert.equal(slots.ambiguousReferenceNeedsClarification, true);
+  assert.equal(slots.ambiguousReference, "ampm");
+});
+
+test("slot evaluator skips ampm clarification when context already disambiguates", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage: "draft a post about ampm",
+    topicSummary: null,
+    contextAnchors: ["ampm is a club in downtown toronto where i meet creators"],
+  });
+
+  assert.equal(slots.ambiguousReferenceNeedsClarification, false);
+  assert.equal(slots.ambiguousReference, "ampm");
 });
