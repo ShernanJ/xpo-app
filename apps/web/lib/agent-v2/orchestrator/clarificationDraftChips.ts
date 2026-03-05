@@ -97,6 +97,20 @@ function cleanTopicValue(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+function isMetaSummaryTopic(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^(?:the\s+)?user\s+is\b/.test(normalized) ||
+    /^(?:the\s+)?creator\s+is\b/.test(normalized) ||
+    /^(?:they|he|she)\s+is\b/.test(normalized) ||
+    /^(?:they)\s+are\b/.test(normalized)
+  );
+}
+
 export function compactTopicLabel(value: string): string {
   const cleaned = cleanTopicValue(value);
 
@@ -147,6 +161,10 @@ function isUsableTopicCandidate(value: string | null): value is string {
     /\b(?:draft|write|make|give|help)\s+(?:me\s+)?(?:a\s+)?post\b/i.test(cleaned) ||
     /\b(?:pick|choose)\s+(?:an?\s+)?angle\b/i.test(cleaned)
   ) {
+    return false;
+  }
+
+  if (isMetaSummaryTopic(cleaned)) {
     return false;
   }
 

@@ -1,0 +1,88 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  isBareIdeationRequest,
+  resolveConversationMode,
+} from "../orchestrator/conversationManagerLogic.ts";
+import { buildIdeationReply } from "../orchestrator/ideationReply.ts";
+import { dedupeAngleTitlesForRetry } from "../orchestrator/angleNovelty.ts";
+import {
+  ANGLE_NOVELTY_FIXTURES,
+  IDEATION_COMMAND_FIXTURES,
+  IDEATION_REPLY_FIXTURES,
+} from "./chatRegressionFixtures.ts";
+
+for (const fixture of IDEATION_COMMAND_FIXTURES) {
+  test(`regression: ideation command detection - "${fixture.input}"`, () => {
+    assert.equal(
+      isBareIdeationRequest(fixture.input),
+      fixture.shouldBeIdeationCommand,
+    );
+  });
+}
+
+test("regression: ideation retry command does not hijack active draft edit mode", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "try again",
+    classifiedIntent: "edit",
+    activeDraft: "current draft",
+  });
+
+  assert.equal(mode, "edit");
+});
+
+for (const fixture of IDEATION_REPLY_FIXTURES) {
+  test(`regression: ideation follow-up wording - "${fixture.userMessage}"`, () => {
+    const reply = buildIdeationReply({
+      userMessage: fixture.userMessage,
+      intro: fixture.intro,
+      close: fixture.close,
+      styleCard: null,
+    });
+    const normalizedReply = reply.toLowerCase();
+
+    assert.equal(
+      fixture.mustIncludeAny.some((phrase) =>
+        normalizedReply.includes(phrase.toLowerCase()),
+      ),
+      true,
+    );
+    assert.equal(
+      fixture.mustIncludeSwitchCue.some((phrase) =>
+        normalizedReply.includes(phrase.toLowerCase()),
+      ),
+      true,
+    );
+    for (const forbidden of fixture.mustNotInclude) {
+      assert.equal(normalizedReply.includes(forbidden.toLowerCase()), false);
+    }
+  });
+}
+
+for (const fixture of ANGLE_NOVELTY_FIXTURES) {
+  test(`regression: ideation retry dedupes near-duplicate angles - "${fixture.seed}"`, () => {
+    const nextAngles = dedupeAngleTitlesForRetry({
+      angles: fixture.inputAngles,
+      focusTopic: fixture.focusTopic,
+      recentHistory: fixture.recentHistory,
+      seed: fixture.seed,
+    });
+
+    assert.equal(
+      nextAngles[0]?.title
+        .toLowerCase()
+        .includes("how does turning a linkedin post into an x post change the story you tell"),
+      false,
+    );
+    assert.equal(
+      nextAngles[1]?.title
+        .toLowerCase()
+        .includes("what's the biggest tone shift when you turn a linkedin post into an x post"),
+      false,
+    );
+    assert.equal(/\?$/.test(nextAngles[0]?.title || ""), true);
+    assert.equal(/\?$/.test(nextAngles[1]?.title || ""), true);
+  });
+}

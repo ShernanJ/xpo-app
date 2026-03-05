@@ -46,6 +46,9 @@ export function isBareIdeationRequest(message: string): boolean {
       "give me more ideas",
       "more post ideas",
       "more ideas",
+      "try again",
+      "another round",
+      "one more round",
       "post ideas",
       "ideas",
       "brainstorm",
@@ -56,12 +59,24 @@ export function isBareIdeationRequest(message: string): boolean {
       "give me angles",
       "give me some angles",
       "give me more angles",
+      "give me another idea",
+      "give me another post idea",
+      "give me another set of ideas",
+      "give me a different set of ideas",
     ].includes(normalized)
   ) {
     return true;
   }
 
   if (/^(?:give|show|share|suggest|brainstorm)\s+me\s+(?:(?:some|more)\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:try|run)\s+(?:that\s+)?again$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:give|show|share|suggest)\s+me\s+(?:another|different|new)\s+(?:set\s+of\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
     return true;
   }
 
@@ -90,7 +105,7 @@ export function resolveConversationMode(args: {
     return "plan";
   }
 
-  if (!args.explicitIntent && isBareIdeationRequest(args.userMessage)) {
+  if (!args.explicitIntent && !args.activeDraft && isBareIdeationRequest(args.userMessage)) {
     return "ideate";
   }
 

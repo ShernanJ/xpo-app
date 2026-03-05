@@ -7280,7 +7280,11 @@ function ChatPageContent() {
 
                           {message.role === "assistant" &&
                             message.quickReplies?.length &&
-                            index === messages.length - 1 ? (
+                            index === messages.length - 1 &&
+                            !(
+                              message.outputShape === "ideation_angles" &&
+                              message.angles?.length
+                            ) ? (
                             <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
                               {message.quickReplies.map((quickReply) => (
                                 <button
@@ -7333,6 +7337,28 @@ function ChatPageContent() {
                                   </button>
                                 );
                               })}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            message.outputShape === "ideation_angles" &&
+                            message.angles?.length &&
+                            message.quickReplies?.length &&
+                            index === messages.length - 1 ? (
+                            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                              {message.quickReplies.map((quickReply) => (
+                                <button
+                                  key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
+                                  type="button"
+                                  onClick={() => {
+                                    void handleQuickReplySelect(quickReply);
+                                  }}
+                                  disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                >
+                                  {quickReply.label}
+                                </button>
+                              ))}
                             </div>
                           ) : null}
 

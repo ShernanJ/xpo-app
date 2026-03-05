@@ -26,6 +26,8 @@ test("generic ideation prompts are detected deterministically", () => {
   assert.equal(isBareIdeationRequest("give me post ideas"), true);
   assert.equal(isBareIdeationRequest("give me more post ideas"), true);
   assert.equal(isBareIdeationRequest("give me more ideas"), true);
+  assert.equal(isBareIdeationRequest("try again"), true);
+  assert.equal(isBareIdeationRequest("give me another set of ideas"), true);
   assert.equal(isBareIdeationRequest("brainstorm with me"), true);
   assert.equal(isBareIdeationRequest("give me post ideas about onboarding"), false);
   assert.equal(isBareIdeationRequest("give me more post ideas about onboarding"), false);
@@ -59,6 +61,17 @@ test("bare ideation requests force ideate mode when classifier is noisy", () => 
   });
 
   assert.equal(mode, "ideate");
+});
+
+test("bare ideation requests do not force ideate when an active draft exists", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "try again",
+    classifiedIntent: "edit",
+    activeDraft: "current draft",
+  });
+
+  assert.equal(mode, "edit");
 });
 
 test("planner feedback only reuses pending plan when approval state is active", () => {

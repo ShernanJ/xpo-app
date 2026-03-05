@@ -126,6 +126,12 @@ function applyCase(value: string, lowercase: boolean): string {
   return normalized.toLowerCase();
 }
 
+function humanizeIdeaWording(value: string): string {
+  return value
+    .replace(/\bhere are some angles\b/gi, "here are some ideas i thought of")
+    .replace(/\bhere are a few angles\b/gi, "here are some ideas i thought of");
+}
+
 function looksRigidAnglePrompt(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
@@ -151,6 +157,60 @@ function isMoreIdeasRequest(value: string): boolean {
     /\bmore\s+(?:post\s+)?ideas?\b/.test(normalized) ||
     /\banother\s+(?:post\s+)?idea\b/.test(normalized) ||
     /\bmore\s+angles?\b/.test(normalized)
+  );
+}
+
+function looksStiltedIdeationIntro(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /\bsaw your\b/.test(normalized) ||
+    /\bnoticed you\b/.test(normalized) ||
+    /\byou keep riffing\b/.test(normalized) ||
+    /\briff(?:ing)? on\b/.test(normalized) ||
+    /\bpeople love\b/.test(normalized) ||
+    /\blet'?s spin that into\b/.test(normalized) ||
+    /\byou wanna spin\b/.test(normalized) ||
+    /\bshow(?:s|ing)? off\b/.test(normalized) ||
+    /\bplay to your\b/.test(normalized) ||
+    /\bculture clash\b/.test(normalized)
+  );
+}
+
+function pickFirstIdeasLead(args: {
+  seed: string;
+  concise: boolean;
+  warm: boolean;
+}): string {
+  if (args.warm) {
+    return pickDeterministic(
+      [
+        "sounds good. i pulled a few ideas for you.",
+        "cool, i got a few ideas you can run with.",
+      ],
+      `${args.seed}|first|warm`,
+    );
+  }
+
+  if (args.concise) {
+    return pickDeterministic(
+      [
+        "sounds good. here are a few ideas.",
+        "nice. i pulled a few ideas.",
+      ],
+      `${args.seed}|first|concise`,
+    );
+  }
+
+  return pickDeterministic(
+    [
+      "sounds good. i got a few ideas for you.",
+      "for sure. here are a few ideas to play with.",
+    ],
+    `${args.seed}|first|balanced`,
   );
 }
 
@@ -197,7 +257,7 @@ function pickCasualClose(args: {
     return pickDeterministic(
       [
         "here are a few ideas. what do you think?",
-        "here are some angles. what feels most like you?",
+        "here are some ideas i thought of. what feels most like you?",
         "here are a few options. want me to draft one?",
       ],
       `${args.seed}|warm`,
@@ -218,7 +278,7 @@ function pickCasualClose(args: {
   return pickDeterministic(
     [
       "here are a few ideas. what do you think?",
-      "here are some angles. which one should we turn into a draft?",
+      "here are some ideas i thought of. which one should we turn into a draft?",
       "a few options to start. want me to draft one now?",
     ],
     `${args.seed}|balanced`,
@@ -277,13 +337,21 @@ export function buildIdeationReply(args: BuildIdeationReplyArgs): string {
     : !close || looksRigidAnglePrompt(close)
       ? fallbackClose
       : close;
+  const shouldRewriteIntro =
+    !intro ||
+    looksStiltedIdeationIntro(intro);
   const lead = moreIdeasRequest
     ? pickMoreIdeasLead({ seed, concise, warm })
-    : intro;
+    : shouldRewriteIntro
+      ? pickFirstIdeasLead({ seed, concise, warm })
+      : intro;
 
   if (lead) {
-    return applyCase(`${lead}\n\n${closeLine}`, lowercase);
+    return applyCase(
+      humanizeIdeaWording(`${lead}\n\n${closeLine}`),
+      lowercase,
+    );
   }
 
-  return applyCase(closeLine, lowercase);
+  return applyCase(humanizeIdeaWording(closeLine), lowercase);
 }

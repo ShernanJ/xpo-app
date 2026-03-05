@@ -45,6 +45,7 @@ import {
   prependFeedbackMemoryNotice,
 } from "./feedbackMemoryNotice";
 import { buildIdeationReply } from "./ideationReply";
+import { buildIdeationQuickReplies } from "./ideationQuickReplies";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import {
   buildComparisonRelationshipQuestion,
@@ -252,6 +253,27 @@ function looksGenericTopicSummary(value: string | null | undefined): boolean {
   }
 
   return isBareIdeationRequest(normalized) || isBareDraftRequest(normalized);
+}
+
+function looksLikeIdeationRetryCommand(message: string): boolean {
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,]+$/, "")
+    .replace(/\s+/g, " ");
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "try again" ||
+    normalized === "another round" ||
+    normalized === "one more round" ||
+    /^(?:try|run)\s+(?:that\s+)?again$/.test(normalized) ||
+    /^(?:give|show|share|suggest)\s+me\s+(?:another|different|new)\s+(?:set\s+of\s+)?(?:post\s+)?ideas?$/.test(
+      normalized,
+    )
+  );
 }
 
 function inferMissingSpecificQuestion(message: string): string | null {
@@ -903,6 +925,15 @@ export async function manageConversationTurn(
     classifiedIntent: classification.intent,
     activeDraft,
   }) as V2ChatIntent;
+
+  if (
+    !explicitIntent &&
+    !activeDraft &&
+    memory.conversationState === "ready_to_ideate" &&
+    looksLikeIdeationRetryCommand(userMessage)
+  ) {
+    mode = "ideate";
+  }
 
   const [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
     services.generateStyleProfile(userId, effectiveXHandle, 20),
@@ -1783,7 +1814,15 @@ User Profile Summary:
           }),
           feedbackMemoryNotice,
         ),
-        data: ideas ? { angles: ideas.angles } : undefined,
+        data: ideas
+          ? {
+              angles: ideas.angles,
+              quickReplies: buildIdeationQuickReplies({
+                styleCard,
+                seedTopic: nextIdeationTopicSummary || currentTopicSummary,
+              }),
+            }
+          : undefined,
         memory,
       };
     }

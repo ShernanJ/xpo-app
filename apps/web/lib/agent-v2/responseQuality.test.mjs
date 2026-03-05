@@ -5,6 +5,7 @@ import { buildDynamicDraftChoices } from "./orchestrator/clarificationDraftChips
 import { normalizeDraftRevisionInstruction } from "./orchestrator/draftRevision.ts";
 import { buildDraftReply } from "./orchestrator/draftReply.ts";
 import { buildIdeationReply } from "./orchestrator/ideationReply.ts";
+import { buildIdeationQuickReplies } from "./orchestrator/ideationQuickReplies.ts";
 import {
   looksLikeMechanicalEdit,
   looksLikeNegativeFeedback,
@@ -71,6 +72,36 @@ test("loose draft fallback keeps balanced safe choices when topic confidence is 
   assert.equal(result[2].explicitIntent, "ideate");
 });
 
+test("dynamic draft chips never surface meta summary topics like 'user is...'", () => {
+  const result = buildDynamicDraftChoices({
+    mode: "topic_known",
+    seedTopic: "User Is Building An App",
+    styleCard: {
+      ...baseStyleCard,
+      contextAnchors: [
+        "The user is building a product",
+        "Creator is launching something",
+      ],
+    },
+    topicAnchors: ["they are testing an idea"],
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.length, 3);
+  assert.equal(
+    result.every(
+      (chip) =>
+        !/user is|creator is|they are|they is|he is|she is/i.test(chip.label) &&
+        !/user is|creator is|they are|they is|he is|she is/i.test(chip.value),
+    ),
+    true,
+  );
+  assert.equal(
+    result.some((chip) => /usual lane|recent|angle/i.test(chip.label)),
+    true,
+  );
+});
+
 test("planner quick replies are explicit and topic-aware", () => {
   const quickReplies = buildPlannerQuickReplies({
     plan: {
@@ -118,6 +149,45 @@ test("planner quick replies adapt casing to lowercase voice style", () => {
       antiExamples: [],
     },
     context: "approval",
+  });
+
+  assert.equal(quickReplies[0].label, quickReplies[0].label.toLowerCase());
+  assert.equal(quickReplies[0].value, quickReplies[0].value.toLowerCase());
+});
+
+test("ideation quick replies expose more-like-this and change-it-up chips", () => {
+  const quickReplies = buildIdeationQuickReplies({
+    styleCard: null,
+    seedTopic: "linkedin to x posts",
+  });
+
+  assert.equal(quickReplies.length, 2);
+  assert.equal(/more/i.test(quickReplies[0].label), true);
+  assert.equal(
+    /same lane|more ideas/i.test(quickReplies[0].value.toLowerCase()),
+    true,
+  );
+  assert.equal(
+    /change|switch/i.test(quickReplies[1].label.toLowerCase()),
+    true,
+  );
+  assert.equal(quickReplies[0].explicitIntent, "ideate");
+  assert.equal(quickReplies[1].explicitIntent, "ideate");
+});
+
+test("ideation quick replies respect lowercase style preference", () => {
+  const quickReplies = buildIdeationQuickReplies({
+    styleCard: {
+      ...baseStyleCard,
+      customGuidelines: [],
+      formattingRules: ["all lowercase"],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+    },
+    seedTopic: "LinkedIn To X",
   });
 
   assert.equal(quickReplies[0].label, quickReplies[0].label.toLowerCase());
@@ -265,6 +335,79 @@ test("ideation follow-up offers switch-up option on more ideas requests", () => 
     /switch it up|change it up|different direction|change direction|stick with this theme/i.test(
       reply,
     ),
+    true,
+  );
+});
+
+test("ideation reply rewrites stilted intros into natural first-pass lead", () => {
+  const reply = buildIdeationReply({
+    intro:
+      "noticed you keep riffing on the LinkedIn-to-X tension and the ampm vibe.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "give me post ideas",
+    styleCard: null,
+  });
+
+  assert.equal(/noticed you|riffing|culture clash|play to your/i.test(reply), false);
+  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), true);
+  assert.equal(
+    /what do you think|want me to draft|which one should we turn into a draft/i.test(
+      reply,
+    ),
+    true,
+  );
+});
+
+test("ideation reply rewrites intros that drift from actual angle themes", () => {
+  const reply = buildIdeationReply({
+    intro:
+      "saw your ampm vs irl tweet - people love the contrast. let's spin that into content that shows off xpo's magic.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "give me post ideas",
+    angleTitles: [
+      "what's the biggest tone shift when a linkedin post becomes an x post?",
+      "what gets lost when you convert a linkedin post to x?",
+      "how do you keep tone consistent between linkedin and x?",
+    ],
+    styleCard: null,
+  });
+
+  assert.equal(
+    /saw your|people love|let's spin that into|xpo's magic/i.test(reply),
+    false,
+  );
+  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), true);
+});
+
+test("ideation reply keeps natural aligned intros", () => {
+  const reply = buildIdeationReply({
+    intro: "here are a few linkedin-to-x angles based on what you've been exploring.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "give me post ideas",
+    angleTitles: [
+      "what's the biggest tone shift when a linkedin post becomes an x post?",
+      "what gets lost when you convert a linkedin post to x?",
+    ],
+    styleCard: null,
+  });
+
+  assert.equal(
+    reply.toLowerCase().includes("here are a few linkedin-to-x angles"),
+    true,
+  );
+});
+
+test("ideation reply humanizes 'here are some angles' phrasing", () => {
+  const reply = buildIdeationReply({
+    intro: "here are some angles based on your recent posts.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "give me post ideas",
+    styleCard: null,
+  });
+
+  assert.equal(reply.toLowerCase().includes("here are some angles"), false);
+  assert.equal(
+    reply.toLowerCase().includes("here are some ideas i thought of"),
     true,
   );
 });

@@ -9,6 +9,7 @@ import {
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
+import { dedupeAngleTitlesForRetry } from "../orchestrator/angleNovelty";
 
 export const IdeaSchema = z.object({
   title: z.string().describe("A broad, conversational, open-ended question that prompts the user for a story. Keep it general and simple. e.g. 'Are there any recent projects you worked on that you can talk about?' or 'What is a common misconception about building AI tools?'"),
@@ -62,6 +63,13 @@ const GENERIC_IDEATION_REQUEST_PHRASES = new Set([
   "give me angles",
   "give me some angles",
   "give me more angles",
+  "try again",
+  "another round",
+  "one more round",
+  "give me another idea",
+  "give me another post idea",
+  "give me another set of ideas",
+  "give me a different set of ideas",
 ]);
 
 const GENERIC_DRAFT_REQUEST_PHRASES = new Set([
@@ -135,6 +143,14 @@ function looksLikeGenericRequestTopic(value: string): boolean {
   }
 
   if (/^(?:give|show|share|suggest)\s+me\s+another\s+(?:post\s+)?idea$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:try|run)\s+(?:that\s+)?again$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:give|show|share|suggest)\s+me\s+(?:another|different|new)\s+(?:set\s+of\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
     return true;
   }
 
@@ -400,6 +416,11 @@ ${focusTopicBlock}
 
 ${anchorContext}
 
+INTRO ALIGNMENT RULES:
+- The intro must only mention themes that are actually present in the angle titles you return.
+- Do not add extra products, events, personas, or claims in the intro unless at least one angle title also includes them.
+- Keep intro short and grounded. No hype claims like "people love this" unless supported by the provided context.
+
 NICHE ENFORCEMENT:
 - Ideas MUST be highly personalized to their niche, but keep the questions BROAD enough that anyone in that niche could answer them.
 - NEVER invent generic topics like "5 ways to be productive".
@@ -445,10 +466,17 @@ Respond ONLY with valid JSON matching the exact schema requirements.
       .filter(Boolean)
       .join(" ");
     const personalizedAngles = personalizeAngles(parsed.angles, focusTopic);
+    const groundedAngles = groundAngles(personalizedAngles, focusTopic, sourceContext);
+    const noveltyCheckedAngles = dedupeAngleTitlesForRetry({
+      angles: groundedAngles,
+      focusTopic,
+      recentHistory,
+      seed: userMessage,
+    });
 
     return {
       ...parsed,
-      angles: groundAngles(personalizedAngles, focusTopic, sourceContext),
+      angles: noveltyCheckedAngles,
     };
   } catch (err) {
     console.error("Ideator validation failed.", err);
