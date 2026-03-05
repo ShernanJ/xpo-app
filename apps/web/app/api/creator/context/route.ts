@@ -50,6 +50,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const allowMockFallback =
+    process.env.ONBOARDING_ALLOW_MOCK_FALLBACK?.trim() === "1" ||
+    process.env.NODE_ENV !== "production";
+  if (!allowMockFallback && storedRun.result.source === "mock") {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "ONBOARDING_SOURCE_INVALID",
+        errors: [
+          {
+            field: "auth",
+            message:
+              "This account was set up with fallback data. Re-run onboarding after configuring scrape credentials.",
+          },
+        ],
+      },
+      { status: 409 },
+    );
+  }
+
   const onboarding = applyCreatorStrategyOverrides({
     onboarding: storedRun.result,
     overrides: extractCreatorStrategyOverrides(body),

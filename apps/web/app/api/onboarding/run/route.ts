@@ -60,7 +60,44 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await runOnboarding(effectiveInput);
+  let result: Awaited<ReturnType<typeof runOnboarding>>;
+  try {
+    result = await runOnboarding(effectiveInput);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to run onboarding scrape.";
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "SCRAPE_UNAVAILABLE",
+        errors: [{ field: "account", message }],
+      },
+      { status: 502 },
+    );
+  }
+
+  const allowMockFallback =
+    process.env.ONBOARDING_ALLOW_MOCK_FALLBACK?.trim() === "1" ||
+    process.env.NODE_ENV !== "production";
+  if (!allowMockFallback && result.source === "mock") {
+    const warningDetail = result.warnings?.[0] ?? null;
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "SCRAPE_UNAVAILABLE",
+        errors: [
+          {
+            field: "account",
+            message:
+              warningDetail ??
+              "Onboarding scrape could not fetch real profile data. Check scraping env vars in Vercel and retry.",
+          },
+        ],
+      },
+      { status: 502 },
+    );
+  }
+
   const persisted = await persistOnboardingRun({
     input: effectiveInput,
     result,
