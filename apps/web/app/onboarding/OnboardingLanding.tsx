@@ -253,7 +253,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAccountFocused, setIsAccountFocused] = useState(false);
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [openFaqIndexes, setOpenFaqIndexes] = useState<number[]>([0]);
   const [landingProCadence, setLandingProCadence] = useState<"monthly" | "annual">("monthly");
   const proMonthlyOffer = pricingOffers.find((offer) => offer.offer === "pro_monthly");
   const proAnnualOffer = pricingOffers.find((offer) => offer.offer === "pro_annual");
@@ -389,6 +389,24 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         100% {
           transform: translateX(140%);
           opacity: 0;
+        }
+      }
+
+      @keyframes landingFinalCtaPulse {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+          box-shadow:
+            0 0 0 0 rgba(255, 255, 255, 0.12),
+            0 0 28px rgba(255, 255, 255, 0.42),
+            0 14px 36px rgba(255, 255, 255, 0.18);
+        }
+        50% {
+          transform: translateY(-1px) scale(1.015);
+          box-shadow:
+            0 0 0 8px rgba(255, 255, 255, 0.07),
+            0 0 46px rgba(255, 255, 255, 0.72),
+            0 18px 46px rgba(255, 255, 255, 0.28);
         }
       }
 
@@ -611,6 +629,17 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         cursor: not-allowed;
       }
 
+      .landing-final-cta-button {
+        animation: landingFinalCtaPulse 1.9s ease-in-out infinite;
+      }
+
+      .landing-final-cta-button:hover {
+        box-shadow:
+          0 0 0 10px rgba(255, 255, 255, 0.08),
+          0 0 54px rgba(255, 255, 255, 0.78),
+          0 20px 52px rgba(255, 255, 255, 0.32);
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .landing-hero-shell {
           animation: none !important;
@@ -655,6 +684,13 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
         .landing-root :where(a[href], button:not(:disabled), [role="button"]) {
           transition: none !important;
+        }
+
+        .landing-final-cta-button,
+        .landing-final-cta-button:hover {
+          animation: none !important;
+          transform: none !important;
+          box-shadow: none !important;
         }
       }
     `}</style>
@@ -1363,13 +1399,15 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                   • ≈ {landingProApproxChatTurns} chat turns or ≈ {landingProApproxDraftTurns} draft/review turns
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={scrollToScraper}
-                className="mt-auto inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
-              >
-                Get Started
-              </button>
+              <div className="mt-auto pt-8">
+                <button
+                  type="button"
+                  onClick={scrollToScraper}
+                  className="inline-flex w-full cursor-pointer items-center justify-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
+                >
+                  Get Started
+                </button>
+              </div>
             </motion.article>
 
             <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-5 pb-7 flex flex-col">
@@ -1388,13 +1426,15 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                 <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month included</p>
                 <p>• Priority founder lane</p>
               </div>
-              <button
-                type="button"
-                onClick={scrollToScraper}
-                className="mt-auto inline-flex w-full items-center justify-center rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
-              >
-                Get Started
-              </button>
+              <div className="mt-auto pt-8">
+                <button
+                  type="button"
+                  onClick={scrollToScraper}
+                  className="inline-flex w-full cursor-pointer items-center justify-center rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
+                >
+                  Get Started
+                </button>
+              </div>
             </motion.article>
           </div>
         </motion.section>
@@ -1412,7 +1452,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           </h2>
           <div className="mt-6 space-y-3">
             {FAQ_ITEMS.map((item, index) => {
-              const isOpen = openFaqIndex === index;
+              const isOpen = openFaqIndexes.includes(index);
               return (
                 <motion.article
                   key={item.question}
@@ -1422,7 +1462,11 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                   <button
                     type="button"
                     onClick={() => {
-                      setOpenFaqIndex((current) => (current === index ? null : index));
+                      setOpenFaqIndexes((current) =>
+                        current.includes(index)
+                          ? current.filter((item) => item !== index)
+                          : [...current, index],
+                      );
                     }}
                     className="flex w-full items-center justify-between gap-4 text-left"
                   >
@@ -1464,16 +1508,16 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         >
           <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-8 text-center">
             <h3 className="font-mono text-2xl font-semibold tracking-tight text-white">
-              Ready to run your first Xpo growth scan?
+              Ready to grow Xponentially on X?
             </h3>
             <p className="mt-3 text-sm text-zinc-400">
-              Drop your handle and get stage-aware next steps you can execute right away.
+              Start with your handle, get your stage mapped, and move straight into actionable drafts that fit your voice.
             </p>
             <div className="mt-6 flex justify-center">
               <button
                 type="button"
                 onClick={scrollToScraper}
-                className="inline-flex items-center justify-center rounded-xl border border-white/80 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-black shadow-[0_0_26px_rgba(255,255,255,0.34),0_12px_32px_rgba(255,255,255,0.14)] transition hover:bg-zinc-100 hover:shadow-[0_0_34px_rgba(255,255,255,0.48),0_16px_34px_rgba(255,255,255,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                className="landing-final-cta-button inline-flex cursor-pointer items-center justify-center rounded-xl border border-white/80 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-black shadow-[0_0_28px_rgba(255,255,255,0.4),0_14px_36px_rgba(255,255,255,0.18)] transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               >
                 Try for Free
               </button>
