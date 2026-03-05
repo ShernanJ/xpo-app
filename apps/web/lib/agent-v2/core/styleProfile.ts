@@ -101,33 +101,55 @@ export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
 export type FeedbackSubmissionStatus = z.infer<typeof FeedbackSubmissionStatusSchema>;
 export type FeedbackSubmission = z.infer<typeof FeedbackSubmissionSchema>;
 
-export async function generateStyleProfile(userId: string, xHandle: string, limit: number = 50): Promise<VoiceStyleCard | null> {
+export async function generateStyleProfile(
+  userId: string,
+  xHandle: string,
+  limit: number = 50,
+  options?: {
+    forceRegenerate?: boolean;
+  },
+): Promise<VoiceStyleCard | null> {
   try {
-    // 1. Check if profile already exists in DB to prevent wiping customGuidelines
+    const normalizedHandle = xHandle.trim().replace(/^@+/, "").toLowerCase();
+    const forceRegenerate = options?.forceRegenerate === true;
+
+    // 1. Read existing style card (if valid) so we can preserve durable memory.
     const existing = await prisma.voiceProfile.findFirst({
-      where: { userId, xHandle }
+      where: { userId, xHandle: normalizedHandle }
     });
 
+    let existingParsed: VoiceStyleCard | null = null;
     if (existing && existing.styleCard) {
       try {
-        const parsed = StyleCardSchema.parse(existing.styleCard);
-        return parsed;
+        existingParsed = StyleCardSchema.parse(existing.styleCard);
       } catch (e) {
         console.warn("Existing styleCard failed schema validation, regenerating...", e);
       }
     }
 
-    // 2. Otherwise generate from scratch
+    // 2. Read latest posts for this handle.
     const recentPosts = await prisma.post.findMany({
-      where: { userId, xHandle },
+      where: { userId, xHandle: normalizedHandle },
       orderBy: { createdAt: "desc" },
       take: limit,
-      select: { text: true },
+      select: { text: true, createdAt: true },
     });
 
+    // If no posts are available, keep existing profile when possible.
     if (recentPosts.length === 0) {
-      console.log(`No posts found to generate style profile for user ${userId}`);
+      if (existingParsed) {
+        return existingParsed;
+      }
+
+      console.log(`No posts found to generate style profile for user ${userId} (${normalizedHandle})`);
       return null;
+    }
+
+    // Fast path: existing profile is newer than latest ingested post, so no refresh needed.
+    const latestPostCreatedAt = recentPosts[0]?.createdAt?.getTime() ?? 0;
+    const styleUpdatedAt = existing?.updatedAt?.getTime() ?? 0;
+    if (!forceRegenerate && existingParsed && styleUpdatedAt >= latestPostCreatedAt) {
+      return existingParsed;
     }
 
     const postsText = recentPosts.map((p, i) => `[Post ${i + 1}]:\n${p.text}`).join("\n\n");
@@ -186,23 +208,43 @@ Respond ONLY with a valid JSON object matching this schema:
     if (!response.ok) {
       const errorText = await response.text();
       console.error("LLM API Error:", response.status, errorText);
-      return null;
+      return existingParsed;
     }
 
     const data = await response.json();
     const content = data.choices[0]?.message?.content;
 
     if (!content) {
-      return null;
+      return existingParsed;
     }
 
     const parsedJson = JSON.parse(content);
     const validatedCard = StyleCardSchema.parse(parsedJson);
+    const mergedCard: VoiceStyleCard = existingParsed
+      ? {
+          ...validatedCard,
+          customGuidelines: Array.from(
+            new Set([
+              ...(existingParsed.customGuidelines || []),
+              ...(validatedCard.customGuidelines || []),
+            ]),
+          ),
+          contextAnchors: Array.from(
+            new Set([
+              ...(existingParsed.contextAnchors || []),
+              ...(validatedCard.contextAnchors || []),
+            ]),
+          ),
+          antiExamples: (existingParsed.antiExamples || []).slice(-5),
+          userPreferences: existingParsed.userPreferences,
+          feedbackSubmissions: existingParsed.feedbackSubmissions,
+        }
+      : validatedCard;
 
     // Save or update the profile in the DB
-    await saveStyleProfile(userId, xHandle, validatedCard);
+    await saveStyleProfile(userId, normalizedHandle, mergedCard);
 
-    return validatedCard;
+    return mergedCard;
   } catch (error) {
     console.error("Failed to generate style profile:", error);
     return null;
@@ -211,8 +253,9 @@ Respond ONLY with a valid JSON object matching this schema:
 
 // Safer database upsert wrapper specifically for the schema structure
 export async function saveStyleProfile(userId: string, xHandle: string, styleCard: VoiceStyleCard) {
+  const normalizedHandle = xHandle.trim().replace(/^@+/, "").toLowerCase();
   const existing = await prisma.voiceProfile.findFirst({
-    where: { userId, xHandle }
+    where: { userId, xHandle: normalizedHandle }
   });
 
   if (existing) {
@@ -225,7 +268,7 @@ export async function saveStyleProfile(userId: string, xHandle: string, styleCar
   return prisma.voiceProfile.create({
     data: {
       userId,
-      xHandle,
+      xHandle: normalizedHandle,
       styleCard: styleCard as unknown as Prisma.InputJsonObject
     }
   });

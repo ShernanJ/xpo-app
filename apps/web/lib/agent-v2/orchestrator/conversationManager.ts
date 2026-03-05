@@ -132,7 +132,19 @@ export interface ConversationServices {
   saveStyleProfile: typeof saveStyleProfile;
   checkDeterministicNovelty: typeof checkDeterministicNovelty;
   getOnboardingRun: (runId?: string) => Promise<Record<string, unknown> | null>;
-  getHistoricalPosts: (userId: string) => Promise<string[]>;
+  getHistoricalPosts: (args: {
+    userId: string;
+    xHandle?: string | null;
+  }) => Promise<string[]>;
+}
+
+function normalizeHandleForContext(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/^@+/, "").toLowerCase();
+  return normalized || null;
 }
 
 export function createDefaultConversationServices(): ConversationServices {
@@ -162,9 +174,13 @@ export function createDefaultConversationServices(): ConversationServices {
       const record = await prisma.onboardingRun.findUnique({ where: { id: runId } });
       return (record as unknown as Record<string, unknown> | null) || null;
     },
-    async getHistoricalPosts(userId: string) {
+    async getHistoricalPosts(args: { userId: string; xHandle?: string | null }) {
+      const normalizedHandle = normalizeHandleForContext(args.xHandle);
       const posts = await prisma.post.findMany({
-        where: { userId },
+        where: {
+          userId: args.userId,
+          ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+        },
         orderBy: { createdAt: "desc" },
         take: 100,
         select: { text: true },
@@ -976,7 +992,14 @@ export async function manageConversationTurn(
     activeDraft,
     formatPreference,
   } = input;
-  const effectiveXHandle = xHandle || "default";
+  const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
+  const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
+  const runInputHandle =
+    typeof runInputRecord?.account === "string" ? runInputRecord.account : null;
+  const effectiveXHandle =
+    normalizeHandleForContext(xHandle) ??
+    normalizeHandleForContext(runInputHandle) ??
+    "default";
 
   let memoryRecord = await services.getConversationMemory({ runId, threadId });
   if (!memoryRecord) {
@@ -1139,7 +1162,7 @@ export async function manageConversationTurn(
     stakesKnown: turnDraftContextSlots.stakesKnown,
   });
 
-  const storedRun = await services.getOnboardingRun(runId);
+  const storedRun = preloadedRun;
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
   const onboardingProfile = onboardingResult?.profile as Record<string, unknown> | undefined;
   const isVerifiedAccount = onboardingProfile?.isVerified === true;
@@ -1281,7 +1304,10 @@ User Profile Summary:
 
     if (decision === "approve") {
       const approvedPlan = memory.pendingPlan;
-      const historicalTexts = await services.getHistoricalPosts(userId);
+      const historicalTexts = await services.getHistoricalPosts({
+        userId,
+        xHandle: effectiveXHandle,
+      });
 
       const writerOutput = await services.generateDrafts(
         approvedPlan,
@@ -2234,7 +2260,10 @@ User Profile Summary:
         };
       }
 
-      const historicalTexts = await services.getHistoricalPosts(userId);
+      const historicalTexts = await services.getHistoricalPosts({
+        userId,
+        xHandle: effectiveXHandle,
+      });
 
       const plan = await services.generatePlan(
         draftInstruction,

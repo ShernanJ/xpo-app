@@ -8,6 +8,7 @@ import { parseOnboardingInput } from "@/lib/onboarding/validation";
 import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
+import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 
 export async function POST(request: Request) {
   const session = await getServerSession();
@@ -104,10 +105,19 @@ export async function POST(request: Request) {
     userAgent: request.headers.get("user-agent"),
     userId,
   });
+  const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
 
   // 2b. Sync posts to Prisma so retrieval and style profiling can use them
   await syncOnboardingPostsToDb(userId, effectiveInput.account, result).catch((err) =>
     console.error("Failed to sync posts to DB:", err),
+  );
+  await generateStyleProfile(
+    userId,
+    normalizedHandle,
+    80,
+    { forceRegenerate: true },
+  ).catch((error) =>
+    console.error("Failed to refresh style profile after onboarding sync:", error),
   );
   const backfill = await maybeEnqueueOnboardingBackfillJob({
     runId: persisted.runId,
@@ -117,10 +127,8 @@ export async function POST(request: Request) {
 
   await prisma.user.update({
     where: { id: userId },
-    data: { activeXHandle: effectiveInput.account },
+    data: { activeXHandle: normalizedHandle },
   });
-
-  const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
 
   await prisma.voiceProfile.createMany({
     data: [{

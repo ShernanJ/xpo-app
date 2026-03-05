@@ -9,6 +9,7 @@ import {
 } from "@/lib/onboarding/store";
 import { probeLatestScrapePosts } from "@/lib/onboarding/sources/scrapeBootstrap";
 import type { OnboardingInput } from "@/lib/onboarding/types";
+import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 
 type RefreshTrigger = "manual" | "daily_login";
 
@@ -231,6 +232,14 @@ export async function POST(request: NextRequest) {
 
     await syncOnboardingPostsToDb(session.user.id, normalizedHandle, result).catch((error) =>
       console.error("Failed to sync refreshed posts to DB:", error),
+    );
+    await generateStyleProfile(
+      session.user.id,
+      normalizedHandle,
+      80,
+      { forceRegenerate: true },
+    ).catch((error) =>
+      console.error("Failed to refresh style profile after profile scrape:", error),
     );
 
     const nextCooldownUntil = toCooldownIso(persisted.persistedAt, manualCooldownMs);

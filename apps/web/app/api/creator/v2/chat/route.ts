@@ -628,7 +628,11 @@ export async function POST(request: NextRequest) {
       }
     | null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
-  const activeHandle = storedThread?.xHandle || session.user.activeXHandle || null;
+  const activeHandleRaw = storedThread?.xHandle || session.user.activeXHandle || null;
+  const activeHandle =
+    typeof activeHandleRaw === "string" && activeHandleRaw.trim()
+      ? activeHandleRaw.trim().replace(/^@+/, "").toLowerCase()
+      : null;
   const persistedVoiceProfile = activeHandle
     ? await prisma.voiceProfile.findFirst({
         where: {
