@@ -16,7 +16,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Trash2, Type } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Sparkles, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -2776,6 +2776,9 @@ function ChatPageContent() {
     "pro_monthly" | "pro_annual" | "lifetime" | null
   >(null);
   const [isOpeningBillingPortal, setIsOpeningBillingPortal] = useState(false);
+  const [selectedModalProCadence, setSelectedModalProCadence] = useState<"monthly" | "annual">(
+    "monthly",
+  );
 
   const loadBillingState = useCallback(
     async (options?: { openModalIfFirstVisit?: boolean }) => {
@@ -2847,6 +2850,17 @@ function ChatPageContent() {
       setDismissedBillingWarningLevel(null);
     }
   }, [billingState?.billing?.criticalCreditWarning, billingState?.billing?.lowCreditWarning]);
+
+  useEffect(() => {
+    const snapshot = billingState?.billing;
+    if (!snapshot) {
+      return;
+    }
+
+    if (snapshot.plan === "pro") {
+      setSelectedModalProCadence(snapshot.billingCycle === "annual" ? "annual" : "monthly");
+    }
+  }, [billingState?.billing?.billingCycle, billingState?.billing?.plan]);
 
   const syncThreadTitle = useCallback((threadId: string, title: string) => {
     const cleanTitle = title.trim();
@@ -3875,7 +3889,9 @@ function ChatPageContent() {
   );
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountMenuVisible, setAccountMenuVisible] = useState(false);
   const [rateLimitsMenuOpen, setRateLimitsMenuOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -3893,6 +3909,21 @@ function ChatPageContent() {
     if (!accountMenuOpen) {
       setRateLimitsMenuOpen(false);
     }
+  }, [accountMenuOpen]);
+
+  useEffect(() => {
+    if (accountMenuOpen) {
+      setAccountMenuVisible(true);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setAccountMenuVisible(false);
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
   }, [accountMenuOpen]);
 
   const applyPersistedPreferences = useCallback((preferences: UserPreferences) => {
@@ -6155,7 +6186,6 @@ function ChatPageContent() {
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
   const modalMonthlyCents = proMonthlyOffer?.amountCents ?? DEFAULT_MODAL_PRO_MONTHLY_CENTS;
   const modalAnnualCents = proAnnualOffer?.amountCents ?? DEFAULT_MODAL_PRO_ANNUAL_CENTS;
-  const modalAnnualSavingsCents = Math.max(0, modalMonthlyCents * 12 - modalAnnualCents);
   const isProActive =
     activeBillingSnapshot?.plan === "pro" && activeBillingSnapshot?.status === "active";
   const isProMonthlyCurrent = isProActive && activeBillingSnapshot?.billingCycle === "monthly";
@@ -6177,6 +6207,23 @@ function ChatPageContent() {
       : isProMonthlyCurrent
         ? "Switch to Annual"
         : "Go Pro Annual";
+  const selectedModalProIsAnnual = selectedModalProCadence === "annual";
+  const selectedModalProCents = selectedModalProIsAnnual ? modalAnnualCents : modalMonthlyCents;
+  const selectedModalProPriceSuffix = selectedModalProIsAnnual ? " / year" : " / month";
+  const selectedModalProButtonLabel = selectedModalProIsAnnual
+    ? proAnnualButtonLabel
+    : proMonthlyButtonLabel;
+  const selectedModalProOffer = selectedModalProIsAnnual ? "pro_annual" : "pro_monthly";
+  const selectedModalProIsCurrent = selectedModalProIsAnnual
+    ? isProAnnualCurrent
+    : isProMonthlyCurrent;
+  const selectedModalProNeedsPortalSwitch = selectedModalProIsAnnual
+    ? isProMonthlyCurrent
+    : isProAnnualCurrent;
+  const selectedModalProOfferEnabled = selectedModalProIsAnnual
+    ? proAnnualOffer?.enabled !== false
+    : proMonthlyOffer?.enabled !== false;
+  const isSelectedModalProCheckoutLoading = checkoutLoadingOffer === selectedModalProOffer;
   const billingCreditsLabel = activeBillingSnapshot
     ? `${Math.max(0, activeBillingSnapshot.creditsRemaining)}/${Math.max(
       0,
@@ -6218,6 +6265,15 @@ function ChatPageContent() {
   const rateLimitUpgradeLabel =
     activeBillingSnapshot?.plan === "pro" ? "Get Founder Pass" : "Upgrade to Pro";
   const showRateLimitUpgradeCta = activeBillingSnapshot?.plan !== "lifetime";
+  const settingsPlanLabel = rateLimitWindowLabel;
+  const settingsCreditsRemaining = activeBillingSnapshot
+    ? Math.max(0, activeBillingSnapshot.creditsRemaining)
+    : 0;
+  const settingsCreditLimit = activeBillingSnapshot
+    ? Math.max(0, activeBillingSnapshot.creditLimit)
+    : 0;
+  const settingsCreditsUsed = Math.max(0, settingsCreditLimit - settingsCreditsRemaining);
+  const settingsCreditsRemainingPercent = rateLimitsRemainingPercent;
   const billingWarningLevel = activeBillingSnapshot?.criticalCreditWarning
     ? "critical"
     : activeBillingSnapshot?.lowCreditWarning
@@ -6231,8 +6287,14 @@ function ChatPageContent() {
     activeBillingSnapshot.plan !== "free" ||
     availableHandles.length < 1;
   const renderAccountMenuPanel = (className: string) =>
-    accountMenuOpen ? (
-      <div className={className}>
+    accountMenuVisible ? (
+      <div
+        className={`${className} origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          accountMenuOpen
+            ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
+            : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
+        }`}
+      >
         <div className="max-h-[200px] overflow-y-auto px-1 py-1">
           <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             X Accounts
@@ -6273,16 +6335,16 @@ function ChatPageContent() {
         <div className="px-1 py-1">
           <button
             type="button"
-            disabled={isOpeningBillingPortal}
             onClick={() => {
               setAccountMenuOpen(false);
-              void openBillingPortal();
+              setSettingsModalOpen(true);
             }}
-            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
           >
-            <span>{isOpeningBillingPortal ? "Opening portal…" : "Manage Billing"}</span>
-            <ArrowUpRight className="h-4 w-4" />
+            <span>Settings</span>
+            <ChevronRight className="h-4 w-4" />
           </button>
+
           <button
             type="button"
             onClick={() => setRateLimitsMenuOpen((current) => !current)}
@@ -6319,13 +6381,6 @@ function ChatPageContent() {
               ) : null}
             </div>
           ) : null}
-          <button
-            onClick={() => signOut({ callbackUrl: "/" })}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sign out</span>
-          </button>
         </div>
       </div>
     ) : null;
@@ -6570,7 +6625,9 @@ function ChatPageContent() {
                   setMenuOpenThreadId(null);
                   setAccountMenuOpen((current) => !current);
                 }}
-                className="flex w-full items-center justify-between rounded-xl p-2 transition hover:bg-white/[0.04]"
+                className={`flex w-full items-center justify-between rounded-xl p-2 transition ${
+                  accountMenuOpen ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
+                }`}
                 aria-label="Open account menu"
               >
                 <div className="flex items-center gap-3 overflow-hidden">
@@ -6608,11 +6665,15 @@ function ChatPageContent() {
                     ) : null}
                   </div>
                 </div>
-                <ChevronUp className="h-4 w-4 shrink-0 text-zinc-500" />
+                <ChevronUp
+                  className={`h-4 w-4 shrink-0 text-zinc-500 transition-all duration-300 ${
+                    accountMenuOpen ? "rotate-0 text-zinc-300" : "rotate-180"
+                  }`}
+                />
               </button>
 
               {renderAccountMenuPanel(
-                "absolute bottom-[calc(100%+8px)] left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl",
+                "absolute bottom-full left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl",
               )}
             </div>
           ) : null}
@@ -6642,7 +6703,9 @@ function ChatPageContent() {
                   setMenuOpenThreadId(null);
                   setAccountMenuOpen((current) => !current);
                 }}
-                className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition hover:opacity-85"
+                className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${
+                  accountMenuOpen ? "scale-[1.04] ring-2 ring-white/30" : "scale-100 ring-0"
+                }`}
                 aria-label="Open account menu"
               >
                 {context?.avatarUrl ? (
@@ -6657,7 +6720,7 @@ function ChatPageContent() {
                 )}
               </button>
               {renderAccountMenuPanel(
-                "absolute bottom-[calc(100%+10px)] left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950 p-1 shadow-2xl",
+                "absolute bottom-full left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl",
               )}
             </div>
           </>
@@ -7605,6 +7668,154 @@ function ChatPageContent() {
       }
 
       {
+        settingsModalOpen ? (
+          <div
+            className="absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setSettingsModalOpen(false);
+              }
+            }}
+          >
+            <div className="relative my-auto w-full max-w-4xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl sm:p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Settings
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white sm:text-[2rem]">
+                    Account & Billing
+                  </h2>
+                  <p className="mt-2 max-w-xl text-sm text-zinc-400">
+                    Review your current plan, usage, and billing actions.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsModalOpen(false)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Current plan
+                    </p>
+                    <span className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
+                      {activeBillingSnapshot?.status === "past_due"
+                        ? "Past due"
+                        : activeBillingSnapshot?.status === "blocked_fair_use"
+                          ? "Fair use review"
+                          : activeBillingSnapshot?.status === "canceled"
+                            ? "Canceled"
+                            : "Active"}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-2xl font-semibold text-white">{settingsPlanLabel}</p>
+                  <p className="mt-2 text-sm text-zinc-500">Cycle resets {rateLimitResetLabel}</p>
+
+                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      disabled={isOpeningBillingPortal}
+                      onClick={() => {
+                        void openBillingPortal();
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isOpeningBillingPortal ? "Opening…" : "Manage Billing"}
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                    {showRateLimitUpgradeCta ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsModalOpen(false);
+                          setPricingModalOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
+                      >
+                        {rateLimitUpgradeLabel}
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <div className="rounded-full border border-white/10 px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        Founder plan active
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Usage
+                  </p>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                        Remaining
+                      </p>
+                      <p className="mt-1 text-xl font-semibold text-white">
+                        {settingsCreditsRemaining.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Used</p>
+                      <p className="mt-1 text-xl font-semibold text-white">
+                        {settingsCreditsUsed.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Limit</p>
+                      <p className="mt-1 text-xl font-semibold text-white">
+                        {settingsCreditLimit.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="h-2 rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-white/75 transition-all"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, settingsCreditsRemainingPercent ?? 0))}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      {settingsCreditsRemainingPercent !== null
+                        ? `${settingsCreditsRemainingPercent}% remaining`
+                        : "Usage loading"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+                <p className="text-xs text-zinc-500">
+                  Need billing help? {billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                  className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-200 transition hover:bg-rose-300/10 hover:text-rose-100"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
+                </button>
+              </div>
+
+            </div>
+          </div>
+        ) : null
+      }
+
+      {
         pricingModalOpen ? (
           <div
             className="absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/85 px-4 py-4 sm:items-center sm:py-8"
@@ -7671,23 +7882,54 @@ function ChatPageContent() {
 
                 <article className="group relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/35 hover:shadow-[0_14px_36px_rgba(255,255,255,0.1)]">
                   <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
-                  <p className="inline-flex rounded-full border border-white/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-200">
-                    {isProActive ? "Current Plan" : "Most popular"}
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
+                      {isProActive ? "Current plan" : "Most popular"}
+                    </p>
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
+                        <span
+                          className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${
+                            selectedModalProIsAnnual ? "translate-x-full" : "translate-x-0"
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedModalProCadence("monthly")}
+                          className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
+                            selectedModalProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
+                          }`}
+                        >
+                          Monthly
+                        </button>
+                        <div className="relative z-10 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedModalProCadence("annual")}
+                            className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
+                              selectedModalProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
+                            }`}
+                          >
+                            Annual
+                          </button>
+                        </div>
+                        <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
+                          2 months free
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">
                     Pro
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">
-                    {formatUsdPrice(modalMonthlyCents)}
-                    <span className="text-sm font-medium text-zinc-400"> / month</span>
+                    {formatUsdPrice(selectedModalProCents)}
+                    <span className="text-sm font-medium text-zinc-400">
+                      {selectedModalProPriceSuffix}
+                    </span>
                   </p>
                   <p className="mt-2 text-sm text-zinc-300">
                     Best for consistent creators. Save more with annual billing.
-                  </p>
-                  <p className="mt-2 text-xs text-emerald-300">
-                    Annual {formatUsdPrice(modalAnnualCents)}/year - save {formatUsdPrice(
-                      modalAnnualSavingsCents,
-                    )}/year (about 2 months off)
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
                     <p>• 1,000 credits/month</p>
@@ -7695,67 +7937,43 @@ function ChatPageContent() {
                     <p>• Up to 5 workspace handles</p>
                     <p>• ≈ 500 chat turns or ≈ 200 draft/review turns</p>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-4">
                     <button
                       type="button"
                       onClick={() => {
-                        if (isFounderCurrent || isProMonthlyCurrent) {
+                        if (isFounderCurrent || selectedModalProIsCurrent) {
                           return;
                         }
-                        if (isProAnnualCurrent) {
+                        if (selectedModalProNeedsPortalSwitch) {
                           void openBillingPortal();
                           return;
                         }
-                        void openCheckoutForOffer("pro_monthly");
+                        void openCheckoutForOffer(selectedModalProOffer);
                       }}
                       disabled={
                         checkoutLoadingOffer !== null ||
                         isOpeningBillingPortal ||
-                        proMonthlyOffer?.enabled === false ||
+                        !selectedModalProOfferEnabled ||
                         isFounderCurrent ||
-                        isProMonthlyCurrent
+                        selectedModalProIsCurrent
                       }
                       className="inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-black transition hover:scale-[1.02] hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
                     >
-                      {checkoutLoadingOffer === "pro_monthly"
+                      {isSelectedModalProCheckoutLoading
                         ? "Opening…"
-                        : isOpeningBillingPortal && isProAnnualCurrent
+                        : isOpeningBillingPortal && selectedModalProNeedsPortalSwitch
                           ? "Opening…"
-                          : proMonthlyButtonLabel}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isFounderCurrent || isProAnnualCurrent) {
-                          return;
-                        }
-                        if (isProMonthlyCurrent) {
-                          void openBillingPortal();
-                          return;
-                        }
-                        void openCheckoutForOffer("pro_annual");
-                      }}
-                      disabled={
-                        checkoutLoadingOffer !== null ||
-                        isOpeningBillingPortal ||
-                        proAnnualOffer?.enabled === false ||
-                        isFounderCurrent ||
-                        isProAnnualCurrent
-                      }
-                      className="inline-flex items-center rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:scale-[1.02] hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {checkoutLoadingOffer === "pro_annual"
-                        ? "Opening…"
-                        : isOpeningBillingPortal && isProMonthlyCurrent
-                          ? "Opening…"
-                          : proAnnualButtonLabel}
+                          : selectedModalProButtonLabel}
                     </button>
                   </div>
                 </article>
 
-                <article className="group relative overflow-hidden rounded-2xl border border-amber-200/25 bg-amber-200/5 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-amber-200/55 hover:bg-amber-200/10 hover:shadow-[0_14px_40px_rgba(251,191,36,0.18)]">
-                  <div className="pointer-events-none absolute -left-10 top-4 h-28 w-28 rounded-full bg-amber-200/20 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
+                <article className="group relative overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-amber-200/70 hover:bg-amber-200/[0.12] hover:shadow-[0_16px_44px_rgba(251,191,36,0.24)]">
+                  <div className="pointer-events-none absolute -left-10 top-4 h-28 w-28 rounded-full bg-amber-200/24 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
+                  <div className="pointer-events-none absolute -right-14 -top-10 h-28 w-28 rounded-full bg-amber-200/20 blur-3xl animate-pulse" />
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_22%,rgba(251,191,36,0.2)_50%,transparent_78%)] opacity-35 transition-opacity duration-500 group-hover:opacity-65" />
+                  <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-100" />
                     Founder Pass
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">
@@ -7788,7 +8006,7 @@ function ChatPageContent() {
                       lifetimeOffer?.enabled === false ||
                       (lifetimeSlotSummary ? lifetimeSlotSummary.remaining <= 0 : false)
                     }
-                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-100 transition hover:scale-[1.02] hover:bg-amber-100/10 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/50 bg-amber-100/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-100 shadow-[0_0_16px_rgba(251,191,36,0.18)] transition hover:scale-[1.02] hover:bg-amber-100/18 hover:shadow-[0_0_24px_rgba(251,191,36,0.32)] disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
                   >
                     {checkoutLoadingOffer === "lifetime"
                       ? "Opening…"
