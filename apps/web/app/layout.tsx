@@ -52,8 +52,8 @@ export const metadata: Metadata = {
     url: "/",
     images: [
       {
-        url: "/xpo-logo-square.png",
-        alt: "Xpo logo",
+        url: "/og-image.png",
+        alt: "Xpo Open Graph image",
       },
     ],
   },
@@ -61,7 +61,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: `${APP_NAME} | ${APP_TAGLINE}`,
     description: APP_DESCRIPTION,
-    images: ["/xpo-logo-square.png"],
+    images: ["/og-image.png"],
   },
 };
 

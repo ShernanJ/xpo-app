@@ -29,6 +29,14 @@ function isInvalidCredentialError(code: string): boolean {
   return code === "invalid_credentials";
 }
 
+function isEmailDeliveryError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("error sending confirmation email") ||
+    normalized.includes("error sending magic link email")
+  );
+}
+
 async function responseWithVerificationCode(email: string): Promise<NextResponse> {
   const codeRequest = await requestSupabaseEmailCode(email, { createUser: true });
   if (!codeRequest.ok) {
@@ -43,6 +51,29 @@ async function responseWithVerificationCode(email: string): Promise<NextResponse
       code: "verification_code_required",
     },
     { status: 409 },
+  );
+}
+
+async function responseWithEmailDeliveryError(email: string): Promise<NextResponse> {
+  const codeRequest = await requestSupabaseEmailCode(email, { createUser: true });
+  if (codeRequest.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "We sent a verification code to your email. Enter it below to continue.",
+        code: "verification_code_required",
+      },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Email delivery is not configured in Supabase. Configure Auth > Settings > SMTP, or disable Confirm Email for local testing.",
+    },
+    { status: 502 },
   );
 }
 
@@ -78,6 +109,8 @@ export async function POST(request: Request) {
       authResult = signUpResult;
     } else if (signUpResult.error.code === "email_confirmation_required") {
       return responseWithVerificationCode(email);
+    } else if (isEmailDeliveryError(signUpResult.error.message)) {
+      return responseWithEmailDeliveryError(email);
     } else if (signUpResult.error.code !== "user_exists") {
       return NextResponse.json({ ok: false, error: signUpResult.error.message }, { status: 500 });
     }

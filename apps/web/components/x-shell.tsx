@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 const scanlineStyle = {
   backgroundImage:
@@ -27,28 +28,36 @@ export function XShell({ children, footerContent, backgroundOverlay }: XShellPro
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" />
           <div className="relative flex-1">{children}</div>
           <footer className="relative border-t border-white/10 px-6 py-4">
-            <p className="absolute bottom-4 left-6 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500 sm:text-[11px]">
-              built by{" "}
-              <a
-                href="https://www.x.com/shernanjavier"
-                target="_blank"
-                rel="noreferrer"
-                className="text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline"
-              >
-                shernan javier
-              </a>
-            </p>
-            {footerContent ?? (
-              <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3 text-[10px] font-medium uppercase tracking-[0.28em] text-zinc-500 sm:text-[11px]">
-                <span>Dev</span>
-                <span className="h-3 w-px bg-white/10" />
-                <span>Growth Scan</span>
-                <span className="h-3 w-px bg-white/10" />
-                <span>Live</span>
-                <span className="h-3 w-px bg-white/10" />
-                <span>Agent Ready</span>
-              </div>
-            )}
+            <div className="flex flex-col items-center gap-3 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-0">
+              <p className="text-center text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500 sm:text-left sm:text-[11px]">
+                built by{" "}
+                <a
+                  href="https://www.x.com/shernanjavier"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+                >
+                  shernan javier
+                </a>
+              </p>
+              {footerContent ?? (
+                <nav className="flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-3 text-xs text-zinc-500">
+                  <Link href="/pricing" className="px-1.5 py-1 transition hover:text-zinc-200">
+                    Pricing
+                  </Link>
+                  <Link href="/refund-policy" className="px-1.5 py-1 transition hover:text-zinc-200">
+                    Refund Policy
+                  </Link>
+                  <Link href="/terms" className="px-1.5 py-1 transition hover:text-zinc-200">
+                    Terms
+                  </Link>
+                  <Link href="/privacy" className="px-1.5 py-1 transition hover:text-zinc-200">
+                    Privacy
+                  </Link>
+                </nav>
+              )}
+              <div className="hidden sm:block" aria-hidden />
+            </div>
           </footer>
         </div>
       </div>

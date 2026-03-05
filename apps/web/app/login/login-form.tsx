@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { signIn } from "@/lib/auth/client";
 
 function LoginFormContent() {
@@ -43,8 +43,7 @@ function LoginFormContent() {
     router.refresh();
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleCredentialSubmit = async () => {
     setLoadingState("signin");
     setError(null);
     setNotice(null);
@@ -73,8 +72,7 @@ function LoginFormContent() {
     await completeLogin();
   };
 
-  const handleVerifyCode = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleVerifyCode = async () => {
     const normalizedEmail = (pendingVerificationEmail ?? email).trim().toLowerCase();
     if (!normalizedEmail || !verificationCode.trim()) {
       setError("Email and verification code are required.");
@@ -138,9 +136,23 @@ function LoginFormContent() {
     setLoadingState("idle");
   };
 
+  const isVerificationStep = Boolean(pendingVerificationEmail);
+  const isBusy = loadingState !== "idle";
+
   return (
     <>
-      <form onSubmit={handleSubmit} className="mt-8 flex w-full max-w-md flex-col gap-4">
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (isVerificationStep) {
+            await handleVerifyCode();
+            return;
+          }
+
+          await handleCredentialSubmit();
+        }}
+        className="mt-8 flex w-full max-w-md flex-col gap-4"
+      >
         {error ? (
           <div className="rounded-xl border border-rose-400/35 bg-rose-500/10 px-4 py-3 text-left">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-rose-200">
@@ -159,135 +171,130 @@ function LoginFormContent() {
           </div>
         ) : null}
 
-        {xHandle ? (
-          <div className="rounded-xl border border-emerald-300/30 bg-emerald-300/[0.06] px-4 py-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/90">
-              Workspace Context
-            </p>
-            <p className="mt-1 text-sm font-medium text-zinc-200">
-              Sign in to secure your workspace for{" "}
-              <strong className="text-white">@{xHandle}</strong>.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="space-y-2 text-left">
-          <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Email
-          </label>
-          <div className={`login-input-shell ${emailInputState}`}>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              onFocus={() => setFocusedField("email")}
-              onBlur={() => setFocusedField((current) => (current === "email" ? null : current))}
-              required
-              placeholder="maker@xpo.dev"
-              autoComplete="email"
-              className="login-input-field"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2 text-left">
-          <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Password
-          </label>
-          <div className={`login-input-shell ${passwordInputState}`}>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onFocus={() => setFocusedField("password")}
-              onBlur={() => setFocusedField((current) => (current === "password" ? null : current))}
-              required
-              placeholder="••••••••"
-              autoComplete="current-password"
-              className="login-input-field"
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loadingState !== "idle"}
-          className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
-        >
-          {loadingState === "signin" ? "Signing in..." : xHandle ? `Continue as @${xHandle}` : "Login"}
-        </button>
-
-        <p className="mt-2 text-center text-xs leading-6 text-zinc-500">
-          New account? Enter your email + password and confirm with the email code.
-        </p>
-      </form>
-
-      {pendingVerificationEmail ? (
-        <form onSubmit={handleVerifyCode} className="mt-4 flex w-full max-w-md flex-col gap-4">
-          <div className="rounded-xl border border-white/12 bg-white/[0.02] px-4 py-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
-              Verify Email
-            </p>
-            <p className="mt-1 text-sm text-zinc-200">
-              Enter the code sent to <strong className="text-white">{pendingVerificationEmail}</strong>.
-            </p>
-          </div>
-
-          <div className="space-y-2 text-left">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Verification Code
-            </label>
-            <div className={`login-input-shell ${codeInputState}`}>
-              <input
-                type="text"
-                value={verificationCode}
-                onChange={(event) =>
-                  setVerificationCode(event.target.value.replace(/\s+/g, "").toUpperCase())
-                }
-                onFocus={() => setFocusedField("code")}
-                onBlur={() => setFocusedField((current) => (current === "code" ? null : current))}
-                required
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="123456"
-                className="login-input-field"
-              />
+        {isVerificationStep ? (
+          <>
+            <div className="rounded-xl border border-white/12 bg-white/[0.02] px-4 py-3 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                Verify Email
+              </p>
+              <p className="mt-1 text-sm text-zinc-200">
+                Enter the code sent to{" "}
+                <strong className="text-white">{pendingVerificationEmail}</strong>.
+              </p>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={loadingState !== "idle"}
-            className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
-          >
-            {loadingState === "verify" ? "Verifying..." : "Verify code"}
-          </button>
+            <div className="space-y-2 text-left">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Verification Code
+              </label>
+              <div className={`login-input-shell ${codeInputState}`}>
+                <input
+                  type="text"
+                  value={verificationCode}
+                  onChange={(event) =>
+                    setVerificationCode(event.target.value.replace(/\s+/g, "").toUpperCase())
+                  }
+                  onFocus={() => setFocusedField("code")}
+                  onBlur={() => setFocusedField((current) => (current === "code" ? null : current))}
+                  required
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  className="login-input-field"
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3">
             <button
-              type="button"
-              onClick={handleResendCode}
-              disabled={loadingState !== "idle"}
-              className="inline-flex items-center justify-center rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+              type="submit"
+              disabled={isBusy}
+              className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
-              {loadingState === "resend" ? "Sending..." : "Resend code"}
+              {loadingState === "verify" ? "Verifying..." : "Verify code"}
             </button>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={isBusy}
+                className="inline-flex items-center justify-center rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+              >
+                {loadingState === "resend" ? "Sending..." : "Resend code"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingVerificationEmail(null);
+                  setVerificationCode("");
+                  setNotice(null);
+                  setError(null);
+                }}
+                disabled={isBusy}
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:border-white/35 hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+              >
+                Change email
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-2 text-left">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Email
+              </label>
+              <div className={`login-input-shell ${emailInputState}`}>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  onFocus={() => setFocusedField("email")}
+                  onBlur={() => setFocusedField((current) => (current === "email" ? null : current))}
+                  required
+                  placeholder="hello@xpo.lol"
+                  autoComplete="email"
+                  className="login-input-field"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 text-left">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Password
+              </label>
+              <div className={`login-input-shell ${passwordInputState}`}>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  onFocus={() => setFocusedField("password")}
+                  onBlur={() => setFocusedField((current) => (current === "password" ? null : current))}
+                  required
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className="login-input-field"
+                />
+              </div>
+            </div>
+
             <button
-              type="button"
-              onClick={() => {
-                setPendingVerificationEmail(null);
-                setVerificationCode("");
-                setNotice(null);
-                setError(null);
-              }}
-              disabled={loadingState !== "idle"}
-              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:border-white/35 hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+              type="submit"
+              disabled={isBusy}
+              className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
-              Change email
+              {loadingState === "signin"
+                ? "Signing in..."
+                : xHandle
+                  ? `Continue as @${xHandle}`
+                  : "Login"}
             </button>
-          </div>
-        </form>
-      ) : null}
+
+            <p className="mt-2 text-center text-xs leading-6 text-zinc-500">
+              New account? Enter your email + password and confirm with the email code.
+            </p>
+          </>
+        )}
+      </form>
 
       <style jsx global>{`
         @keyframes loginInputShimmer {

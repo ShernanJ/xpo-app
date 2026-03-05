@@ -54,7 +54,7 @@ export default function LoginPage() {
                   Welcome
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-zinc-400 sm:text-base">
-                  Sign in to continue your stage-aware X growth workflow.
+                  Sign in and lets grow Xponentially
                 </p>
 
                 <LoginForm />
