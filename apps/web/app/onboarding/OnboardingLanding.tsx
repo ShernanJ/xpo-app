@@ -3,13 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth/client";
 import { ArrowLeft, PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
 import type { BillingStatePayload } from "@/lib/billing/types";
-import type { XPublicProfile } from "@/lib/onboarding/types";
+import type { XPublicPost, XPublicProfile } from "@/lib/onboarding/types";
 
 interface ValidationError {
   field: string;
@@ -28,7 +28,22 @@ interface OnboardingPreviewFailure {
   errors: ValidationError[];
 }
 
+interface OnboardingScrapeLatestSuccess {
+  ok: true;
+  capture: {
+    recentPosts: XPublicPost[];
+  };
+}
+
+interface OnboardingScrapeLatestFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
+type OnboardingScrapeLatestResponse =
+  | OnboardingScrapeLatestSuccess
+  | OnboardingScrapeLatestFailure;
 type LandingPricingOffer = BillingStatePayload["offers"][number];
 type PlaybookStageLabel = (typeof STAGE_PLAYBOOKS)[number]["stage"];
 
@@ -292,25 +307,34 @@ function parsePublicUsdToCents(rawValue: string | undefined, fallbackCents: numb
   return Math.round(parsed * 100);
 }
 
+const BILLING_DISPLAY_CURRENCY = (() => {
+  const raw = process.env.NEXT_PUBLIC_BILLING_DISPLAY_CURRENCY?.trim().toUpperCase();
+  return raw === "USD" ? "USD" : "CAD";
+})();
+
 function formatUsdPrice(amountCents: number): string {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat(BILLING_DISPLAY_CURRENCY === "CAD" ? "en-CA" : "en-US", {
     style: "currency",
-    currency: "USD",
+    currency: BILLING_DISPLAY_CURRENCY,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amountCents / 100);
 }
 
 const LANDING_PRO_MONTHLY_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
   1999,
 );
 const LANDING_PRO_ANNUAL_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
   19999,
 );
 const LANDING_LIFETIME_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_CAD ??
     process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
@@ -503,86 +527,252 @@ function extractTopicHint(bio: string): string | null {
   return candidate.slice(0, 64);
 }
 
+type VoiceCasing = "lowercase" | "normal";
+
+function getDeterministicSeed(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function pickSeededOption(
+  options: readonly string[],
+  seed: number,
+  offset: number,
+): string {
+  if (options.length === 0) {
+    return "";
+  }
+
+  return options[(seed + offset) % options.length] ?? options[0];
+}
+
+function applyVoiceCasing(value: string, casing: VoiceCasing): string {
+  if (casing === "lowercase") {
+    return value.toLowerCase();
+  }
+
+  return value;
+}
+
+function inferVoiceCasing(
+  profile: XPublicProfile,
+  recentPosts: XPublicPost[],
+): VoiceCasing {
+  const samples = recentPosts
+    .map((post) => post.text)
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (samples.length === 0 && profile.bio) {
+    samples.push(profile.bio);
+  }
+
+  let alphaCount = 0;
+  let lowercaseCount = 0;
+
+  for (const sample of samples) {
+    for (const character of sample) {
+      if (!/[a-z]/i.test(character)) {
+        continue;
+      }
+      alphaCount += 1;
+      if (character === character.toLowerCase()) {
+        lowercaseCount += 1;
+      }
+    }
+  }
+
+  if (alphaCount < 40) {
+    return "normal";
+  }
+
+  return lowercaseCount / alphaCount >= 0.82 ? "lowercase" : "normal";
+}
+
+function normalizePostSample(text: string): string {
+  return text
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractLeadSample(recentPosts: XPublicPost[]): string | null {
+  for (const post of recentPosts.slice(0, 8)) {
+    const normalized = normalizePostSample(post.text);
+    if (!normalized) {
+      continue;
+    }
+
+    const candidate =
+      normalized
+        .split("\n")[0]
+        ?.split(/[.!?]/)[0]
+        ?.trim() ?? "";
+    if (candidate.length < 18 || candidate.length > 90) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return null;
+}
+
+function detectCommentCtaKeyword(
+  recentPosts: XPublicPost[],
+  bio: string,
+): string | null {
+  const invalidKeywords = new Set([
+    "below",
+    "this",
+    "that",
+    "here",
+    "there",
+    "link",
+    "it",
+    "me",
+    "yes",
+    "done",
+  ]);
+  const keywordPattern =
+    /\b(?:comment|reply)\s+["'“”]?([A-Za-z0-9]{2,20})["'“”]?(?:\s|$)/i;
+
+  for (const post of recentPosts.slice(0, 12)) {
+    const text = post.text ?? "";
+    const match = text.match(keywordPattern);
+    if (!match?.[1]) {
+      continue;
+    }
+
+    const keyword = match[1].replace(/[^A-Za-z0-9]/g, "");
+    if (!keyword) {
+      continue;
+    }
+
+    if (invalidKeywords.has(keyword.toLowerCase())) {
+      return "XPO";
+    }
+
+    return keyword.toUpperCase();
+  }
+
+  const hasGenericCommentCta =
+    recentPosts.some((post) => /\b(?:comment|reply)\b/i.test(post.text ?? "")) ||
+    /\bcomment\b/i.test(bio);
+  return hasGenericCommentCta ? "XPO" : null;
+}
+
 function buildVoicePreviewDraft(
   profile: XPublicProfile,
   stage: PlaybookStageLabel,
   focus: string,
-  variantSeed = 0,
+  recentPosts: XPublicPost[] = [],
 ): GuestAnalysisPreview["voicePreview"] {
   const topicHint = extractTopicHint(profile.bio);
-  const pickVariant = (options: readonly string[], seed: number): string =>
-    options[Math.abs(seed) % options.length] ?? options[0] ?? "";
+  const casing = inferVoiceCasing(profile, recentPosts);
+  const leadSample = extractLeadSample(recentPosts);
+  const commentCtaKeyword = detectCommentCtaKeyword(recentPosts, profile.bio);
+  const seed = getDeterministicSeed(
+    `${profile.username}:${stage}:${focus}:${recentPosts.map((post) => post.id).join(",")}`,
+  );
+
   const topicOptions = topicHint
     ? ([
-        `my lane is ${topicHint.toLowerCase()}, so i'm doubling down there.`,
-        `staying focused on ${topicHint.toLowerCase()} instead of random swings.`,
-        `i'm anchoring on ${topicHint.toLowerCase()} and cutting noise.`,
+        `I am doubling down on ${topicHint}.`,
+        `I am staying focused on ${topicHint} instead of random swings.`,
+        `I am anchoring on ${topicHint} and cutting noise.`,
       ] as const)
     : ([
-        "i'm done posting random takes with no system.",
-        "no more guessing what to post next.",
-        "i finally have a repeatable loop instead of vibes.",
+        "I am done posting random takes with no system.",
+        "No more guessing what to post next.",
+        "I finally have a repeatable loop instead of vibes.",
       ] as const);
-  const shortOpenOptions = [
-    "i started using xpo before every week of content.",
-    "running my account through xpo changed how i plan every week.",
-    "xpo is now the first thing i open before i draft.",
-  ] as const;
+
+  const shortOpenOptions = leadSample
+    ? ([
+        `${leadSample} - now I run that same voice through Xpo before posting.`,
+        `Still writing how I usually write (${leadSample}), but now with Xpo as my prep layer.`,
+        `${leadSample}. Xpo helps me keep that tone and ship faster.`,
+      ] as const)
+    : ([
+        "Xpo is now part of my weekly writing workflow.",
+        "I run every content sprint through Xpo first.",
+        "Before posting, I map ideas through Xpo.",
+      ] as const);
+
   const shortMapOptions = [
-    `xpo mapped me to ${stage} and showed me the next move to execute.`,
-    `xpo tagged me at ${stage} and gave me a clearer priority.`,
-    `xpo put me in ${stage} and pointed me at the highest-leverage step.`,
+    `Xpo mapped me to ${stage} and showed me the next move to execute.`,
+    `Xpo tagged me at ${stage} and gave me a clearer priority.`,
+    `Xpo put me in ${stage} and pointed me at the highest-leverage step.`,
   ] as const;
   const shortCloseOptions = [
-    "already feels less random and way more repeatable.",
-    "my output feels cleaner and i waste less time.",
-    "less guesswork, better cadence, stronger signal.",
-  ] as const;
-  const longOpenOptions = [
-    "xpo is now my pre-post check before i publish.",
-    "i run xpo before every posting sprint.",
-    "i use xpo as my planning layer before i write.",
-  ] as const;
-  const longMapOptions = [
-    `it mapped @${profile.username} to ${stage} and flagged ${focus.toLowerCase()} as the lever to push right now.`,
-    `xpo mapped @${profile.username} to ${stage} and highlighted ${focus.toLowerCase()} as the main pressure point.`,
-    `xpo put @${profile.username} in ${stage} and surfaced ${focus.toLowerCase()} as the priority to compound.`,
-  ] as const;
-  const longBodyOptions = [
-    "i'm using xpo to tighten hooks, prioritize what to ship, and keep cadence consistent.",
-    "xpo helps me pick the next post, tighten framing, and stay on cadence.",
-    "i use xpo to pressure-test ideas before posting so momentum compounds.",
-  ] as const;
-  const longSignalOptions = [
-    "early signal is cleaner positioning and less guesswork every week.",
-    "i'm seeing clearer direction and fewer wasted posts already.",
-    "it feels more intentional, and the momentum is easier to sustain.",
-  ] as const;
-  const longCloseOptions = [
-    "i'll keep sharing results as this compounds.",
-    "sticking with this workflow for the next month.",
-    "going to keep shipping through xpo and track how it compounds.",
+    "Already feels less random and way more repeatable.",
+    "My output feels cleaner and I waste less time.",
+    "Less guesswork, better cadence, stronger signal.",
   ] as const;
 
+  const longOpenOptions = [
+    "Xpo is now my pre-post check before I publish.",
+    "I run Xpo before every posting sprint.",
+    "I use Xpo as my planning layer before I write.",
+  ] as const;
+
+  const longMapOptions = [
+    `It mapped @${profile.username} to ${stage} and flagged ${focus.toLowerCase()} as the lever to push right now.`,
+    `Xpo mapped @${profile.username} to ${stage} and highlighted ${focus.toLowerCase()} as the main pressure point.`,
+    `Xpo put @${profile.username} in ${stage} and surfaced ${focus.toLowerCase()} as the priority to compound.`,
+  ] as const;
+
+  const longBodyOptions = [
+    "I am using Xpo to tighten hooks, prioritize what to ship, and keep cadence consistent.",
+    "Xpo helps me pick the next post, tighten framing, and stay on cadence.",
+    "I use Xpo to pressure-test ideas before posting so momentum compounds.",
+  ] as const;
+
+  const longSignalOptions = [
+    "Early signal is cleaner positioning and less guesswork every week.",
+    "I am seeing clearer direction and fewer wasted posts already.",
+    "It feels more intentional, and the momentum is easier to sustain.",
+  ] as const;
+
+  const longCloseOptions = [
+    "I will keep sharing results as this compounds.",
+    "Sticking with this workflow for the next month.",
+    "Going to keep shipping through Xpo and track how it compounds.",
+  ] as const;
+  const commentCtaLine = commentCtaKeyword
+    ? `Comment "${commentCtaKeyword}" for the app link.`
+    : null;
+
+  const shortLines = [
+    pickSeededOption(shortOpenOptions, seed, 0),
+    pickSeededOption(shortMapOptions, seed, 1),
+    pickSeededOption(topicOptions, seed, 2),
+    pickSeededOption(shortCloseOptions, seed, 3),
+    stage !== "0 → 1k" ? commentCtaLine : null,
+  ].filter((line): line is string => Boolean(line));
+
   const shortform = clampPreviewCopy(
-    [
-      pickVariant(shortOpenOptions, variantSeed),
-      pickVariant(topicOptions, variantSeed + 1),
-      pickVariant(shortMapOptions, variantSeed + 2),
-      pickVariant(shortCloseOptions, variantSeed + 3),
-    ].join("\n\n"),
+    shortLines.map((line) => applyVoiceCasing(line, casing)).join("\n\n"),
     250,
   );
 
+  const longLines = [
+    pickSeededOption(longOpenOptions, seed, 0),
+    pickSeededOption(longMapOptions, seed, 1),
+    pickSeededOption(topicOptions, seed, 2),
+    pickSeededOption(longBodyOptions, seed, 3),
+    pickSeededOption(longSignalOptions, seed, 4),
+    pickSeededOption(longCloseOptions, seed, 5),
+    commentCtaLine,
+  ].filter((line): line is string => Boolean(line));
+
   const longform = clampPreviewCopy(
-    [
-      pickVariant(longOpenOptions, variantSeed),
-      pickVariant(longMapOptions, variantSeed + 1),
-      pickVariant(topicOptions, variantSeed + 2),
-      pickVariant(longBodyOptions, variantSeed + 3),
-      pickVariant(longSignalOptions, variantSeed + 4),
-      pickVariant(longCloseOptions, variantSeed + 5),
-    ].join("\n"),
+    longLines.map((line) => applyVoiceCasing(line, casing)).join("\n"),
     700,
   );
 
@@ -592,6 +782,7 @@ function buildVoicePreviewDraft(
 function buildGuestAnalysisPreview(
   profile: XPublicProfile,
   source: OnboardingPreviewSource = "none",
+  recentPosts: XPublicPost[] = [],
 ): GuestAnalysisPreview {
   const followers = Math.max(0, profile.followersCount);
   const stage = resolvePlaybookStage(followers);
@@ -611,6 +802,7 @@ function buildGuestAnalysisPreview(
       profile,
       stage,
       playbook?.focus ?? "growth + execution",
+      recentPosts,
     ),
   };
 }
@@ -1266,6 +1458,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         const analysisStartedAt = Date.now();
         let resolvedProfile = preview;
         let resolvedSource: OnboardingPreviewSource = "none";
+        let recentScrapePosts: XPublicPost[] = [];
 
         const previewResponse = await fetch(
           `/api/onboarding/preview?account=${encodeURIComponent(trimmedAccount)}`,
@@ -1280,6 +1473,24 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           resolvedSource = previewPayload.source ?? "none";
         }
 
+        try {
+          const scrapeLatestResponse = await fetch(
+            `/api/onboarding/scrape/latest?account=${encodeURIComponent(trimmedAccount)}`,
+            {
+              method: "GET",
+            },
+          );
+          if (scrapeLatestResponse.ok) {
+            const scrapeLatestPayload =
+              (await scrapeLatestResponse.json()) as OnboardingScrapeLatestResponse;
+            if (scrapeLatestPayload.ok) {
+              recentScrapePosts = scrapeLatestPayload.capture.recentPosts ?? [];
+            }
+          }
+        } catch {
+          // Voice preview falls back to profile-driven heuristics when scrape cache is unavailable.
+        }
+
         if (!resolvedProfile) {
           throw new Error("Preview account unavailable.");
         }
@@ -1291,7 +1502,9 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           });
         }
 
-        setGuestAnalysisPreview(buildGuestAnalysisPreview(resolvedProfile, resolvedSource));
+        setGuestAnalysisPreview(
+          buildGuestAnalysisPreview(resolvedProfile, resolvedSource, recentScrapePosts),
+        );
       } catch (error) {
         console.error(error);
         setErrorMessage("Failed to analyze account. Please try again.");

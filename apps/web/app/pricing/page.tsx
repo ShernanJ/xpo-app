@@ -48,9 +48,13 @@ interface BillingStateResponseFailure {
 type BillingStateResponse = BillingStateResponseSuccess | BillingStateResponseFailure;
 
 function formatUsdPrice(amountCents: number): string {
-  return new Intl.NumberFormat("en-US", {
+  const displayCurrency =
+    process.env.NEXT_PUBLIC_BILLING_DISPLAY_CURRENCY?.trim().toUpperCase() === "USD"
+      ? "USD"
+      : "CAD";
+  return new Intl.NumberFormat(displayCurrency === "CAD" ? "en-CA" : "en-US", {
     style: "currency",
-    currency: "USD",
+    currency: displayCurrency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amountCents / 100);
@@ -71,15 +75,19 @@ function parsePublicUsdToCents(rawValue: string | undefined, fallbackCents: numb
 }
 
 const DEFAULT_PRO_MONTHLY_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
   1999,
 );
 const DEFAULT_PRO_ANNUAL_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
   19999,
 );
 const DEFAULT_LIFETIME_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_CAD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+    process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_CAD ??
     process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
