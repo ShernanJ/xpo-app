@@ -11,7 +11,13 @@ import {
   ANGLE_NOVELTY_FIXTURES,
   IDEATION_COMMAND_FIXTURES,
   IDEATION_REPLY_FIXTURES,
+  NATURAL_REPAIR_FIXTURES,
 } from "./chatRegressionFixtures.ts";
+import {
+  inferIdeationRationaleReply,
+  inferPostReferenceReply,
+  looksLikeConfusionPing,
+} from "../orchestrator/correctionRepair.ts";
 
 for (const fixture of IDEATION_COMMAND_FIXTURES) {
   test(`regression: ideation command detection - "${fixture.input}"`, () => {
@@ -84,5 +90,33 @@ for (const fixture of ANGLE_NOVELTY_FIXTURES) {
     );
     assert.equal(/\?$/.test(nextAngles[0]?.title || ""), true);
     assert.equal(/\?$/.test(nextAngles[1]?.title || ""), true);
+  });
+}
+
+for (const fixture of NATURAL_REPAIR_FIXTURES) {
+  test(`regression: natural repair flow - ${fixture.kind}`, () => {
+    if (fixture.kind === "rationale") {
+      const reply = inferIdeationRationaleReply({
+        userMessage: fixture.userMessage,
+        topicSummary: fixture.topicSummary,
+        recentHistory: fixture.recentHistory,
+        lastIdeationAngles: [],
+      });
+      assert.equal(typeof reply, "string");
+      assert.equal(/i chose them|grounding it in the ideas right above/i.test(reply || ""), true);
+      return;
+    }
+
+    if (fixture.kind === "post_reference") {
+      const reply = inferPostReferenceReply({
+        userMessage: fixture.userMessage,
+        recentHistory: fixture.recentHistory,
+      });
+      assert.equal(typeof reply, "string");
+      assert.equal(/specific post/i.test(reply || ""), true);
+      return;
+    }
+
+    assert.equal(looksLikeConfusionPing(fixture.userMessage), true);
   });
 }

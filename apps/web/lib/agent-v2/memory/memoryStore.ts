@@ -18,6 +18,7 @@ export interface UpdateMemoryArgs {
   runId?: string;
   threadId?: string;
   topicSummary?: string | null;
+  lastIdeationAngles?: string[];
   activeConstraints?: string[];
   concreteAnswerCount?: number;
   lastDraftArtifactId?: string | null;
@@ -34,6 +35,7 @@ interface StoredMemoryEnvelope {
   conversationState: ConversationState;
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
+  lastIdeationAngles: string[];
   rollingSummary: string | null;
   assistantTurnCount: number;
   formatPreference: DraftFormatPreference | null;
@@ -191,6 +193,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
+      lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
       formatPreference: null,
@@ -203,6 +206,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
+      lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
       formatPreference: null,
@@ -215,6 +219,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
     conversationState: normalizeConversationState(record.conversationState),
     pendingPlan: normalizePlan(record.pendingPlan),
     clarificationState: normalizeClarificationState(record.clarificationState),
+    lastIdeationAngles: normalizeStringArray(record.lastIdeationAngles).slice(-6),
     rollingSummary: typeof record.rollingSummary === "string" ? record.rollingSummary : null,
     assistantTurnCount:
       typeof record.assistantTurnCount === "number" && Number.isFinite(record.assistantTurnCount)
@@ -233,6 +238,7 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     conversationState: value.conversationState,
     pendingPlan: value.pendingPlan,
     clarificationState: value.clarificationState,
+    lastIdeationAngles: value.lastIdeationAngles,
     rollingSummary: value.rollingSummary,
     assistantTurnCount: value.assistantTurnCount,
     formatPreference: value.formatPreference,
@@ -249,6 +255,7 @@ export function createConversationMemorySnapshot(
     conversationState: envelope.conversationState,
     activeConstraints: envelope.constraints,
     topicSummary: typeof memory?.topicSummary === "string" ? memory.topicSummary : null,
+    lastIdeationAngles: envelope.lastIdeationAngles,
     concreteAnswerCount:
       typeof memory?.concreteAnswerCount === "number" && Number.isFinite(memory.concreteAnswerCount)
         ? memory.concreteAnswerCount
@@ -289,6 +296,7 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
           conversationState: "collecting_context",
           pendingPlan: null,
           clarificationState: null,
+          lastIdeationAngles: [],
           rollingSummary: null,
           assistantTurnCount: 0,
           formatPreference: null,
@@ -325,6 +333,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
         args.clarificationState === undefined
           ? existingSnapshot.clarificationState
           : args.clarificationState,
+      lastIdeationAngles:
+        args.lastIdeationAngles === undefined
+          ? existingSnapshot.lastIdeationAngles
+          : args.lastIdeationAngles.slice(-6),
       rollingSummary:
         args.rollingSummary === undefined ? existingSnapshot.rollingSummary : args.rollingSummary,
       assistantTurnCount:

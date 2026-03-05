@@ -34,7 +34,12 @@ import {
   buildSemanticRepairDirective,
   buildSemanticRepairState,
   inferCorrectionRepairQuestion,
+  inferIdeationRationaleReply,
+  inferPostReferenceReply,
   inferSourceTransparencyReply,
+  looksLikeConfusionPing,
+  looksLikePostReferenceRequest,
+  looksLikeSourceTransparencyRequest,
   looksLikeSemanticCorrection,
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
@@ -345,6 +350,109 @@ function buildAmbiguousReferenceQuestion(reference: string): string {
   }
 
   return `quick check: when you say ${reference}, what exactly are you referring to in this post?`;
+}
+
+const IDEA_TOPIC_STOPWORDS = new Set([
+  "what",
+  "how",
+  "why",
+  "where",
+  "when",
+  "which",
+  "the",
+  "and",
+  "for",
+  "with",
+  "your",
+  "you",
+  "this",
+  "that",
+  "from",
+  "into",
+  "post",
+  "posts",
+  "tweet",
+  "tweets",
+  "thread",
+  "threads",
+  "idea",
+  "ideas",
+  "part",
+  "thing",
+  "most",
+  "biggest",
+  "shift",
+  "change",
+  "tone",
+]);
+
+function extractIdeaTitlesFromIdeas(ideas: unknown[] | undefined): string[] {
+  if (!Array.isArray(ideas) || ideas.length === 0) {
+    return [];
+  }
+
+  const titles: string[] = [];
+  for (const entry of ideas) {
+    if (typeof entry === "string") {
+      const normalized = entry.trim().replace(/\s+/g, " ");
+      if (normalized) {
+        titles.push(normalized);
+      }
+      continue;
+    }
+
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const maybeTitle = (entry as Record<string, unknown>).title;
+    if (typeof maybeTitle === "string" && maybeTitle.trim()) {
+      titles.push(maybeTitle.trim().replace(/\s+/g, " "));
+    }
+  }
+
+  return Array.from(new Set(titles)).slice(0, 6);
+}
+
+function inferTopicFromIdeaTitles(ideaTitles: string[]): string | null {
+  if (ideaTitles.length === 0) {
+    return null;
+  }
+
+  const joined = ideaTitles.join(" ").toLowerCase();
+  const conversionMatch = joined.match(
+    /\b(linkedin|substack|youtube|newsletter)\b[\s\w]{0,24}\b(?:to|into)\b[\s\w]{0,24}\b(x|twitter)\b/i,
+  );
+  if (conversionMatch?.[1] && conversionMatch?.[2]) {
+    return `${conversionMatch[1]} to ${conversionMatch[2]}`;
+  }
+
+  const counts = new Map<string, number>();
+  for (const title of ideaTitles) {
+    const tokens = title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(
+        (token) =>
+          token.length >= 4 && !IDEA_TOPIC_STOPWORDS.has(token),
+      );
+    for (const token of tokens) {
+      counts.set(token, (counts.get(token) || 0) + 1);
+    }
+  }
+
+  const topTokens = Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 2)
+    .map(([token]) => token);
+
+  if (topTokens.length === 0) {
+    return null;
+  }
+
+  return topTokens.join(" ");
 }
 
 function inferAbstractTopicSeed(
@@ -755,6 +863,7 @@ function applyMemoryPatch(
   return {
     ...current,
     ...patch,
+    lastIdeationAngles: patch.lastIdeationAngles ?? current.lastIdeationAngles,
     activeConstraints: patch.activeConstraints ?? current.activeConstraints,
     pendingPlan:
       patch.pendingPlan === undefined ? current.pendingPlan : patch.pendingPlan,
@@ -990,11 +1099,17 @@ export async function manageConversationTurn(
     services,
   );
   const antiPatterns = antiPatternResult.antiPatterns;
+  const suppressFeedbackMemoryNotice =
+    looksLikeSemanticCorrection(userMessage) ||
+    looksLikeSourceTransparencyRequest(userMessage) ||
+    looksLikePostReferenceRequest(userMessage) ||
+    looksLikeConfusionPing(userMessage);
   const feedbackMemoryNotice = buildFeedbackMemoryNotice({
     styleCard,
     rememberedStyleRuleCount,
     rememberedFactCount,
     rememberedAntiPattern: antiPatternResult.remembered,
+    suppress: suppressFeedbackMemoryNotice,
   });
 
   const relevantTopicAnchors = retrieveRelevantContext({
@@ -1047,6 +1162,7 @@ User Profile Summary:
   const writeMemory = async (
     patch: Partial<V2ConversationMemory> & {
       topicSummary?: string | null;
+      lastIdeationAngles?: string[];
       concreteAnswerCount?: number;
       currentDraftArtifactId?: string | null;
     },
@@ -1059,6 +1175,7 @@ User Profile Summary:
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
       formatPreference: patch.formatPreference,
+      lastIdeationAngles: patch.lastIdeationAngles,
       topicSummary: patch.topicSummary ?? memory.topicSummary,
       concreteAnswerCount:
         patch.concreteAnswerCount ?? memory.concreteAnswerCount,
@@ -1079,6 +1196,7 @@ User Profile Summary:
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
       formatPreference: patch.formatPreference,
+      lastIdeationAngles: patch.lastIdeationAngles,
     });
 
     memory = updated
@@ -1688,10 +1806,114 @@ User Profile Summary:
     }
   }
 
+  if (!explicitIntent && !activeDraft) {
+    const sourceTransparencyReply = inferSourceTransparencyReply({
+      userMessage,
+      activeDraft: null,
+      referenceText: memory.lastIdeationAngles.join(" "),
+      recentHistory,
+      contextAnchors: styleCard?.contextAnchors || [],
+    });
+
+    if (sourceTransparencyReply) {
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: prependFeedbackMemoryNotice(
+          sourceTransparencyReply,
+          feedbackMemoryNotice,
+        ),
+        memory,
+      };
+    }
+
+    const postReferenceReply = inferPostReferenceReply({
+      userMessage,
+      recentHistory,
+    });
+    if (postReferenceReply) {
+      await writeMemory({
+        conversationState: "needs_more_context",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: prependFeedbackMemoryNotice(
+          postReferenceReply,
+          feedbackMemoryNotice,
+        ),
+        memory,
+      };
+    }
+
+    const ideationRationaleReply =
+      memory.conversationState === "ready_to_ideate"
+        ? inferIdeationRationaleReply({
+            userMessage,
+            topicSummary: memory.topicSummary,
+            recentHistory,
+            lastIdeationAngles: memory.lastIdeationAngles,
+          })
+        : null;
+    if (ideationRationaleReply) {
+      await writeMemory({
+        conversationState: "ready_to_ideate",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: prependFeedbackMemoryNotice(
+          ideationRationaleReply,
+          feedbackMemoryNotice,
+        ),
+        memory,
+      };
+    }
+
+    if (looksLikeConfusionPing(userMessage)) {
+      const confusionReply =
+        memory.conversationState === "ready_to_ideate"
+          ? "my bad - that was unclear. i should keep this grounded in what you've actually said. want a clean new set in the same lane, or a different direction?"
+          : "my bad - that was unclear. i can rephrase it plainly, or we can reset and keep going.";
+
+      await writeMemory({
+        conversationState:
+          memory.conversationState === "ready_to_ideate"
+            ? "ready_to_ideate"
+            : "needs_more_context",
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: prependFeedbackMemoryNotice(
+          confusionReply,
+          feedbackMemoryNotice,
+        ),
+        memory,
+      };
+    }
+  }
+
   if (!explicitIntent && activeDraft) {
     const sourceTransparencyReply = inferSourceTransparencyReply({
       userMessage,
       activeDraft,
+      referenceText: memory.lastIdeationAngles.join(" "),
       recentHistory,
       contextAnchors: styleCard?.contextAnchors || [],
     });
@@ -1774,17 +1996,22 @@ User Profile Summary:
           antiPatterns,
         },
       );
+      const currentIdeaTitles = extractIdeaTitlesFromIdeas(ideas?.angles);
+      const inferredIdeaTopic = inferTopicFromIdeaTitles(currentIdeaTitles);
 
       const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
         ? null
         : memory.topicSummary;
       const nextIdeationTopicSummary = isBareIdeationRequest(userMessage)
-        ? currentTopicSummary
+        ? currentTopicSummary || inferredIdeaTopic
         : userMessage;
 
       await writeMemory({
         ...(nextIdeationTopicSummary !== memory.topicSummary
           ? { topicSummary: nextIdeationTopicSummary }
+          : {}),
+        ...(currentIdeaTitles.length > 0
+          ? { lastIdeationAngles: currentIdeaTitles }
           : {}),
         conversationState: "ready_to_ideate",
         clarificationState: null,

@@ -109,6 +109,8 @@ const FOCUS_TOPIC_STOPWORDS = new Set([
   "post",
 ]);
 
+type IdeationDirection = "same_lane" | "switch_direction" | null;
+
 function cleanFocusTopic(value: string): string {
   return value
     .trim()
@@ -159,6 +161,87 @@ function looksLikeGenericRequestTopic(value: string): boolean {
   }
 
   return false;
+}
+
+function inferIdeationDirection(userMessage: string): IdeationDirection {
+  const normalized = userMessage.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    /\bmore like this\b/.test(normalized) ||
+    /\bsame lane\b/.test(normalized) ||
+    /\bmore ideas like this\b/.test(normalized) ||
+    /\bstay on this theme\b/.test(normalized) ||
+    /\bkeep this lane\b/.test(normalized)
+  ) {
+    return "same_lane";
+  }
+
+  if (
+    /\bchange it up\b/.test(normalized) ||
+    /\bswitch direction\b/.test(normalized) ||
+    /\bdifferent direction\b/.test(normalized) ||
+    /\bnew direction\b/.test(normalized)
+  ) {
+    return "switch_direction";
+  }
+
+  return null;
+}
+
+function extractRecentAngleTitles(recentHistory: string): string[] {
+  if (!recentHistory.trim()) {
+    return [];
+  }
+
+  const lines = recentHistory.split(/\r?\n/);
+  const titles: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() || "";
+    if (!line) {
+      continue;
+    }
+
+    const inlineMatch = line.match(/^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s+(.+\?)$/i);
+    if (inlineMatch?.[1]) {
+      titles.push(inlineMatch[1].trim().replace(/\s+/g, " "));
+      continue;
+    }
+
+    if (/^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s*$/i.test(line)) {
+      const nextLine = (lines[index + 1] || "").trim();
+      if (nextLine && /\?$/.test(nextLine)) {
+        titles.push(nextLine.replace(/\s+/g, " "));
+      }
+    }
+  }
+
+  return Array.from(new Set(titles)).slice(-8);
+}
+
+function inferFocusTopicFromRecentAngles(recentHistory: string): string | null {
+  const titles = extractRecentAngleTitles(recentHistory);
+  if (titles.length === 0) {
+    return null;
+  }
+
+  const joined = titles.join(" ").toLowerCase();
+  const conversionMatch = joined.match(
+    /\b(linkedin|substack|youtube|newsletter)\b[\s\w]{0,20}\b(?:to|into)\b[\s\w]{0,20}\b(x|twitter)\b/i,
+  );
+  if (conversionMatch?.[1] && conversionMatch?.[2]) {
+    return `${conversionMatch[1]} to ${conversionMatch[2]}`;
+  }
+
+  const ampmMatch = joined.match(/\bampm\b/i);
+  if (ampmMatch) {
+    return "ampm vs real life";
+  }
+
+  return null;
 }
 
 function inferFocusTopic(userMessage: string, topicSummary: string | null): string | null {
@@ -371,7 +454,13 @@ export async function generateIdeasMenu(
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
+  const ideationDirection = inferIdeationDirection(userMessage);
   const focusTopic = inferFocusTopic(userMessage, topicSummary);
+  const historicalFocusTopic =
+    ideationDirection === "same_lane"
+      ? inferFocusTopicFromRecentAngles(recentHistory)
+      : null;
+  const effectiveFocusTopic = focusTopic || historicalFocusTopic;
 
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
@@ -382,15 +471,28 @@ export async function generateIdeasMenu(
   const anchorContext = hasRealAnchors
     ? `User's recent post topics (use these as the seed):\n${topicAnchors.slice(0, 3).map((a) => `- ${a.slice(0, 120)}`).join("\n")}`
     : `No post history found yet. Use the topic they gave you: "${topicSummary || userMessage}"`;
-  const focusTopicBlock = focusTopic
+  const focusTopicBlock = effectiveFocusTopic
     ? `CURRENT FOCUS TOPIC:
-- ${focusTopic}
+- ${effectiveFocusTopic}
 - Every angle must stay recognizably inside this topic.
 - Do NOT reset back to generic prompts like "what project are you building?" when a topic is already present.
 - If a question could fit almost any niche, it is too generic.
 - At least 2 angle titles should clearly reference this topic or its core tension.`
     : `CURRENT FOCUS TOPIC:
 - No tight topic yet. You may stay broader, but still avoid generic filler questions.`;
+  const ideationDirectionBlock =
+    ideationDirection === "same_lane"
+      ? `IDEATION DIRECTION:
+- User asked for MORE LIKE THIS.
+- Keep the same core lane/topic as the previous idea set.
+- Generate fresh angles, but do not reset into unrelated categories.`
+      : ideationDirection === "switch_direction"
+        ? `IDEATION DIRECTION:
+- User asked to CHANGE IT UP.
+- Keep broad relevance to the creator's lane, but shift to a clearly different angle family.
+- Avoid reusing near-identical phrasing from the immediately previous angle set in history.`
+        : `IDEATION DIRECTION:
+- No explicit direction override.`;
 
   const instruction = `
 You are an elite X (Twitter) content strategist collaborating directly with a creator.
@@ -415,6 +517,8 @@ You MUST follow this exact structure for your output:
 ${focusTopicBlock}
 
 ${anchorContext}
+
+${ideationDirectionBlock}
 
 INTRO ALIGNMENT RULES:
 - The intro must only mention themes that are actually present in the angle titles you return.
@@ -465,13 +569,18 @@ Respond ONLY with valid JSON matching the exact schema requirements.
     ]
       .filter(Boolean)
       .join(" ");
-    const personalizedAngles = personalizeAngles(parsed.angles, focusTopic);
-    const groundedAngles = groundAngles(personalizedAngles, focusTopic, sourceContext);
+    const personalizedAngles = personalizeAngles(parsed.angles, effectiveFocusTopic);
+    const groundedAngles = groundAngles(personalizedAngles, effectiveFocusTopic, sourceContext);
     const noveltyCheckedAngles = dedupeAngleTitlesForRetry({
       angles: groundedAngles,
-      focusTopic,
+      focusTopic: effectiveFocusTopic,
       recentHistory,
-      seed: userMessage,
+      seed:
+        ideationDirection === "switch_direction"
+          ? `${userMessage}|switch_direction`
+          : ideationDirection === "same_lane"
+            ? `${userMessage}|same_lane`
+            : userMessage,
     });
 
     return {

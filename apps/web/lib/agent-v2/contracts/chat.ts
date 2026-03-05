@@ -69,6 +69,7 @@ export interface V2ConversationMemory {
   conversationState: ConversationState;
   activeConstraints: string[];
   topicSummary: string | null;
+  lastIdeationAngles: string[];
   concreteAnswerCount: number;
   currentDraftArtifactId: string | null;
   rollingSummary: string | null;

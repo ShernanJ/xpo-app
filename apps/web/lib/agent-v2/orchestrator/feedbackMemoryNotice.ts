@@ -56,7 +56,12 @@ export function buildFeedbackMemoryNotice(args: {
   rememberedStyleRuleCount: number;
   rememberedFactCount: number;
   rememberedAntiPattern: boolean;
+  suppress?: boolean;
 }): string | null {
+  if (args.suppress) {
+    return null;
+  }
+
   const { rememberedStyleRuleCount, rememberedFactCount, rememberedAntiPattern } = args;
   if (rememberedStyleRuleCount === 0 && rememberedFactCount === 0 && !rememberedAntiPattern) {
     return null;

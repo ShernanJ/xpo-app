@@ -5,6 +5,8 @@ import path from "path";
 import { promisify } from "util";
 
 import { importUserTweetsPayload } from "../importScrapePayload";
+import { parseUserTweetsGraphqlPayload } from "../scrapeUserTweetsParser";
+import type { XPublicPost } from "../types";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,6 +53,66 @@ export async function bootstrapScrapeCapture(account: string) {
     count,
     userAgent: "onboarding-bootstrap",
   });
+}
+
+export async function probeLatestScrapePosts(
+  account: string,
+  options?: {
+    count?: number;
+  },
+): Promise<{ posts: XPublicPost[] }> {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-probe-"));
+  const outputPath = path.join(tmpDir, `${account}-payload.json`);
+  const scriptPath = await resolveScrapeScriptPath();
+  const count = Math.max(5, Math.min(100, Math.floor(options?.count ?? 20)));
+
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        scriptPath,
+        "--account",
+        account,
+        "--count",
+        String(count),
+        "--pages",
+        "1",
+        "--output",
+        outputPath,
+      ],
+      {
+        cwd: process.cwd(),
+        maxBuffer: 1024 * 1024 * 8,
+      },
+    );
+
+    const payload = JSON.parse(await readFile(outputPath, "utf8"));
+    const parsed = parseUserTweetsGraphqlPayload({
+      payload,
+      account,
+      includeReplies: false,
+      includeQuotes: false,
+    });
+
+    return {
+      posts: parsed.posts,
+    };
+  } catch (error) {
+    const execError = error as {
+      stderr?: string;
+      stdout?: string;
+      message?: string;
+    };
+    const detail =
+      execError?.stderr?.trim() ||
+      execError?.stdout?.trim() ||
+      execError?.message ||
+      "unknown probe failure";
+
+    throw new Error(`Lightweight profile probe failed for @${account}: ${detail}`);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function bootstrapScrapeCaptureWithOptions(

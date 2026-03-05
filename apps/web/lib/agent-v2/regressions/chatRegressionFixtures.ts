@@ -77,3 +77,30 @@ export const ANGLE_NOVELTY_FIXTURES = [
     ],
   },
 ] as const;
+
+export const NATURAL_REPAIR_FIXTURES = [
+  {
+    kind: "rationale",
+    userMessage: "why did you choose these and how?",
+    topicSummary: "linkedin to x",
+    recentHistory: [
+      "assistant_angles:",
+      "1. how does the tone shift when you move a linkedin post to x?",
+      "2. what do people get wrong about this?",
+      "3. which part of your drafting workflow feels most lost when you copy-paste from linkedin?",
+    ].join("\n"),
+  },
+  {
+    kind: "post_reference",
+    userMessage: "which post are you referring to?",
+    recentHistory: [
+      "assistant: i was talking about the vibe post",
+      "user: how does that relate",
+    ].join("\n"),
+  },
+  {
+    kind: "confusion_ping",
+    userMessage: "what",
+    recentHistory: "",
+  },
+] as const;

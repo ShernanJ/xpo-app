@@ -13,7 +13,10 @@ import {
 import { buildPlannerQuickReplies } from "./orchestrator/plannerQuickReplies.ts";
 import {
   inferCorrectionRepairQuestion,
+  inferIdeationRationaleReply,
+  inferPostReferenceReply,
   inferSourceTransparencyReply,
+  looksLikeConfusionPing,
   looksLikeSemanticCorrection,
 } from "./orchestrator/correctionRepair.ts";
 import {
@@ -495,6 +498,60 @@ test("source transparency admits no source when detail is unsupported", () => {
   );
 });
 
+test("source transparency works without active draft when reference text is provided", () => {
+  const reply = inferSourceTransparencyReply({
+    userMessage: "where did that come from?",
+    activeDraft: null,
+    referenceText: "linkedin to x conversion tone shift",
+    recentHistory: [
+      "user: give me post ideas",
+      "assistant: here are some options",
+      "user: i keep turning linkedin posts into x posts",
+    ].join("\n"),
+    contextAnchors: [],
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(/prior message|earlier in this chat/i.test(reply || ""), true);
+});
+
+test("ideation rationale reply explains selection from recent angles", () => {
+  const reply = inferIdeationRationaleReply({
+    userMessage: "why did you choose these and how?",
+    topicSummary: "linkedin to x",
+    recentHistory: [
+      "assistant_angles:",
+      "1. how does the tone shift when you move a linkedin post to x?",
+      "2. what gets lost when you convert a linkedin post to x?",
+    ].join("\n"),
+    lastIdeationAngles: [],
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(
+    /i chose them|grounding it in the ideas right above/i.test(reply || ""),
+    true,
+  );
+});
+
+test("post reference reply avoids fake specific post claims", () => {
+  const reply = inferPostReferenceReply({
+    userMessage: "which post are you referring to?",
+    recentHistory: [
+      "assistant: i was talking about your vibe post",
+      "user: what does that mean",
+    ].join("\n"),
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(
+    /wasn't referring to a specific post|wasn't pointing to a specific post|not pointing to a specific post/i.test(
+      reply || "",
+    ),
+    true,
+  );
+});
+
 test("semantic correction detector flags meta corrections", () => {
   assert.equal(looksLikeSemanticCorrection("no that was a question"), true);
   assert.equal(
@@ -503,6 +560,13 @@ test("semantic correction detector flags meta corrections", () => {
     ),
     true,
   );
+});
+
+test("confusion ping detector catches short disbelief replies", () => {
+  assert.equal(looksLikeConfusionPing("what"), true);
+  assert.equal(looksLikeConfusionPing("what??"), true);
+  assert.equal(looksLikeConfusionPing("huh"), true);
+  assert.equal(looksLikeConfusionPing("what should i post"), false);
 });
 
 test("feedback memory notice is generated when new feedback is captured", () => {
@@ -524,6 +588,27 @@ test("feedback memory notice is generated when new feedback is captured", () => 
 
   assert.equal(typeof notice, "string");
   assert.equal(notice?.toLowerCase().includes("remember"), true);
+});
+
+test("feedback memory notice can be suppressed for dispute turns", () => {
+  const notice = buildFeedbackMemoryNotice({
+    styleCard: {
+      ...baseStyleCard,
+      formattingRules: [],
+      customGuidelines: [],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+    },
+    rememberedStyleRuleCount: 1,
+    rememberedFactCount: 1,
+    rememberedAntiPattern: false,
+    suppress: true,
+  });
+
+  assert.equal(notice, null);
 });
 
 test("feedback memory notice respects lowercase preference", () => {
