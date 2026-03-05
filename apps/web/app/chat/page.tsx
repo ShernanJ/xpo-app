@@ -3302,7 +3302,7 @@ function ChatPageContent() {
   const [preferenceBlacklistInput, setPreferenceBlacklistInput] = useState("");
   const [preferenceMaxCharacters, setPreferenceMaxCharacters] = useState(25000);
   const [, setBackfillNotice] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
@@ -3387,6 +3387,27 @@ function ChatPageContent() {
 
     return `${weightedCharacterCount}/${characterLimit} chars`;
   }, [activePlaybookTemplate?.text, isVerifiedAccount]);
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const desktopMediaQuery = window.matchMedia("(min-width: 768px)");
+    const syncSidebarToViewport = (isDesktopViewport: boolean) => {
+      setSidebarOpen(isDesktopViewport);
+    };
+
+    syncSidebarToViewport(desktopMediaQuery.matches);
+
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      syncSidebarToViewport(event.matches);
+    };
+
+    desktopMediaQuery.addEventListener("change", handleViewportChange);
+    return () => {
+      desktopMediaQuery.removeEventListener("change", handleViewportChange);
+    };
+  }, []);
   const activeFeedbackTitle = feedbackTitlesByCategory[feedbackCategory] ?? "";
   const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
   const activeFeedbackConfig = FEEDBACK_CATEGORY_CONFIG[feedbackCategory];
@@ -7070,9 +7091,9 @@ function ChatPageContent() {
         ) : null}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden transition-[width,transform] duration-300 md:sticky md:top-0 [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer ${sidebarOpen
-            ? "w-[18.5rem] border-r border-white/10 bg-white/[0.02]"
-            : "w-[18.5rem] -translate-x-full border-r border-white/10 bg-white/[0.02] md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"
+          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden bg-zinc-950 md:sticky md:top-0 md:bg-white/[0.02] [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer transition-[width,transform] duration-300 ${sidebarOpen
+            ? "w-[18.5rem] border-r border-white/10"
+            : "w-[18.5rem] -translate-x-full border-r border-white/10 md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"
             }`}
         >
           {sidebarOpen ? (
