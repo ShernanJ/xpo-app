@@ -102,50 +102,61 @@ export async function POST(request: Request) {
     );
   }
 
-  let authResult = await signInWithSupabasePassword(email, password);
+  try {
+    let authResult = await signInWithSupabasePassword(email, password);
 
-  if (!authResult.ok && authResult.error.code === "email_confirmation_required") {
-    return responseWithVerificationCode(email);
-  }
-
-  if (!authResult.ok && isInvalidCredentialError(authResult.error.code)) {
-    const signUpResult = await signUpWithSupabasePassword(email, password);
-
-    if (signUpResult.ok) {
-      authResult = signUpResult;
-    } else if (signUpResult.error.code === "email_confirmation_required") {
+    if (!authResult.ok && authResult.error.code === "email_confirmation_required") {
       return responseWithVerificationCode(email);
-    } else if (isEmailDeliveryError(signUpResult.error.message)) {
-      return responseWithEmailDeliveryError(email);
-    } else if (signUpResult.error.code !== "user_exists") {
-      return NextResponse.json({ ok: false, error: signUpResult.error.message }, { status: 500 });
     }
-  }
 
-  if (!authResult.ok) {
-    const status = authResult.error.code === "missing_configuration" ? 500 : 401;
-    return NextResponse.json({ ok: false, error: authResult.error.message }, { status });
-  }
+    if (!authResult.ok && isInvalidCredentialError(authResult.error.code)) {
+      const signUpResult = await signUpWithSupabasePassword(email, password);
 
-  const appUser = await ensureAppUserForAuthIdentity({
-    userId: authResult.data.userId,
-    email: authResult.data.email ?? email,
-  });
+      if (signUpResult.ok) {
+        authResult = signUpResult;
+      } else if (signUpResult.error.code === "email_confirmation_required") {
+        return responseWithVerificationCode(email);
+      } else if (isEmailDeliveryError(signUpResult.error.message)) {
+        return responseWithEmailDeliveryError(email);
+      } else if (signUpResult.error.code !== "user_exists") {
+        return NextResponse.json({ ok: false, error: signUpResult.error.message }, { status: 500 });
+      }
+    }
 
-  const sessionToken = await createSessionToken({
-    userId: appUser.id,
-    email: appUser.email,
-  });
+    if (!authResult.ok) {
+      const status = authResult.error.code === "missing_configuration" ? 500 : 401;
+      return NextResponse.json({ ok: false, error: authResult.error.message }, { status });
+    }
 
-  const response = NextResponse.json({
-    ok: true,
-    user: {
-      id: appUser.id,
+    const appUser = await ensureAppUserForAuthIdentity({
+      userId: authResult.data.userId,
+      email: authResult.data.email ?? email,
+    });
+
+    const sessionToken = await createSessionToken({
+      userId: appUser.id,
       email: appUser.email,
-      handle: appUser.handle,
-      activeXHandle: appUser.activeXHandle,
-    },
-  });
-  setSessionCookie(response, sessionToken);
-  return response;
+    });
+
+    const response = NextResponse.json({
+      ok: true,
+      user: {
+        id: appUser.id,
+        email: appUser.email,
+        handle: appUser.handle,
+        activeXHandle: appUser.activeXHandle,
+      },
+    });
+    setSessionCookie(response, sessionToken);
+    return response;
+  } catch (error) {
+    console.error("Unexpected auth login error:", error);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Login failed due to a server issue. Please try again.",
+      },
+      { status: 500 },
+    );
+  }
 }

@@ -51,16 +51,31 @@ export async function signIn(
     }),
   });
 
-  const payload = (await response.json().catch(() => null)) as
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+  const payload = (isJson ? await response.json().catch(() => null) : null) as
     | { ok?: boolean; error?: string; code?: string }
     | null;
+  const textFallback = !isJson ? await response.text().catch(() => "") : "";
+  const normalizedFallback =
+    typeof textFallback === "string" && textFallback.trim().length > 0 && !textFallback.includes("<!DOCTYPE")
+      ? textFallback.trim()
+      : "";
 
   if (!response.ok || !payload?.ok) {
+    const resolvedError =
+      payload?.error ??
+      (normalizedFallback.length > 0
+        ? normalizedFallback
+        : response.status >= 500
+          ? "Login is temporarily unavailable. Try again in a moment."
+          : "Sign-in failed.");
+
     return {
       ok: false,
       status: response.status,
       code: payload?.code,
-      error: payload?.error ?? "Sign-in failed.",
+      error: resolvedError,
       url: null,
     };
   }
