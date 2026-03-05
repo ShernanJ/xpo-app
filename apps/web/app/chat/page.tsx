@@ -72,11 +72,16 @@ type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFai
 interface OnboardingRunSuccess {
   ok: true;
   runId: string;
+  persistedAt?: string;
 }
 
 interface OnboardingRunFailure {
   ok: false;
+  code?: "PLAN_REQUIRED";
   errors: ValidationError[];
+  data?: {
+    billing?: BillingSnapshotPayload;
+  };
 }
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
@@ -115,6 +120,61 @@ type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
 
+interface BillingSnapshotPayload {
+  plan: "free" | "pro" | "lifetime";
+  status: "active" | "past_due" | "canceled" | "blocked_fair_use";
+  billingCycle: "monthly" | "annual" | "lifetime";
+  creditsRemaining: number;
+  creditLimit: number;
+  creditCycleResetsAt: string;
+  showFirstPricingModal: boolean;
+  lowCreditWarning: boolean;
+  criticalCreditWarning: boolean;
+  fairUse: {
+    softWarningThreshold: number;
+    reviewThreshold: number;
+    hardStopThreshold: number;
+    isSoftWarning: boolean;
+    isReviewLevel: boolean;
+    isHardStopped: boolean;
+  };
+}
+
+interface BillingStatePayload {
+  billing: BillingSnapshotPayload;
+  lifetimeSlots: {
+    total: number;
+    sold: number;
+    reserved: number;
+    remaining: number;
+  };
+  offers: Array<{
+    offer: "pro_monthly" | "pro_annual" | "lifetime";
+    label: string;
+    amountCents: number;
+    cadence: "month" | "year" | "one_time";
+    productCopy: string;
+    enabled: boolean;
+  }>;
+  supportEmail: string;
+}
+
+interface BillingStateSuccess {
+  ok: true;
+  data: BillingStatePayload;
+}
+
+interface BillingStateFailure {
+  ok: false;
+  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED" | "SOLD_OUT";
+  errors: ValidationError[];
+  data?: {
+    billing?: BillingSnapshotPayload;
+  };
+}
+
+type BillingStateResponse = BillingStateSuccess | BillingStateFailure;
+
 interface DraftInspectorSuccess {
   ok: true;
   data: {
@@ -122,12 +182,17 @@ interface DraftInspectorSuccess {
     prompt: string;
     userMessageId: string;
     assistantMessageId: string;
+    billing?: BillingStatePayload;
   };
 }
 
 interface DraftInspectorFailure {
   ok: false;
+  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED";
   errors: ValidationError[];
+  data?: {
+    billing?: BillingSnapshotPayload;
+  };
 }
 
 type DraftInspectorResponse = DraftInspectorSuccess | DraftInspectorFailure;
@@ -388,6 +453,7 @@ interface CreatorChatSuccess {
     newThreadId?: string;
     messageId?: string;
     threadTitle?: string;
+    billing?: BillingStatePayload;
     memory?: {
       conversationState: string;
       activeConstraints: string[];
@@ -419,7 +485,11 @@ interface CreatorChatSuccess {
 
 interface CreatorChatFailure {
   ok: false;
+  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED";
   errors: ValidationError[];
+  data?: {
+    billing?: BillingSnapshotPayload;
+  };
 }
 
 type CreatorChatResponse = CreatorChatSuccess | CreatorChatFailure;
@@ -561,6 +631,16 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
+
+function formatUsdPrice(amountCents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountCents / 100);
+}
+
 const HERO_QUICK_ACTIONS = [
   {
     label: "Give me post ideas",
@@ -2426,15 +2506,17 @@ export default function ChatPage() {
 }
 
 function ChatPageContent() {
-  const { data: session, update: refreshSession } = useSession();
+  const { data: session, status, update: refreshSession } = useSession();
   const searchParams = useSearchParams();
   const params = useParams();
   const threadIdRaw = params?.threadId as string | string[] | undefined;
 
   const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
+  const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
 
   const accountName = session?.user?.activeXHandle ?? null;
+  const requiresXAccountGate = status === "authenticated" && !accountName;
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
@@ -2557,6 +2639,21 @@ function ChatPageContent() {
     };
   }, [addAccountInput, isAddAccountModalOpen, readyAccountHandle]);
 
+  useEffect(() => {
+    if (!requiresXAccountGate) {
+      return;
+    }
+
+    setIsAddAccountModalOpen(true);
+    setAddAccountInput("");
+    setAddAccountPreview(null);
+    setAddAccountError(null);
+    setReadyAccountHandle(null);
+    setIsAddAccountPreviewLoading(false);
+    setErrorMessage(null);
+    setIsLoading(false);
+  }, [requiresXAccountGate]);
+
   const handleRenameSubmit = async (threadId: string) => {
     if (!editingTitle.trim()) {
       setEditingThreadId(null);
@@ -2635,6 +2732,13 @@ function ChatPageContent() {
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [billingState, setBillingState] = useState<BillingStatePayload | null>(null);
+  const [isBillingLoading, setIsBillingLoading] = useState(false);
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [checkoutLoadingOffer, setCheckoutLoadingOffer] = useState<
+    "pro_monthly" | "pro_annual" | "lifetime" | null
+  >(null);
+  const [isOpeningBillingPortal, setIsOpeningBillingPortal] = useState(false);
 
   useEffect(() => {
     if (!accountName) return;
@@ -2647,6 +2751,28 @@ function ChatPageContent() {
       })
       .catch(err => console.error("Failed to fetch threads:", err));
   }, [accountName]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      return;
+    }
+
+    void loadBillingState({
+      openModalIfFirstVisit: true,
+    });
+  }, [loadBillingState, session?.user?.id]);
+
+  useEffect(() => {
+    if (!billingQueryStatus || !session?.user?.id) {
+      return;
+    }
+
+    if (billingQueryStatus === "success") {
+      setPricingModalOpen(false);
+      setErrorMessage(null);
+      void loadBillingState();
+    }
+  }, [billingQueryStatus, loadBillingState, session?.user?.id]);
 
   const syncThreadTitle = useCallback((threadId: string, title: string) => {
     const cleanTitle = title.trim();
@@ -2665,6 +2791,135 @@ function ChatPageContent() {
           : thread,
       ),
     );
+  }, []);
+
+  const loadBillingState = useCallback(
+    async (options?: { openModalIfFirstVisit?: boolean }) => {
+      if (!session?.user?.id) {
+        return;
+      }
+
+      setIsBillingLoading(true);
+      try {
+        const response = await fetch("/api/billing/state", {
+          method: "GET",
+        });
+        const data = (await response.json()) as BillingStateResponse;
+
+        if (!response.ok || !data.ok) {
+          return;
+        }
+
+        setBillingState(data.data);
+        if (options?.openModalIfFirstVisit && data.data.billing.showFirstPricingModal) {
+          setPricingModalOpen(true);
+        }
+      } catch (error) {
+        console.error("Failed to load billing state", error);
+      } finally {
+        setIsBillingLoading(false);
+      }
+    },
+    [session?.user?.id],
+  );
+
+  const acknowledgePricingModal = useCallback(async () => {
+    try {
+      const response = await fetch("/api/billing/ack-pricing-modal", {
+        method: "POST",
+      });
+      const data = (await response.json()) as BillingStateResponse;
+      if (response.ok && data.ok) {
+        setBillingState(data.data);
+      }
+    } catch (error) {
+      console.error("Failed to acknowledge pricing modal", error);
+    }
+  }, []);
+
+  const openCheckoutForOffer = useCallback(
+    async (offer: "pro_monthly" | "pro_annual" | "lifetime") => {
+      setCheckoutLoadingOffer(offer);
+      try {
+        const response = await fetch("/api/billing/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            offer,
+            successPath: "/chat",
+            cancelPath: "/chat",
+          }),
+        });
+
+        const data = (await response.json()) as
+          | {
+              ok: true;
+              data: { checkoutUrl?: string | null };
+            }
+          | BillingStateFailure;
+
+        if (!response.ok || !data.ok) {
+          const failed = data as BillingStateFailure;
+          setErrorMessage(
+            failed.errors?.[0]?.message || "Failed to initialize checkout.",
+          );
+          if (failed.data?.billing && billingState) {
+            setBillingState({
+              ...billingState,
+              billing: failed.data.billing,
+            });
+          } else if (failed.data?.billing) {
+            void loadBillingState();
+          }
+          return;
+        }
+
+        if (data.data.checkoutUrl) {
+          window.location.href = data.data.checkoutUrl;
+          return;
+        }
+
+        setErrorMessage("Checkout did not return a valid URL.");
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Failed to initialize checkout.",
+        );
+      } finally {
+        setCheckoutLoadingOffer(null);
+      }
+    },
+    [billingState, loadBillingState],
+  );
+
+  const openBillingPortal = useCallback(async () => {
+    setIsOpeningBillingPortal(true);
+    try {
+      const response = await fetch("/api/billing/portal", {
+        method: "POST",
+      });
+      const data = (await response.json()) as
+        | { ok: true; data: { url?: string } }
+        | { ok: false; errors?: ValidationError[] };
+
+      if (!response.ok || !data.ok || !data.data?.url) {
+        const message =
+          !data.ok && data.errors?.[0]?.message
+            ? data.errors[0].message
+            : "Failed to open billing portal.";
+        setErrorMessage(message);
+        return;
+      }
+
+      window.open(data.data.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to open billing portal.",
+      );
+    } finally {
+      setIsOpeningBillingPortal(false);
+    }
   }, []);
 
   const handleNewChat = useCallback(() => {
@@ -3703,7 +3958,7 @@ function ChatPageContent() {
   }, [accountName, refreshSession]);
 
   const closeAddAccountModal = useCallback(() => {
-    if (isAddAccountSubmitting) {
+    if (isAddAccountSubmitting || requiresXAccountGate) {
       return;
     }
 
@@ -3713,7 +3968,7 @@ function ChatPageContent() {
     setAddAccountError(null);
     setReadyAccountHandle(null);
     setIsAddAccountPreviewLoading(false);
-  }, [isAddAccountSubmitting]);
+  }, [isAddAccountSubmitting, requiresXAccountGate]);
 
   const finalizeAddedAccount = useCallback(async () => {
     if (!readyAccountHandle) {
@@ -3783,6 +4038,19 @@ function ChatPageContent() {
       const data = (await response.json()) as OnboardingRunResponse;
 
       if (!response.ok || !data.ok) {
+        if (!data.ok && data.data?.billing) {
+          setBillingState((current) =>
+            current
+              ? {
+                  ...current,
+                  billing: data.data?.billing ?? current.billing,
+                }
+              : current,
+          );
+        }
+        if (response.status === 403) {
+          setPricingModalOpen(true);
+        }
         throw new Error(
           data.ok ? "Failed to add account." : (data.errors[0]?.message ?? "Failed to add account."),
         );
@@ -3821,6 +4089,11 @@ function ChatPageContent() {
       overrides: ChatStrategyInputs | null = activeStrategyInputs,
       toneOverrides: ChatToneInputs | null = activeToneInputs,
     ): Promise<WorkspaceLoadResult> => {
+      if (requiresXAccountGate) {
+        setErrorMessage(null);
+        setIsLoading(false);
+        return { ok: false };
+      }
 
       setIsLoading(true);
       setErrorMessage(null);
@@ -3886,7 +4159,7 @@ function ChatPageContent() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, activeToneInputs, accountName],
+    [activeStrategyInputs, activeToneInputs, accountName, requiresXAccountGate],
   );
 
   useEffect(() => {
@@ -5008,6 +5281,20 @@ function ChatPageContent() {
       const data = (await response.json()) as DraftInspectorResponse;
 
       if (!response.ok || !data.ok) {
+        const failure = data as DraftInspectorFailure;
+        if (failure.data?.billing) {
+          setBillingState((current) =>
+            current
+              ? {
+                  ...current,
+                  billing: failure.data?.billing ?? current.billing,
+                }
+              : current,
+          );
+        }
+        if (response.status === 402 || response.status === 403) {
+          setPricingModalOpen(true);
+        }
         setMessages((current) =>
           current.map((message) =>
             message.id === temporaryAssistantMessageId
@@ -5020,11 +5307,13 @@ function ChatPageContent() {
           ),
         );
         setErrorMessage(
-          data.ok
-            ? "The draft analysis failed."
-            : (data.errors[0]?.message ?? "The draft analysis failed."),
+          failure.errors[0]?.message ?? "The draft analysis failed.",
         );
         return;
+      }
+
+      if (data.data.billing) {
+        setBillingState(data.data.billing);
       }
 
       setMessages((current) =>
@@ -5199,12 +5488,28 @@ function ChatPageContent() {
           const data: CreatorChatResponse = await response.json();
 
           if (!response.ok || !data.ok) {
+            const failure = data as CreatorChatFailure;
+            if (failure.data?.billing) {
+              setBillingState((current) =>
+                current
+                  ? {
+                      ...current,
+                      billing: failure.data?.billing ?? current.billing,
+                    }
+                  : current,
+              );
+            }
+            if (response.status === 402 || response.status === 403) {
+              setPricingModalOpen(true);
+            }
             setErrorMessage(
-              data.ok
-                ? "The chat route failed to return a reply."
-                : (data.errors[0]?.message ?? "Failed to generate a reply."),
+              failure.errors?.[0]?.message ?? "Failed to generate a reply.",
             );
             return;
+          }
+
+          if (data.data.billing) {
+            setBillingState(data.data.billing);
           }
 
           setMessages((current) => [
@@ -5370,6 +5675,10 @@ function ChatPageContent() {
 
         if (!streamedResult) {
           throw new Error("The chat stream finished without a result.");
+        }
+
+        if (streamedResult.billing) {
+          setBillingState(streamedResult.billing);
         }
 
         setMessages((current) => [
@@ -5787,6 +6096,28 @@ function ChatPageContent() {
     "X";
   const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
   const shouldCenterHero = isNewChatHero || isLeavingHero;
+  const activeBillingSnapshot = billingState?.billing ?? null;
+  const billingPlanLabel =
+    activeBillingSnapshot?.plan === "lifetime"
+      ? "Lifetime"
+      : activeBillingSnapshot?.plan === "pro"
+        ? "Pro"
+        : "Free";
+  const billingOffers = billingState?.offers ?? [];
+  const lifetimeOffer = billingOffers.find((offer) => offer.offer === "lifetime");
+  const proMonthlyOffer = billingOffers.find((offer) => offer.offer === "pro_monthly");
+  const proAnnualOffer = billingOffers.find((offer) => offer.offer === "pro_annual");
+  const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
+  const billingCreditsLabel = activeBillingSnapshot
+    ? `${Math.max(0, activeBillingSnapshot.creditsRemaining)}/${Math.max(
+      0,
+      activeBillingSnapshot.creditLimit,
+    )} credits`
+    : "Credits loading";
+  const canAddAccount =
+    !activeBillingSnapshot ||
+    activeBillingSnapshot.plan !== "free" ||
+    availableHandles.length < 1;
   const renderAccountMenuPanel = (className: string) =>
     accountMenuOpen ? (
       <div className={className}>
@@ -5806,22 +6137,51 @@ function ChatPageContent() {
           ))}
           <button
             type="button"
+            disabled={!canAddAccount}
             onClick={() => {
+              if (!canAddAccount) {
+                setPricingModalOpen(true);
+                setAccountMenuOpen(false);
+                return;
+              }
               setAccountMenuOpen(false);
               setIsAddAccountModalOpen(true);
               setAddAccountError(null);
               setReadyAccountHandle(null);
             }}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
-            <span>Add Account</span>
+            <span>{canAddAccount ? "Add Account" : "Upgrade to add account"}</span>
           </button>
         </div>
 
         <div className="my-1 h-px bg-white/10" />
 
         <div className="px-1 py-1">
+          <button
+            type="button"
+            onClick={() => {
+              setAccountMenuOpen(false);
+              setPricingModalOpen(true);
+            }}
+            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+          >
+            <span>Upgrade</span>
+            <ArrowUpRight className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            disabled={isOpeningBillingPortal}
+            onClick={() => {
+              setAccountMenuOpen(false);
+              void openBillingPortal();
+            }}
+            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span>{isOpeningBillingPortal ? "Opening portal…" : "Manage Billing"}</span>
+            <ArrowUpRight className="h-4 w-4" />
+          </button>
           <button
             onClick={() => signOut({ callbackUrl: "/" })}
             className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
@@ -5950,6 +6310,37 @@ function ChatPageContent() {
                     <MessageSquareText className="h-4 w-4 shrink-0" />
                     <span>Feedback</span>
                   </button>
+                </div>
+              </div>
+
+              <div className="px-3 pt-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    {billingPlanLabel} Plan
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-zinc-200">
+                    {billingCreditsLabel}
+                  </p>
+                  {activeBillingSnapshot ? (
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      resets{" "}
+                      {new Date(activeBillingSnapshot.creditCycleResetsAt).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      {isBillingLoading ? "loading billing…" : "billing unavailable"}
+                    </p>
+                  )}
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setPricingModalOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
+                    >
+                      Upgrade
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -6210,6 +6601,35 @@ function ChatPageContent() {
                   {errorMessage ? (
                     <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                       {errorMessage}
+                    </div>
+                  ) : null}
+
+                  {activeBillingSnapshot &&
+                  (activeBillingSnapshot.lowCreditWarning ||
+                    activeBillingSnapshot.criticalCreditWarning) ? (
+                    <div
+                      className={`rounded-3xl border px-4 py-3 text-sm ${
+                        activeBillingSnapshot.criticalCreditWarning
+                          ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
+                          : "border-amber-300/30 bg-amber-300/10 text-amber-100"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p>
+                          {activeBillingSnapshot.criticalCreditWarning
+                            ? "Critical credit balance. Upgrade now to avoid interruptions."
+                            : "Low credit balance. You may hit limits soon."}{" "}
+                          ({billingCreditsLabel})
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setPricingModalOpen(true)}
+                          className="inline-flex items-center gap-1 rounded-full border border-current/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition hover:bg-white/[0.08]"
+                        >
+                          Upgrade
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ) : null}
 
@@ -7061,6 +7481,116 @@ function ChatPageContent() {
               </div>
             </div>
           </>
+        ) : null
+      }
+
+      {
+        pricingModalOpen ? (
+          <div
+            className="absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/85 px-4 py-4 sm:items-center sm:py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setPricingModalOpen(false);
+                void acknowledgePricingModal();
+              }
+            }}
+          >
+            <div className="relative my-auto w-full max-w-5xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Pricing
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Choose your plan</h2>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Start free, then upgrade when you need more volume.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPricingModalOpen(false);
+                    void acknowledgePricingModal();
+                  }}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
+                >
+                  Continue Free
+                </button>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <article className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                    Free
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-white">$0</p>
+                  <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
+                  <p className="mt-4 text-xs text-zinc-500">30 credits / month</p>
+                </article>
+
+                <article className="rounded-2xl border border-white/20 bg-white/[0.05] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                    Pro
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {formatUsdPrice(proMonthlyOffer?.amountCents ?? 1999)}
+                    <span className="text-sm font-medium text-zinc-400"> / month</span>
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    Early pricing — will increase as we ship more features.
+                  </p>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Annual option: {formatUsdPrice(proAnnualOffer?.amountCents ?? 19900)} / year
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void openCheckoutForOffer("pro_monthly")}
+                    disabled={checkoutLoadingOffer !== null || proMonthlyOffer?.enabled === false}
+                    className="mt-4 inline-flex items-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                  >
+                    {checkoutLoadingOffer === "pro_monthly" ? "Opening…" : "Start Pro"}
+                  </button>
+                </article>
+
+                <article className="rounded-2xl border border-amber-200/25 bg-amber-200/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
+                    Founder Lifetime
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {formatUsdPrice(lifetimeOffer?.amountCents ?? 39999)}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    Founder access (limited). One-time payment. Fair-use included.
+                  </p>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {lifetimeSlotSummary
+                      ? `${lifetimeSlotSummary.remaining}/${lifetimeSlotSummary.total} founder slots remaining`
+                      : "Limited founder slots"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void openCheckoutForOffer("lifetime")}
+                    disabled={
+                      checkoutLoadingOffer !== null ||
+                      lifetimeOffer?.enabled === false ||
+                      (lifetimeSlotSummary ? lifetimeSlotSummary.remaining <= 0 : false)
+                    }
+                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/10 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+                  >
+                    {checkoutLoadingOffer === "lifetime"
+                      ? "Opening…"
+                      : lifetimeSlotSummary && lifetimeSlotSummary.remaining <= 0
+                        ? "Sold out"
+                        : "Buy Lifetime"}
+                  </button>
+                </article>
+              </div>
+
+              <p className="mt-5 text-xs text-zinc-500">
+                Need billing help? {billingState?.supportEmail ?? "support@yourdomain.com"}
+              </p>
+            </div>
+          </div>
         ) : null
       }
 
@@ -9029,7 +9559,7 @@ function ChatPageContent() {
         <div
           className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
           onClick={(event) => {
-            if (event.target === event.currentTarget) {
+            if (!requiresXAccountGate && event.target === event.currentTarget) {
               closeAddAccountModal();
             }
           }}
@@ -9092,13 +9622,15 @@ function ChatPageContent() {
                       Preview the account, run the scrape, then switch over without leaving chat.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={closeAddAccountModal}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                  >
-                    Close
-                  </button>
+                  {!requiresXAccountGate ? (
+                    <button
+                      type="button"
+                      onClick={closeAddAccountModal}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Close
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
