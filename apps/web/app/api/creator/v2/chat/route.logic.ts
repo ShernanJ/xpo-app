@@ -223,12 +223,47 @@ export function buildConversationContextFromHistory(args: {
   activeDraft: string | undefined;
 } {
   const rawHistory = Array.isArray(args.history) ? args.history : [];
+  const extractAngleTitles = (entry: Record<string, unknown>): string[] => {
+    const rawAngles = Array.isArray(entry.angles) ? entry.angles : [];
+    const titles: string[] = [];
+    for (const rawAngle of rawAngles) {
+      if (typeof rawAngle === "string" && rawAngle.trim()) {
+        titles.push(rawAngle.trim().replace(/\s+/g, " "));
+        continue;
+      }
+
+      if (!rawAngle || typeof rawAngle !== "object") {
+        continue;
+      }
+
+      const title = (rawAngle as Record<string, unknown>).title;
+      if (typeof title === "string" && title.trim()) {
+        titles.push(title.trim().replace(/\s+/g, " "));
+      }
+    }
+
+    return Array.from(new Set(titles)).slice(0, 4);
+  };
   const recentHistory = rawHistory
     .filter(
       (entry: Record<string, unknown>) =>
         typeof entry?.role === "string" && typeof entry?.content === "string",
     )
-    .map((entry: Record<string, unknown>) => `${entry.role}: ${entry.content}`)
+    .map((entry: Record<string, unknown>) => {
+      const base = `${entry.role}: ${entry.content}`;
+      if (entry.role !== "assistant") {
+        return base;
+      }
+
+      const titles = extractAngleTitles(entry);
+      if (titles.length === 0) {
+        return base;
+      }
+
+      return `${base}\nassistant_angles:\n${titles
+        .map((title, index) => `${index + 1}. ${title}`)
+        .join("\n")}`;
+    })
     .slice(-10)
     .join("\n");
 

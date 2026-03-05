@@ -28,3 +28,105 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+@keyframes loginGridDrift {
+  0% {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      0 24px,
+      38px 24px,
+      38px 24px;
+  }
+}
+
+@keyframes loginHeroFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.login-infra-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.18;
+  background-image:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size:
+    100% 6px,
+    56px 56px,
+    56px 56px;
+  mask-image: radial-gradient(circle at 50% 46%, rgba(0, 0, 0, 0.9), transparent 92%);
+  animation: loginGridDrift 16s linear infinite;
+}
+
+.login-infra-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at 50% 44%,
+      transparent 0%,
+      rgba(0, 0, 0, 0.22) 58%,
+      rgba(0, 0, 0, 0.68) 100%
+    ),
+    linear-gradient(to bottom, rgba(4, 4, 4, 0.2), rgba(4, 4, 4, 0.72));
+}
+
+.login-infra-rail {
+  position: absolute;
+  inset-y: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(148, 163, 184, 0.18) 18%,
+    rgba(148, 163, 184, 0.12) 82%,
+    transparent 100%
+  );
+  opacity: 0.35;
+}
+
+.login-ambient-glow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 9999px;
+  filter: blur(74px);
+  opacity: 0.22;
+}
+
+.login-ambient-glow-left {
+  top: -90px;
+  left: -120px;
+  background: radial-gradient(circle, rgba(148, 163, 184, 0.45), transparent 68%);
+}
+
+.login-ambient-glow-right {
+  bottom: -120px;
+  right: -100px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.3), transparent 68%);
+}
+
+.login-hero-shell {
+  animation: loginHeroFloat 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-infra-grid,
+  .login-hero-shell {
+    animation: none !important;
+  }
+}

@@ -3,9 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { PenLine, Search, Sparkles, Target } from "lucide-react";
+import { ArrowLeft, PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
@@ -21,6 +20,7 @@ interface OnboardingPreviewSuccess {
   ok: true;
   account: string;
   preview: XPublicProfile | null;
+  source?: OnboardingPreviewSource;
 }
 
 interface OnboardingPreviewFailure {
@@ -30,6 +30,32 @@ interface OnboardingPreviewFailure {
 
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
 type LandingPricingOffer = BillingStatePayload["offers"][number];
+type PlaybookStageLabel = (typeof STAGE_PLAYBOOKS)[number]["stage"];
+
+type OnboardingPreviewSource =
+  | "cache"
+  | "user_by_screen_name"
+  | "syndication"
+  | "users_show"
+  | "html"
+  | "none";
+
+interface GuestAnalysisPreview {
+  profile: XPublicProfile;
+  stage: PlaybookStageLabel;
+  focus: string;
+  xpoHelp: string;
+  actions: {
+    action: string;
+    why: string;
+    howXpoHelps: string;
+  }[];
+  source: OnboardingPreviewSource;
+  voicePreview: {
+    shortform: string;
+    longform: string;
+  };
+}
 
 interface OnboardingLandingProps {
   pricingOffers: LandingPricingOffer[];
@@ -80,6 +106,92 @@ const STAGE_PLAYBOOKS = [
     xpoHelp: "Xpo aligns content to offers, launch windows, and repeatable audience-to-revenue loops.",
   },
 ] as const;
+
+const STAGE_PLAYBOOK_ACTIONS: Record<
+  PlaybookStageLabel,
+  { action: string; why: string; howXpoHelps: string }[]
+> = {
+  "0 → 1k": [
+    {
+      action: "Pick 1-2 lanes and repeat them for 30 days.",
+      why: "Repetition makes your account easier to remember and helps people classify you quickly.",
+      howXpoHelps:
+        "Xpo surfaces your strongest themes and gives lane-safe prompt angles so your posts stay consistent.",
+    },
+    {
+      action: "Run high-signal replies in threads where your audience already is.",
+      why: "Replies give you distribution before your own posts have enough reach to compound alone.",
+      howXpoHelps:
+        "Xpo flags reply opportunities and drafts context-aware reply starters in your voice.",
+    },
+    {
+      action: "Ship 3 standalone posts + 1 recurring series each week.",
+      why: "A consistent format builds familiarity and gives people a reason to come back.",
+      howXpoHelps:
+        "Xpo turns one idea into post + series variants so you can maintain cadence without forcing ideas.",
+    },
+  ],
+  "1k → 10k": [
+    {
+      action: "Lock 3 core pillars and 2 repeatable formats per pillar.",
+      why: "Clear pillars improve recall and reduce content drift as your audience grows.",
+      howXpoHelps:
+        "Xpo maps your recent winners into reusable pillars and suggests format templates for each one.",
+    },
+    {
+      action: "Lead with the takeaway first, then context.",
+      why: "Front-loaded clarity improves retention and increases repost/share potential.",
+      howXpoHelps:
+        "Xpo rewrites weak openings into stronger hook-first versions while keeping your tone intact.",
+    },
+    {
+      action: "Turn winners into sequels to compound recall.",
+      why: "Sequels deepen positioning and train your audience to expect your perspective.",
+      howXpoHelps:
+        "Xpo identifies posts worth sequeling and suggests follow-up angles that continue the same narrative.",
+    },
+  ],
+  "10k → 50k": [
+    {
+      action: "Codify one signature take people can quote back.",
+      why: "A repeatable point of view is what turns good posts into lasting creator identity.",
+      howXpoHelps:
+        "Xpo extracts recurring claims from your best posts and turns them into repeatable positioning lines.",
+    },
+    {
+      action: "Turn one deep post into standalone posts, replies, and threads.",
+      why: "Content atomization increases output quality without increasing ideation overhead.",
+      howXpoHelps:
+        "Xpo expands one core draft into multiple channel-ready derivatives with consistent voice and framing.",
+    },
+    {
+      action: "Use collabs/co-posts to unlock adjacent audiences.",
+      why: "Shared distribution introduces your ideas to qualified audiences faster than solo posting.",
+      howXpoHelps:
+        "Xpo suggests collab-ready post structures and cross-audience framing hooks to improve acceptance.",
+    },
+  ],
+  "50k+": [
+    {
+      action: "Align content with your offer and conversion path.",
+      why: "At this stage, content should convert attention into measurable business outcomes.",
+      howXpoHelps:
+        "Xpo links post intent to funnel stages so each piece supports an offer or conversion outcome.",
+    },
+    {
+      action: "Run audience loops with challenges, prompts, and recaps.",
+      why: "Participation loops increase community stickiness and recurring engagement.",
+      howXpoHelps:
+        "Xpo generates loop-based content arcs and recap formats that sustain multi-week participation.",
+    },
+    {
+      action: "Repurpose into owned channels for compounding distribution.",
+      why: "Owned channels reduce platform dependency and preserve long-term leverage.",
+      howXpoHelps:
+        "Xpo converts top-performing X ideas into reusable drafts for owned channels and evergreen assets.",
+    },
+  ],
+};
 
 const HOW_IT_WORKS_STEPS = [
   {
@@ -211,6 +323,7 @@ const LANDING_SECTION_VIEWPORT = {
   amount: 0.18,
   margin: "0px 0px -8% 0px",
 } as const;
+const VOICE_PREVIEW_REGENERATE_LIMIT = 3;
 const LANDING_CARD_HOVER = {
   y: -4,
   transition: {
@@ -243,14 +356,217 @@ function normalizeHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Math.max(0, value));
+}
+
+function resolvePlaybookStage(followersCount: number): PlaybookStageLabel {
+  if (followersCount < 1_000) {
+    return "0 → 1k";
+  }
+
+  if (followersCount < 10_000) {
+    return "1k → 10k";
+  }
+
+  if (followersCount < 50_000) {
+    return "10k → 50k";
+  }
+
+  return "50k+";
+}
+
+function clampPreviewCopy(text: string, maxChars: number): string {
+  const normalized = text.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function extractTopicHint(bio: string): string | null {
+  if (!bio) {
+    return null;
+  }
+
+  const lowSignalPattern =
+    /\b(gm|gn|come back|back soon|in a bit|dm\s*me|follow me|link in bio|shitpost|shitposting|offline)\b/i;
+  const cleaned = bio
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[@#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) {
+    return null;
+  }
+
+  const candidate = cleaned
+    .split(/[|,.;•\n]/)
+    .map((segment) => segment.trim())
+    .find((segment) => segment.length >= 8 && segment.length <= 80);
+  if (!candidate) {
+    return null;
+  }
+
+  if (lowSignalPattern.test(candidate)) {
+    return null;
+  }
+
+  const candidateWords = candidate.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const meaningfulWords = candidateWords.filter(
+    (word) =>
+      word.length >= 4 &&
+      ![
+        "still",
+        "just",
+        "come",
+        "back",
+        "soon",
+        "with",
+        "this",
+        "that",
+        "here",
+        "there",
+      ].includes(word),
+  );
+  if (meaningfulWords.length < 2) {
+    return null;
+  }
+
+  return candidate.slice(0, 64);
+}
+
+function buildVoicePreviewDraft(
+  profile: XPublicProfile,
+  stage: PlaybookStageLabel,
+  focus: string,
+  variantSeed = 0,
+): GuestAnalysisPreview["voicePreview"] {
+  const topicHint = extractTopicHint(profile.bio);
+  const pickVariant = (options: readonly string[], seed: number): string =>
+    options[Math.abs(seed) % options.length] ?? options[0] ?? "";
+  const topicOptions = topicHint
+    ? ([
+        `my lane is ${topicHint.toLowerCase()}, so i'm doubling down there.`,
+        `staying focused on ${topicHint.toLowerCase()} instead of random swings.`,
+        `i'm anchoring on ${topicHint.toLowerCase()} and cutting noise.`,
+      ] as const)
+    : ([
+        "i'm done posting random takes with no system.",
+        "no more guessing what to post next.",
+        "i finally have a repeatable loop instead of vibes.",
+      ] as const);
+  const shortOpenOptions = [
+    "i started using xpo before every week of content.",
+    "running my account through xpo changed how i plan every week.",
+    "xpo is now the first thing i open before i draft.",
+  ] as const;
+  const shortMapOptions = [
+    `xpo mapped me to ${stage} and showed me the next move to execute.`,
+    `xpo tagged me at ${stage} and gave me a clearer priority.`,
+    `xpo put me in ${stage} and pointed me at the highest-leverage step.`,
+  ] as const;
+  const shortCloseOptions = [
+    "already feels less random and way more repeatable.",
+    "my output feels cleaner and i waste less time.",
+    "less guesswork, better cadence, stronger signal.",
+  ] as const;
+  const longOpenOptions = [
+    "xpo is now my pre-post check before i publish.",
+    "i run xpo before every posting sprint.",
+    "i use xpo as my planning layer before i write.",
+  ] as const;
+  const longMapOptions = [
+    `it mapped @${profile.username} to ${stage} and flagged ${focus.toLowerCase()} as the lever to push right now.`,
+    `xpo mapped @${profile.username} to ${stage} and highlighted ${focus.toLowerCase()} as the main pressure point.`,
+    `xpo put @${profile.username} in ${stage} and surfaced ${focus.toLowerCase()} as the priority to compound.`,
+  ] as const;
+  const longBodyOptions = [
+    "i'm using xpo to tighten hooks, prioritize what to ship, and keep cadence consistent.",
+    "xpo helps me pick the next post, tighten framing, and stay on cadence.",
+    "i use xpo to pressure-test ideas before posting so momentum compounds.",
+  ] as const;
+  const longSignalOptions = [
+    "early signal is cleaner positioning and less guesswork every week.",
+    "i'm seeing clearer direction and fewer wasted posts already.",
+    "it feels more intentional, and the momentum is easier to sustain.",
+  ] as const;
+  const longCloseOptions = [
+    "i'll keep sharing results as this compounds.",
+    "sticking with this workflow for the next month.",
+    "going to keep shipping through xpo and track how it compounds.",
+  ] as const;
+
+  const shortform = clampPreviewCopy(
+    [
+      pickVariant(shortOpenOptions, variantSeed),
+      pickVariant(topicOptions, variantSeed + 1),
+      pickVariant(shortMapOptions, variantSeed + 2),
+      pickVariant(shortCloseOptions, variantSeed + 3),
+    ].join("\n\n"),
+    250,
+  );
+
+  const longform = clampPreviewCopy(
+    [
+      pickVariant(longOpenOptions, variantSeed),
+      pickVariant(longMapOptions, variantSeed + 1),
+      pickVariant(topicOptions, variantSeed + 2),
+      pickVariant(longBodyOptions, variantSeed + 3),
+      pickVariant(longSignalOptions, variantSeed + 4),
+      pickVariant(longCloseOptions, variantSeed + 5),
+    ].join("\n"),
+    700,
+  );
+
+  return { shortform, longform };
+}
+
+function buildGuestAnalysisPreview(
+  profile: XPublicProfile,
+  source: OnboardingPreviewSource = "none",
+): GuestAnalysisPreview {
+  const followers = Math.max(0, profile.followersCount);
+  const stage = resolvePlaybookStage(followers);
+  const playbook = STAGE_PLAYBOOKS.find((item) => item.stage === stage);
+  const actions = STAGE_PLAYBOOK_ACTIONS[stage];
+
+  return {
+    profile,
+    stage,
+    focus: playbook?.focus ?? "Growth + execution",
+    xpoHelp:
+      playbook?.xpoHelp ??
+      "Xpo maps your current stage and gives you the clearest next action to ship now.",
+    actions,
+    source,
+    voicePreview: buildVoicePreviewDraft(
+      profile,
+      stage,
+      playbook?.focus ?? "growth + execution",
+    ),
+  };
+}
+
 export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
-  const router = useRouter();
   const { status, update } = useSession();
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
+  const [guestAnalysisPreview, setGuestAnalysisPreview] = useState<GuestAnalysisPreview | null>(
+    null,
+  );
+  const [voicePreviewFormat, setVoicePreviewFormat] = useState<"shortform" | "longform">(
+    "shortform",
+  );
+  const [voicePreviewVariantSeed, setVoicePreviewVariantSeed] = useState(0);
+  const [voicePreviewRegensUsed, setVoicePreviewRegensUsed] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAccountFocused, setIsAccountFocused] = useState(false);
   const [openFaqIndexes, setOpenFaqIndexes] = useState<number[]>([0]);
@@ -298,7 +614,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     `}</style>
   );
   const landingMotionStyles = (
-    <style jsx>{`
+    <style jsx global>{`
       @keyframes landingFloat {
         0%,
         100% {
@@ -380,11 +696,11 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           transform: translateX(-140%);
           opacity: 0;
         }
-        18% {
-          opacity: 0.22;
+        20% {
+          opacity: 0.18;
         }
-        48% {
-          opacity: 0.22;
+        46% {
+          opacity: 0.24;
         }
         100% {
           transform: translateX(140%);
@@ -455,10 +771,12 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
       }
 
       .landing-cta-input-shell {
+        display: block;
+        width: 100%;
         position: relative;
         overflow: hidden;
-        border-radius: 0.75rem;
-        border: 1px solid rgba(148, 163, 184, 0.52);
+        border-radius: 0.85rem;
+        border: 1px solid rgba(148, 163, 184, 0.5);
         background: linear-gradient(180deg, rgba(14, 18, 28, 0.98), rgba(10, 14, 24, 0.98));
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.05),
@@ -478,30 +796,22 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         z-index: 1;
         background: linear-gradient(
           110deg,
-          transparent 22%,
-          rgba(226, 232, 240, 0.12) 46%,
-          rgba(226, 232, 240, 0.26) 50%,
-          rgba(226, 232, 240, 0.12) 54%,
-          transparent 78%
+          transparent 20%,
+          rgba(226, 232, 240, 0.1) 44%,
+          rgba(226, 232, 240, 0.22) 50%,
+          rgba(226, 232, 240, 0.1) 56%,
+          transparent 80%
         );
         transform: translateX(-140%);
         opacity: 0;
       }
 
       .landing-cta-input-shell.is-idle {
-        border-color: rgba(148, 163, 184, 0.52);
+        border-color: rgba(148, 163, 184, 0.5);
       }
 
       .landing-cta-input-shell.is-idle::after {
         animation: landingInputShimmer 5.2s linear infinite;
-      }
-
-      .landing-cta-input-shell.is-idle:hover {
-        border-color: rgba(226, 232, 240, 0.6);
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.06),
-          inset 0 -1px 0 rgba(255, 255, 255, 0.04),
-          0 0 0 1px rgba(226, 232, 240, 0.14);
       }
 
       .landing-cta-input-shell.is-focused {
@@ -511,11 +821,11 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           inset 0 1px 0 rgba(255, 255, 255, 0.08),
           inset 0 -1px 0 rgba(255, 255, 255, 0.04),
           0 0 0 1px rgba(226, 232, 240, 0.22),
-          0 0 20px rgba(148, 163, 184, 0.16);
+          0 0 22px rgba(148, 163, 184, 0.16);
       }
 
       .landing-cta-input-shell.is-focused::after {
-        animation: landingInputShimmer 2s linear infinite;
+        animation: landingInputShimmer 2.1s linear infinite;
       }
 
       .landing-cta-input-shell.is-filled:not(.is-focused) {
@@ -790,6 +1100,19 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     }
   }
 
+  function resetGuestAnalysisPreview() {
+    setGuestAnalysisPreview(null);
+    setVoicePreviewFormat("shortform");
+    setVoicePreviewVariantSeed(0);
+    setVoicePreviewRegensUsed(0);
+    setIsLoading(false);
+    setErrorMessage(null);
+
+    window.setTimeout(() => {
+      scrollToScraper();
+    }, 120);
+  }
+
   const landingFooterLinks = (
     <nav className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-zinc-500">
       <Link href="/pricing" className="transition hover:text-zinc-200">
@@ -828,6 +1151,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
     setIsLoading(true);
     setErrorMessage(null);
+    setGuestAnalysisPreview(null);
+    setVoicePreviewFormat("shortform");
+    setVoicePreviewVariantSeed(0);
+    setVoicePreviewRegensUsed(0);
 
     if (status === "authenticated") {
       // Authenticated users run the scrape natively and skip login
@@ -857,11 +1184,44 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         setIsLoading(false);
       }
     } else {
-      // Anonymous users play the animation then flow into the auth wall
-      setTimeout(() => {
-        const params = new URLSearchParams({ xHandle: trimmedAccount });
-        router.push(`/login?${params.toString()}`);
-      }, 6000);
+      // Anonymous users get a value preview before the auth wall.
+      try {
+        const analysisStartedAt = Date.now();
+        let resolvedProfile = preview;
+        let resolvedSource: OnboardingPreviewSource = "none";
+
+        const previewResponse = await fetch(
+          `/api/onboarding/preview?account=${encodeURIComponent(trimmedAccount)}`,
+          {
+            method: "GET",
+          },
+        );
+        const previewPayload = (await previewResponse.json()) as OnboardingPreviewResponse;
+
+        if (previewResponse.ok && previewPayload.ok && previewPayload.preview) {
+          resolvedProfile = previewPayload.preview;
+          resolvedSource = previewPayload.source ?? "none";
+        }
+
+        if (!resolvedProfile) {
+          throw new Error("Preview account unavailable.");
+        }
+
+        const minimumLoadingMs = 5200;
+        const elapsed = Date.now() - analysisStartedAt;
+        if (elapsed < minimumLoadingMs) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, minimumLoadingMs - elapsed);
+          });
+        }
+
+        setGuestAnalysisPreview(buildGuestAnalysisPreview(resolvedProfile, resolvedSource));
+      } catch (error) {
+        console.error(error);
+        setErrorMessage("Failed to analyze account. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -941,6 +1301,343 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         </section>
         {autofillStyles}
         {landingMotionStyles}
+      </XShell>
+    );
+  }
+
+  if (guestAnalysisPreview) {
+    const signupParams = new URLSearchParams({
+      xHandle: guestAnalysisPreview.profile.username,
+    });
+    const activeVoicePreviewCopy =
+      voicePreviewFormat === "shortform"
+        ? guestAnalysisPreview.voicePreview.shortform
+        : guestAnalysisPreview.voicePreview.longform;
+    const activeVoicePreviewLimit = voicePreviewFormat === "shortform" ? 250 : 700;
+    const remainingVoicePreviewRegens = Math.max(
+      0,
+      VOICE_PREVIEW_REGENERATE_LIMIT - voicePreviewRegensUsed,
+    );
+
+    function handleRegenerateVoicePreview() {
+      if (!guestAnalysisPreview || remainingVoicePreviewRegens <= 0) {
+        return;
+      }
+
+      const nextVariantSeed = voicePreviewVariantSeed + 1;
+      setVoicePreviewVariantSeed(nextVariantSeed);
+      setVoicePreviewRegensUsed((current) =>
+        Math.min(VOICE_PREVIEW_REGENERATE_LIMIT, current + 1),
+      );
+      setGuestAnalysisPreview({
+        ...guestAnalysisPreview,
+        voicePreview: buildVoicePreviewDraft(
+          guestAnalysisPreview.profile,
+          guestAnalysisPreview.stage,
+          guestAnalysisPreview.focus,
+          nextVariantSeed,
+        ),
+      });
+    }
+
+    return (
+      <XShell footerContent={landingFooterLinks}>
+        <div className="landing-root relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start px-4 pt-2 pb-6 sm:px-6 sm:pt-3 sm:pb-8 lg:h-full lg:min-h-0 lg:overflow-hidden lg:pb-4">
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <span className="landing-infra-grid" />
+            <span className="landing-infra-vignette" />
+            <span className="landing-infra-rail" />
+            {AMBIENT_DOTS.map((dot, index) => (
+              <span
+                key={`analysis-dot-${index}`}
+                className="landing-ambient-dot"
+                style={{
+                  top: dot.top,
+                  left: dot.left,
+                  width: dot.size,
+                  height: dot.size,
+                  animationDelay: dot.delay,
+                }}
+              />
+            ))}
+            {AMBIENT_LINES.map((line, index) => (
+              <span
+                key={`analysis-line-${index}`}
+                className="landing-ambient-line"
+                style={{
+                  top: line.top,
+                  left: line.left,
+                  width: line.width,
+                  animationDelay: line.delay,
+                }}
+              />
+            ))}
+            {AMBIENT_PACKETS.map((packet, index) => (
+              <span
+                key={`analysis-packet-${index}`}
+                className="landing-ambient-packet"
+                style={{
+                  top: packet.top,
+                  animationDelay: packet.delay,
+                  animationDuration: packet.duration,
+                }}
+              />
+            ))}
+          </div>
+
+          <motion.section
+            initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }}
+            className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col justify-start py-2 sm:py-3 lg:h-full lg:min-h-0"
+          >
+            <motion.button
+              type="button"
+              onClick={resetGuestAnalysisPreview}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.02, duration: 0.35, ease: "easeOut" }}
+              className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-zinc-200 transition hover:border-white/30 hover:bg-white/[0.05]"
+              aria-label="Back to handle input"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </motion.button>
+
+            <motion.article
+              whileHover={LANDING_CARD_HOVER}
+              className="landing-card-motion flex flex-1 flex-col rounded-[2rem] border border-white/12 bg-black/35 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] backdrop-blur-md sm:p-6 lg:min-h-0 lg:overflow-hidden"
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.06, duration: 0.5, ease: "easeOut" }}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                  Analysis Preview
+                </span>
+                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
+                  Stage {guestAnalysisPreview.stage}
+                </span>
+              </motion.div>
+
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.12, duration: 0.5, ease: "easeOut" }}
+                className="mt-4 font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+              >
+                Here&apos;s what Xpo sees on{" "}
+                <span className="font-bold text-white">@{guestAnalysisPreview.profile.username}</span>
+              </motion.h2>
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.16, duration: 0.5, ease: "easeOut" }}
+                className="mt-2.5 max-w-3xl text-sm leading-7 text-zinc-300 sm:text-base"
+              >
+                {guestAnalysisPreview.xpoHelp}
+              </motion.p>
+
+              <div className="mt-5 grid flex-1 gap-4 lg:min-h-0 lg:grid-cols-[1.04fr_0.96fr]">
+                <motion.div
+                  initial={{ opacity: 0, x: -14 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.22, duration: 0.52, ease: "easeOut" }}
+                  className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:min-h-0 lg:overflow-hidden"
+                >
+                  <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white">
+                      {guestAnalysisPreview.profile.avatarUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${guestAnalysisPreview.profile.avatarUrl})` }}
+                          role="img"
+                          aria-label={`${guestAnalysisPreview.profile.name} profile photo`}
+                        />
+                      ) : (
+                        guestAnalysisPreview.profile.name.slice(0, 2).toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-base font-semibold text-white">
+                          {guestAnalysisPreview.profile.name}
+                        </p>
+                        {guestAnalysisPreview.profile.isVerified ? (
+                          <Image
+                            src="/x-verified.svg"
+                            alt="Verified account"
+                            width={14}
+                            height={14}
+                            className="h-3.5 w-3.5 shrink-0"
+                          />
+                        ) : null}
+                      </div>
+                      <p className="truncate text-xs text-zinc-400">
+                        @{guestAnalysisPreview.profile.username}
+                      </p>
+                    </div>
+                    <div className="ml-auto flex items-start gap-6">
+                      {[
+                        {
+                          label: "Followers",
+                          value: formatCompactNumber(guestAnalysisPreview.profile.followersCount),
+                        },
+                        {
+                          label: "Following",
+                          value: formatCompactNumber(guestAnalysisPreview.profile.followingCount),
+                        },
+                      ].map((metric) => (
+                        <motion.div
+                          key={metric.label}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.28, duration: 0.4, ease: "easeOut" }}
+                          className="min-w-[4.5rem] text-right"
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                            {metric.label}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">{metric.value}</p>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-1 flex-col rounded-3xl border border-white/10 bg-[#0F0F0F] p-4 lg:min-h-0">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        Generated a post with your voice
+                      </p>
+                      <div className="inline-flex items-center rounded-full border border-white/15 bg-black/45 p-1">
+                        {(["shortform", "longform"] as const).map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setVoicePreviewFormat(option)}
+                            className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${
+                              voicePreviewFormat === option
+                                ? "bg-white text-black shadow-[0_0_14px_rgba(255,255,255,0.28)]"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {option === "shortform" ? "Shortform" : "Longform"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-start gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-gradient-to-br from-zinc-700 to-zinc-900 text-xs font-semibold uppercase text-white">
+                        {guestAnalysisPreview.profile.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${guestAnalysisPreview.profile.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${guestAnalysisPreview.profile.name} profile photo`}
+                          />
+                        ) : (
+                          guestAnalysisPreview.profile.name.slice(0, 1).toUpperCase()
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-white">
+                          {guestAnalysisPreview.profile.name}
+                        </p>
+                        <p className="text-xs text-zinc-500">@{guestAnalysisPreview.profile.username}</p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`mt-3 rounded-xl overflow-y-auto pr-2 lg:min-h-0 ${
+                        voicePreviewFormat === "longform" ? "max-h-[170px]" : "max-h-[150px]"
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+                        {activeVoicePreviewCopy}
+                      </p>
+                    </div>
+
+                    <p className="mt-4 text-xs text-zinc-500">
+                      {activeVoicePreviewCopy.length}/{activeVoicePreviewLimit} chars
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={handleRegenerateVoicePreview}
+                        disabled={remainingVoicePreviewRegens <= 0}
+                        className={`inline-flex items-center justify-center rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${
+                          remainingVoicePreviewRegens <= 0
+                            ? "cursor-not-allowed border-white/10 text-zinc-600"
+                            : "cursor-pointer border-white/20 text-zinc-300 hover:border-white/35 hover:text-white"
+                        }`}
+                      >
+                        Regenerate Example
+                      </button>
+                      <p className="text-[11px] text-zinc-500">
+                        {remainingVoicePreviewRegens} regeneration
+                        {remainingVoicePreviewRegens === 1 ? "" : "s"} left
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, x: 14 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.26, duration: 0.52, ease: "easeOut" }}
+                  className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:min-h-0 lg:overflow-hidden"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Focus Right Now
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-white">
+                    {guestAnalysisPreview.focus}
+                  </p>
+                  <div className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1 lg:min-h-0">
+                    {guestAnalysisPreview.actions.map((item, index) => (
+                      <motion.div
+                        key={item.action}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.34 + index * 0.06, duration: 0.42, ease: "easeOut" }}
+                        className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
+                      >
+                        <p className="text-sm leading-6 text-zinc-200">
+                          <span className="mr-2 text-zinc-500">{index + 1}.</span>
+                          {item.action}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-zinc-400">
+                          Why: {item.why}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-zinc-500">
+                          How Xpo helps: {item.howXpoHelps}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              </div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5, duration: 0.45, ease: "easeOut" }}
+                className="mt-5 flex items-center justify-center"
+              >
+                <Link
+                  href={`/login?${signupParams.toString()}`}
+                  className="landing-final-cta-button inline-flex items-center justify-center rounded-xl border border-white/80 bg-white px-6 py-2.5 text-sm font-semibold uppercase tracking-[0.14em] text-black shadow-[0_0_28px_rgba(255,255,255,0.4),0_14px_36px_rgba(255,255,255,0.18)] transition hover:bg-zinc-100"
+                >
+                  Create Free Account To Unlock Full Analysis
+                </Link>
+              </motion.div>
+            </motion.article>
+          </motion.section>
+          {autofillStyles}
+          {landingMotionStyles}
+        </div>
       </XShell>
     );
   }
@@ -1044,7 +1741,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                               : normalizedAccount
                                 ? "is-filled"
                                 : "is-idle"
-                          } rounded-xl border border-white/25 bg-zinc-950/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_-1px_0_rgba(255,255,255,0.03)]`}
+                          } rounded-[0.85rem] border border-slate-400/50 bg-slate-950/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_-1px_0_rgba(255,255,255,0.03),0_0_0_1px_rgba(255,255,255,0.08)]`}
                         >
                           <div className="flex min-w-0 items-center px-4 py-3">
                             <span className="mr-2 text-lg font-medium text-zinc-500">@</span>
@@ -1054,6 +1751,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                               onChange={(event) => {
                                 setAccount(event.target.value);
                                 setErrorMessage(null);
+                                setGuestAnalysisPreview(null);
+                                setVoicePreviewFormat("shortform");
+                                setVoicePreviewVariantSeed(0);
+                                setVoicePreviewRegensUsed(0);
                               }}
                               onFocus={() => setIsAccountFocused(true)}
                               onBlur={() => setIsAccountFocused(false)}

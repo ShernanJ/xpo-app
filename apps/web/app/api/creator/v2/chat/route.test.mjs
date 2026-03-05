@@ -99,6 +99,24 @@ test("conversation context builder keeps recent history and prefers selected dra
   assert.equal(context.recentHistory.includes("assistant: reply"), true);
 });
 
+test("conversation context builder appends assistant angle titles for grounding", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      { role: "assistant", content: "here are some ideas", angles: [
+        { title: "how does the tone shift when you move a linkedin post to x?" },
+        { title: "what gets lost when you convert a linkedin post to x?" },
+      ] },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("assistant_angles:"), true);
+  assert.equal(
+    context.recentHistory.includes("1. how does the tone shift when you move a linkedin post to x?"),
+    true,
+  );
+});
+
 test("route-level context feeds deterministic source transparency attribution", () => {
   const selectedDraftContext = parseSelectedDraftContext({
     messageId: "msg_17",

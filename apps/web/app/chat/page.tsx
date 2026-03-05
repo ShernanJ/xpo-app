@@ -16,7 +16,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -85,6 +85,34 @@ interface OnboardingRunFailure {
 }
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
+
+interface ProfileScrapeRefreshSuccess {
+  ok: true;
+  refreshed: boolean;
+  reason:
+    | "manual_refresh"
+    | "new_posts_detected"
+    | "fresh_enough"
+    | "no_new_posts_detected"
+    | "probe_failed"
+    | "missing_onboarding_run";
+  runId?: string;
+  persistedAt?: string;
+  cooldownUntil?: string | null;
+  retryAfterSeconds?: number;
+}
+
+interface ProfileScrapeRefreshFailure {
+  ok: false;
+  code?: "COOLDOWN";
+  errors: ValidationError[];
+  cooldownUntil?: string | null;
+  retryAfterSeconds?: number;
+}
+
+type ProfileScrapeRefreshResponse =
+  | ProfileScrapeRefreshSuccess
+  | ProfileScrapeRefreshFailure;
 
 const CHAT_ONBOARDING_LOADING_STEPS = [
   "collecting the account...",
@@ -2607,6 +2635,22 @@ function formatTypingStatusLabel(status?: string | null): string {
   }
 }
 
+function formatDurationCompact(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
 function AssistantTypingBubble(props: { status?: string | null }) {
   const [dotCount, setDotCount] = useState(1);
 
@@ -3171,6 +3215,16 @@ function ChatPageContent() {
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [isAnalysisScrapeRefreshing, setIsAnalysisScrapeRefreshing] = useState(false);
+  const [analysisScrapeNotice, setAnalysisScrapeNotice] = useState<string | null>(null);
+  const [analysisScrapeNoticeTone, setAnalysisScrapeNoticeTone] = useState<
+    "info" | "success" | "error"
+  >("info");
+  const [analysisScrapeCooldownUntil, setAnalysisScrapeCooldownUntil] = useState<string | null>(
+    null,
+  );
+  const [analysisScrapeClockMs, setAnalysisScrapeClockMs] = useState<number>(() => Date.now());
+  const dailyScrapeTriggerRef = useRef<string | null>(null);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
@@ -4411,12 +4465,184 @@ function ChatPageContent() {
         setIsLoading(false);
       }
     },
-    [activeStrategyInputs, activeToneInputs, accountName, requiresXAccountGate],
+    [activeStrategyInputs, activeToneInputs, requiresXAccountGate],
   );
+
+  const analysisScrapeCooldownRemainingMs = useMemo(() => {
+    if (!analysisScrapeCooldownUntil) {
+      return 0;
+    }
+
+    const cooldownUntilMs = new Date(analysisScrapeCooldownUntil).getTime();
+    if (!Number.isFinite(cooldownUntilMs)) {
+      return 0;
+    }
+
+    return Math.max(0, cooldownUntilMs - analysisScrapeClockMs);
+  }, [analysisScrapeClockMs, analysisScrapeCooldownUntil]);
+
+  const isAnalysisScrapeCoolingDown = analysisScrapeCooldownRemainingMs > 0;
+  const analysisScrapeCooldownLabel = useMemo(
+    () => formatDurationCompact(analysisScrapeCooldownRemainingMs),
+    [analysisScrapeCooldownRemainingMs],
+  );
+
+  const runProfileScrapeRefresh = useCallback(
+    async (
+      trigger: "manual" | "daily_login",
+    ): Promise<
+      | { ok: true; data: ProfileScrapeRefreshSuccess }
+      | { ok: false; data: ProfileScrapeRefreshFailure | null }
+    > => {
+      try {
+        const response = await fetch("/api/creator/profile/scrape", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ trigger }),
+        });
+
+        let data: ProfileScrapeRefreshResponse | null = null;
+        try {
+          data = (await response.json()) as ProfileScrapeRefreshResponse;
+        } catch {
+          data = null;
+        }
+
+        if (data && "cooldownUntil" in data) {
+          setAnalysisScrapeCooldownUntil(data.cooldownUntil ?? null);
+          setAnalysisScrapeClockMs(Date.now());
+        }
+
+        if (!response.ok || !data || !data.ok) {
+          return { ok: false, data: data && !data.ok ? data : null };
+        }
+
+        if (data.refreshed) {
+          await loadWorkspace();
+        }
+
+        return { ok: true, data };
+      } catch {
+        return { ok: false, data: null };
+      }
+    },
+    [loadWorkspace],
+  );
+
+  const handleManualProfileScrapeRefresh = useCallback(async () => {
+    if (isAnalysisScrapeRefreshing || isAnalysisScrapeCoolingDown) {
+      return;
+    }
+
+    setIsAnalysisScrapeRefreshing(true);
+    setAnalysisScrapeNoticeTone("info");
+    setAnalysisScrapeNotice("running a fresh scrape...");
+
+    try {
+      const result = await runProfileScrapeRefresh("manual");
+      if (!result.ok) {
+        if (result.data?.code === "COOLDOWN") {
+          const retryLabel = result.data.retryAfterSeconds
+            ? formatDurationCompact(result.data.retryAfterSeconds * 1000)
+            : analysisScrapeCooldownLabel;
+          setAnalysisScrapeNoticeTone("info");
+          setAnalysisScrapeNotice(
+            retryLabel
+              ? `scrape cooldown active. try again in ${retryLabel}.`
+              : "scrape cooldown active. try again shortly.",
+          );
+          return;
+        }
+
+        const message = result.data?.errors[0]?.message ?? "failed to rerun scrape.";
+        setAnalysisScrapeNoticeTone("error");
+        setAnalysisScrapeNotice(message.toLowerCase());
+        return;
+      }
+
+      if (result.data.refreshed) {
+        setAnalysisScrapeNoticeTone("success");
+        setAnalysisScrapeNotice("fresh scrape completed. profile analysis updated.");
+        return;
+      }
+
+      if (result.data.reason === "missing_onboarding_run") {
+        setAnalysisScrapeNoticeTone("error");
+        setAnalysisScrapeNotice("no onboarding run found for this account yet.");
+        return;
+      }
+
+      setAnalysisScrapeNoticeTone("info");
+      setAnalysisScrapeNotice("scrape check completed. no profile changes detected.");
+    } finally {
+      setIsAnalysisScrapeRefreshing(false);
+    }
+  }, [
+    analysisScrapeCooldownLabel,
+    isAnalysisScrapeCoolingDown,
+    isAnalysisScrapeRefreshing,
+    runProfileScrapeRefresh,
+  ]);
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (!analysisScrapeCooldownUntil) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setAnalysisScrapeClockMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [analysisScrapeCooldownUntil]);
+
+  useEffect(() => {
+    if (!analysisScrapeCooldownUntil) {
+      return;
+    }
+
+    if (analysisScrapeCooldownRemainingMs <= 0) {
+      setAnalysisScrapeCooldownUntil(null);
+    }
+  }, [analysisScrapeCooldownRemainingMs, analysisScrapeCooldownUntil]);
+
+  useEffect(() => {
+    if (!accountName) {
+      return;
+    }
+
+    const normalized = normalizeAccountHandle(accountName);
+    if (!normalized || dailyScrapeTriggerRef.current === normalized) {
+      return;
+    }
+
+    dailyScrapeTriggerRef.current = normalized;
+    void (async () => {
+      const result = await runProfileScrapeRefresh("daily_login");
+      if (!result.ok) {
+        return;
+      }
+
+      if (result.data.refreshed) {
+        setAnalysisScrapeNoticeTone("success");
+        setAnalysisScrapeNotice("new posts detected and synced in the background.");
+        return;
+      }
+
+      if (result.data.reason === "probe_failed") {
+        setAnalysisScrapeNoticeTone("info");
+        setAnalysisScrapeNotice("background freshness check was skipped for this login.");
+      }
+    })();
+  }, [accountName, runProfileScrapeRefresh]);
 
   useEffect(() => {
     if (!accountName) {
@@ -4431,6 +4657,9 @@ function ChatPageContent() {
     setStreamStatus(null);
     setAnalysisOpen(false);
     setBackfillNotice(null);
+    setIsAnalysisScrapeRefreshing(false);
+    setAnalysisScrapeNotice(null);
+    setAnalysisScrapeCooldownUntil(null);
     setActiveContentFocus(null);
     setToneInputs(DEFAULT_CHAT_TONE_INPUTS);
     setActiveToneInputs(null);
@@ -10342,10 +10571,47 @@ function ChatPageContent() {
               </div>
 
               <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-zinc-500">
-                  work in progress: profile analysis is still improving. share feedback so we can improve result quality :)
-                </p>
+                <div className="space-y-1">
+                  <p className="text-xs text-zinc-500">
+                    work in progress: profile analysis is still improving. share feedback so we can improve result quality :)
+                  </p>
+                  {analysisScrapeNotice ? (
+                    <p
+                      className={`text-xs ${
+                        analysisScrapeNoticeTone === "success"
+                          ? "text-emerald-300"
+                          : analysisScrapeNoticeTone === "error"
+                            ? "text-rose-300"
+                            : "text-zinc-400"
+                      }`}
+                    >
+                      {analysisScrapeNotice}
+                    </p>
+                  ) : null}
+                  {isAnalysisScrapeCoolingDown ? (
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-amber-300">
+                      rerun cooldown: {analysisScrapeCooldownLabel}
+                    </p>
+                  ) : null}
+                </div>
                 <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleManualProfileScrapeRefresh}
+                    disabled={isAnalysisScrapeRefreshing || isAnalysisScrapeCoolingDown}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCw
+                      className={`h-4 w-4 ${isAnalysisScrapeRefreshing ? "animate-spin" : ""}`}
+                    />
+                    <span>
+                      {isAnalysisScrapeRefreshing
+                        ? "Running scrape"
+                        : isAnalysisScrapeCoolingDown
+                          ? `Retry in ${analysisScrapeCooldownLabel}`
+                          : "Rerun Scrape"}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
