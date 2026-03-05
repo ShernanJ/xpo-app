@@ -2667,6 +2667,7 @@ function ChatPageContent() {
   );
   const [feedbackHistoryFilter, setFeedbackHistoryFilter] =
     useState<FeedbackReportFilter>("open");
+  const [feedbackHistoryQuery, setFeedbackHistoryQuery] = useState("");
   const [isFeedbackHistoryLoading, setIsFeedbackHistoryLoading] = useState(false);
   const [feedbackStatusUpdatingIds, setFeedbackStatusUpdatingIds] = useState<
     Record<string, boolean>
@@ -2921,14 +2922,31 @@ function ChatPageContent() {
     [sortedFeedbackHistory],
   );
   const filteredFeedbackHistory = useMemo(() => {
-    if (feedbackHistoryFilter === "all") {
-      return sortedFeedbackHistory;
-    }
+    const normalizedQuery = feedbackHistoryQuery.trim().toLowerCase();
+    return sortedFeedbackHistory.filter((entry) => {
+      const statusMatches =
+        feedbackHistoryFilter === "all" ||
+        normalizeFeedbackStatus(entry.status) === feedbackHistoryFilter;
+      if (!statusMatches) {
+        return false;
+      }
 
-    return sortedFeedbackHistory.filter(
-      (entry) => normalizeFeedbackStatus(entry.status) === feedbackHistoryFilter,
-    );
-  }, [feedbackHistoryFilter, sortedFeedbackHistory]);
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const title = entry.title?.toLowerCase() ?? "";
+      const message = entry.message.toLowerCase();
+      const attachmentNames = entry.attachments
+        .map((attachment) => attachment.name.toLowerCase())
+        .join(" ");
+      return (
+        title.includes(normalizedQuery) ||
+        message.includes(normalizedQuery) ||
+        attachmentNames.includes(normalizedQuery)
+      );
+    });
+  }, [feedbackHistoryFilter, feedbackHistoryQuery, sortedFeedbackHistory]);
   const feedbackOpenWithMediaCount = useMemo(
     () =>
       feedbackHistory.filter(
@@ -7302,6 +7320,17 @@ function ChatPageContent() {
                         ) : null}
                       </div>
                       {feedbackHistory.length > 0 ? (
+                        <div className="mt-3">
+                          <input
+                            type="text"
+                            value={feedbackHistoryQuery}
+                            onChange={(event) => setFeedbackHistoryQuery(event.target.value)}
+                            placeholder="Search reports by title, message, or attachment"
+                            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-white/25"
+                          />
+                        </div>
+                      ) : null}
+                      {feedbackHistory.length > 0 ? (
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           {FEEDBACK_HISTORY_FILTER_OPTIONS.map((option) => {
                             const isActive = feedbackHistoryFilter === option.value;
@@ -7352,10 +7381,28 @@ function ChatPageContent() {
                                 {entry.message}
                               </p>
                               {entry.attachments.length > 0 ? (
-                                <p className="mt-2 text-[11px] text-zinc-500">
-                                  {entry.attachments.length} image
-                                  {entry.attachments.length === 1 ? "" : "s"} attached
-                                </p>
+                                <div className="mt-2 space-y-2">
+                                  <p className="text-[11px] text-zinc-500">
+                                    {entry.attachments.length} file
+                                    {entry.attachments.length === 1 ? "" : "s"} attached
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {entry.attachments.slice(0, 3).map((attachment) => (
+                                      <span
+                                        key={attachment.id}
+                                        className="rounded-full border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] text-zinc-400"
+                                        title={attachment.name}
+                                      >
+                                        {attachment.name}
+                                      </span>
+                                    ))}
+                                    {entry.attachments.length > 3 ? (
+                                      <span className="rounded-full border border-white/10 bg-white/[0.02] px-2 py-1 text-[10px] text-zinc-500">
+                                        +{entry.attachments.length - 3} more
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
                               ) : null}
                               {entry.statusUpdatedAt ? (
                                 <p className="mt-2 text-[11px] text-zinc-500">
@@ -7408,7 +7455,7 @@ function ChatPageContent() {
                         </div>
                       ) : feedbackHistory.length > 0 ? (
                         <p className="mt-4 text-sm text-zinc-500">
-                          No reports match this status.
+                          No reports match this filter.
                         </p>
                       ) : (
                         <p className="mt-4 text-sm text-zinc-500">
