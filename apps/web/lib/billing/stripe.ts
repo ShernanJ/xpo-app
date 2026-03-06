@@ -108,6 +108,7 @@ export async function createCheckoutSession(args: {
   }
 
   if (args.mode === "subscription") {
+    appendFormEncoded(params, "allow_promotion_codes", true);
     appendFormEncoded(params, "subscription_data[metadata][userId]", args.userId);
     appendFormEncoded(params, "subscription_data[metadata][offer]", args.offer);
   }
