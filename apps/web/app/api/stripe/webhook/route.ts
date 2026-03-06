@@ -318,18 +318,28 @@ export async function POST(request: NextRequest) {
     select: { id: true, status: true },
   });
 
-  if (existing) {
+  if (existing?.status === "processed") {
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
-  await prisma.stripeWebhookEvent.create({
-    data: {
-      id: event.id,
-      eventType: event.type,
-      payload: event as unknown as Prisma.JsonObject,
-      status: "processing",
-    },
-  });
+  if (!existing) {
+    await prisma.stripeWebhookEvent.create({
+      data: {
+        id: event.id,
+        eventType: event.type,
+        payload: event as unknown as Prisma.JsonObject,
+        status: "processing",
+      },
+    });
+  } else {
+    await prisma.stripeWebhookEvent.update({
+      where: { id: event.id },
+      data: {
+        status: "processing",
+        errorMessage: null,
+      },
+    });
+  }
 
   try {
     await dispatchStripeEvent(event);
