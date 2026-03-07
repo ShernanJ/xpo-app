@@ -1171,21 +1171,21 @@ async function main() {
     }
 
     const queryIdFromArgsOrEnv =
-      options.queryId ?? process.env.X_WEB_USER_TWEETS_QUERY_ID ?? null;
+      options.queryId || process.env.X_WEB_USER_TWEETS_QUERY_ID || null;
     const cachedQueryId = queryIdFromArgsOrEnv
       ? null
       : broker.getCachedGlobal("queryId", GLOBAL_CACHE_TTL_MS);
     const resolvedQueryId =
-      queryIdFromArgsOrEnv ?? cachedQueryId ?? (await discoverUserTweetsQueryId(userAgent));
+      queryIdFromArgsOrEnv || cachedQueryId || (await discoverUserTweetsQueryId(userAgent));
     if (!queryIdFromArgsOrEnv && !cachedQueryId) {
       broker.setCachedGlobal("queryId", resolvedQueryId);
     }
     console.log(`[http] UserTweets queryId: ${resolvedQueryId}`);
 
-    const userIdFromEnv = process.env.X_WEB_USER_ID ?? null;
+    const userIdFromEnv = process.env.X_WEB_USER_ID || null;
     const userIdInput =
-      options.userId ??
-      userIdFromEnv ??
+      options.userId ||
+      userIdFromEnv ||
       broker.getCachedUserId(account, USER_ID_CACHE_TTL_MS);
 
     const useCookieAuth = Boolean(cookie && csrfToken && !options.forceGuest);

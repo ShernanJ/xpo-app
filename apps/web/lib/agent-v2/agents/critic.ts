@@ -3,6 +3,11 @@ import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
+// TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
+// import type { DraftScore } from "../contracts/chat";
+// The CriticOutputSchema could be extended with optional fields:
+//   hookScore, clarityScore, noveltyScore, voiceMatchScore
+// to power best-of-N selection. See contracts/chat.ts for the DraftScore type.
 import type { DraftRevisionChangeKind } from "../orchestrator/draftRevision";
 import {
   computeXWeightedCharacterCount,

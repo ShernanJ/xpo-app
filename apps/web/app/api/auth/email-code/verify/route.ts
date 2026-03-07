@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { prisma } from "@/lib/db";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
 import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 import { verifySupabaseEmailCode } from "@/lib/auth/supabase";
@@ -34,9 +35,9 @@ export async function POST(request: Request) {
   const code =
     typeof body.code === "string"
       ? body.code
-          .trim()
-          .replace(/\s+/g, "")
-          .toUpperCase()
+        .trim()
+        .replace(/\s+/g, "")
+        .toUpperCase()
       : "";
 
   if (!email || !code) {
@@ -46,7 +47,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const authResult = await verifySupabaseEmailCode(email, code);
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+
+  const authResult = await verifySupabaseEmailCode(email, code, {
+    isSignUpHint: !existingUser,
+  });
   if (!authResult.ok) {
     const status =
       authResult.error.code === "missing_configuration"

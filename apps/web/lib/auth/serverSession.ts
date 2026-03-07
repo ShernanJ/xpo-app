@@ -58,23 +58,55 @@ export async function ensureAppUserForAuthIdentity(params: {
 }) {
   const normalizedEmail = params.email?.toLowerCase() ?? null;
 
-  return prisma.user.upsert({
-    where: { id: params.userId },
-    create: {
-      id: params.userId,
-      email: normalizedEmail,
-    },
-    update: {
-      email: normalizedEmail,
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      handle: true,
-      activeXHandle: true,
-    },
-  });
+  try {
+    return await prisma.user.upsert({
+      where: { id: params.userId },
+      create: {
+        id: params.userId,
+        email: normalizedEmail,
+      },
+      update: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        handle: true,
+        activeXHandle: true,
+      },
+    });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "P2002" &&
+      normalizedEmail
+    ) {
+      // Supabase returned a new ID, but the email already exists in our DB (e.g. legacy NextAuth ID)
+      // Migrate the existing user record to adopt the new Supabase ID to preserve their data.
+      const existingUser = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      if (existingUser) {
+        return prisma.user.update({
+          where: { email: normalizedEmail },
+          data: { id: params.userId },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            handle: true,
+            activeXHandle: true,
+          },
+        });
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function updateAppSessionUser(

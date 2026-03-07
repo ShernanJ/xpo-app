@@ -266,8 +266,11 @@ export async function requestSupabaseEmailCode(
 export async function verifySupabaseEmailCode(
   email: string,
   token: string,
+  options?: { isSignUpHint?: boolean }
 ): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
-  const verificationTypes = ["email", "signup", "magiclink"] as const;
+  const verificationTypes = options?.isSignUpHint
+    ? (["signup", "magiclink", "email"] as const)
+    : (["magiclink", "email", "signup"] as const);
   let lastOtpError: SupabaseAuthError | null = null;
 
   for (const type of verificationTypes) {

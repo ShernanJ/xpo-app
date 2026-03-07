@@ -1,0 +1,327 @@
+import type { TurnPlan, V2ChatIntent, V2ConversationMemory } from "../contracts/chat";
+
+// ---------------------------------------------------------------------------
+// Deterministic Turn Planner (V3)
+// ---------------------------------------------------------------------------
+// Runs BEFORE the LLM classifier. Catches high-confidence patterns where
+// deterministic rules are more reliable than the classifier's conservative
+// bias. Returns null when unsure → falls through to LLM classification.
+// ---------------------------------------------------------------------------
+
+// --- Edit intent cues -------------------------------------------------------
+
+const EDIT_INSTRUCTION_CUES = [
+  "make it",
+  "make this",
+  "change the",
+  "fix the",
+  "rewrite the",
+  "less harsh",
+  "less aggressive",
+  "more casual",
+  "more direct",
+  "less salesy",
+  "less hype",
+  "more subtle",
+  "softer",
+  "punchier",
+  "shorter",
+  "longer",
+  "tighter",
+  "shorten it",
+  "trim it",
+  "tighten it",
+  "expand it",
+  "remove the",
+  "delete the",
+  "cut the",
+  "drop the",
+  "add a",
+  "swap",
+  "replace",
+  "rephrase",
+  "tone down",
+  "tone it down",
+  "dial back",
+  "dial it back",
+  "make the hook",
+  "fix the hook",
+  "rewrite the hook",
+  "better hook",
+  "more like me",
+  "sound like me",
+  "no emojis",
+  "remove emojis",
+  "less corporate",
+  "less formal",
+  "more raw",
+  "more authentic",
+  "start over",
+  "rewrite the whole thing",
+  "rewrite this",
+];
+
+const EDIT_REGEX_PATTERNS = [
+  /^(?:make|change|fix|rewrite|remove|delete|cut|drop|add|swap|replace|rephrase)\b/,
+  /\b(?:too harsh|too aggressive|too long|too short|too generic|too salesy|too polished)\b/,
+  /\bdon'?t (?:say|use|mention|include)\b/,
+];
+
+// --- Chat / conversational cues ---------------------------------------------
+
+const CHAT_CUES = [
+  "what do you do",
+  "who are you",
+  "how can you help",
+  "what can you do",
+  "what are you",
+  "which angle",
+  "which one",
+  "what do you think",
+  "what do you mean",
+  "why did you",
+  "why is this",
+  "why that",
+  "can you explain",
+  "tell me more",
+  "how does",
+  "is this good",
+  "is that good",
+  "does this work",
+  "which is better",
+  "which is stronger",
+  "what's the difference",
+  "compare these",
+  "compare the",
+  "between these",
+];
+
+// --- Draft commands (skip clarification gauntlet) ---------------------------
+
+const IMMEDIATE_DRAFT_CUES = [
+  "just write it",
+  "just draft it",
+  "go ahead",
+  "write it now",
+  "draft it now",
+  "ok write it",
+  "okay write it",
+  "ok draft it",
+  "sure write it",
+  "yes write it",
+  "yes draft it",
+  "do it",
+  "send it",
+  "run with it",
+  "let's go",
+  "turn that into a post",
+  "turn this into a post",
+  "make that a post",
+  "make this a post",
+  "write that up",
+  "write this up",
+  "draft that",
+  "draft this",
+  "write this version",
+  "draft this version",
+  "looks good",
+  "sounds good",
+  "this works",
+  "write this",
+];
+
+// --- Constraint acknowledgment cues -----------------------------------------
+
+const CONSTRAINT_CUES = [
+  "no emojis",
+  "no hashtags",
+  "no cta",
+  "no call to action",
+  "keep it under",
+  "max length",
+  "don't use",
+  "dont use",
+  "never use",
+  "avoid using",
+  "stop using",
+  "don't mention",
+  "dont mention",
+  "never mention",
+  "no lists",
+  "no bullet points",
+  "no markdown",
+];
+
+// ---------------------------------------------------------------------------
+// Core planner
+// ---------------------------------------------------------------------------
+
+export interface PlanTurnInput {
+  userMessage: string;
+  recentHistory: string;
+  activeDraft?: string;
+  memory: Pick<
+    V2ConversationMemory,
+    | "conversationState"
+    | "concreteAnswerCount"
+    | "topicSummary"
+    | "pendingPlan"
+    | "currentDraftArtifactId"
+    | "assistantTurnCount"
+  >;
+  explicitIntent?: V2ChatIntent | null;
+}
+
+/**
+ * Deterministic turn planner. Runs before the LLM intent classifier.
+ *
+ * Returns a TurnPlan with overrideClassifiedIntent when there is high
+ * confidence in what the user wants. Returns null when the LLM classifier
+ * should decide.
+ */
+export function planTurn(input: PlanTurnInput): TurnPlan | null {
+  // If the frontend already sent an explicit intent, don't override it.
+  if (input.explicitIntent) {
+    return null;
+  }
+
+  const trimmed = input.userMessage.trim();
+  const normalized = trimmed.toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  // --- Rule 1: Edit intent with active draft context ----------------------
+  // If there is a draft in scope (either from frontend or from memory) and
+  // the message looks like an edit instruction, force edit mode immediately.
+  // This is the highest-ROI rule: prevents "make it less harsh" → question.
+
+  const hasDraftContext =
+    Boolean(input.activeDraft) ||
+    Boolean(input.memory.currentDraftArtifactId) ||
+    input.memory.conversationState === "draft_ready" ||
+    input.memory.conversationState === "editing";
+
+  if (hasDraftContext && looksLikeEditInstruction(normalized)) {
+    return {
+      userGoal: "edit",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "edit",
+    };
+  }
+
+  // --- Rule 2: Constraint capture -----------------------------------------
+  // "no emojis", "don't use hashtags" etc. should be acknowledged and stored,
+  // not trigger a new generation pipeline. Route to coach for acknowledgment.
+
+  if (looksLikeConstraintOnly(normalized)) {
+    return {
+      userGoal: "chat",
+      shouldGenerate: false,
+      responseStyle: "natural",
+      // Let the classifier handle this → it will route to coach which will
+      // capture the constraint via the memory_update flag.
+    };
+  }
+
+  // --- Rule 3: Immediate draft command after context is established --------
+  // The user has already provided context and is saying "just write it".
+  // Skip the clarification gauntlet.
+
+  const hasEnoughContext =
+    input.memory.concreteAnswerCount >= 1 ||
+    Boolean(input.memory.topicSummary) ||
+    Boolean(input.memory.pendingPlan);
+
+  const lastAssistantMessage = input.recentHistory
+    .split("\n")
+    .filter((line) => line.trim().startsWith("assistant:"))
+    .pop()
+    ?.toLowerCase() || "";
+  const assistantOfferedDraft =
+    lastAssistantMessage.includes("want me to turn that into a post") ||
+    lastAssistantMessage.includes("want me to draft") ||
+    lastAssistantMessage.includes("want to draft") ||
+    lastAssistantMessage.includes("want me to write");
+  const isAffirmationAfterOffer =
+    assistantOfferedDraft &&
+    /^(yes|yeah|yep|sure|ok|okay|do it|sounds good|go for it|please do)[.?!]*$/.test(
+      normalized,
+    );
+
+  if (hasEnoughContext && (looksLikeImmediateDraftCommand(normalized) || isAffirmationAfterOffer)) {
+    // If there is a pending plan, route to planner_feedback (approve).
+    if (
+      input.memory.pendingPlan &&
+      input.memory.conversationState === "plan_pending_approval"
+    ) {
+      return {
+        userGoal: "draft",
+        shouldGenerate: true,
+        responseStyle: "structured",
+        overrideClassifiedIntent: "planner_feedback",
+      };
+    }
+
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "draft",
+    };
+  }
+
+  // --- Rule 4: Conversational question (no generation needed) -------------
+  // Short messages that are clearly about discussing, not producing content.
+
+  if (looksLikeChatQuestion(normalized, trimmed)) {
+    return {
+      userGoal: "chat",
+      shouldGenerate: false,
+      responseStyle: "natural",
+      overrideClassifiedIntent: "coach",
+    };
+  }
+
+  // --- Default: let the LLM classifier decide -----------------------------
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Pattern matchers
+// ---------------------------------------------------------------------------
+
+function looksLikeEditInstruction(normalized: string): boolean {
+  if (EDIT_INSTRUCTION_CUES.some((cue) => normalized.includes(cue))) {
+    return true;
+  }
+
+  return EDIT_REGEX_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeConstraintOnly(normalized: string): boolean {
+  // Must match a constraint cue AND be short enough that it's not a
+  // full draft request embedded with a constraint.
+  return (
+    normalized.length <= 60 &&
+    CONSTRAINT_CUES.some((cue) => normalized.includes(cue))
+  );
+}
+
+function looksLikeImmediateDraftCommand(normalized: string): boolean {
+  return IMMEDIATE_DRAFT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeChatQuestion(
+  normalized: string,
+  original: string,
+): boolean {
+  // Must be relatively short and contain a chat cue.
+  if (original.length > 120) {
+    return false;
+  }
+
+  return CHAT_CUES.some((cue) => normalized.includes(cue));
+}

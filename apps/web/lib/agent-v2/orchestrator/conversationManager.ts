@@ -43,6 +43,8 @@ import {
   looksLikeSemanticCorrection,
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
+import { planTurn } from "./turnPlanner";
+import { respondConversationally, isConstraintDeclaration } from "./chatResponder";
 import { buildDraftReply } from "./draftReply";
 import {
   buildFeedbackMemoryNotice,
@@ -904,15 +906,15 @@ async function maybeCaptureAntiPattern(args: {
   styleCard: Awaited<ReturnType<typeof generateStyleProfile>>;
   xHandle: string;
 },
-services: Pick<ConversationServices, "extractAntiPattern" | "saveStyleProfile">,
+  services: Pick<ConversationServices, "extractAntiPattern" | "saveStyleProfile">,
 ): Promise<{ antiPatterns: string[]; remembered: boolean }> {
   const antiExamples = args.styleCard?.antiExamples || [];
   const currentGuidance =
     antiExamples.length > 0
       ? antiExamples
-          .slice(-2)
-          .map((example) => example.guidance.trim())
-          .filter(Boolean)
+        .slice(-2)
+        .map((example) => example.guidance.trim())
+        .filter(Boolean)
       : args.styleCard?.customGuidelines?.slice(-2) || [];
 
   if (
@@ -1020,8 +1022,26 @@ export async function manageConversationTurn(
     ]),
   );
 
+  // V3: deterministic turn planner runs before the LLM classifier.
+  // It catches high-confidence patterns (edit instructions, immediate
+  // draft commands, chat questions) and can short-circuit the classifier.
+  const turnPlan = planTurn({
+    userMessage,
+    recentHistory,
+    activeDraft,
+    memory,
+    explicitIntent,
+  });
+
   let classification;
-  if (!explicitIntent) {
+  if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
+    // Deterministic override — skip LLM classification.
+    classification = {
+      intent: turnPlan.overrideClassifiedIntent,
+      needs_memory_update: false,
+      confidence: 1,
+    };
+  } else if (!explicitIntent) {
     classification = await services.classifyIntent(userMessage, recentHistory);
     if (!classification) {
       return {
@@ -1528,11 +1548,11 @@ User Profile Summary:
     }
 
     await writeMemory({
-        conversationState: "plan_pending_approval",
-        pendingPlan: memory.pendingPlan,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
-      });
+      conversationState: "plan_pending_approval",
+      pendingPlan: memory.pendingPlan,
+      assistantTurnCount: nextAssistantTurnCount,
+      formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+    });
 
     return {
       mode: "plan",
@@ -1553,8 +1573,17 @@ User Profile Summary:
     };
   }
 
+  // V3: Over-questioning guard. After 2 concrete answers from the user,
+  // skip ALL clarification gates and proceed to ideation or plan generation.
+  // This prevents the "keeps asking questions" problem.
+  const hasEnoughContextToAct =
+    memory.concreteAnswerCount >= 2 ||
+    (memory.topicSummary && memory.pendingPlan) ||
+    (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3);
+
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan"
   ) {
     if (
@@ -1670,6 +1699,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan"
   ) {
     const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
@@ -1693,7 +1723,7 @@ User Profile Summary:
     }
   }
 
-  if (!explicitIntent && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
@@ -1729,6 +1759,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan" &&
     isBareDraftRequest(userMessage)
   ) {
@@ -1764,6 +1795,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan" &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
@@ -1799,7 +1831,7 @@ User Profile Summary:
     };
   }
 
-  if (!explicitIntent && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
     const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
 
     if (abstractTopicSeed) {
@@ -1884,11 +1916,11 @@ User Profile Summary:
     const ideationRationaleReply =
       memory.conversationState === "ready_to_ideate"
         ? inferIdeationRationaleReply({
-            userMessage,
-            topicSummary: memory.topicSummary,
-            recentHistory,
-            lastIdeationAngles: memory.lastIdeationAngles,
-          })
+          userMessage,
+          topicSummary: memory.topicSummary,
+          recentHistory,
+          lastIdeationAngles: memory.lastIdeationAngles,
+        })
         : null;
     if (ideationRationaleReply) {
       await writeMemory({
@@ -2007,389 +2039,190 @@ User Profile Summary:
     }
   }
 
-  switch (mode) {
-    case "ideate": {
-      const ideas = await services.generateIdeasMenu(
-        userMessage,
-        memory.topicSummary,
-        effectiveContext,
-        styleCard,
-        relevantTopicAnchors,
-        userContextString,
-        {
-          goal,
-          conversationState: memory.conversationState,
-          antiPatterns,
-        },
-      );
-      const currentIdeaTitles = extractIdeaTitlesFromIdeas(ideas?.angles);
-      const inferredIdeaTopic = inferTopicFromIdeaTitles(currentIdeaTitles);
+  // ---------------------------------------------------------------------------
+  // Mode Handlers
+  // ---------------------------------------------------------------------------
 
-      const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
-        ? null
-        : memory.topicSummary;
-      const nextIdeationTopicSummary = isBareIdeationRequest(userMessage)
-        ? currentTopicSummary || inferredIdeaTopic
-        : userMessage;
+  async function handleIdeateMode(): Promise<OrchestratorResponse> {
+    const ideas = await services.generateIdeasMenu(
+      userMessage,
+      memory.topicSummary,
+      effectiveContext,
+      styleCard,
+      relevantTopicAnchors,
+      userContextString,
+      {
+        goal,
+        conversationState: memory.conversationState,
+        antiPatterns,
+      },
+    );
+    const currentIdeaTitles = extractIdeaTitlesFromIdeas(ideas?.angles);
+    const inferredIdeaTopic = inferTopicFromIdeaTitles(currentIdeaTitles);
 
-      await writeMemory({
-        ...(nextIdeationTopicSummary !== memory.topicSummary
-          ? { topicSummary: nextIdeationTopicSummary }
-          : {}),
-        ...(currentIdeaTitles.length > 0
-          ? { lastIdeationAngles: currentIdeaTitles }
-          : {}),
-        conversationState: "ready_to_ideate",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
-          ? buildRollingSummary({
-              currentSummary: memory.rollingSummary,
-              topicSummary: nextIdeationTopicSummary || currentTopicSummary,
-              approvedPlan: null,
-              activeConstraints: effectiveActiveConstraints,
-              latestDraftStatus: "Ideation in progress",
-              formatPreference: memory.formatPreference || turnFormatPreference,
-              unresolvedQuestion: ideas?.close || null,
-            })
-          : memory.rollingSummary,
-      });
+    const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
+      ? null
+      : memory.topicSummary;
+    const nextIdeationTopicSummary = isBareIdeationRequest(userMessage)
+      ? currentTopicSummary || inferredIdeaTopic
+      : userMessage;
 
-      return {
-        mode: "ideate",
-        outputShape: "ideation_angles",
-        response: prependFeedbackMemoryNotice(
-          buildIdeationReply({
-            intro: ideas?.intro || "",
-            close: ideas?.close || "",
-            userMessage,
-            styleCard,
-          }),
-          feedbackMemoryNotice,
-        ),
-        data: ideas
-          ? {
-              angles: ideas.angles,
-              quickReplies: buildIdeationQuickReplies({
-                styleCard,
-                seedTopic: nextIdeationTopicSummary || currentTopicSummary,
-              }),
-            }
-          : undefined,
-        memory,
-      };
-    }
-
-    case "plan": {
-      const plan = await services.generatePlan(
-        userMessage,
-        memory.topicSummary,
-        effectiveActiveConstraints,
-        effectiveContext,
-        activeDraft,
-        {
-          goal,
-          conversationState: memory.conversationState,
-          antiPatterns,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
-        },
-      );
-
-      if (!plan) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to generate strategy plan.",
-          memory,
-        };
-      }
-
-      const planWithPreference = withPlanPreferences(
-        plan,
-        turnDraftPreference,
-        turnFormatPreference,
-      );
-      const guardedPlan = shouldForceNoFabricationGuardrailForTurn
-        ? withNoFabricationPlanGuardrail(planWithPreference)
-        : planWithPreference;
-
-      await writeMemory({
-        topicSummary: guardedPlan.objective,
-        conversationState: "plan_pending_approval",
-        pendingPlan: guardedPlan,
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-      });
-
-      return {
-        mode: "plan",
-        outputShape: "planning_outline",
-        response: prependFeedbackMemoryNotice(
-          buildPlanPitch(guardedPlan),
-          feedbackMemoryNotice,
-        ),
-        data: {
-          plan: guardedPlan,
-          quickReplies: buildPlannerQuickReplies({
-            plan: guardedPlan,
-            styleCard,
-            context: "approval",
-          }),
-        },
-        memory,
-      };
-    }
-
-    case "draft":
-    case "review":
-    case "edit": {
-      if (shouldUseRevisionDraftPath({ mode, activeDraft }) && activeDraft) {
-        const revision = normalizeDraftRevisionInstruction(
-          draftInstruction,
-          activeDraft,
-        );
-        const reviserOutput = await services.generateRevisionDraft({
-          activeDraft,
-          revision,
-          styleCard,
-          topicAnchors: relevantTopicAnchors,
+    await writeMemory({
+      ...(nextIdeationTopicSummary !== memory.topicSummary
+        ? { topicSummary: nextIdeationTopicSummary }
+        : {}),
+      ...(currentIdeaTitles.length > 0
+        ? { lastIdeationAngles: currentIdeaTitles }
+        : {}),
+      conversationState: "ready_to_ideate",
+      clarificationState: null,
+      assistantTurnCount: nextAssistantTurnCount,
+      rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+        ? buildRollingSummary({
+          currentSummary: memory.rollingSummary,
+          topicSummary: nextIdeationTopicSummary || currentTopicSummary,
+          approvedPlan: null,
           activeConstraints: effectiveActiveConstraints,
-          recentHistory: effectiveContext,
-          options: {
-            conversationState: "editing",
-            antiPatterns,
-            maxCharacterLimit,
-            goal,
-            draftPreference: turnDraftPreference,
-            formatPreference: turnFormatPreference,
-          },
-        });
+          latestDraftStatus: "Ideation in progress",
+          formatPreference: memory.formatPreference || turnFormatPreference,
+          unresolvedQuestion: ideas?.close || null,
+        })
+        : memory.rollingSummary,
+    });
 
-        if (!reviserOutput) {
-          return {
-            mode: "error",
-            outputShape: "coach_question",
-            response: "Failed to revise draft.",
-            memory,
-          };
-        }
-
-        const criticOutput = await services.critiqueDrafts(
-          {
-            angle: "Targeted revision",
-            draft: reviserOutput.revisedDraft,
-            supportAsset: reviserOutput.supportAsset ?? "",
-            whyThisWorks: "",
-            watchOutFor: "",
-          },
-          effectiveActiveConstraints,
+    return {
+      mode: "ideate",
+      outputShape: "ideation_angles",
+      response: prependFeedbackMemoryNotice(
+        buildIdeationReply({
+          intro: ideas?.intro || "",
+          close: ideas?.close || "",
+          userMessage,
           styleCard,
-          {
-            maxCharacterLimit,
-            draftPreference: turnDraftPreference,
-            formatPreference: turnFormatPreference,
-            previousDraft: activeDraft,
-            revisionChangeKind: revision.changeKind,
-          },
-        );
-
-        if (!criticOutput) {
-          return {
-            mode: "error",
-            outputShape: "coach_question",
-            response: "Failed to finalize revised draft.",
-            memory,
-          };
+        }),
+        feedbackMemoryNotice,
+      ),
+      data: ideas
+        ? {
+          angles: ideas.angles,
+          quickReplies: buildIdeationQuickReplies({
+            styleCard,
+            seedTopic: nextIdeationTopicSummary || currentTopicSummary,
+          }),
         }
+        : undefined,
+      memory,
+    };
+  }
 
-        const revisionWasRejectedByCritic = !criticOutput.approved;
-        const finalizedRevisionDraft = revisionWasRejectedByCritic
-          ? reviserOutput.revisedDraft
-          : criticOutput.finalDraft;
-        const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
-          ? buildRollingSummary({
-              currentSummary: memory.rollingSummary,
-              topicSummary: memory.topicSummary,
-              approvedPlan: memory.pendingPlan,
-              activeConstraints: effectiveActiveConstraints,
-              latestDraftStatus: "Draft revised",
-              formatPreference: memory.formatPreference || turnFormatPreference,
-            })
-          : memory.rollingSummary;
+  async function handlePlanMode(): Promise<OrchestratorResponse> {
+    const plan = await services.generatePlan(
+      userMessage,
+      memory.topicSummary,
+      effectiveActiveConstraints,
+      effectiveContext,
+      activeDraft,
+      {
+        goal,
+        conversationState: memory.conversationState,
+        antiPatterns,
+        draftPreference: turnDraftPreference,
+        formatPreference: turnFormatPreference,
+      },
+    );
 
-        const issuesFixed = Array.from(
-          new Set([
-            ...(reviserOutput.issuesFixed || []),
-            ...criticOutput.issues,
-            ...(revisionWasRejectedByCritic
-              ? ["Kept the revision closer to the original edit scope."]
-              : []),
-          ]),
-        );
+    if (!plan) {
+      return {
+        mode: "error",
+        outputShape: "coach_question",
+        response: "Failed to generate strategy plan.",
+        memory,
+      };
+    }
 
-        await writeMemory({
-          conversationState: "editing",
-          pendingPlan: null,
-          clarificationState: null,
-          rollingSummary,
-          assistantTurnCount: nextAssistantTurnCount,
-          formatPreference: turnFormatPreference,
-        });
+    const planWithPreference = withPlanPreferences(
+      plan,
+      turnDraftPreference,
+      turnFormatPreference,
+    );
+    const guardedPlan = shouldForceNoFabricationGuardrailForTurn
+      ? withNoFabricationPlanGuardrail(planWithPreference)
+      : planWithPreference;
 
-        return {
-          mode: "draft",
-          outputShape: resolveDraftOutputShape(turnFormatPreference),
-          response: prependFeedbackMemoryNotice(
-            buildDraftReply({
-              userMessage,
-              draftPreference: turnDraftPreference,
-              isEdit: true,
-              issuesFixed,
-              styleCard,
-            }),
-            feedbackMemoryNotice,
-          ),
-          data: {
-            draft: finalizedRevisionDraft,
-            supportAsset: reviserOutput.supportAsset,
-            issuesFixed,
-          },
-          memory,
-        };
-      }
-
-      const historicalTexts = await services.getHistoricalPosts({
-        userId,
-        xHandle: effectiveXHandle,
-      });
-
-      const plan = await services.generatePlan(
-        draftInstruction,
-        memory.topicSummary,
-        effectiveActiveConstraints,
-        effectiveContext,
-        activeDraft,
-        {
-          goal,
-          conversationState: memory.conversationState,
-          antiPatterns,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
-        },
-      );
-
-      if (!plan) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to generate strategy plan.",
-          memory,
-        };
-      }
-
-      const planWithPreference = withPlanPreferences(
-        plan,
-        turnDraftPreference,
-        turnFormatPreference,
-      );
-      const guardedPlan = shouldForceNoFabricationGuardrailForTurn
-        ? withNoFabricationPlanGuardrail(planWithPreference)
-        : planWithPreference;
-      const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
-        ? appendNoFabricationConstraint(effectiveActiveConstraints)
-        : effectiveActiveConstraints;
-
+    // V3: Rough draft mode. When the turn planner forced draft (user said
+    // "just write it" / "go ahead"), auto-approve the plan and proceed
+    // directly to drafting instead of waiting for explicit approval.
+    if (turnPlan?.userGoal === "draft" && hasEnoughContextToAct) {
       const writerOutput = await services.generateDrafts(
         guardedPlan,
         styleCard,
         relevantTopicAnchors,
-        draftActiveConstraints,
+        effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
         {
-          conversationState: memory.conversationState,
           antiPatterns,
           maxCharacterLimit,
           goal,
-          draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+          draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
         },
       );
 
       if (!writerOutput) {
+        // Fall through to plan presentation if draft generation fails.
+        await writeMemory({
+          topicSummary: guardedPlan.objective,
+          conversationState: "plan_pending_approval",
+          pendingPlan: guardedPlan,
+          clarificationState: null,
+          assistantTurnCount: nextAssistantTurnCount,
+          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+        });
+
         return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to write draft.",
+          mode: "plan",
+          outputShape: "planning_outline",
+          response: prependFeedbackMemoryNotice(
+            buildPlanPitch(guardedPlan),
+            feedbackMemoryNotice,
+          ),
+          data: {
+            plan: guardedPlan,
+            quickReplies: buildPlannerQuickReplies({
+              plan: guardedPlan,
+              styleCard,
+              context: "approval",
+            }),
+          },
           memory,
         };
       }
 
       const criticOutput = await services.critiqueDrafts(
         writerOutput,
-        draftActiveConstraints,
+        effectiveActiveConstraints,
         styleCard,
         {
           maxCharacterLimit,
-          draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+          draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
         },
       );
 
-      if (!criticOutput) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to critique draft.",
-          memory,
-        };
-      }
+      const finalDraft = criticOutput?.approved
+        ? criticOutput.finalDraft
+        : writerOutput.draft;
 
-      const noveltyCheck = services.checkDeterministicNovelty(
-        criticOutput.finalDraft,
-        historicalTexts,
-      );
-      if (!noveltyCheck.isNovel) {
-        const clarification = buildClarificationTree({
-          branchKey: "plan_reject",
-          seedTopic: plan.objective,
-          styleCard,
-          topicAnchors: relevantTopicAnchors,
-        });
-
-        await writeMemory({
-          conversationState: "needs_more_context",
-          pendingPlan: null,
-          clarificationState: clarification.clarificationState,
-          assistantTurnCount: nextAssistantTurnCount,
-        });
-
-        return {
-          mode: "coach",
-          outputShape: "coach_question",
-          response: prependFeedbackMemoryNotice(
-            "that version felt too close to something you've already posted. let's shift it.",
-            feedbackMemoryNotice,
-          ),
-          data: {
-            quickReplies: clarification.quickReplies,
-          },
-          memory,
-        };
-      }
-
-      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
         ? buildRollingSummary({
-            currentSummary: memory.rollingSummary,
-            topicSummary: guardedPlan.objective,
-            approvedPlan: guardedPlan,
-            activeConstraints: draftActiveConstraints,
-            latestDraftStatus: "Draft delivered",
-            formatPreference:
-              guardedPlan.formatPreference || turnFormatPreference,
-          })
+          currentSummary: memory.rollingSummary,
+          topicSummary: guardedPlan.objective,
+          approvedPlan: guardedPlan,
+          activeConstraints: effectiveActiveConstraints,
+          latestDraftStatus: "Rough draft generated",
+          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+        })
         : memory.rollingSummary;
 
       await writeMemory({
@@ -2397,77 +2230,313 @@ User Profile Summary:
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
-        rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
+        rollingSummary,
         formatPreference: guardedPlan.formatPreference || turnFormatPreference,
       });
 
       return {
         mode: "draft",
-        outputShape: resolveDraftOutputShape(
-          guardedPlan.formatPreference || turnFormatPreference,
-        ),
+        outputShape: resolveDraftOutputShape(guardedPlan.formatPreference || turnFormatPreference),
         response: prependFeedbackMemoryNotice(
           buildDraftReply({
             userMessage,
-            draftPreference:
-              guardedPlan.deliveryPreference || turnDraftPreference,
+            draftPreference: turnDraftPreference,
             isEdit: false,
-            issuesFixed: criticOutput.issues,
+            issuesFixed: criticOutput?.issues || [],
             styleCard,
           }),
           feedbackMemoryNotice,
         ),
         data: {
-          draft: criticOutput.finalDraft,
+          draft: finalDraft,
           supportAsset: writerOutput.supportAsset,
-          issuesFixed: criticOutput.issues,
+          plan: guardedPlan,
+          issuesFixed: criticOutput?.issues || [],
         },
         memory,
       };
     }
 
-    case "coach":
-    case "answer_question":
-    default: {
-      const coachReply = await services.generateCoachReply(
-        userMessage,
-        effectiveContext,
-        memory.topicSummary,
+    await writeMemory({
+      topicSummary: guardedPlan.objective,
+      conversationState: "plan_pending_approval",
+      pendingPlan: guardedPlan,
+      clarificationState: null,
+      assistantTurnCount: nextAssistantTurnCount,
+      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+    });
+
+    return {
+      mode: "plan",
+      outputShape: "planning_outline",
+      response: prependFeedbackMemoryNotice(
+        buildPlanPitch(guardedPlan),
+        feedbackMemoryNotice,
+      ),
+      data: {
+        plan: guardedPlan,
+        quickReplies: buildPlannerQuickReplies({
+          plan: guardedPlan,
+          styleCard,
+          context: "approval",
+        }),
+      },
+      memory,
+    };
+  }
+
+  async function handleDraftEditReviewMode(): Promise<OrchestratorResponse> {
+    // V3: Harden the edit path. If mode is edit/review but the frontend
+    // did not send activeDraft, try to recover the last draft from the
+    // most recent assistant message in the thread.
+    let effectiveActiveDraft = activeDraft;
+    if (
+      !effectiveActiveDraft &&
+      (mode === "edit" || mode === "review") &&
+      threadId
+    ) {
+      try {
+        const lastDraftMessage = await prisma.chatMessage.findFirst({
+          where: {
+            threadId,
+            role: "assistant",
+          },
+          orderBy: { createdAt: "desc" },
+          select: { data: true },
+        });
+        const messageData = lastDraftMessage?.data as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          messageData?.draft &&
+          typeof messageData.draft === "string"
+        ) {
+          effectiveActiveDraft = messageData.draft;
+        }
+      } catch {
+        // Non-critical — if recovery fails, fall through to fresh draft.
+      }
+    }
+
+    if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
+      const revision = normalizeDraftRevisionInstruction(
+        draftInstruction,
+        effectiveActiveDraft,
+      );
+      const reviserOutput = await services.generateRevisionDraft({
+        activeDraft: effectiveActiveDraft,
+        revision,
         styleCard,
-        relevantTopicAnchors,
-        userContextString,
-        {
-          goal,
-          conversationState: memory.conversationState,
+        topicAnchors: relevantTopicAnchors,
+        activeConstraints: effectiveActiveConstraints,
+        recentHistory: effectiveContext,
+        options: {
+          conversationState: "editing",
           antiPatterns,
+          maxCharacterLimit,
+          goal,
+          draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
+        },
+      });
+
+      if (!reviserOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to revise draft.",
+          memory,
+        };
+      }
+
+      const criticOutput = await services.critiqueDrafts(
+        {
+          angle: "Targeted revision",
+          draft: reviserOutput.revisedDraft,
+          supportAsset: reviserOutput.supportAsset ?? "",
+          whyThisWorks: "",
+          watchOutFor: "",
+        },
+        effectiveActiveConstraints,
+        styleCard,
+        {
+          maxCharacterLimit,
+          draftPreference: turnDraftPreference,
+          formatPreference: turnFormatPreference,
+          previousDraft: effectiveActiveDraft,
+          revisionChangeKind: revision.changeKind,
         },
       );
 
-      const nextConcreteAnswerCount =
-        userMessage.length > 15
-          ? memory.concreteAnswerCount + 1
-          : memory.concreteAnswerCount;
+      if (!criticOutput) {
+        return {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to finalize revised draft.",
+          memory,
+        };
+      }
 
+      const revisionWasRejectedByCritic = !criticOutput.approved;
+      const finalizedRevisionDraft = revisionWasRejectedByCritic
+        ? reviserOutput.revisedDraft
+        : criticOutput.finalDraft;
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
         ? buildRollingSummary({
-            currentSummary: memory.rollingSummary,
-            topicSummary: memory.topicSummary,
-            approvedPlan: memory.pendingPlan,
-            activeConstraints: effectiveActiveConstraints,
-            latestDraftStatus: "Context gathering",
-            formatPreference: memory.formatPreference || turnFormatPreference,
-            unresolvedQuestion: coachReply?.probingQuestion || null,
-          })
+          currentSummary: memory.rollingSummary,
+          topicSummary: memory.topicSummary,
+          approvedPlan: memory.pendingPlan,
+          activeConstraints: effectiveActiveConstraints,
+          latestDraftStatus: "Draft revised",
+          formatPreference: memory.formatPreference || turnFormatPreference,
+        })
         : memory.rollingSummary;
 
+      const issuesFixed = Array.from(
+        new Set([
+          ...(reviserOutput.issuesFixed || []),
+          ...criticOutput.issues,
+          ...(revisionWasRejectedByCritic
+            ? ["Kept the revision closer to the original edit scope."]
+            : []),
+        ]),
+      );
+
       await writeMemory({
-        conversationState:
-          memory.pendingPlan && memory.conversationState === "plan_pending_approval"
-            ? "plan_pending_approval"
-            : "needs_more_context",
-        concreteAnswerCount: nextConcreteAnswerCount,
+        conversationState: "editing",
+        pendingPlan: null,
+        clarificationState: null,
         rollingSummary,
+        assistantTurnCount: nextAssistantTurnCount,
+        formatPreference: turnFormatPreference,
+      });
+
+      return {
+        mode: "draft",
+        outputShape: resolveDraftOutputShape(turnFormatPreference),
+        response: prependFeedbackMemoryNotice(
+          buildDraftReply({
+            userMessage,
+            draftPreference: turnDraftPreference,
+            isEdit: true,
+            issuesFixed,
+            styleCard,
+          }),
+          feedbackMemoryNotice,
+        ),
+        data: {
+          draft: finalizedRevisionDraft,
+          supportAsset: reviserOutput.supportAsset,
+          issuesFixed,
+        },
+        memory,
+      };
+    }
+
+    const historicalTexts = await services.getHistoricalPosts({
+      userId,
+      xHandle: effectiveXHandle,
+    });
+
+    const plan = await services.generatePlan(
+      draftInstruction,
+      memory.topicSummary,
+      effectiveActiveConstraints,
+      effectiveContext,
+      activeDraft,
+      {
+        goal,
+        conversationState: memory.conversationState,
+        antiPatterns,
+        draftPreference: turnDraftPreference,
+        formatPreference: turnFormatPreference,
+      },
+    );
+
+    if (!plan) {
+      return {
+        mode: "error",
+        outputShape: "coach_question",
+        response: "Failed to generate strategy plan.",
+        memory,
+      };
+    }
+
+    const planWithPreference = withPlanPreferences(
+      plan,
+      turnDraftPreference,
+      turnFormatPreference,
+    );
+    const guardedPlan = shouldForceNoFabricationGuardrailForTurn
+      ? withNoFabricationPlanGuardrail(planWithPreference)
+      : planWithPreference;
+    const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
+      ? appendNoFabricationConstraint(effectiveActiveConstraints)
+      : effectiveActiveConstraints;
+
+    const writerOutput = await services.generateDrafts(
+      guardedPlan,
+      styleCard,
+      relevantTopicAnchors,
+      draftActiveConstraints,
+      effectiveContext,
+      activeDraft,
+      {
+        conversationState: memory.conversationState,
+        antiPatterns,
+        maxCharacterLimit,
+        goal,
+        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      },
+    );
+
+    if (!writerOutput) {
+      return {
+        mode: "error",
+        outputShape: "coach_question",
+        response: "Failed to write draft.",
+        memory,
+      };
+    }
+
+    const criticOutput = await services.critiqueDrafts(
+      writerOutput,
+      draftActiveConstraints,
+      styleCard,
+      {
+        maxCharacterLimit,
+        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      },
+    );
+
+    if (!criticOutput) {
+      return {
+        mode: "error",
+        outputShape: "coach_question",
+        response: "Failed to critique draft.",
+        memory,
+      };
+    }
+
+    const noveltyCheck = services.checkDeterministicNovelty(
+      criticOutput.finalDraft,
+      historicalTexts,
+    );
+    if (!noveltyCheck.isNovel) {
+      const clarification = buildClarificationTree({
+        branchKey: "plan_reject",
+        seedTopic: plan.objective,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+      });
+
+      await writeMemory({
+        conversationState: "needs_more_context",
+        pendingPlan: null,
+        clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
       });
 
@@ -2475,12 +2544,192 @@ User Profile Summary:
         mode: "coach",
         outputShape: "coach_question",
         response: prependFeedbackMemoryNotice(
-          coachReply?.response ||
-            "what's on your mind? i can help you draft, ideate, or figure out what to post.",
+          "that version felt too close to something you've already posted. let's shift it.",
           feedbackMemoryNotice,
         ),
+        data: {
+          quickReplies: clarification.quickReplies,
+        },
         memory,
       };
     }
+
+    const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+      ? buildRollingSummary({
+        currentSummary: memory.rollingSummary,
+        topicSummary: guardedPlan.objective,
+        approvedPlan: guardedPlan,
+        activeConstraints: draftActiveConstraints,
+        latestDraftStatus: "Draft delivered",
+        formatPreference:
+          guardedPlan.formatPreference || turnFormatPreference,
+      })
+      : memory.rollingSummary;
+
+    await writeMemory({
+      topicSummary: guardedPlan.objective,
+      conversationState: "draft_ready",
+      pendingPlan: null,
+      clarificationState: null,
+      rollingSummary,
+      assistantTurnCount: nextAssistantTurnCount,
+      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+    });
+
+    return {
+      mode: "draft",
+      outputShape: resolveDraftOutputShape(
+        guardedPlan.formatPreference || turnFormatPreference,
+      ),
+      response: prependFeedbackMemoryNotice(
+        buildDraftReply({
+          userMessage,
+          draftPreference:
+            guardedPlan.deliveryPreference || turnDraftPreference,
+          isEdit: false,
+          issuesFixed: criticOutput.issues,
+          styleCard,
+        }),
+        feedbackMemoryNotice,
+      ),
+      data: {
+        draft: criticOutput.finalDraft,
+        supportAsset: writerOutput.supportAsset,
+        issuesFixed: criticOutput.issues,
+      },
+      memory,
+    };
+  }
+
+  async function handleCoachMode(): Promise<OrchestratorResponse> {
+    // V3: Fast-path for non-generation turns (constraint acks, comparisons,
+    // simple questions). Skips the full coach LLM call when deterministic
+    // answers are sufficient.
+    if (turnPlan && !turnPlan.shouldGenerate) {
+      const fastReply = await respondConversationally({
+        userMessage,
+        recentHistory: effectiveContext,
+        topicSummary: memory.topicSummary,
+        styleCard,
+        topicAnchors: relevantTopicAnchors,
+        userContextString,
+        options: {
+          goal,
+          conversationState: memory.conversationState,
+          antiPatterns,
+        },
+      });
+
+      if (fastReply) {
+        // Capture constraints in memory if this is a constraint declaration.
+        const isConstraint = isConstraintDeclaration(userMessage);
+        const nextConstraints = isConstraint
+          ? Array.from(new Set([...memory.activeConstraints, userMessage.trim()]))
+          : undefined;
+
+        await writeMemory({
+          conversationState:
+            memory.pendingPlan && memory.conversationState === "plan_pending_approval"
+              ? "plan_pending_approval"
+              : memory.conversationState === "draft_ready"
+                ? "draft_ready"
+                : "needs_more_context",
+          ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
+          assistantTurnCount: nextAssistantTurnCount,
+        });
+
+        return {
+          mode: "coach",
+          outputShape: "coach_question",
+          response: prependFeedbackMemoryNotice(fastReply, feedbackMemoryNotice),
+          memory,
+        };
+      }
+    }
+
+    const coachReply = await services.generateCoachReply(
+      userMessage,
+      effectiveContext,
+      memory.topicSummary,
+      styleCard,
+      relevantTopicAnchors,
+      userContextString,
+      {
+        goal,
+        conversationState: memory.conversationState,
+        antiPatterns,
+      },
+    );
+
+    const nextConcreteAnswerCount =
+      userMessage.length > 15
+        ? memory.concreteAnswerCount + 1
+        : memory.concreteAnswerCount;
+
+    const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
+      ? buildRollingSummary({
+        currentSummary: memory.rollingSummary,
+        topicSummary: memory.topicSummary,
+        approvedPlan: memory.pendingPlan,
+        activeConstraints: effectiveActiveConstraints,
+        latestDraftStatus: "Context gathering",
+        formatPreference: memory.formatPreference || turnFormatPreference,
+        unresolvedQuestion: coachReply?.probingQuestion || null,
+      })
+      : memory.rollingSummary;
+
+    await writeMemory({
+      conversationState:
+        memory.pendingPlan && memory.conversationState === "plan_pending_approval"
+          ? "plan_pending_approval"
+          : "needs_more_context",
+      concreteAnswerCount: nextConcreteAnswerCount,
+      rollingSummary,
+      assistantTurnCount: nextAssistantTurnCount,
+    });
+
+    const willHaveEnoughContext =
+      nextConcreteAnswerCount >= 2 ||
+      (nextAssistantTurnCount >= 3 &&
+        Boolean(memory.topicSummary) &&
+        nextConcreteAnswerCount >= 1);
+
+    let finalResponse =
+      coachReply?.response ||
+      "what's on your mind? i can help you draft, ideate, or figure out what to post.";
+
+    if (
+      willHaveEnoughContext &&
+      !finalResponse.toLowerCase().includes("want me to") &&
+      !finalResponse.toLowerCase().includes("draft")
+    ) {
+      finalResponse = finalResponse.trim() + " want me to turn that into a post?";
+    }
+
+    return {
+      mode: "coach",
+      outputShape: "coach_question",
+      response: prependFeedbackMemoryNotice(finalResponse, feedbackMemoryNotice),
+      memory,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Execution Routing
+  // ---------------------------------------------------------------------------
+
+  switch (mode) {
+    case "ideate":
+      return handleIdeateMode();
+    case "plan":
+      return handlePlanMode();
+    case "draft":
+    case "review":
+    case "edit":
+      return handleDraftEditReviewMode();
+    case "coach":
+    case "answer_question":
+    default:
+      return handleCoachMode();
   }
 }

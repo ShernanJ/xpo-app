@@ -90,12 +90,12 @@ interface ProfileScrapeRefreshSuccess {
   ok: true;
   refreshed: boolean;
   reason:
-    | "manual_refresh"
-    | "new_posts_detected"
-    | "fresh_enough"
-    | "no_new_posts_detected"
-    | "probe_failed"
-    | "missing_onboarding_run";
+  | "manual_refresh"
+  | "new_posts_detected"
+  | "fresh_enough"
+  | "no_new_posts_detected"
+  | "probe_failed"
+  | "missing_onboarding_run";
   runId?: string;
   persistedAt?: string;
   cooldownUntil?: string | null;
@@ -197,12 +197,12 @@ interface BillingStateSuccess {
 interface BillingStateFailure {
   ok: false;
   code?:
-    | "INSUFFICIENT_CREDITS"
-    | "PLAN_REQUIRED"
-    | "RATE_LIMITED"
-    | "SOLD_OUT"
-    | "ALREADY_SUBSCRIBED"
-    | "PLAN_SWITCH_IN_PORTAL";
+  | "INSUFFICIENT_CREDITS"
+  | "PLAN_REQUIRED"
+  | "RATE_LIMITED"
+  | "SOLD_OUT"
+  | "ALREADY_SUBSCRIBED"
+  | "PLAN_SWITCH_IN_PORTAL";
   errors: ValidationError[];
   data?: {
     billing?: BillingSnapshotPayload;
@@ -359,11 +359,11 @@ const FEEDBACK_HISTORY_FILTER_OPTIONS: Array<{
   value: FeedbackReportFilter;
   label: string;
 }> = [
-  { value: "all", label: "All" },
-  { value: "open", label: "Open" },
-  { value: "resolved", label: "Resolved" },
-  { value: "cancelled", label: "Cancelled" },
-];
+    { value: "all", label: "All" },
+    { value: "open", label: "Open" },
+    { value: "resolved", label: "Resolved" },
+    { value: "cancelled", label: "Cancelled" },
+  ];
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -734,19 +734,19 @@ function parsePublicUsdToCents(rawValue: string | undefined, fallbackCents: numb
 
 const DEFAULT_MODAL_PRO_MONTHLY_CENTS = parsePublicUsdToCents(
   process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_CAD ??
-    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
   1999,
 );
 const DEFAULT_MODAL_PRO_ANNUAL_CENTS = parsePublicUsdToCents(
   process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_CAD ??
-    process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
   19999,
 );
 const DEFAULT_MODAL_LIFETIME_CENTS = parsePublicUsdToCents(
   process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_CAD ??
-    process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
-    process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_CAD ??
-    process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
+  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
+  process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_CAD ??
+  process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
   49900,
 );
 const MODAL_FREE_CREDITS_PER_MONTH = 50;
@@ -2028,9 +2028,9 @@ function buildHeroGreeting(params: {
 }): string {
   const resolvedHandle = normalizeAccountHandle(
     params.accountName ??
-      params.context?.creatorProfile.identity.username ??
-      params.context?.account ??
-      "",
+    params.context?.creatorProfile.identity.username ??
+    params.context?.account ??
+    "",
   );
   const opener = isClearlyCasualGreetingProfile(
     params.context,
@@ -2122,30 +2122,30 @@ function normalizeDraftVersionBundle(
     message.draftVersions?.length
       ? message.draftVersions
       : (() => {
-          const fallbackContent =
-            message.draft ??
-            message.drafts?.[0] ??
-            message.draftArtifacts?.[0]?.content ??
-            null;
+        const fallbackContent =
+          message.draft ??
+          message.drafts?.[0] ??
+          message.draftArtifacts?.[0]?.content ??
+          null;
 
-          if (!fallbackContent) {
-            return [];
-          }
+        if (!fallbackContent) {
+          return [];
+        }
 
-          return [
-            {
-              id: `${message.id}-v1`,
-              content: fallbackContent,
-              source: "assistant_generated" as const,
-              createdAt: message.createdAt ?? new Date(0).toISOString(),
-              basedOnVersionId: null,
-              weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
-              maxCharacterLimit:
-                message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
-              supportAsset,
-            },
-          ];
-        })();
+        return [
+          {
+            id: `${message.id}-v1`,
+            content: fallbackContent,
+            source: "assistant_generated" as const,
+            createdAt: message.createdAt ?? new Date(0).toISOString(),
+            basedOnVersionId: null,
+            weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
+            maxCharacterLimit:
+              message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
+            supportAsset,
+          },
+        ];
+      })();
 
   if (!rawVersions.length) {
     return null;
@@ -2172,7 +2172,7 @@ function normalizeDraftVersionBundle(
 
   const activeVersionId =
     message.activeDraftVersionId &&
-    mappedVersions.some((version) => version.id === message.activeDraftVersionId)
+      mappedVersions.some((version) => version.id === message.activeDraftVersionId)
       ? message.activeDraftVersionId
       : mappedVersions[mappedVersions.length - 1].id;
   const activeVersionIndex = mappedVersions.findIndex(
@@ -2181,10 +2181,10 @@ function normalizeDraftVersionBundle(
   const versions =
     activeVersionIndex >= 0 && activeVersionIndex < mappedVersions.length - 1
       ? [
-          ...mappedVersions.slice(0, activeVersionIndex),
-          ...mappedVersions.slice(activeVersionIndex + 1),
-          mappedVersions[activeVersionIndex],
-        ]
+        ...mappedVersions.slice(0, activeVersionIndex),
+        ...mappedVersions.slice(activeVersionIndex + 1),
+        mappedVersions[activeVersionIndex],
+      ]
       : mappedVersions;
   const currentVersionIndex = Math.max(
     0,
@@ -2199,12 +2199,12 @@ function normalizeDraftVersionBundle(
     ? message.previousVersionSnapshot
     : inferredPreviousVersion
       ? {
-          messageId: message.id,
-          versionId: inferredPreviousVersion.id,
-          content: inferredPreviousVersion.content,
-          source: inferredPreviousVersion.source,
-          createdAt: inferredPreviousVersion.createdAt,
-        }
+        messageId: message.id,
+        versionId: inferredPreviousVersion.id,
+        content: inferredPreviousVersion.content,
+        source: inferredPreviousVersion.source,
+        createdAt: inferredPreviousVersion.createdAt,
+      }
       : null;
   return {
     versions,
@@ -2364,15 +2364,15 @@ function buildDraftRevisionTimeline(args: {
     )
       ? []
       : selectedBundle.versions.map((version) => ({
-          messageId: selectedMessage.id,
-          versionId: version.id,
-          content: version.content,
-          createdAt: version.createdAt,
-          source: version.source,
-          revisionChainId: resolvedChainId,
-          maxCharacterLimit: version.maxCharacterLimit,
-          isCurrentMessageVersion: true,
-        }));
+        messageId: selectedMessage.id,
+        versionId: version.id,
+        content: version.content,
+        createdAt: version.createdAt,
+        source: version.source,
+        revisionChainId: resolvedChainId,
+        maxCharacterLimit: version.maxCharacterLimit,
+        isCurrentMessageVersion: true,
+      }));
     const combinedEntries = [...selectedMessageEntries, ...chainedEntries].sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     );
@@ -2489,50 +2489,9 @@ function buildDraftRevisionTimeline(args: {
   ];
 }
 
-function inferComposerIntent(input: string): ChatIntent {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return "coach";
-  }
-
-  if (isBroadDraftRequest(trimmed)) {
-    return "draft";
-  }
-
-  if (isDraftPushPrompt(trimmed)) {
-    return "coach";
-  }
-
-  if (
-    /\b(draft|write|rewrite|turn this into|make this a post|make this into a post|post draft|write me a post|turn this into drafts)\b/i.test(
-      trimmed,
-    )
-  ) {
-    return "draft";
-  }
-
-  if (/\b(review|critique|edit|improve this|make this better)\b/i.test(trimmed)) {
-    return "review";
-  }
-
-  if (isCorrectionPrompt(trimmed) || isMetaClarifyingPrompt(trimmed)) {
-    return "coach";
-  }
-
-  if (isBroadDiscoveryPrompt(trimmed)) {
-    return "coach";
-  }
-
-  if (isThinCoachInput(trimmed)) {
-    return "coach";
-  }
-
-  if (/\b(idea|ideate|brainstorm|angles?|topics?)\b/i.test(trimmed)) {
-    return "ideate";
-  }
-
-  return "coach";
-}
+// V3: inferComposerIntent was removed. The backend turn planner and LLM
+// classifier are now fully authoritative for intent classification.
+// See: lib/agent-v2/orchestrator/turnPlanner.ts
 
 function formatNicheSummary(context: CreatorAgentContext): string {
   const { primaryNiche, targetNiche } = context.creatorProfile.niche;
@@ -3153,9 +3112,9 @@ function ChatPageContent() {
 
         const data = (await response.json()) as
           | {
-              ok: true;
-              data: { checkoutUrl?: string | null };
-            }
+            ok: true;
+            data: { checkoutUrl?: string | null };
+          }
           | BillingStateFailure;
 
         if (!response.ok || !data.ok) {
@@ -3462,9 +3421,9 @@ function ChatPageContent() {
       } else if (token === "bullet") {
         const content = selected
           ? selected
-              .split(/\r?\n/)
-              .map((line) => (line.trim() ? `- ${line.trim()}` : "- "))
-              .join("\n")
+            .split(/\r?\n/)
+            .map((line) => (line.trim() ? `- ${line.trim()}` : "- "))
+            .join("\n")
           : "- list item";
         insertion = content;
         nextCursorStart = start + insertion.length;
@@ -3662,10 +3621,10 @@ function ChatPageContent() {
           current.map((entry) =>
             entry.id === submissionId
               ? {
-                  ...entry,
-                  status: result.data.submission.status,
-                  statusUpdatedAt: result.data.submission.statusUpdatedAt,
-                }
+                ...entry,
+                status: result.data.submission.status,
+                statusUpdatedAt: result.data.submission.statusUpdatedAt,
+              }
               : entry,
           ),
         );
@@ -4034,36 +3993,36 @@ function ChatPageContent() {
     const lines =
       preferenceWritingMode === "voice"
         ? [
-            "building xpo in public means shipping what feels real, not what sounds polished.",
+          "building xpo in public means shipping what feels real, not what sounds polished.",
+          preferenceAllowProfanity
+            ? "this grind gets fucking real, but the reps are worth it."
+            : "this grind gets real, but the reps are worth it.",
+          `${bullet} sharing what i'm learning as it happens`,
+          `${bullet} keeping the rough edges in instead of over-polishing`,
+          `${bullet} shipping again when the next fix is obvious`,
+          "if you're building too, keep going.",
+        ]
+        : preferenceWritingMode === "growth"
+          ? [
+            "most people wait too long to ship. building xpo in public keeps the loop tight.",
             preferenceAllowProfanity
               ? "this grind gets fucking real, but the reps are worth it."
               : "this grind gets real, but the reps are worth it.",
-            `${bullet} sharing what i'm learning as it happens`,
-            `${bullet} keeping the rough edges in instead of over-polishing`,
-            `${bullet} shipping again when the next fix is obvious`,
-            "if you're building too, keep going.",
+            `${bullet} ship faster`,
+            `${bullet} learn what people actually care about`,
+            `${bullet} turn every post into a feedback loop`,
+            "if you're building too, post the next rep today.",
           ]
-        : preferenceWritingMode === "growth"
-          ? [
-              "most people wait too long to ship. building xpo in public keeps the loop tight.",
-              preferenceAllowProfanity
-                ? "this grind gets fucking real, but the reps are worth it."
-                : "this grind gets real, but the reps are worth it.",
-              `${bullet} ship faster`,
-              `${bullet} learn what people actually care about`,
-              `${bullet} turn every post into a feedback loop`,
-              "if you're building too, post the next rep today.",
-            ]
           : [
-              "building xpo in public means shipping before it feels perfect.",
-              preferenceAllowProfanity
-                ? "this grind gets fucking real, but the reps are worth it."
-                : "this grind gets real, but the reps are worth it.",
-              `${bullet} testing ideas fast`,
-              `${bullet} listening to what people actually need`,
-              `${bullet} fixing what breaks and shipping again`,
-              "if you're building too, keep going.",
-            ];
+            "building xpo in public means shipping before it feels perfect.",
+            preferenceAllowProfanity
+              ? "this grind gets fucking real, but the reps are worth it."
+              : "this grind gets real, but the reps are worth it.",
+            `${bullet} testing ideas fast`,
+            `${bullet} listening to what people actually need`,
+            `${bullet} fixing what breaks and shipping again`,
+            "if you're building too, keep going.",
+          ];
 
     let nextDraft = lines.join("\n");
 
@@ -4395,9 +4354,9 @@ function ChatPageContent() {
           setBillingState((current) =>
             current
               ? {
-                  ...current,
-                  billing: data.data?.billing ?? current.billing,
-                }
+                ...current,
+                billing: data.data?.billing ?? current.billing,
+              }
               : current,
           );
         }
@@ -4475,9 +4434,9 @@ function ChatPageContent() {
           setBillingState((current) =>
             current
               ? {
-                  ...current,
-                  billing: data.data?.billing ?? current.billing,
-                }
+                ...current,
+                billing: data.data?.billing ?? current.billing,
+              }
               : current,
           );
         }
@@ -5374,8 +5333,8 @@ function ChatPageContent() {
     const trimmedQuery = sidebarSearchQuery.trim().toLowerCase();
     const filteredThreads = trimmedQuery
       ? chatThreads.filter((thread) =>
-          (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
-        )
+        (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
+      )
       : chatThreads;
     const recentItems = filteredThreads.slice(0, 10).map((t) => ({
       id: t.id,
@@ -5390,12 +5349,12 @@ function ChatPageContent() {
           trimmedQuery || recentItems.length > 0
             ? recentItems
             : [
-                {
-                  id: activeThreadId ?? "current-workspace",
-                  label: "New Chat",
-                  meta: "Active",
-                },
-              ],
+              {
+                id: activeThreadId ?? "current-workspace",
+                label: "New Chat",
+                meta: "Active",
+              },
+            ],
       },
     ];
   }, [context, contract, chatThreads, activeThreadId, sidebarSearchQuery]);
@@ -5573,7 +5532,7 @@ function ChatPageContent() {
       messageId,
       versionId:
         versionId && bundle.versions.some((version) => version.id === versionId)
-        ? versionId
+          ? versionId
           : bundle.activeVersionId,
       revisionChainId: message.revisionChainId ?? undefined,
     });
@@ -5604,9 +5563,9 @@ function ChatPageContent() {
         current.map((message) =>
           message.id === messageId
             ? {
-                ...message,
-                feedbackValue: nextValue,
-              }
+              ...message,
+              feedbackValue: nextValue,
+            }
             : message,
         ),
       );
@@ -5622,11 +5581,11 @@ function ChatPageContent() {
             method: nextValue ? "POST" : "DELETE",
             ...(nextValue
               ? {
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({ value: nextValue }),
-                }
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ value: nextValue }),
+              }
               : {}),
           },
         );
@@ -5657,9 +5616,9 @@ function ChatPageContent() {
             current.map((message) =>
               message.id === messageId
                 ? {
-                    ...message,
-                    feedbackValue: savedValue,
-                  }
+                  ...message,
+                  feedbackValue: savedValue,
+                }
                 : message,
             ),
           );
@@ -5669,9 +5628,9 @@ function ChatPageContent() {
           current.map((message) =>
             message.id === messageId
               ? {
-                  ...message,
-                  feedbackValue: previousValue,
-                }
+                ...message,
+                feedbackValue: previousValue,
+              }
               : message,
           ),
         );
@@ -6044,9 +6003,9 @@ function ChatPageContent() {
           setBillingState((current) =>
             current
               ? {
-                  ...current,
-                  billing: failure.data?.billing ?? current.billing,
-                }
+                ...current,
+                billing: failure.data?.billing ?? current.billing,
+              }
               : current,
           );
         }
@@ -6057,10 +6016,10 @@ function ChatPageContent() {
           current.map((message) =>
             message.id === temporaryAssistantMessageId
               ? {
-                  ...message,
-                  content: buildDraftReviewFailureLabel(),
-                  isStreaming: false,
-                }
+                ...message,
+                content: buildDraftReviewFailureLabel(),
+                isStreaming: false,
+              }
               : message,
           ),
         );
@@ -6101,10 +6060,10 @@ function ChatPageContent() {
         current.map((message) =>
           message.id === temporaryAssistantMessageId
             ? {
-                ...message,
-                content: buildDraftReviewFailureLabel(),
-                isStreaming: false,
-              }
+              ...message,
+              content: buildDraftReviewFailureLabel(),
+              isStreaming: false,
+            }
             : message,
         ),
       );
@@ -6170,8 +6129,8 @@ function ChatPageContent() {
         options.selectedDraftContextOverride !== undefined
           ? options.selectedDraftContextOverride
           : selectedDraftContext &&
-              !options.selectedAngle &&
-              (effectiveIntent === "edit" || effectiveIntent === "review")
+            !options.selectedAngle &&
+            (effectiveIntent === "edit" || effectiveIntent === "review")
             ? selectedDraftContext
             : null;
       const hasStructuredIntent =
@@ -6252,9 +6211,9 @@ function ChatPageContent() {
               setBillingState((current) =>
                 current
                   ? {
-                      ...current,
-                      billing: failure.data?.billing ?? current.billing,
-                    }
+                    ...current,
+                    billing: failure.data?.billing ?? current.billing,
+                  }
                   : current,
               );
             }
@@ -6300,8 +6259,8 @@ function ChatPageContent() {
                 data.data.quickReplies && data.data.quickReplies.length > 0
                   ? data.data.quickReplies
                   : current.length === 0 &&
-                      !trimmedPrompt &&
-                      !options.selectedAngle
+                    !trimmedPrompt &&
+                    !options.selectedAngle
                     ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                     : undefined,
             },
@@ -6455,8 +6414,8 @@ function ChatPageContent() {
               streamedResult.quickReplies && streamedResult.quickReplies.length > 0
                 ? streamedResult.quickReplies
                 : current.length === 0 &&
-                    !trimmedPrompt &&
-                    !options.selectedAngle
+                  !trimmedPrompt &&
+                  !options.selectedAngle
                   ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                   : undefined,
           },
@@ -6687,7 +6646,7 @@ function ChatPageContent() {
   );
 
   const handleQuickReplySelect = useCallback(
-    async (quickReply: ChatQuickReply) => {
+    (quickReply: ChatQuickReply) => {
       if (isMainChatLocked) {
         return;
       }
@@ -6696,25 +6655,6 @@ function ChatPageContent() {
         setActiveContentFocus(quickReply.value as ChatContentFocus);
         setDraftInput(`i want to focus on ${quickReply.label.toLowerCase()}`);
         setErrorMessage(null);
-        return;
-      }
-
-      if (quickReply.explicitIntent) {
-        if (!activeStrategyInputs || !activeToneInputs) {
-          setErrorMessage("The planning model is still loading.");
-          return;
-        }
-
-        await requestAssistantReply({
-          prompt: quickReply.value,
-          displayUserMessage: quickReply.label,
-          appendUserMessage: true,
-          intent: quickReply.explicitIntent,
-          formatPreferenceOverride: quickReply.formatPreference ?? null,
-          strategyInputOverride: activeStrategyInputs,
-          toneInputOverride: activeToneInputs,
-          contentFocusOverride: activeContentFocus,
-        });
         return;
       }
 
@@ -6727,10 +6667,7 @@ function ChatPageContent() {
     },
     [
       activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
       isMainChatLocked,
-      requestAssistantReply,
     ],
   );
 
@@ -6908,16 +6845,16 @@ function ChatPageContent() {
     : "Credits loading";
   const rateLimitsRemainingPercent = activeBillingSnapshot
     ? Math.max(
-        0,
-        Math.min(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          (Math.max(0, activeBillingSnapshot.creditsRemaining) /
+            Math.max(1, activeBillingSnapshot.creditLimit)) *
           100,
-          Math.round(
-            (Math.max(0, activeBillingSnapshot.creditsRemaining) /
-              Math.max(1, activeBillingSnapshot.creditLimit)) *
-              100,
-          ),
         ),
-      )
+      ),
+    )
     : null;
   const rateLimitWindowLabel = activeBillingSnapshot
     ? activeBillingSnapshot.plan === "lifetime"
@@ -6930,11 +6867,11 @@ function ChatPageContent() {
     : "Free";
   const rateLimitResetLabel = activeBillingSnapshot
     ? new Date(activeBillingSnapshot.creditCycleResetsAt).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
     : isBillingLoading
       ? "Loading..."
       : "Unavailable";
@@ -6965,11 +6902,10 @@ function ChatPageContent() {
   const renderAccountMenuPanel = (className: string) =>
     accountMenuVisible ? (
       <div
-        className={`${className} [&_button:not(:disabled)]:cursor-pointer origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          accountMenuOpen
-            ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
-            : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
-        }`}
+        className={`${className} [&_button:not(:disabled)]:cursor-pointer origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${accountMenuOpen
+          ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
+          : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
+          }`}
       >
         <div className="max-h-[200px] overflow-y-auto px-1 py-1">
           <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -7028,9 +6964,8 @@ function ChatPageContent() {
           >
             <span>Rate limits remaining</span>
             <ChevronDown
-              className={`h-4 w-4 transition-transform ${
-                rateLimitsMenuOpen ? "rotate-180" : ""
-              }`}
+              className={`h-4 w-4 transition-transform ${rateLimitsMenuOpen ? "rotate-180" : ""
+                }`}
             />
           </button>
           {rateLimitsMenuOpen ? (
@@ -7083,14 +7018,12 @@ function ChatPageContent() {
   );
   const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
     } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
-  const threadCanvasTransitionClassName = `transition-[filter,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[filter,opacity,transform] ${
-    threadTransitionPhase === "out"
-      ? "opacity-25 blur-[10px] scale-[0.995]"
-      : "opacity-100 blur-0 scale-100"
-  }`;
-  const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${
-    isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
-  }`;
+  const threadCanvasTransitionClassName = `transition-[filter,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[filter,opacity,transform] ${threadTransitionPhase === "out"
+    ? "opacity-25 blur-[10px] scale-[0.995]"
+    : "opacity-100 blur-0 scale-100"
+    }`;
+  const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
+    }`;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -7249,11 +7182,10 @@ function ChatPageContent() {
                                       e.stopPropagation();
                                       setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
                                     }}
-                                    className={`ml-auto flex h-6 w-6 items-center justify-center rounded p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white ${
-                                      hoveredThreadId === item.id || menuOpenThreadId === item.id
-                                        ? "pointer-events-auto opacity-100"
-                                        : "pointer-events-none opacity-0"
-                                    }`}
+                                    className={`ml-auto flex h-6 w-6 items-center justify-center rounded p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white ${hoveredThreadId === item.id || menuOpenThreadId === item.id
+                                      ? "pointer-events-auto opacity-100"
+                                      : "pointer-events-none opacity-0"
+                                      }`}
                                   >
                                     <MoreVertical className="h-4 w-4" />
                                   </button>
@@ -7312,9 +7244,8 @@ function ChatPageContent() {
                   setMenuOpenThreadId(null);
                   setAccountMenuOpen((current) => !current);
                 }}
-                className={`flex w-full items-center justify-between rounded-xl p-2 transition ${
-                  accountMenuOpen ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
-                }`}
+                className={`flex w-full items-center justify-between rounded-xl p-2 transition ${accountMenuOpen ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
+                  }`}
                 aria-label="Open account menu"
               >
                 <div className="flex items-center gap-3 overflow-hidden">
@@ -7353,9 +7284,8 @@ function ChatPageContent() {
                   </div>
                 </div>
                 <ChevronUp
-                  className={`h-4 w-4 shrink-0 text-zinc-500 transition-all duration-300 ${
-                    accountMenuOpen ? "rotate-0 text-zinc-300" : "rotate-180"
-                  }`}
+                  className={`h-4 w-4 shrink-0 text-zinc-500 transition-all duration-300 ${accountMenuOpen ? "rotate-0 text-zinc-300" : "rotate-180"
+                    }`}
                 />
               </button>
 
@@ -7390,9 +7320,8 @@ function ChatPageContent() {
                   setMenuOpenThreadId(null);
                   setAccountMenuOpen((current) => !current);
                 }}
-                className={`flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${
-                  accountMenuOpen ? "scale-[1.04] ring-2 ring-white/30" : "scale-100 ring-0"
-                }`}
+                className={`flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${accountMenuOpen ? "scale-[1.04] ring-2 ring-white/30" : "scale-100 ring-0"
+                  }`}
                 aria-label="Open account menu"
               >
                 {context?.avatarUrl ? (
@@ -7480,11 +7409,10 @@ function ChatPageContent() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-xs text-zinc-300">
                           <span
-                            className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                              billingWarningLevel === "critical"
-                                ? "bg-rose-300"
-                                : "bg-amber-300"
-                            }`}
+                            className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${billingWarningLevel === "critical"
+                              ? "bg-rose-300"
+                              : "bg-amber-300"
+                              }`}
                           />
                           {billingWarningLevel === "critical"
                             ? "Critical credits remaining."
@@ -7590,23 +7518,23 @@ function ChatPageContent() {
                         ) : null}
 
                         <div className={`${heroChipsMotionClassName} mt-4`}>
-                            {heroQuickActions.map((action) => (
-                              <button
-                                key={action.prompt}
-                                type="button"
-                                onClick={() => {
-                                  void submitQuickStarter(action.prompt);
-                                }}
-                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
-                              >
-                                {action.label}
-                              </button>
-                            ))}
-	                        </div>
-	                    </div>
-	                  </div>
-	                  ) : (
+                          {heroQuickActions.map((action) => (
+                            <button
+                              key={action.prompt}
+                              type="button"
+                              onClick={() => {
+                                void submitQuickStarter(action.prompt);
+                              }}
+                              disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                     <>
                       {messages.map((message, index) => (
                         <div
@@ -7619,9 +7547,9 @@ function ChatPageContent() {
                             : messages[index - 1]?.role !== message.role
                               ? "mt-6"
                               : "mt-3"
-                            } max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
-                            ? "text-zinc-100"
-                            : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black"
+                            } max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up ${message.role === "assistant"
+                              ? "text-zinc-100"
+                              : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black"
                             }`}
                         >
                           {message.role === "assistant" && message.isStreaming ? (
@@ -7657,11 +7585,10 @@ function ChatPageContent() {
                                   isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
                                 }
                                 aria-label="Thumbs up"
-                                className={`inline-flex items-center rounded-full p-1.5 transition ${
-                                  message.feedbackValue === "up"
-                                    ? "bg-emerald-300/10 text-emerald-300"
-                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
-                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                                className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "up"
+                                  ? "bg-emerald-300/10 text-emerald-300"
+                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                  } disabled:cursor-not-allowed disabled:opacity-60`}
                               >
                                 <ThumbsUp className="h-3 w-3" />
                               </button>
@@ -7674,11 +7601,10 @@ function ChatPageContent() {
                                   isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
                                 }
                                 aria-label="Thumbs down"
-                                className={`inline-flex items-center rounded-full p-1.5 transition ${
-                                  message.feedbackValue === "down"
-                                    ? "bg-rose-300/10 text-rose-300"
-                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
-                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                                className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "down"
+                                  ? "bg-rose-300/10 text-rose-300"
+                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                  } disabled:cursor-not-allowed disabled:opacity-60`}
                               >
                                 <ThumbsDown className="h-3 w-3" />
                               </button>
@@ -7783,34 +7709,34 @@ function ChatPageContent() {
                                   )?.versions[index]?.id;
 
                                 return (
-                                <div
-                                  key={`${message.id}-draft-artifact-${artifact.id}`}
-                                  className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
-                                >
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                        {artifact.title}
-                                      </p>
-                                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                        {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                        {artifact.maxCharacterLimit}
-                                      </p>
+                                  <div
+                                    key={`${message.id}-draft-artifact-${artifact.id}`}
+                                    className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                          {artifact.title}
+                                        </p>
+                                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                                          {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
+                                          {artifact.maxCharacterLimit}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openDraftEditor(message.id, artifactVersionId)
+                                        }
+                                        className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                      >
+                                        Edit
+                                      </button>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        openDraftEditor(message.id, artifactVersionId)
-                                      }
-                                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                                    >
-                                      Edit
-                                    </button>
+                                    <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
+                                      {artifact.content}
+                                    </p>
                                   </div>
-                                  <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
-                                    {artifact.content}
-                                  </p>
-                                </div>
                                 );
                               })}
                             </div>
@@ -7858,11 +7784,10 @@ function ChatPageContent() {
                                         openDraftEditor(message.id);
                                       }
                                     }}
-                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
-                                      isFocusedDraftPreview
-                                        ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
-                                        : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                    }`}
+                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${isFocusedDraftPreview
+                                      ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
+                                      : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
+                                      }`}
                                     aria-current={isFocusedDraftPreview ? "true" : undefined}
                                   >
                                     {/* Header: avatar + name + handle */}
@@ -7928,7 +7853,7 @@ function ChatPageContent() {
 
                                     {/* Action Buttons */}
                                     <div className="mt-2 flex items-center justify-between gap-3">
-                                      <div className="flex items-center gap-1.5">
+                                      <div className="flex flex-wrap items-center gap-1.5">
                                         <button
                                           type="button"
                                           disabled={isMainChatLocked}
@@ -7956,6 +7881,62 @@ function ChatPageContent() {
                                           className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                                         >
                                           Longer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it softer",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Softer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it punchier",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Punchier
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it less negative",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Less Negative
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it more specific",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          More Specific
                                         </button>
                                         {canToggleDraftFormat ? (
                                           <button
@@ -8127,160 +8108,160 @@ function ChatPageContent() {
           <>
             <div className="pointer-events-none fixed bottom-32 right-4 top-24 z-20 hidden lg:block xl:right-6">
               <div className="pointer-events-auto flex h-full w-[25.5rem] max-w-[calc(100vw-24rem)] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-                  <div className="px-5 pb-3 pt-5">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                          {context?.avatarUrl ? (
-                            <div
-                              className="h-full w-full bg-cover bg-center"
-                              style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                              role="img"
-                              aria-label={`${heroIdentityLabel} profile photo`}
-                            />
-                          ) : (
-                            heroInitials.charAt(0)
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="truncate text-[15px] font-semibold text-white">
-                              {context?.creatorProfile.identity.displayName ??
-                                context?.creatorProfile.identity.username ??
-                                accountName ??
-                                "You"}
-                            </p>
-                            {isVerifiedAccount ? (
-                              <Image
-                                src="/x-verified.svg"
-                                alt="Verified account"
-                                width={16}
-                                height={16}
-                                className="h-4 w-4 shrink-0"
-                              />
-                            ) : null}
-                          </div>
-                          <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
-                            @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                <div className="px-5 pb-3 pt-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context?.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${heroIdentityLabel} profile photo`}
+                          />
+                        ) : (
+                          heroInitials.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-[15px] font-semibold text-white">
+                            {context?.creatorProfile.identity.displayName ??
+                              context?.creatorProfile.identity.username ??
+                              accountName ??
+                              "You"}
                           </p>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={16}
+                              height={16}
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : null}
                         </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveDraftEditor(null)}
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                        aria-label="Close draft editor"
-                      >
-                        ×
-                      </button>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => navigateDraftTimeline("back")}
-                            disabled={!canNavigateDraftBack}
-                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label="Previous draft version"
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => navigateDraftTimeline("forward")}
-                            disabled={!canNavigateDraftForward}
-                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label="Next draft version"
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </button>
-                        </div>
-                        <p className="truncate text-[11px] font-medium text-zinc-500">
-                          Version {selectedDraftTimelinePosition}
-                          {" "}of {selectedDraftTimeline.length}
+                        <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
+                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
                         </p>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void (shouldShowRevertDraftCta
-                            ? revertToSelectedDraftVersion()
-                            : saveDraftEditor());
-                        }}
-                        disabled={isDraftEditorPrimaryActionDisabled}
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {draftEditorPrimaryActionLabel}
-                      </button>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveDraftEditor(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+                      aria-label="Close draft editor"
+                    >
+                      ×
+                    </button>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-hidden px-5 pb-5">
-                    {isViewingHistoricalDraftVersion ? (
-                      <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[16px] leading-8 text-white">
-                        {editorDraftText}
-                      </div>
-                    ) : (
-                      <textarea
-                        value={editorDraftText}
-                        onChange={(event) => setEditorDraftText(event.target.value)}
-                        className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
-                        placeholder="Draft content"
-                      />
-                    )}
-                  </div>
-
-                  <div className="border-t border-white/10 px-5 py-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runDraftInspector();
-                        }}
-                        disabled={isDraftInspectorLoading}
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {draftInspectorActionLabel}
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs text-zinc-500">
-                          {computeXWeightedCharacterCount(editorDraftText)}/
-                          {getDisplayedDraftCharacterLimit(
-                            selectedDraftVersion.maxCharacterLimit,
-                            composerCharacterLimit,
-                          )} chars
-                        </p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            void copyDraftEditor();
-                          }}
-                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                          aria-label="Copy current draft"
+                          onClick={() => navigateDraftTimeline("back")}
+                          disabled={!canNavigateDraftBack}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous draft version"
                         >
-                          {hasCopiedDraftEditorText ? (
-                            <Check className="h-4 w-4" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
+                          <ChevronLeft className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            shareDraftEditorToX();
-                          }}
-                          className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                          onClick={() => navigateDraftTimeline("forward")}
+                          disabled={!canNavigateDraftForward}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next draft version"
                         >
-                          Share
+                          <ChevronRight className="h-4 w-4" />
                         </button>
                       </div>
+                      <p className="truncate text-[11px] font-medium text-zinc-500">
+                        Version {selectedDraftTimelinePosition}
+                        {" "}of {selectedDraftTimeline.length}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void (shouldShowRevertDraftCta
+                          ? revertToSelectedDraftVersion()
+                          : saveDraftEditor());
+                      }}
+                      disabled={isDraftEditorPrimaryActionDisabled}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {draftEditorPrimaryActionLabel}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-hidden px-5 pb-5">
+                  {isViewingHistoricalDraftVersion ? (
+                    <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[16px] leading-8 text-white">
+                      {editorDraftText}
+                    </div>
+                  ) : (
+                    <textarea
+                      value={editorDraftText}
+                      onChange={(event) => setEditorDraftText(event.target.value)}
+                      className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
+                      placeholder="Draft content"
+                    />
+                  )}
+                </div>
+
+                <div className="border-t border-white/10 px-5 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runDraftInspector();
+                      }}
+                      disabled={isDraftInspectorLoading}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {draftInspectorActionLabel}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-zinc-500">
+                        {computeXWeightedCharacterCount(editorDraftText)}/
+                        {getDisplayedDraftCharacterLimit(
+                          selectedDraftVersion.maxCharacterLimit,
+                          composerCharacterLimit,
+                        )} chars
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void copyDraftEditor();
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        aria-label="Copy current draft"
+                      >
+                        {hasCopiedDraftEditorText ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          shareDraftEditorToX();
+                        }}
+                        className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+                      >
+                        Share
+                      </button>
                     </div>
                   </div>
                 </div>
+              </div>
             </div>
 
             <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
@@ -8669,16 +8650,14 @@ function ChatPageContent() {
                     <div className="flex flex-col items-end gap-1">
                       <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
                         <span
-                          className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${
-                            selectedModalProIsAnnual ? "translate-x-full" : "translate-x-0"
-                          }`}
+                          className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${selectedModalProIsAnnual ? "translate-x-full" : "translate-x-0"
+                            }`}
                         />
                         <button
                           type="button"
                           onClick={() => setSelectedModalProCadence("monthly")}
-                          className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                            selectedModalProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
-                          }`}
+                          className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${selectedModalProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
+                            }`}
                         >
                           Monthly
                         </button>
@@ -8686,9 +8665,8 @@ function ChatPageContent() {
                           <button
                             type="button"
                             onClick={() => setSelectedModalProCadence("annual")}
-                            className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                              selectedModalProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
-                            }`}
+                            className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${selectedModalProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
+                              }`}
                           >
                             Annual
                           </button>
@@ -8798,9 +8776,9 @@ function ChatPageContent() {
                       ? "Opening…"
                       : isFounderCurrent
                         ? "Current Plan"
-                      : lifetimeSlotSummary && lifetimeSlotSummary.remaining <= 0
-                        ? "Sold out"
-                        : "Get Founder Pass"}
+                        : lifetimeSlotSummary && lifetimeSlotSummary.remaining <= 0
+                          ? "Sold out"
+                          : "Get Founder Pass"}
                   </button>
                   <p className="mt-3 text-[11px] leading-5 text-amber-100/75">
                     Includes Pro plan limits and monthly Pro credits while Xpo and this plan are
@@ -8878,11 +8856,10 @@ function ChatPageContent() {
                               key={category}
                               type="button"
                               onClick={() => setFeedbackCategory(category)}
-                              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                isActive
-                                  ? "bg-white text-black"
-                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                              }`}
+                              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition ${isActive
+                                ? "bg-white text-black"
+                                : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                }`}
                             >
                               <Icon className="h-3.5 w-3.5" />
                               <span>{FEEDBACK_CATEGORY_CONFIG[category].label}</span>
@@ -8975,11 +8952,10 @@ function ChatPageContent() {
                         </p>
 
                         <div
-                          className={`mt-3 rounded-2xl border border-dashed p-4 transition ${
-                            isFeedbackDropActive
-                              ? "border-white/25 bg-white/[0.06]"
-                              : "border-white/10 bg-black/30"
-                          }`}
+                          className={`mt-3 rounded-2xl border border-dashed p-4 transition ${isFeedbackDropActive
+                            ? "border-white/25 bg-white/[0.06]"
+                            : "border-white/10 bg-black/30"
+                            }`}
                           onClick={() => feedbackFileInputRef.current?.click()}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
@@ -9150,11 +9126,10 @@ function ChatPageContent() {
                                 key={option.value}
                                 type="button"
                                 onClick={() => setFeedbackHistoryFilter(option.value)}
-                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
-                                  isActive
-                                    ? "border-white/40 bg-white/[0.12] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                                }`}
+                                className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${isActive
+                                  ? "border-white/40 bg-white/[0.12] text-white"
+                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                                  }`}
                               >
                                 {option.label} ({feedbackHistoryCounts[option.value]})
                               </button>
@@ -9205,7 +9180,7 @@ function ChatPageContent() {
                                         title={`${attachment.name} • ${formatFileSize(attachment.sizeBytes)}`}
                                       >
                                         {attachment.thumbnailDataUrl &&
-                                        attachment.mimeType.startsWith("image/") ? (
+                                          attachment.mimeType.startsWith("image/") ? (
                                           <Image
                                             src={attachment.thumbnailDataUrl}
                                             alt={attachment.name}
@@ -9241,7 +9216,7 @@ function ChatPageContent() {
                                 <p className="mt-2 text-[11px] text-zinc-500">
                                   status updated{" "}
                                   {entry.statusUpdatedByUserId &&
-                                  entry.statusUpdatedByUserId === session?.user?.id
+                                    entry.statusUpdatedByUserId === session?.user?.id
                                     ? "by you"
                                     : "by account owner"}{" "}
                                   on {new Date(entry.statusUpdatedAt).toLocaleString()}
@@ -9442,17 +9417,16 @@ function ChatPageContent() {
                                 onClick={() =>
                                   setPreferenceCasing(
                                     option.value as
-                                      | "auto"
-                                      | "normal"
-                                      | "lowercase"
-                                      | "uppercase",
+                                    | "auto"
+                                    | "normal"
+                                    | "lowercase"
+                                    | "uppercase",
                                   )
                                 }
-                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                  preferenceCasing === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                                }`}
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceCasing === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  }`}
                               >
                                 {option.label}
                               </button>
@@ -9479,11 +9453,10 @@ function ChatPageContent() {
                                     option.value as "auto" | "-" | ">",
                                   )
                                 }
-                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                  preferenceBulletStyle === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                                }`}
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceBulletStyle === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  }`}
                               >
                                 {option.label}
                               </button>
@@ -9510,11 +9483,10 @@ function ChatPageContent() {
                                     option.value as "voice" | "balanced" | "growth",
                                   )
                                 }
-                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                                  preferenceWritingMode === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                                }`}
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceWritingMode === option.value
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  }`}
                               >
                                 {option.label}
                               </button>
@@ -9526,25 +9498,22 @@ function ChatPageContent() {
                           <button
                             type="button"
                             onClick={() => setPreferenceUseEmojis((current) => !current)}
-                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                              preferenceUseEmojis
-                                ? "border-white/20 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
-                            }`}
+                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${preferenceUseEmojis
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <Smile className="h-4 w-4 text-zinc-500" />
                               <span className="text-sm text-zinc-300">Use emojis</span>
                             </div>
                             <span
-                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
-                                preferenceUseEmojis ? "bg-emerald-500/70" : "bg-zinc-800"
-                              }`}
+                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${preferenceUseEmojis ? "bg-emerald-500/70" : "bg-zinc-800"
+                                }`}
                             >
                               <span
-                                className={`h-4 w-4 rounded-full bg-white transition-transform ${
-                                  preferenceUseEmojis ? "translate-x-5" : "translate-x-0"
-                                }`}
+                                className={`h-4 w-4 rounded-full bg-white transition-transform ${preferenceUseEmojis ? "translate-x-5" : "translate-x-0"
+                                  }`}
                               />
                             </span>
                           </button>
@@ -9552,25 +9521,22 @@ function ChatPageContent() {
                           <button
                             type="button"
                             onClick={() => setPreferenceAllowProfanity((current) => !current)}
-                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                              preferenceAllowProfanity
-                                ? "border-white/20 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
-                            }`}
+                            className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${preferenceAllowProfanity
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <Ban className="h-4 w-4 text-zinc-500" />
                               <span className="text-sm text-zinc-300">Allow profanity</span>
                             </div>
                             <span
-                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${
-                                preferenceAllowProfanity ? "bg-emerald-500/70" : "bg-zinc-800"
-                              }`}
+                              className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${preferenceAllowProfanity ? "bg-emerald-500/70" : "bg-zinc-800"
+                                }`}
                             >
                               <span
-                                className={`h-4 w-4 rounded-full bg-white transition-transform ${
-                                  preferenceAllowProfanity ? "translate-x-5" : "translate-x-0"
-                                }`}
+                                className={`h-4 w-4 rounded-full bg-white transition-transform ${preferenceAllowProfanity ? "translate-x-5" : "translate-x-0"
+                                  }`}
                               />
                             </span>
                           </button>
@@ -9674,64 +9640,64 @@ function ChatPageContent() {
                     </div>
                   </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                      Preview Tweet
-                    </p>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      The preview updates as you change settings.
-                    </p>
-                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                        Preview Tweet
+                      </p>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        The preview updates as you change settings.
+                      </p>
+                    </div>
 
-                  <div className="rounded-3xl border border-white/10 bg-[#0F0F0F] p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                        {context.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                            role="img"
-                            aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
-                          />
-                        ) : (
-                          (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1">
-                          <span className="truncate text-sm font-bold text-white">
-                            {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
-                          </span>
-                          {isVerifiedAccount ? (
-                            <Image
-                              src="/x-verified.svg"
-                              alt="Verified account"
-                              width={16}
-                              height={16}
-                              className="h-4 w-4 shrink-0"
+                    <div className="rounded-3xl border border-white/10 bg-[#0F0F0F] p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                          {context.avatarUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center"
+                              style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                              role="img"
+                              aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
                             />
-                          ) : null}
+                          ) : (
+                            (context.creatorProfile.identity.displayName || context.creatorProfile.identity.username || "X").charAt(0)
+                          )}
                         </div>
-                        <span className="text-xs text-zinc-500">
-                          @{context.creatorProfile.identity.username || accountName || "user"}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1">
+                            <span className="truncate text-sm font-bold text-white">
+                              {context.creatorProfile.identity.displayName || context.creatorProfile.identity.username}
+                            </span>
+                            {isVerifiedAccount ? (
+                              <Image
+                                src="/x-verified.svg"
+                                alt="Verified account"
+                                width={16}
+                                height={16}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
+                          </div>
+                          <span className="text-xs text-zinc-500">
+                            @{context.creatorProfile.identity.username || accountName || "user"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+                        {preferencesPreviewDraft}
+                      </p>
+
+                      <div className="mt-4 flex items-center gap-1.5 text-xs text-zinc-500">
+                        <span>Just now</span>
+                        <span>·</span>
+                        <span className={preferencesPreviewCounter.toneClassName}>
+                          {preferencesPreviewCounter.label}
                         </span>
                       </div>
                     </div>
-
-                    <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
-                      {preferencesPreviewDraft}
-                    </p>
-
-                    <div className="mt-4 flex items-center gap-1.5 text-xs text-zinc-500">
-                      <span>Just now</span>
-                      <span>·</span>
-                      <span className={preferencesPreviewCounter.toneClassName}>
-                        {preferencesPreviewCounter.label}
-                      </span>
-                    </div>
                   </div>
-                </div>
                 </div>
               </div>
             </div>
@@ -9784,11 +9750,10 @@ function ChatPageContent() {
                           key={stageKey}
                           type="button"
                           onClick={() => setPlaybookStage(stageKey)}
-                          className={`inline-flex items-center rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                            isSelected
-                              ? "bg-white text-black"
-                              : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
-                          }`}
+                          className={`inline-flex items-center rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${isSelected
+                            ? "bg-white text-black"
+                            : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                            }`}
                         >
                           {PLAYBOOK_STAGE_META[stageKey].label}
                         </button>
@@ -9812,27 +9777,24 @@ function ChatPageContent() {
                               key={playbook.id}
                               type="button"
                               onClick={() => handleApplyPlaybook(playbook.id)}
-                              className={`rounded-xl border px-4 py-3 text-left transition-all ${
-                                isSelected
-                                  ? "border-white/25 bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
-                                  : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                              }`}
+                              className={`rounded-xl border px-4 py-3 text-left transition-all ${isSelected
+                                ? "border-white/25 bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+                                : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                                }`}
                               aria-pressed={isSelected}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <p className="truncate text-sm font-semibold">{playbook.name}</p>
                                 <span
-                                  className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                                    isSelected ? "text-zinc-300" : "text-zinc-600"
-                                  }`}
+                                  className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${isSelected ? "text-zinc-300" : "text-zinc-600"
+                                    }`}
                                 >
                                   {isSelected ? "selected" : "view"}
                                 </span>
                               </div>
                               <p
-                                className={`mt-1 truncate text-xs ${
-                                  isSelected ? "text-zinc-300" : "text-zinc-500"
-                                }`}
+                                className={`mt-1 truncate text-xs ${isSelected ? "text-zinc-300" : "text-zinc-500"
+                                  }`}
                               >
                                 {playbook.outcome}
                               </p>
@@ -10062,11 +10024,10 @@ function ChatPageContent() {
                                 key={tab.key}
                                 type="button"
                                 onClick={() => setPlaybookTemplateTab(tab.key)}
-                                className={`rounded-full px-3 py-2 text-xs font-medium transition ${
-                                  playbookTemplateTab === tab.key
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                                }`}
+                                className={`rounded-full px-3 py-2 text-xs font-medium transition ${playbookTemplateTab === tab.key
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  }`}
                               >
                                 {tab.label}
                               </button>
@@ -10133,69 +10094,68 @@ function ChatPageContent() {
                             </p>
                             <div className="mt-3 flex-1 space-y-3">
                               {personalizedPlaybookTemplates.map((template) => {
-                              const isCopied = copiedPlaybookTemplateId === template.id;
-                              const isTemplateSelected = activePlaybookTemplate?.id === template.id;
+                                const isCopied = copiedPlaybookTemplateId === template.id;
+                                const isTemplateSelected = activePlaybookTemplate?.id === template.id;
 
-                              return (
-                                <div key={template.id} className="space-y-2">
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setActivePlaybookTemplateId(template.id)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        setActivePlaybookTemplateId(template.id);
-                                      }
-                                    }}
-                                    className={`rounded-2xl border p-4 transition ${
-                                      isTemplateSelected
+                                return (
+                                  <div key={template.id} className="space-y-2">
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() => setActivePlaybookTemplateId(template.id)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                          event.preventDefault();
+                                          setActivePlaybookTemplateId(template.id);
+                                        }
+                                      }}
+                                      className={`rounded-2xl border p-4 transition ${isTemplateSelected
                                         ? "border-white/25 bg-white/[0.06]"
                                         : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
-                                    }`}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                          {template.label}
-                                        </p>
-                                        <p className="mt-2 text-sm leading-6 text-zinc-300">
-                                          {template.text}
-                                        </p>
+                                        }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                            {template.label}
+                                          </p>
+                                          <p className="mt-2 text-sm leading-6 text-zinc-300">
+                                            {template.text}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void handleCopyPlaybookTemplate(template);
+                                          }}
+                                          className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                                          aria-label={`Copy ${template.label} template`}
+                                        >
+                                          {isCopied ? (
+                                            <Check className="h-4 w-4" />
+                                          ) : (
+                                            <Copy className="h-4 w-4" />
+                                          )}
+                                        </button>
                                       </div>
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          void handleCopyPlaybookTemplate(template);
-                                        }}
-                                        className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                                        aria-label={`Copy ${template.label} template`}
-                                      >
-                                        {isCopied ? (
-                                          <Check className="h-4 w-4" />
-                                        ) : (
-                                          <Copy className="h-4 w-4" />
-                                        )}
-                                      </button>
+                                    </div>
+
+                                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                        Why This Works
+                                      </p>
+                                      <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
+                                        {buildTemplateWhyItWorksPoints(playbookTemplateTab).map((point) => (
+                                          <li key={point} className="flex items-start gap-2">
+                                            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" />
+                                            <span>{point}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
                                     </div>
                                   </div>
-
-                                  <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                      Why This Works
-                                    </p>
-                                    <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
-                                      {buildTemplateWhyItWorksPoints(playbookTemplateTab).map((point) => (
-                                        <li key={point} className="flex items-start gap-2">
-                                          <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" />
-                                          <span>{point}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                </div>
-                              );
+                                );
                               })}
                             </div>
                           </div>
@@ -10259,8 +10219,8 @@ function ChatPageContent() {
 
               <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-zinc-500">
-                    work in progress: this guide is still being updated.
-                  </p>
+                  work in progress: this guide is still being updated.
+                </p>
 
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -10490,11 +10450,10 @@ function ChatPageContent() {
                         analysisRecommendedPlaybooks.map((recommendation, index) => (
                           <article
                             key={`${recommendation.stage}-${recommendation.playbook.id}`}
-                            className={`rounded-2xl border p-4 ${
-                              index === 0
-                                ? "border-white/25 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
-                            }`}
+                            className={`rounded-2xl border p-4 ${index === 0
+                              ? "border-white/25 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
+                              }`}
                           >
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
@@ -10751,13 +10710,12 @@ function ChatPageContent() {
                   </p>
                   {analysisScrapeNotice ? (
                     <p
-                      className={`text-xs ${
-                        analysisScrapeNoticeTone === "success"
-                          ? "text-emerald-300"
-                          : analysisScrapeNoticeTone === "error"
-                            ? "text-rose-300"
-                            : "text-zinc-400"
-                      }`}
+                      className={`text-xs ${analysisScrapeNoticeTone === "success"
+                        ? "text-emerald-300"
+                        : analysisScrapeNoticeTone === "error"
+                          ? "text-rose-300"
+                          : "text-zinc-400"
+                        }`}
                     >
                       {analysisScrapeNotice}
                     </p>
