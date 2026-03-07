@@ -43,6 +43,8 @@ import {
   looksLikeSemanticCorrection,
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
+import { planTurn } from "./turnPlanner";
+import { respondConversationally, isConstraintDeclaration } from "./chatResponder";
 import { buildDraftReply } from "./draftReply";
 import {
   buildFeedbackMemoryNotice,
@@ -904,15 +906,15 @@ async function maybeCaptureAntiPattern(args: {
   styleCard: Awaited<ReturnType<typeof generateStyleProfile>>;
   xHandle: string;
 },
-services: Pick<ConversationServices, "extractAntiPattern" | "saveStyleProfile">,
+  services: Pick<ConversationServices, "extractAntiPattern" | "saveStyleProfile">,
 ): Promise<{ antiPatterns: string[]; remembered: boolean }> {
   const antiExamples = args.styleCard?.antiExamples || [];
   const currentGuidance =
     antiExamples.length > 0
       ? antiExamples
-          .slice(-2)
-          .map((example) => example.guidance.trim())
-          .filter(Boolean)
+        .slice(-2)
+        .map((example) => example.guidance.trim())
+        .filter(Boolean)
       : args.styleCard?.customGuidelines?.slice(-2) || [];
 
   if (
@@ -1020,8 +1022,26 @@ export async function manageConversationTurn(
     ]),
   );
 
+  // V3: deterministic turn planner runs before the LLM classifier.
+  // It catches high-confidence patterns (edit instructions, immediate
+  // draft commands, chat questions) and can short-circuit the classifier.
+  const turnPlan = planTurn({
+    userMessage,
+    recentHistory,
+    activeDraft,
+    memory,
+    explicitIntent,
+  });
+
   let classification;
-  if (!explicitIntent) {
+  if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
+    // Deterministic override — skip LLM classification.
+    classification = {
+      intent: turnPlan.overrideClassifiedIntent,
+      needs_memory_update: false,
+      confidence: 1,
+    };
+  } else if (!explicitIntent) {
     classification = await services.classifyIntent(userMessage, recentHistory);
     if (!classification) {
       return {
@@ -1528,11 +1548,11 @@ User Profile Summary:
     }
 
     await writeMemory({
-        conversationState: "plan_pending_approval",
-        pendingPlan: memory.pendingPlan,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
-      });
+      conversationState: "plan_pending_approval",
+      pendingPlan: memory.pendingPlan,
+      assistantTurnCount: nextAssistantTurnCount,
+      formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+    });
 
     return {
       mode: "plan",
@@ -1884,11 +1904,11 @@ User Profile Summary:
     const ideationRationaleReply =
       memory.conversationState === "ready_to_ideate"
         ? inferIdeationRationaleReply({
-            userMessage,
-            topicSummary: memory.topicSummary,
-            recentHistory,
-            lastIdeationAngles: memory.lastIdeationAngles,
-          })
+          userMessage,
+          topicSummary: memory.topicSummary,
+          recentHistory,
+          lastIdeationAngles: memory.lastIdeationAngles,
+        })
         : null;
     if (ideationRationaleReply) {
       await writeMemory({
@@ -2044,14 +2064,14 @@ User Profile Summary:
         assistantTurnCount: nextAssistantTurnCount,
         rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
           ? buildRollingSummary({
-              currentSummary: memory.rollingSummary,
-              topicSummary: nextIdeationTopicSummary || currentTopicSummary,
-              approvedPlan: null,
-              activeConstraints: effectiveActiveConstraints,
-              latestDraftStatus: "Ideation in progress",
-              formatPreference: memory.formatPreference || turnFormatPreference,
-              unresolvedQuestion: ideas?.close || null,
-            })
+            currentSummary: memory.rollingSummary,
+            topicSummary: nextIdeationTopicSummary || currentTopicSummary,
+            approvedPlan: null,
+            activeConstraints: effectiveActiveConstraints,
+            latestDraftStatus: "Ideation in progress",
+            formatPreference: memory.formatPreference || turnFormatPreference,
+            unresolvedQuestion: ideas?.close || null,
+          })
           : memory.rollingSummary,
       });
 
@@ -2069,12 +2089,12 @@ User Profile Summary:
         ),
         data: ideas
           ? {
-              angles: ideas.angles,
-              quickReplies: buildIdeationQuickReplies({
-                styleCard,
-                seedTopic: nextIdeationTopicSummary || currentTopicSummary,
-              }),
-            }
+            angles: ideas.angles,
+            quickReplies: buildIdeationQuickReplies({
+              styleCard,
+              seedTopic: nextIdeationTopicSummary || currentTopicSummary,
+            }),
+          }
           : undefined,
         memory,
       };
@@ -2145,13 +2165,45 @@ User Profile Summary:
     case "draft":
     case "review":
     case "edit": {
-      if (shouldUseRevisionDraftPath({ mode, activeDraft }) && activeDraft) {
+      // V3: Harden the edit path. If mode is edit/review but the frontend
+      // did not send activeDraft, try to recover the last draft from the
+      // most recent assistant message in the thread.
+      let effectiveActiveDraft = activeDraft;
+      if (
+        !effectiveActiveDraft &&
+        (mode === "edit" || mode === "review") &&
+        threadId
+      ) {
+        try {
+          const lastDraftMessage = await prisma.chatMessage.findFirst({
+            where: {
+              threadId,
+              role: "assistant",
+            },
+            orderBy: { createdAt: "desc" },
+            select: { data: true },
+          });
+          const messageData = lastDraftMessage?.data as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            messageData?.draft &&
+            typeof messageData.draft === "string"
+          ) {
+            effectiveActiveDraft = messageData.draft;
+          }
+        } catch {
+          // Non-critical — if recovery fails, fall through to fresh draft.
+        }
+      }
+
+      if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
         const revision = normalizeDraftRevisionInstruction(
           draftInstruction,
-          activeDraft,
+          effectiveActiveDraft,
         );
         const reviserOutput = await services.generateRevisionDraft({
-          activeDraft,
+          activeDraft: effectiveActiveDraft,
           revision,
           styleCard,
           topicAnchors: relevantTopicAnchors,
@@ -2190,7 +2242,7 @@ User Profile Summary:
             maxCharacterLimit,
             draftPreference: turnDraftPreference,
             formatPreference: turnFormatPreference,
-            previousDraft: activeDraft,
+            previousDraft: effectiveActiveDraft,
             revisionChangeKind: revision.changeKind,
           },
         );
@@ -2210,13 +2262,13 @@ User Profile Summary:
           : criticOutput.finalDraft;
         const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
           ? buildRollingSummary({
-              currentSummary: memory.rollingSummary,
-              topicSummary: memory.topicSummary,
-              approvedPlan: memory.pendingPlan,
-              activeConstraints: effectiveActiveConstraints,
-              latestDraftStatus: "Draft revised",
-              formatPreference: memory.formatPreference || turnFormatPreference,
-            })
+            currentSummary: memory.rollingSummary,
+            topicSummary: memory.topicSummary,
+            approvedPlan: memory.pendingPlan,
+            activeConstraints: effectiveActiveConstraints,
+            latestDraftStatus: "Draft revised",
+            formatPreference: memory.formatPreference || turnFormatPreference,
+          })
           : memory.rollingSummary;
 
         const issuesFixed = Array.from(
@@ -2382,14 +2434,14 @@ User Profile Summary:
 
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
         ? buildRollingSummary({
-            currentSummary: memory.rollingSummary,
-            topicSummary: guardedPlan.objective,
-            approvedPlan: guardedPlan,
-            activeConstraints: draftActiveConstraints,
-            latestDraftStatus: "Draft delivered",
-            formatPreference:
-              guardedPlan.formatPreference || turnFormatPreference,
-          })
+          currentSummary: memory.rollingSummary,
+          topicSummary: guardedPlan.objective,
+          approvedPlan: guardedPlan,
+          activeConstraints: draftActiveConstraints,
+          latestDraftStatus: "Draft delivered",
+          formatPreference:
+            guardedPlan.formatPreference || turnFormatPreference,
+        })
         : memory.rollingSummary;
 
       await writeMemory({
@@ -2430,6 +2482,51 @@ User Profile Summary:
     case "coach":
     case "answer_question":
     default: {
+      // V3: Fast-path for non-generation turns (constraint acks, comparisons,
+      // simple questions). Skips the full coach LLM call when deterministic
+      // answers are sufficient.
+      if (turnPlan && !turnPlan.shouldGenerate) {
+        const fastReply = await respondConversationally({
+          userMessage,
+          recentHistory: effectiveContext,
+          topicSummary: memory.topicSummary,
+          styleCard,
+          topicAnchors: relevantTopicAnchors,
+          userContextString,
+          options: {
+            goal,
+            conversationState: memory.conversationState,
+            antiPatterns,
+          },
+        });
+
+        if (fastReply) {
+          // Capture constraints in memory if this is a constraint declaration.
+          const isConstraint = isConstraintDeclaration(userMessage);
+          const nextConstraints = isConstraint
+            ? Array.from(new Set([...memory.activeConstraints, userMessage.trim()]))
+            : undefined;
+
+          await writeMemory({
+            conversationState:
+              memory.pendingPlan && memory.conversationState === "plan_pending_approval"
+                ? "plan_pending_approval"
+                : memory.conversationState === "draft_ready"
+                  ? "draft_ready"
+                  : "needs_more_context",
+            ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
+            assistantTurnCount: nextAssistantTurnCount,
+          });
+
+          return {
+            mode: "coach",
+            outputShape: "coach_question",
+            response: prependFeedbackMemoryNotice(fastReply, feedbackMemoryNotice),
+            memory,
+          };
+        }
+      }
+
       const coachReply = await services.generateCoachReply(
         userMessage,
         effectiveContext,
@@ -2451,14 +2548,14 @@ User Profile Summary:
 
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
         ? buildRollingSummary({
-            currentSummary: memory.rollingSummary,
-            topicSummary: memory.topicSummary,
-            approvedPlan: memory.pendingPlan,
-            activeConstraints: effectiveActiveConstraints,
-            latestDraftStatus: "Context gathering",
-            formatPreference: memory.formatPreference || turnFormatPreference,
-            unresolvedQuestion: coachReply?.probingQuestion || null,
-          })
+          currentSummary: memory.rollingSummary,
+          topicSummary: memory.topicSummary,
+          approvedPlan: memory.pendingPlan,
+          activeConstraints: effectiveActiveConstraints,
+          latestDraftStatus: "Context gathering",
+          formatPreference: memory.formatPreference || turnFormatPreference,
+          unresolvedQuestion: coachReply?.probingQuestion || null,
+        })
         : memory.rollingSummary;
 
       await writeMemory({
@@ -2476,7 +2573,7 @@ User Profile Summary:
         outputShape: "coach_question",
         response: prependFeedbackMemoryNotice(
           coachReply?.response ||
-            "what's on your mind? i can help you draft, ideate, or figure out what to post.",
+          "what's on your mind? i can help you draft, ideate, or figure out what to post.",
           feedbackMemoryNotice,
         ),
         memory,

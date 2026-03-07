@@ -47,10 +47,10 @@ export type ClarificationBranchKey =
 
 export interface CreatorChatQuickReply {
   kind:
-    | "content_focus"
-    | "example_reply"
-    | "planner_action"
-    | "clarification_choice";
+  | "content_focus"
+  | "example_reply"
+  | "planner_action"
+  | "clarification_choice";
   value: string;
   label: string;
   suggestedFocus?: string;
@@ -86,3 +86,44 @@ export type V2ChatOutputShape =
   | "planning_outline"
   | "short_form_post"
   | "long_form_post";
+
+// ---------------------------------------------------------------------------
+// V3 Conversational Orchestrator Types
+// ---------------------------------------------------------------------------
+
+/** High-level user goal resolved by the turn planner. */
+export type UserGoal = "chat" | "ideate" | "draft" | "edit" | "review";
+
+/**
+ * Output of the deterministic turn planner that runs before the LLM
+ * classifier. When present, it can override the classified intent to
+ * short-circuit unnecessary clarification loops.
+ */
+export interface TurnPlan {
+  userGoal: UserGoal;
+  shouldGenerate: boolean;
+  responseStyle: "natural" | "structured";
+  targetDraftId?: string;
+  /** If set, skip LLM classification and use this intent directly. */
+  overrideClassifiedIntent?: V2ChatIntent;
+}
+
+/**
+ * Extended memory payload carried through the conversation.
+ * Complements V2ConversationMemory with richer tracking fields.
+ */
+export interface AgentMemoryV3 {
+  topicSummary?: string;
+  activeConstraints?: string[];
+  currentDraftId?: string;
+  currentAngle?: string;
+  unresolvedQuestions?: string[];
+}
+
+/** Multi-dimensional draft quality score (for future best-of-N selection). */
+export interface DraftScore {
+  hook: number;
+  clarity: number;
+  novelty: number;
+  voiceMatch: number;
+}
