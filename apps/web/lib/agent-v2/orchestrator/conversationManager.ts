@@ -1573,8 +1573,17 @@ User Profile Summary:
     };
   }
 
+  // V3: Over-questioning guard. After 2 concrete answers from the user,
+  // skip ALL clarification gates and proceed to ideation or plan generation.
+  // This prevents the "keeps asking questions" problem.
+  const hasEnoughContextToAct =
+    memory.concreteAnswerCount >= 2 ||
+    (memory.topicSummary && memory.pendingPlan) ||
+    (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3);
+
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan"
   ) {
     if (
@@ -1690,6 +1699,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan"
   ) {
     const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
@@ -1713,7 +1723,7 @@ User Profile Summary:
     }
   }
 
-  if (!explicitIntent && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
@@ -1749,6 +1759,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan" &&
     isBareDraftRequest(userMessage)
   ) {
@@ -1784,6 +1795,7 @@ User Profile Summary:
 
   if (
     !explicitIntent &&
+    !hasEnoughContextToAct &&
     mode === "plan" &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
@@ -1819,7 +1831,7 @@ User Profile Summary:
     };
   }
 
-  if (!explicitIntent && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
     const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
 
     if (abstractTopicSeed) {
