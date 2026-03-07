@@ -70,6 +70,11 @@ const EDIT_REGEX_PATTERNS = [
 // --- Chat / conversational cues ---------------------------------------------
 
 const CHAT_CUES = [
+  "what do you do",
+  "who are you",
+  "how can you help",
+  "what can you do",
+  "what are you",
   "which angle",
   "which one",
   "what do you think",
@@ -117,6 +122,12 @@ const IMMEDIATE_DRAFT_CUES = [
   "write this up",
   "draft that",
   "draft this",
+  "write this version",
+  "draft this version",
+  "looks good",
+  "sounds good",
+  "this works",
+  "write this",
 ];
 
 // --- Constraint acknowledgment cues -----------------------------------------
@@ -224,7 +235,23 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     Boolean(input.memory.topicSummary) ||
     Boolean(input.memory.pendingPlan);
 
-  if (hasEnoughContext && looksLikeImmediateDraftCommand(normalized)) {
+  const lastAssistantMessage = input.recentHistory
+    .split("\n")
+    .filter((line) => line.trim().startsWith("assistant:"))
+    .pop()
+    ?.toLowerCase() || "";
+  const assistantOfferedDraft =
+    lastAssistantMessage.includes("want me to turn that into a post") ||
+    lastAssistantMessage.includes("want me to draft") ||
+    lastAssistantMessage.includes("want to draft") ||
+    lastAssistantMessage.includes("want me to write");
+  const isAffirmationAfterOffer =
+    assistantOfferedDraft &&
+    /^(yes|yeah|yep|sure|ok|okay|do it|sounds good|go for it|please do)[.?!]*$/.test(
+      normalized,
+    );
+
+  if (hasEnoughContext && (looksLikeImmediateDraftCommand(normalized) || isAffirmationAfterOffer)) {
     // If there is a pending plan, route to planner_feedback (approve).
     if (
       input.memory.pendingPlan &&

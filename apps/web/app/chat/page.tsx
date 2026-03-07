@@ -6646,7 +6646,7 @@ function ChatPageContent() {
   );
 
   const handleQuickReplySelect = useCallback(
-    async (quickReply: ChatQuickReply) => {
+    (quickReply: ChatQuickReply) => {
       if (isMainChatLocked) {
         return;
       }
@@ -6655,25 +6655,6 @@ function ChatPageContent() {
         setActiveContentFocus(quickReply.value as ChatContentFocus);
         setDraftInput(`i want to focus on ${quickReply.label.toLowerCase()}`);
         setErrorMessage(null);
-        return;
-      }
-
-      if (quickReply.explicitIntent) {
-        if (!activeStrategyInputs || !activeToneInputs) {
-          setErrorMessage("The planning model is still loading.");
-          return;
-        }
-
-        await requestAssistantReply({
-          prompt: quickReply.value,
-          displayUserMessage: quickReply.label,
-          appendUserMessage: true,
-          intent: quickReply.explicitIntent,
-          formatPreferenceOverride: quickReply.formatPreference ?? null,
-          strategyInputOverride: activeStrategyInputs,
-          toneInputOverride: activeToneInputs,
-          contentFocusOverride: activeContentFocus,
-        });
         return;
       }
 
@@ -6686,10 +6667,7 @@ function ChatPageContent() {
     },
     [
       activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
       isMainChatLocked,
-      requestAssistantReply,
     ],
   );
 
@@ -6925,8 +6903,8 @@ function ChatPageContent() {
     accountMenuVisible ? (
       <div
         className={`${className} [&_button:not(:disabled)]:cursor-pointer origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${accountMenuOpen
-            ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
-            : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
+          ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
+          : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
           }`}
       >
         <div className="max-h-[200px] overflow-y-auto px-1 py-1">
@@ -7041,8 +7019,8 @@ function ChatPageContent() {
   const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
     } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
   const threadCanvasTransitionClassName = `transition-[filter,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[filter,opacity,transform] ${threadTransitionPhase === "out"
-      ? "opacity-25 blur-[10px] scale-[0.995]"
-      : "opacity-100 blur-0 scale-100"
+    ? "opacity-25 blur-[10px] scale-[0.995]"
+    : "opacity-100 blur-0 scale-100"
     }`;
   const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
     }`;
@@ -7205,8 +7183,8 @@ function ChatPageContent() {
                                       setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
                                     }}
                                     className={`ml-auto flex h-6 w-6 items-center justify-center rounded p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white ${hoveredThreadId === item.id || menuOpenThreadId === item.id
-                                        ? "pointer-events-auto opacity-100"
-                                        : "pointer-events-none opacity-0"
+                                      ? "pointer-events-auto opacity-100"
+                                      : "pointer-events-none opacity-0"
                                       }`}
                                   >
                                     <MoreVertical className="h-4 w-4" />
@@ -7432,8 +7410,8 @@ function ChatPageContent() {
                         <p className="text-xs text-zinc-300">
                           <span
                             className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${billingWarningLevel === "critical"
-                                ? "bg-rose-300"
-                                : "bg-amber-300"
+                              ? "bg-rose-300"
+                              : "bg-amber-300"
                               }`}
                           />
                           {billingWarningLevel === "critical"
@@ -7569,7 +7547,7 @@ function ChatPageContent() {
                             : messages[index - 1]?.role !== message.role
                               ? "mt-6"
                               : "mt-3"
-                            } max-w-[88%] px-4 py-3 text-sm leading-8 ${message.role === "assistant"
+                            } max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up ${message.role === "assistant"
                               ? "text-zinc-100"
                               : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black"
                             }`}
@@ -7608,8 +7586,8 @@ function ChatPageContent() {
                                 }
                                 aria-label="Thumbs up"
                                 className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "up"
-                                    ? "bg-emerald-300/10 text-emerald-300"
-                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                  ? "bg-emerald-300/10 text-emerald-300"
+                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
                                   } disabled:cursor-not-allowed disabled:opacity-60`}
                               >
                                 <ThumbsUp className="h-3 w-3" />
@@ -7624,8 +7602,8 @@ function ChatPageContent() {
                                 }
                                 aria-label="Thumbs down"
                                 className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "down"
-                                    ? "bg-rose-300/10 text-rose-300"
-                                    : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+                                  ? "bg-rose-300/10 text-rose-300"
+                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
                                   } disabled:cursor-not-allowed disabled:opacity-60`}
                               >
                                 <ThumbsDown className="h-3 w-3" />
@@ -7807,8 +7785,8 @@ function ChatPageContent() {
                                       }
                                     }}
                                     className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${isFocusedDraftPreview
-                                        ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
-                                        : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
+                                      ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
+                                      : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
                                       }`}
                                     aria-current={isFocusedDraftPreview ? "true" : undefined}
                                   >
@@ -7875,7 +7853,7 @@ function ChatPageContent() {
 
                                     {/* Action Buttons */}
                                     <div className="mt-2 flex items-center justify-between gap-3">
-                                      <div className="flex items-center gap-1.5">
+                                      <div className="flex flex-wrap items-center gap-1.5">
                                         <button
                                           type="button"
                                           disabled={isMainChatLocked}
@@ -7903,6 +7881,62 @@ function ChatPageContent() {
                                           className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
                                         >
                                           Longer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it softer",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Softer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it punchier",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Punchier
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it less negative",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          Less Negative
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isMainChatLocked}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void requestDraftCardRevision(
+                                              message.id,
+                                              "make it more specific",
+                                            );
+                                          }}
+                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                        >
+                                          More Specific
                                         </button>
                                         {canToggleDraftFormat ? (
                                           <button
@@ -8823,8 +8857,8 @@ function ChatPageContent() {
                               type="button"
                               onClick={() => setFeedbackCategory(category)}
                               className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition ${isActive
-                                  ? "bg-white text-black"
-                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                ? "bg-white text-black"
+                                : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                                 }`}
                             >
                               <Icon className="h-3.5 w-3.5" />
@@ -8919,8 +8953,8 @@ function ChatPageContent() {
 
                         <div
                           className={`mt-3 rounded-2xl border border-dashed p-4 transition ${isFeedbackDropActive
-                              ? "border-white/25 bg-white/[0.06]"
-                              : "border-white/10 bg-black/30"
+                            ? "border-white/25 bg-white/[0.06]"
+                            : "border-white/10 bg-black/30"
                             }`}
                           onClick={() => feedbackFileInputRef.current?.click()}
                           onKeyDown={(event) => {
@@ -9093,8 +9127,8 @@ function ChatPageContent() {
                                 type="button"
                                 onClick={() => setFeedbackHistoryFilter(option.value)}
                                 className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${isActive
-                                    ? "border-white/40 bg-white/[0.12] text-white"
-                                    : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                                  ? "border-white/40 bg-white/[0.12] text-white"
+                                  : "border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
                                   }`}
                               >
                                 {option.label} ({feedbackHistoryCounts[option.value]})
@@ -9390,8 +9424,8 @@ function ChatPageContent() {
                                   )
                                 }
                                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceCasing === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                                   }`}
                               >
                                 {option.label}
@@ -9420,8 +9454,8 @@ function ChatPageContent() {
                                   )
                                 }
                                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceBulletStyle === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                                   }`}
                               >
                                 {option.label}
@@ -9450,8 +9484,8 @@ function ChatPageContent() {
                                   )
                                 }
                                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${preferenceWritingMode === option.value
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                                   }`}
                               >
                                 {option.label}
@@ -9465,8 +9499,8 @@ function ChatPageContent() {
                             type="button"
                             onClick={() => setPreferenceUseEmojis((current) => !current)}
                             className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${preferenceUseEmojis
-                                ? "border-white/20 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
                               }`}
                           >
                             <div className="flex items-center gap-2">
@@ -9488,8 +9522,8 @@ function ChatPageContent() {
                             type="button"
                             onClick={() => setPreferenceAllowProfanity((current) => !current)}
                             className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${preferenceAllowProfanity
-                                ? "border-white/20 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
+                              ? "border-white/20 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
                               }`}
                           >
                             <div className="flex items-center gap-2">
@@ -9717,8 +9751,8 @@ function ChatPageContent() {
                           type="button"
                           onClick={() => setPlaybookStage(stageKey)}
                           className={`inline-flex items-center rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${isSelected
-                              ? "bg-white text-black"
-                              : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                            ? "bg-white text-black"
+                            : "border border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
                             }`}
                         >
                           {PLAYBOOK_STAGE_META[stageKey].label}
@@ -9744,8 +9778,8 @@ function ChatPageContent() {
                               type="button"
                               onClick={() => handleApplyPlaybook(playbook.id)}
                               className={`rounded-xl border px-4 py-3 text-left transition-all ${isSelected
-                                  ? "border-white/25 bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
-                                  : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                                ? "border-white/25 bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+                                : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
                                 }`}
                               aria-pressed={isSelected}
                             >
@@ -9991,8 +10025,8 @@ function ChatPageContent() {
                                 type="button"
                                 onClick={() => setPlaybookTemplateTab(tab.key)}
                                 className={`rounded-full px-3 py-2 text-xs font-medium transition ${playbookTemplateTab === tab.key
-                                    ? "bg-white text-black"
-                                    : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                                  ? "bg-white text-black"
+                                  : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                                   }`}
                               >
                                 {tab.label}
@@ -10076,8 +10110,8 @@ function ChatPageContent() {
                                         }
                                       }}
                                       className={`rounded-2xl border p-4 transition ${isTemplateSelected
-                                          ? "border-white/25 bg-white/[0.06]"
-                                          : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
+                                        ? "border-white/25 bg-white/[0.06]"
+                                        : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]"
                                         }`}
                                     >
                                       <div className="flex items-start justify-between gap-3">
@@ -10417,8 +10451,8 @@ function ChatPageContent() {
                           <article
                             key={`${recommendation.stage}-${recommendation.playbook.id}`}
                             className={`rounded-2xl border p-4 ${index === 0
-                                ? "border-white/25 bg-white/[0.06]"
-                                : "border-white/10 bg-black/20"
+                              ? "border-white/25 bg-white/[0.06]"
+                              : "border-white/10 bg-black/20"
                               }`}
                           >
                             <div className="flex flex-wrap items-center gap-2">
@@ -10677,10 +10711,10 @@ function ChatPageContent() {
                   {analysisScrapeNotice ? (
                     <p
                       className={`text-xs ${analysisScrapeNoticeTone === "success"
-                          ? "text-emerald-300"
-                          : analysisScrapeNoticeTone === "error"
-                            ? "text-rose-300"
-                            : "text-zinc-400"
+                        ? "text-emerald-300"
+                        : analysisScrapeNoticeTone === "error"
+                          ? "text-rose-300"
+                          : "text-zinc-400"
                         }`}
                     >
                       {analysisScrapeNotice}

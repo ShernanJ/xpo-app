@@ -2159,7 +2159,7 @@ User Profile Summary:
         relevantTopicAnchors,
         effectiveActiveConstraints,
         effectiveContext,
-        undefined,
+        activeDraft,
         {
           antiPatterns,
           maxCharacterLimit,
@@ -2688,14 +2688,28 @@ User Profile Summary:
       assistantTurnCount: nextAssistantTurnCount,
     });
 
+    const willHaveEnoughContext =
+      nextConcreteAnswerCount >= 2 ||
+      (nextAssistantTurnCount >= 3 &&
+        Boolean(memory.topicSummary) &&
+        nextConcreteAnswerCount >= 1);
+
+    let finalResponse =
+      coachReply?.response ||
+      "what's on your mind? i can help you draft, ideate, or figure out what to post.";
+
+    if (
+      willHaveEnoughContext &&
+      !finalResponse.toLowerCase().includes("want me to") &&
+      !finalResponse.toLowerCase().includes("draft")
+    ) {
+      finalResponse = finalResponse.trim() + " want me to turn that into a post?";
+    }
+
     return {
       mode: "coach",
       outputShape: "coach_question",
-      response: prependFeedbackMemoryNotice(
-        coachReply?.response ||
-        "what's on your mind? i can help you draft, ideate, or figure out what to post.",
-        feedbackMemoryNotice,
-      ),
+      response: prependFeedbackMemoryNotice(finalResponse, feedbackMemoryNotice),
       memory,
     };
   }

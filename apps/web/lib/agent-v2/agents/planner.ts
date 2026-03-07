@@ -68,7 +68,10 @@ ${isEditing ? `EXISTING DRAFT TO EDIT:\n${activeDraft}\n\n` : ""}
 RECENT CHAT HISTORY (For context on what they are replying to):
 ${recentHistory}
 
-USER'S REQUEST (Their idea or direct answer):
+USER'S CORE TOPIC/SUMMARY:
+${topicSummary || "None"}
+
+USER'S DIRECT REQUEST:
 ${userMessage}
 
 ACTIVE SESSION CONSTRAINTS (Rules the user has previously set):

@@ -34,7 +34,7 @@ function inferCoachTopic(userMessage: string, topicSummary: string | null): stri
     trimmed.length <= 48 &&
     trimmed.split(/\s+/).length <= 5 &&
     /^[a-z0-9\s/&'’-]+$/i.test(trimmed) &&
-    !trimmed.includes("?")
+    !userMessage.includes("?")
   ) {
     return trimmed;
   }
@@ -55,7 +55,7 @@ function looksLikeBuildMessage(normalized: string): boolean {
 
 function looksGenericProbingQuestion(question: string | null): boolean {
   if (!question) {
-    return true;
+    return false;
   }
 
   const normalized = question.trim().toLowerCase();
@@ -239,6 +239,7 @@ FLOWS TO HANDLE:
    React: ask ONE short focused question to move forward.
 
 RULES:
+- CRITICAL: NEVER write or generate the actual post draft in coach mode. If the user tells you to write it or says yes to drafting, just acknowledge it and let the system handle the generation. DO NOT write the post yourself.
 - ONE question max. Never two.
 - Never generate post ideas in coach mode. That's ideate mode.
 - Never say "Let's dive in", "In conclusion", "Great question", "Certainly", or anything that sounds like a customer support bot.
@@ -345,13 +346,13 @@ ${topicHint ? `A recent post sounded like: "${topicHint}"` : "None available."}
 
 REAL POST EXAMPLES TO MATCH:
 ${voiceExamples.length > 0
-    ? voiceExamples.map((example, index) => `${index + 1}. ${example}`).join("\n")
-    : "No direct post examples available."}
+      ? voiceExamples.map((example, index) => `${index + 1}. ${example}`).join("\n")
+      : "No direct post examples available."}
 
 HOW THEY USUALLY TALK TO THE AGENT:
 ${conversationExamples.length > 0
-    ? conversationExamples.map((example, index) => `${index + 1}. ${example}`).join("\n")
-    : "No prior chat examples yet. Default to the creator's public voice."}
+      ? conversationExamples.map((example, index) => `${index + 1}. ${example}`).join("\n")
+      : "No prior chat examples yet. Default to the creator's public voice."}
 
 REQUIREMENTS:
 1. Greet them by name (e.g. "yo ${accountName} —").
