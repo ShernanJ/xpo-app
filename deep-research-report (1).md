@@ -16,7 +16,7 @@ Key repo touchpoints that drive the current button-first behavior:
 
 - UI chat flow and button rendering in `apps/web/app/chat/page.tsx`. fileciteturn68file0L1-L1  
 - Server orchestration and “effectiveMessage” fallback logic in `apps/web/app/api/creator/chat/route.ts`. fileciteturn74file0L1-L1  
-- Pipeline logic and intent handling in `apps/web/lib/onboarding/chatAgent.ts`. fileciteturn78file1L1-L1  
+- Pipeline logic and intent handling in `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`. fileciteturn78file1L1-L1  
 - Draft validation rules (CTA + 4-section enforcement) in `apps/web/lib/onboarding/draftValidator.ts`. fileciteturn78file0L1-L1  
 - Regression harness you can extend to prevent “UI feels like a form” regressions in `apps/web/lib/onboarding/regression.ts`. fileciteturn74file4L1-L1  
 
@@ -186,7 +186,7 @@ Then add a new intent to the API:
 
 ### Agent changes that enforce the new conversational behavior
 
-Primary file: `apps/web/lib/onboarding/chatAgent.ts`. fileciteturn78file1L1-L1  
+Primary file: `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`. fileciteturn78file1L1-L1  
 
 Add:
 
@@ -319,7 +319,7 @@ Constraints:
 Files to read first:
 - apps/web/app/chat/page.tsx
 - apps/web/app/api/creator/chat/route.ts
-- apps/web/lib/onboarding/chatAgent.ts
+- apps/web/lib/agent-v2/orchestrator/conversationManager.ts
 - apps/web/lib/onboarding/draftValidator.ts
 - apps/web/lib/onboarding/regression.ts
 
@@ -349,7 +349,7 @@ Implement:
   - Add support for intent "coach".
 
 4) chatAgent: implement coach behavior
-- In apps/web/lib/onboarding/chatAgent.ts:
+- In apps/web/lib/agent-v2/orchestrator/conversationManager.ts:
   - When intent === "coach":
     - Output only: reply (short), no angles, no drafts.
     - reply must end with exactly one question mark.

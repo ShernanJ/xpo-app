@@ -18,7 +18,7 @@ The rest of this report translates those insights into a specific “voice + aut
 
 ## What your repo is doing now and why drafts skew too formal
 
-You’ve implemented a planner → writer → critic flow in `apps/web/lib/onboarding/chatAgent.ts`, and you already push voice anchors and “do not sound corporate” constraints into the writer/critic prompts. That’s a strong foundation.
+You’ve implemented a planner → writer → critic flow in `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`, and you already push voice anchors and “do not sound corporate” constraints into the writer/critic prompts. That’s a strong foundation.
 
 But the system currently behaves as if “voice = whatever the sample posts imply,” rather than “voice = (sample voice) blended with (user’s intended tone).” In practice:
 

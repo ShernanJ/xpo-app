@@ -252,7 +252,7 @@ What to implement:
 Files likely affected:
 - `apps/web/app/chat/page.tsx` (remove or neuter `inferComposerIntent`; stop sending `intent` as authoritative) fileciteturn15file10L130-L210
 - `apps/web/app/api/creator/chat/route.ts` (treat `intent` as optional hint or remove it; rely on backend classification) fileciteturn29file0L20-L90
-- `apps/web/lib/onboarding/chatAgent.ts` (centralize intent inference; delete split-brain `requestedIntent` logic) fileciteturn15file18L560-L590
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (centralize intent inference; delete split-brain `requestedIntent` logic) fileciteturn15file18L560-L590
 
 Why this is highest ROI:
 - It fixes the single biggest “wizard/router feeling” driver: the system gets stuck in coach mode because the client keeps sending coach.
@@ -265,7 +265,7 @@ What to implement:
 - Frontend stores `memory` and sends it back each request.
 
 Files likely affected:
-- `apps/web/lib/onboarding/chatAgent.ts` (compute state; include constraints in writer/critic prompts) fileciteturn15file18L90-L140
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (compute state; include constraints in writer/critic prompts) fileciteturn15file18L90-L140
 - `apps/web/app/api/creator/chat/route.ts` (accept `memory`, return `memory`) fileciteturn29file0L120-L200
 - `apps/web/app/chat/page.tsx` (stop slicing away critical information; store returned memory) fileciteturn15file10L300-L380
 
@@ -281,7 +281,7 @@ What to implement:
 Files likely affected:
 - `apps/web/app/chat/page.tsx` (send the selected draft artifact when user is in the editor drawer) fileciteturn15file10L490-L620
 - `apps/web/app/api/creator/chat/route.ts` (plumb edit_target) fileciteturn29file0L20-L120
-- `apps/web/lib/onboarding/chatAgent.ts` (add edit path that rewrites drafts instead of switching to coach) fileciteturn15file18L560-L590
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (add edit path that rewrites drafts instead of switching to coach) fileciteturn15file18L560-L590
 - `apps/web/lib/onboarding/coachReply.ts` (stop treating all corrections as “coach”) fileciteturn33file0L45-L76
 
 Why this is highest ROI:
@@ -298,7 +298,7 @@ What to implement:
   - after 2 → do not ask generic narrowing questions
 
 Files likely affected:
-- `apps/web/lib/onboarding/chatAgent.ts` (replace “requestedIntent === coach” as a sufficient reason to coach; require state-based need instead) fileciteturn15file18L560-L590
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (replace “requestedIntent === coach” as a sufficient reason to coach; require state-based need instead) fileciteturn15file18L560-L590
 
 Why this is highest ROI:
 - It enforces the product rule that the assistant should stop interviewing once it has enough to work with.

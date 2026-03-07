@@ -98,7 +98,7 @@ What it should return:
 - `laneAnchors`: posts matching the target lane (`original`, `reply`, `quote`)
 
 Primary file:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 Expected impact:
 - highest direct improvement to relevance
@@ -119,7 +119,7 @@ Minimum fields:
 Primary files:
 - `apps/web/lib/onboarding/creatorProfile.ts`
 - `apps/web/lib/onboarding/generationContract.ts`
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 Expected impact:
 - highest direct improvement to voice fidelity
@@ -136,7 +136,7 @@ Reason:
 
 Primary files:
 - `apps/web/lib/onboarding/creatorProfile.ts`
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 Expected impact:
 - better reply quality
@@ -171,7 +171,7 @@ Rules:
 - expansion pass should preserve the creator's structural blueprint
 
 Primary file:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 Expected impact:
 - better long-form matching for creators like Vitalii
@@ -186,7 +186,7 @@ Strategy fields may guide the planner, but the writer should always draft from:
 Never let high-level strategic phrasing become the output topic by accident.
 
 Primary files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - `apps/web/lib/onboarding/generationContract.ts`
 
 Expected impact:

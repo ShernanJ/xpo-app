@@ -41,8 +41,8 @@ At a high level, the product is a Next.js app with server routes that load an on
 **LLM layer (multi-pass, structured output)**
 - `apps/web/app/api/creator/chat/route.ts` is the orchestration entrypoint.
   - It loads the run, applies strategy overrides and tone overrides, then calls:
-    - `generateCreatorChatReply` from `apps/web/lib/onboarding/chatAgent.ts`.
-- `apps/web/lib/onboarding/chatAgent.ts` is the core generation system:
+    - `generateCreatorChatReply` from `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`.
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` is the core generation system:
   - Builds context + contract deterministically.
   - If not ready (or no model key), it returns deterministic fallback.
   - Otherwise runs a 3-stage pipeline (planner → writer → critic), all JSON-shaped:
@@ -81,7 +81,7 @@ That said, there are two **architectural drifts** that will bite you later:
    - X weighted character counting
    - “Better closers” and “reply plan”
    - Deterministic fallback draft behavior  
-   This will drift from `chatAgent.ts` and create “it worked on screen but not in API” discrepancies.
+   This will drift from `conversationManager.ts` and create “it worked on screen but not in API” discrepancies.
 2. **The UI effectively defines important taxonomy.** The `contentFocusOptions` list and the “setup prompt” flow strongly shape what the system considers “content planning,” but they aren’t represented as first-class backend domain objects (they’re passed in as strings). That’s acceptable for MVP, but it’s a real product-logic surface.
 
 ## Root Causes of the Current Quality Problems
@@ -153,7 +153,7 @@ Below are the highest-ROI changes in strict priority order, optimized for voice 
 Static anchors help tone, but relevance and specificity require **the right past post(s) surfaced for the current request**. This is the most direct fix for “scraped posts aren’t used strongly enough” and “generic startup advice.”
 
 **Where to change**
-- `apps/web/lib/onboarding/chatAgent.ts` (right before writer call): select “request-conditioned anchors”
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (right before writer call): select “request-conditioned anchors”
 - Potentially factor into a module called `retrieval.ts` under onboarding lib
 
 **Type**: deterministic model logic  
@@ -175,7 +175,7 @@ Static anchors help tone, but relevance and specificity require **the right past
 Voice fidelity + long-form structure are exactly the tasks where smaller models tend to collapse into genericness. Your default provider in the route is “groq”, and the default model is `llama-3.1-8b-instant`. That’s a predictable quality bottleneck. Using a stronger writer model is a *system quality* move, not prompt tuning.
 
 **Where to change**
-- `apps/web/lib/onboarding/chatAgent.ts` (`resolveProviderConfig`, or support per-stage model selection)
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (`resolveProviderConfig`, or support per-stage model selection)
 - `apps/web/app/api/creator/chat/route.ts` (default provider selection if you keep it there)
 
 **Type**: backend generation logic (model architecture / routing)  
@@ -211,7 +211,7 @@ Your current `pickOutputShape` can select `long_form_post` purely because `isVer
 Your current “long-form” checks can pass on drafts that are barely longer than average. Real long-form creators have recognizable shapes: paragraphs, bullets, proof blocks, and a minimum density of specifics.
 
 **Where to change**
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
   - `isClearlyLongFormDraft`
   - `scoreDraftCandidate` for `long_form_post`
   - long-form expansion prompt builder
@@ -236,7 +236,7 @@ Right now you have “voice stats” and “voice anchors,” but not a reusable
 **Where to change**
 - `apps/web/lib/onboarding/creatorProfile.ts` (build and attach `styleCard`)
 - `apps/web/lib/onboarding/generationContract.ts` (voiceGuidelines + mustAvoid/mustInclude incorporate style card)
-- `apps/web/lib/onboarding/chatAgent.ts` (use style card in prompts + reranker)
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (use style card in prompts + reranker)
 
 **Type**: deterministic model logic + API contract change  
 **Complexity**: medium  
@@ -257,7 +257,7 @@ A lot of “X-native authenticity” is lane-dependent. Someone may write clean 
 
 **Where to change**
 - `apps/web/lib/onboarding/creatorProfile.ts` (representative examples should include reply voice anchors and quote voice anchors)
-- `apps/web/lib/onboarding/chatAgent.ts` (choose anchors based on target lane)
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (choose anchors based on target lane)
 
 **Type**: deterministic model logic  
 **Complexity**: medium  
@@ -270,7 +270,7 @@ When the user request is vague (“draft me a post idea”), the system falls ba
 
 **Where to change**
 - `apps/web/lib/onboarding/generationContract.ts` (how `primaryAngle` is chosen)
-- `apps/web/lib/onboarding/chatAgent.ts` (planner and writer should prefer a concrete subject if missing, or ask for one)
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` (planner and writer should prefer a concrete subject if missing, or ask for one)
 
 **Type**: contract change + deterministic planning logic  
 **Complexity**: low-medium  
@@ -319,7 +319,7 @@ This will drift and create debugging chaos later.
 
 **Where to change**
 - Move shared artifact logic into `apps/web/lib/onboarding/artifacts.ts` (or similar)
-- Import in both `chatAgent.ts` and `chat/page.tsx` (shared library)
+- Import in both `conversationManager.ts` and `chat/page.tsx` (shared library)
 - Keep server as authoritative for the response shape; client only renders.
 
 **Type**: UI contract change + deterministic logic refactor  
@@ -363,7 +363,7 @@ A content calendar only helps if the *generated posts are good*. Build the X-nat
 
 **Goal:** make outputs concretely grounded, more X-native, and reliably creator-matching.
 
-- Implement query-time retrieval for the specific request in `chatAgent.ts` and pass “topic anchors” into writer/critic.
+- Implement query-time retrieval for the specific request in `conversationManager.ts` and pass “topic anchors” into writer/critic.
 - Fix `pickOutputShape` so “verified” doesn’t force long-form; require observed long-form behavior.
 - Raise and calibrate long-form enforcement thresholds (dynamic word target from exemplar).
 - Introduce Style Card v1 (openers/closers, emoji policy, punctuation posture, forbidden phrases) and inject into contract + reranker.

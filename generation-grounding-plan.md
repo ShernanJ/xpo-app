@@ -84,7 +84,7 @@ Definition of done:
 - no creator-specific hardcoding is used
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - `apps/web/lib/onboarding/creatorProfile.ts`
 - optionally a new helper module such as `apps/web/lib/onboarding/evidence.ts`
 
@@ -100,7 +100,7 @@ Definition of done:
 - angles are less generic and more grounded in retrieved evidence
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 ### 3. Writer Uses Evidence, Not Just Structure
 
@@ -116,7 +116,7 @@ Definition of done:
 - drafts stop drifting into generic domain advice when concrete details are available
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 ### 4. Grounding Critic Gate
 
@@ -130,7 +130,7 @@ Definition of done:
 - hallucinated numeric claims are explicitly rejected
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - `apps/web/lib/onboarding/generationContract.ts`
 
 ### 5. Rerank On Evidence Coverage
@@ -147,7 +147,7 @@ Definition of done:
 - the top-ranked draft uses the strongest relevant evidence more consistently
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 ### 6. Redesign Deterministic Fallback
 
@@ -163,7 +163,7 @@ Definition of done:
 - fallback references real creator-specific facts when available
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - `apps/web/lib/onboarding/draftArtifacts.ts`
 
 ### 7. Long-Form Content Skeleton Extraction
@@ -183,7 +183,7 @@ Definition of done:
 - long-form outputs reflect creator-specific structural patterns
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - optionally a new helper module
 
 ### 8. Better Pinning: Voice Pins vs Evidence Pins
@@ -200,7 +200,7 @@ Definition of done:
 Likely files:
 - `apps/web/app/chat/page.tsx`
 - `apps/web/app/api/creator/chat/route.ts`
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 ### 9. Prompt Compaction / Salience Ordering
 
@@ -214,7 +214,7 @@ Definition of done:
 - less “lost in the middle” behavior
 
 Likely files:
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 
 ### 10. Better Debugging For Grounding
 
@@ -229,7 +229,7 @@ Definition of done:
 - a bad output can be traced to a specific grounding failure instead of guessed at
 
 Likely files:
- - `apps/web/lib/onboarding/chatAgent.ts`
+ - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
  - `apps/web/app/chat/page.tsx`
 
 ### 11. Offline Grounding Regression Checks

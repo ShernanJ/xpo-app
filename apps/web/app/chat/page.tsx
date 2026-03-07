@@ -2722,6 +2722,7 @@ function ChatPageContent() {
   const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
   const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
+  const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
 
   const accountName = session?.user?.activeXHandle ?? null;
   const requiresXAccountGate = status === "authenticated" && !accountName;
@@ -3007,14 +3008,21 @@ function ChatPageContent() {
   );
 
   const loadBillingState = useCallback(
-    async (options?: { openModalIfFirstVisit?: boolean }) => {
+    async (options?: {
+      openModalIfFirstVisit?: boolean;
+      checkoutSessionId?: string;
+    }) => {
       if (!session?.user?.id) {
         return;
       }
 
       setIsBillingLoading(true);
       try {
-        const response = await fetch("/api/billing/state", {
+        const checkoutSessionId = options?.checkoutSessionId?.trim();
+        const query = checkoutSessionId
+          ? `?session_id=${encodeURIComponent(checkoutSessionId)}`
+          : "";
+        const response = await fetch(`/api/billing/state${query}`, {
           method: "GET",
         });
         const data = (await response.json()) as BillingStateResponse;
@@ -3055,8 +3063,12 @@ function ChatPageContent() {
 
     void loadBillingState({
       openModalIfFirstVisit: true,
+      checkoutSessionId:
+        billingQueryStatus === "success" && billingQuerySessionId
+          ? billingQuerySessionId
+          : undefined,
     });
-  }, [loadBillingState, session?.user?.id]);
+  }, [billingQuerySessionId, billingQueryStatus, loadBillingState, session?.user?.id]);
 
   useEffect(() => {
     if (!billingQueryStatus || !session?.user?.id) {
@@ -3066,9 +3078,11 @@ function ChatPageContent() {
     if (billingQueryStatus === "success") {
       setPricingModalOpen(false);
       setErrorMessage(null);
-      void loadBillingState();
+      void loadBillingState({
+        checkoutSessionId: billingQuerySessionId || undefined,
+      });
     }
-  }, [billingQueryStatus, loadBillingState, session?.user?.id]);
+  }, [billingQuerySessionId, billingQueryStatus, loadBillingState, session?.user?.id]);
 
   useEffect(() => {
     const snapshot = billingState?.billing;

@@ -42,7 +42,7 @@ From the files you highlighted, the workflow is:
   - topic/voice anchors and pinned references (context)
 
 **LLM layer (today’s staged flow):**
-- Planner → Writer → Critic (plus reranking), driven by `chatAgent.ts`.
+- Planner → Writer → Critic (plus reranking), driven by `conversationManager.ts`.
 
 ### Where frontend may still influence behavior incorrectly
 
@@ -130,15 +130,15 @@ The strict priority order below assumes your stated constraint: **no creator-spe
 
 | Priority | Fix | Why it matters | Files to touch | Category | Complexity | Expected impact |
 |---:|---|---|---|---|---|---|
-| 1 | Introduce an **Evidence Pack** extracted from retrieved posts (entities, metrics, constraints, outcomes) | Turns “retrieved text blob” into enforceable grounding objects | `chatAgent.ts`, `creatorProfile.ts` (or new `evidence.ts`), `generationContract.ts` | deterministic model + contract | Medium | High |
-| 2 | Make the **planner evidence-aware** and require angles to reference evidence IDs | Prevents early abstraction into generic themes | `chatAgent.ts` | prompt architecture + contract | Low–Medium | High |
-| 3 | Replace “exemplar = structure only” with “exemplar = structure + acceptable proof points,” and ban invented metrics | Removes the core incentive to ignore details | `chatAgent.ts` | prompt architecture | Low | High |
-| 4 | Add a **grounding critic gate**: reject drafts missing evidence, reject invented numbers/entities | Makes generic drafts fail closed | `chatAgent.ts`, `generationContract.ts` | critic + deterministic checks | Medium | High |
-| 5 | Update reranking to score **evidence coverage** (not just “has a number”) | Prevents generic-but-clean drafts from winning | `chatAgent.ts` | reranking | Medium | High |
-| 6 | Add a **long-form skeleton extractor** (beats/sections) derived from exemplar + evidence | Fixes “tweet-sized long form” | `chatAgent.ts` (+ new helper module) | deterministic + prompt | Medium | High |
-| 7 | Expand pinned references into two explicit types: **voice pin** and **content/evidence pin** | Lets users force “use this post’s facts” without hacks | `page.tsx`, `route.ts`, `chatAgent.ts` | UI contract + contract | Medium | Medium–High |
-| 8 | Reduce prompt entropy: compress strategy/style, move evidence to top and bottom | Improves salience; mitigates lost-in-middle | `chatAgent.ts` | prompt architecture | Low | Medium–High |
-| 9 | Add debug output for: topic anchors, evidence pack, per-draft evidence usage | Speeds iteration and accountability | `chatAgent.ts`, `page.tsx` | debuggability | Low | Medium |
+| 1 | Introduce an **Evidence Pack** extracted from retrieved posts (entities, metrics, constraints, outcomes) | Turns “retrieved text blob” into enforceable grounding objects | `conversationManager.ts`, `creatorProfile.ts` (or new `evidence.ts`), `generationContract.ts` | deterministic model + contract | Medium | High |
+| 2 | Make the **planner evidence-aware** and require angles to reference evidence IDs | Prevents early abstraction into generic themes | `conversationManager.ts` | prompt architecture + contract | Low–Medium | High |
+| 3 | Replace “exemplar = structure only” with “exemplar = structure + acceptable proof points,” and ban invented metrics | Removes the core incentive to ignore details | `conversationManager.ts` | prompt architecture | Low | High |
+| 4 | Add a **grounding critic gate**: reject drafts missing evidence, reject invented numbers/entities | Makes generic drafts fail closed | `conversationManager.ts`, `generationContract.ts` | critic + deterministic checks | Medium | High |
+| 5 | Update reranking to score **evidence coverage** (not just “has a number”) | Prevents generic-but-clean drafts from winning | `conversationManager.ts` | reranking | Medium | High |
+| 6 | Add a **long-form skeleton extractor** (beats/sections) derived from exemplar + evidence | Fixes “tweet-sized long form” | `conversationManager.ts` (+ new helper module) | deterministic + prompt | Medium | High |
+| 7 | Expand pinned references into two explicit types: **voice pin** and **content/evidence pin** | Lets users force “use this post’s facts” without hacks | `page.tsx`, `route.ts`, `conversationManager.ts` | UI contract + contract | Medium | Medium–High |
+| 8 | Reduce prompt entropy: compress strategy/style, move evidence to top and bottom | Improves salience; mitigates lost-in-middle | `conversationManager.ts` | prompt architecture | Low | Medium–High |
+| 9 | Add debug output for: topic anchors, evidence pack, per-draft evidence usage | Speeds iteration and accountability | `conversationManager.ts`, `page.tsx` | debuggability | Low | Medium |
 | 10 | Add offline evaluations for grounding/faithfulness (RAGAS/ARES-style) + a small regression suite | Prevents regressions; makes quality measurable | new eval harness + `evaluation.ts` | evaluation | Medium–High | Medium–High |
 
 ### Detailed recommendations

@@ -206,6 +206,112 @@ export async function findExistingSubscriptionForCustomer(args: {
   };
 }
 
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([, entryValue]) => typeof entryValue === "string",
+  ) as Array<[string, string]>;
+
+  return Object.fromEntries(entries);
+}
+
+export async function getCheckoutSessionById(args: {
+  sessionId: string;
+}): Promise<{
+  id: string;
+  mode: "subscription" | "payment" | null;
+  status: string | null;
+  paymentStatus: string | null;
+  customerId: string | null;
+  subscriptionId: string | null;
+  metadata: Record<string, string>;
+} | null> {
+  const sessionId = args.sessionId.trim();
+  if (!sessionId) {
+    return null;
+  }
+
+  const response = await stripeApiRequest<{
+    id?: string;
+    mode?: string;
+    status?: string;
+    payment_status?: string;
+    customer?: string | null;
+    subscription?: string | null;
+    metadata?: Record<string, unknown>;
+  }>({
+    path: `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
+    method: "GET",
+  });
+
+  if (!response.id) {
+    return null;
+  }
+
+  return {
+    id: response.id,
+    mode: response.mode === "subscription" || response.mode === "payment" ? response.mode : null,
+    status: typeof response.status === "string" ? response.status : null,
+    paymentStatus: typeof response.payment_status === "string" ? response.payment_status : null,
+    customerId: typeof response.customer === "string" ? response.customer : null,
+    subscriptionId: typeof response.subscription === "string" ? response.subscription : null,
+    metadata: toStringRecord(response.metadata),
+  };
+}
+
+export async function getSubscriptionById(args: {
+  subscriptionId: string;
+}): Promise<{
+  id: string;
+  status: string;
+  priceId: string | null;
+  interval: "month" | "year" | null;
+  customerId: string | null;
+} | null> {
+  const subscriptionId = args.subscriptionId.trim();
+  if (!subscriptionId) {
+    return null;
+  }
+
+  const response = await stripeApiRequest<{
+    id?: string;
+    status?: string;
+    customer?: string | null;
+    items?: {
+      data?: Array<{
+        price?: {
+          id?: string;
+          recurring?: {
+            interval?: string;
+          };
+        };
+      }>;
+    };
+  }>({
+    path: `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    method: "GET",
+  });
+
+  if (!response.id) {
+    return null;
+  }
+
+  const firstItem = Array.isArray(response.items?.data) ? response.items.data[0] : undefined;
+  const priceId = firstItem?.price?.id ?? null;
+  const interval = firstItem?.price?.recurring?.interval;
+
+  return {
+    id: response.id,
+    status: typeof response.status === "string" ? response.status : "unknown",
+    priceId,
+    interval: interval === "year" ? "year" : interval === "month" ? "month" : null,
+    customerId: typeof response.customer === "string" ? response.customer : null,
+  };
+}
+
 export async function createStripeCustomer(args: {
   userId: string;
   email?: string | null;

@@ -22,7 +22,7 @@ This report proposes:
 
 The key generation pipeline is implemented in:
 
-- `apps/web/lib/onboarding/chatAgent.ts` — core planner/writer/critic orchestration, evidence pack formatting, anchor selection, reranking, scoring, blueprint/skeleton checks, and JSON call plumbing. fileciteturn31file0L1-L1 fileciteturn33file0L1-L1
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` — core planner/writer/critic orchestration, evidence pack formatting, anchor selection, reranking, scoring, blueprint/skeleton checks, and JSON call plumbing. fileciteturn31file0L1-L1 fileciteturn33file0L1-L1
 - `apps/web/app/api/creator/chat/route.ts` — API route that calls `generateCreatorChatReply`, supports NDJSON streaming for progress phases, and passes `userMessage`, `selectedAngle`, `intent`, etc. fileciteturn32file0L1-L1
 - `apps/web/app/chat/page.tsx` — UI rendering of reply + drafts + “why this works” + “watch out for”; preserves whitespace in rendered drafts via `whitespace-pre-wrap` (so line breaks are supported if the model produces them). fileciteturn31file0L1-L1
 
@@ -140,7 +140,7 @@ Grounding note: X longer posts are available to Premium subscribers (up to 25,00
 Below are **drop-in templates** for `buildWriterSystemPrompt` and the writer’s user message. The goal is to make the contract unambiguous and machine-verifiable.
 
 **Writer system message (template snippet)**  
-(Integrate into `buildWriterSystemPrompt` in `apps/web/lib/onboarding/chatAgent.ts`.) fileciteturn35file0L1-L1
+(Integrate into `buildWriterSystemPrompt` in `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`.) fileciteturn35file0L1-L1
 
 ```ts
 // Add near buildWriterSystemPrompt():
@@ -362,7 +362,7 @@ Important: do not “retry blindly”––give the model the validator’s reas
 
 The following locations are the right “integration seams”:
 
-- `apps/web/lib/onboarding/chatAgent.ts`
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
   - extend writer system prompt builder to include the strict render contract (it already includes blueprint/skeleton/evidence pack and angle guardrails). fileciteturn35file0L1-L1
   - add `validateDraft` and wire it into `generateCreatorChatReply` after final draft selection (the function already computes reranked drafts and diagnostics). fileciteturn33file0L1-L1 fileciteturn30file0L1-L1
   - update diagnostics output (`draftDiagnostics`) to include new validator metrics and error codes (debug UI already displays per-draft diagnostics). fileciteturn33file0L1-L1
@@ -462,7 +462,7 @@ In your repo, the “draft diagnostics” surface already exists and can be exte
 | Task | What to change | Effort |
 |---|---|---|
 | Decouple `userMessage` from `selectedAngle` | `apps/web/app/api/creator/chat/route.ts`: remove `selectedAngle` from `effectiveMessage` for drafting intent; use neutral `"Turn the selected angle into drafts."` | Low |
-| Add strict render contract generator | `apps/web/lib/onboarding/chatAgent.ts`: add `buildStrictFourSectionRenderContract()` and include it in writer+critic system prompts when `outputShape === long_form_post` | Medium |
+| Add strict render contract generator | `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`: add `buildStrictFourSectionRenderContract()` and include it in writer+critic system prompts when `outputShape === long_form_post` | Medium |
 | Implement `validateDraft()` + error codes | New module `apps/web/lib/onboarding/draftValidator.ts` (recommended) and wire into `generateCreatorChatReply` | Medium |
 | Repair retry loop | `generateCreatorChatReply`: if no drafts pass, run 1–2 repair attempts with validator feedback | Medium |
 | Extend diagnostics payload | Add validator fields to `draftDiagnostics` shown in dev tools | Low |
