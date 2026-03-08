@@ -34,6 +34,7 @@ export interface TranscriptReplayFixture {
   styleCard?: VoiceStyleCard | null;
   topicAnchors?: string[];
   historicalPosts?: string[];
+  initialMemory?: Partial<V2ConversationMemory>;
   onboarding?: {
     isVerified?: boolean;
     goal?: string;
@@ -209,6 +210,57 @@ function createReplayMemoryRecord(args: {
   };
 }
 
+function buildSeedMemoryUpdate(
+  seed: Partial<V2ConversationMemory> | undefined,
+): Partial<ReplayUpdateMemoryArgs> {
+  if (!seed) {
+    return {};
+  }
+
+  return {
+    ...(seed.topicSummary !== undefined ? { topicSummary: seed.topicSummary } : {}),
+    ...(seed.activeConstraints !== undefined
+      ? { activeConstraints: seed.activeConstraints }
+      : {}),
+    ...(seed.conversationState !== undefined
+      ? { conversationState: seed.conversationState }
+      : {}),
+    ...(seed.pendingPlan !== undefined ? { pendingPlan: seed.pendingPlan } : {}),
+    ...(seed.clarificationState !== undefined
+      ? { clarificationState: seed.clarificationState }
+      : {}),
+    ...(seed.lastIdeationAngles !== undefined
+      ? { lastIdeationAngles: seed.lastIdeationAngles }
+      : {}),
+    ...(seed.rollingSummary !== undefined ? { rollingSummary: seed.rollingSummary } : {}),
+    ...(seed.assistantTurnCount !== undefined
+      ? { assistantTurnCount: seed.assistantTurnCount }
+      : {}),
+    ...(seed.activeDraftRef !== undefined ? { activeDraftRef: seed.activeDraftRef } : {}),
+    ...(seed.latestRefinementInstruction !== undefined
+      ? { latestRefinementInstruction: seed.latestRefinementInstruction }
+      : {}),
+    ...(seed.unresolvedQuestion !== undefined
+      ? { unresolvedQuestion: seed.unresolvedQuestion }
+      : {}),
+    ...(seed.clarificationQuestionsAsked !== undefined
+      ? { clarificationQuestionsAsked: seed.clarificationQuestionsAsked }
+      : {}),
+    ...(seed.preferredSurfaceMode !== undefined
+      ? { preferredSurfaceMode: seed.preferredSurfaceMode }
+      : {}),
+    ...(seed.formatPreference !== undefined
+      ? { formatPreference: seed.formatPreference }
+      : {}),
+    ...(seed.concreteAnswerCount !== undefined
+      ? { concreteAnswerCount: seed.concreteAnswerCount }
+      : {}),
+    ...(seed.currentDraftArtifactId !== undefined
+      ? { lastDraftArtifactId: seed.currentDraftArtifactId }
+      : {}),
+  };
+}
+
 export function createReplayConversationSnapshot(
   record: ReplayMemoryRecord | null | undefined,
 ): V2ConversationMemory {
@@ -353,7 +405,16 @@ export function createReplayServiceOverrides(
   const threadId = fixture.threadId || `replay_${fixture.id}`;
   const userId = fixture.userId || "replay-user";
   const styleCard = fixture.styleCard ?? buildDefaultStyleCard();
-  let memoryRecord: ReplayMemoryRecord | null = null;
+  let memoryRecord: ReplayMemoryRecord | null = fixture.initialMemory
+    ? buildReplayMemoryRecordUpdate(
+        createReplayMemoryRecord({
+          runId,
+          threadId,
+          userId,
+        }),
+        buildSeedMemoryUpdate(fixture.initialMemory),
+      )
+    : null;
 
   return {
     async getConversationMemory({ runId: requestedRunId, threadId: requestedThreadId }) {

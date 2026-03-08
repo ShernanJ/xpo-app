@@ -18,6 +18,8 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "casual-opening-to-help-offer"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "direct-draft-first-turn"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "vague-product-one-question"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
 });
 
 test("replay fixture lookup returns the matching transcript", () => {
@@ -136,6 +138,48 @@ test("transcript replay delivers a draft for a direct first-turn draft ask", asy
   assert.equal(result.finalMemory.pendingPlan, null);
 });
 
+test("transcript replay turns a pending-plan draft command straight into a draft", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "pending-plan-draft-command",
+  );
+  assert.ok(fixture);
+
+  let generateDraftCalls = 0;
+  let generatePlanCalls = 0;
+  const result = await replayTranscriptFixture(fixture, {
+    async generatePlan() {
+      generatePlanCalls += 1;
+      return null;
+    },
+    async generateDrafts(plan) {
+      generateDraftCalls += 1;
+      return {
+        draft:
+          "most early-stage founders bury the value in onboarding. users bounce before they ever see the payoff.",
+        plan,
+        supportAsset: null,
+      };
+    },
+    async critiqueDrafts(draft) {
+      return {
+        approved: true,
+        issues: [],
+        finalDraft: draft.draft,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "draft");
+  assert.equal(result.turns[0]?.output.outputShape, "short_form_post");
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("angle first"), false);
+  assert.equal(generateDraftCalls, 1);
+  assert.equal(generatePlanCalls, 0);
+  assert.equal(result.finalMemory.pendingPlan, null);
+  assert.equal(result.finalMemory.conversationState, "draft_ready");
+});
+
 test("transcript replay asks one useful question for a vague product draft ask, then drafts after the answer", async () => {
   const fixture = findReplayFixture(
     CREATOR_TRANSCRIPT_FIXTURES,
@@ -188,4 +232,75 @@ test("transcript replay asks one useful question for a vague product draft ask, 
   assert.equal(generatePlanCalls, 1);
   assert.equal(result.finalMemory.unresolvedQuestion, null);
   assert.equal(result.finalMemory.pendingPlan, null);
+});
+
+test("transcript replay revises a draft after 'that feels forced' and stays blunt on draft-meaning pushback", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "draft-revision-meaning-loop",
+  );
+  assert.ok(fixture);
+
+  let generateDraftCalls = 0;
+  let revisionCalls = 0;
+  const result = await replayTranscriptFixture(fixture, {
+    async classifyIntent() {
+      return {
+        intent: "coach",
+        needs_memory_update: false,
+        confidence: 1,
+      };
+    },
+    async generatePlan(message) {
+      return {
+        objective: message,
+        angle: "call out the mistake without overexplaining",
+        targetLane: "original",
+        mustInclude: ["onboarding mistakes", "early-stage founders"],
+        mustAvoid: [],
+        hookType: "direct",
+        pitchResponse: "run with this angle",
+      };
+    },
+    async generateDrafts(plan) {
+      generateDraftCalls += 1;
+      return {
+        draft:
+          "early-stage founders keep making onboarding way too clever, so users bounce before the product earns the second click.",
+        plan,
+        supportAsset: null,
+      };
+    },
+    async generateRevisionDraft() {
+      revisionCalls += 1;
+      return {
+        revisedDraft:
+          "most early-stage founders overcomplicate onboarding, and users leave before the product proves anything.",
+        supportAsset: null,
+        issuesFixed: ["Pulled the wording closer to a plainspoken tone."],
+      };
+    },
+    async critiqueDrafts(draft) {
+      return {
+        approved: true,
+        issues: [],
+        finalDraft: draft.draft || draft.revisedDraft,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 3);
+  assert.equal(result.turns[0]?.output.mode, "draft");
+  assert.equal(result.turns[1]?.output.mode, "draft");
+  assert.equal(result.turns[2]?.output.mode, "coach");
+  assert.equal(generateDraftCalls, 1);
+  assert.equal(revisionCalls, 1);
+  assert.equal(
+    /as written, it's muddy/i.test(result.turns[2]?.output.response || ""),
+    true,
+  );
+  assert.equal(
+    /the point is|what this means is/i.test(result.turns[2]?.output.response || ""),
+    false,
+  );
 });

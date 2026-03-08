@@ -18,6 +18,42 @@ const bluntStyleCard: VoiceStyleCard = {
 
 export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
   {
+    id: "pending-plan-draft-command",
+    title: "Pending Plan Draft Command",
+    description:
+      "Checks that approval-style commands like 'this works. draft this version.' consume the pending plan and go straight to draft delivery.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    initialMemory: {
+      topicSummary: "onboarding mistakes early-stage founders keep making",
+      activeConstraints: ["no emojis"],
+      conversationState: "plan_pending_approval",
+      concreteAnswerCount: 1,
+      assistantTurnCount: 1,
+      pendingPlan: {
+        objective: "onboarding mistakes early-stage founders keep making",
+        angle: "call out the mistakes directly and keep it tight",
+        targetLane: "original",
+        mustInclude: ["early-stage founders", "onboarding mistakes"],
+        mustAvoid: ["generic platitudes"],
+        hookType: "direct",
+        pitchResponse: "this angle is tight",
+        formatPreference: "shortform",
+      },
+      formatPreference: "shortform",
+    },
+    turns: [
+      {
+        role: "assistant",
+        message: "this angle is tight.\n\nif this direction works, i'll write it from here.",
+      },
+      {
+        role: "user",
+        message: "this works. draft this version.",
+      },
+    ],
+  },
+  {
     id: "direct-draft-first-turn",
     title: "Direct Draft First Turn",
     description:
@@ -60,6 +96,28 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
       { role: "user", message: "hi how are you" },
       { role: "user", message: "vibing" },
       { role: "user", message: "help me grow on x" },
+    ],
+  },
+  {
+    id: "draft-revision-meaning-loop",
+    title: "Draft Revision Meaning Loop",
+    description:
+      "Checks that a draft can be revised from reaction-style feedback and that draft-meaning pushback stays blunt instead of inventing a rationale.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    turns: [
+      {
+        role: "user",
+        message: "write one about onboarding mistakes early-stage founders keep making",
+      },
+      {
+        role: "user",
+        message: "that feels forced",
+      },
+      {
+        role: "user",
+        message: "what does this even mean?",
+      },
     ],
   },
   {
