@@ -105,6 +105,7 @@ PLAIN FACTUAL PRODUCT MODE:
 - Avoid adding payoff phrasing like "post-ready tweets", "quicker follower growth", "give it a try", or "see for yourself" when those details were not in the grounding.
 - If the grounding already contains clear usable wording, stay close to it instead of rewriting it into new marketing language or synonyms.
 - Do NOT add an invented before-state or pain-point setup like "tired of...", "stopped overthinking...", or similar framing unless the user actually gave that setup.
+- Do NOT restate the same grounded benefit a second time with a new synonym. If the grounding already says "without the mental load", do not add another line like "no extra thinking required."
 - If the grounding is simple, keep the framing simple.
   `.trim();
 }
@@ -347,6 +348,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12d. If PLAIN FACTUAL PRODUCT MODE is present, do NOT invent launch framing, extra proof claims, or generic marketing CTA copy. Keep the product wording plain and grounded.
 12e. If PLAIN FACTUAL PRODUCT MODE is present and the user's grounded wording is already clear, keep the core wording close to the user's phrasing instead of swapping in looser synonyms.
 12f. If PLAIN FACTUAL PRODUCT MODE is present, do NOT prepend an invented pain-point or before-state setup unless the user explicitly gave it.
+12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 

@@ -202,9 +202,11 @@ const PRODUCT_PROMOTIONAL_INFLATION_TERMS = [
   "see the speed for yourself",
   "no extra steps",
   "just results",
+  "no extra thinking required",
   "tired of",
   "stopped overthinking",
   "feels forced",
+  "mentally clear",
 ];
 
 const PRODUCT_PROMOTIONAL_INFLATION_PATTERNS = [
@@ -453,6 +455,15 @@ export function assessGroundedProductDrift(args: {
     };
   }
 
+  if (draftAddsFirstPersonUsage && !groundingAllowsFirstPersonUsage) {
+    return {
+      shouldGuard: true,
+      hasDrift: true,
+      reason:
+        "Grounded product drift: draft invented first-person product usage that the user never provided.",
+    };
+  }
+
   if (inflatedContrastTerms.length > 0) {
     return {
       shouldGuard: true,
@@ -475,7 +486,7 @@ export function assessGroundedProductDrift(args: {
     shouldGuard: true,
     hasDrift: true,
     reason:
-      "Grounded product drift: draft invented first-person product usage that the user never provided.",
+      "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
   };
 }
 

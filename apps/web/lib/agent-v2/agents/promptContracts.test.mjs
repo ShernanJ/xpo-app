@@ -164,4 +164,10 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT restate the same grounded benefit a second time with a new synonym. If the grounding already says "without the mental load", do not add another line like "no extra thinking required."',
+    ),
+    true,
+  );
 });

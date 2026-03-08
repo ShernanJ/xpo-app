@@ -275,3 +275,22 @@ test("grounded product assessment flags invented forced-feeling setup when the u
     "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
   );
 });
+
+test("grounded product assessment flags duplicate benefit paraphrase when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "cut the mental load of writing on x with xpo. write and grow faster—no extra thinking required.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+  );
+});
