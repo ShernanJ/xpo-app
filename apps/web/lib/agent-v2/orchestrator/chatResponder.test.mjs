@@ -60,3 +60,15 @@ test("chat responder answers capability questions with the product role", async 
   assert.equal(reply?.toLowerCase().includes("growth feedback"), true);
   assert.equal(reply?.toLowerCase().includes("overthink it"), true);
 });
+
+test("chat responder answers broad x growth asks with a concrete starting point", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "help me grow on x",
+    recentHistory: "",
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("what to post on x"), true);
+  assert.equal(reply?.toLowerCase().includes("rough idea"), true);
+  assert.equal(reply?.includes("?"), false);
+});

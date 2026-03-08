@@ -61,6 +61,13 @@ const CAPABILITY_CUES = [
   "how can you help",
   "what do you do",
   "help me grow",
+  "help me grow on x",
+  "help me grow on twitter",
+  "help with x growth",
+  "help with twitter growth",
+  "grow on x",
+  "grow on twitter",
+  "grow my account",
   "i want to grow",
   "help me write",
 ];
@@ -192,7 +199,7 @@ function buildMetaAssistantReply(): string {
 }
 
 function buildCapabilityReply(): string {
-  return "i can help you figure out what to post, draft in your voice, revise drafts, and give growth feedback without making you overthink it.";
+  return "i can help you figure out what to post on x, draft in your voice, revise drafts, and give blunt growth feedback without making you overthink it. start with what to post today, a rough idea, or a draft.";
 }
 
 export function getDeterministicChatReply(args: {

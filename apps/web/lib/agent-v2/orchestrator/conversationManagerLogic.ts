@@ -54,7 +54,22 @@ export function isBareIdeationRequest(message: string): boolean {
       "brainstorm",
       "brainstorm with me",
       "what should i post",
+      "what should i post today",
+      "what should i post this week",
+      "what should i post right now",
+      "what should i post on x",
+      "what should i post on twitter",
+      "what should i tweet",
+      "what should i tweet today",
+      "what should i tweet this week",
       "what do i post",
+      "what do i post today",
+      "what do i post this week",
+      "what do i post on x",
+      "what do i post on twitter",
+      "what do i tweet",
+      "what do i tweet today",
+      "what do i tweet this week",
       "help me figure out what to post",
       "give me angles",
       "give me some angles",
@@ -69,6 +84,28 @@ export function isBareIdeationRequest(message: string): boolean {
   }
 
   if (/^(?:give|show|share|suggest|brainstorm)\s+me\s+(?:(?:some|more)\s+)?(?:post\s+)?ideas?$/.test(normalized)) {
+    return true;
+  }
+
+  if (
+    /^what should i post(?:\s+(?:today|this week|right now))?(?:\s+on\s+(?:x|twitter))?$/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /^what do i post(?:\s+(?:today|this week))?(?:\s+on\s+(?:x|twitter))?$/.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (/^what should i tweet(?:\s+(?:today|this week|right now))?$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^what do i tweet(?:\s+(?:today|this week))?$/.test(normalized)) {
     return true;
   }
 
