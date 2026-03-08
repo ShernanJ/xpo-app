@@ -244,9 +244,11 @@ test("transcript replay asks for entity definition before drafting an opaque nam
   assert.ok(fixture);
 
   let generatePlanCalls = 0;
+  let lastPlanMessage = "";
   const result = await replayTranscriptFixture(fixture, {
     async generatePlan(message) {
       generatePlanCalls += 1;
+      lastPlanMessage = message;
       return {
         objective: message,
         angle: "position xpo as a direct growth engine, not generic software",
@@ -280,9 +282,18 @@ test("transcript replay asks for entity definition before drafting an opaque nam
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what is xpo"), true);
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("before i write the post"), true);
   assert.equal(result.turns[1]?.output.mode, "draft");
+  assert.equal(lastPlanMessage.toLowerCase().includes("write a post about xpo"), true);
+  assert.equal(lastPlanMessage.toLowerCase().includes("factual grounding"), true);
+  assert.equal(lastPlanMessage.toLowerCase().includes("mental load"), true);
   assert.equal(result.turns[1]?.output.data?.draft?.toLowerCase().includes("hashtag"), false);
   assert.equal(result.turns[1]?.output.data?.draft?.toLowerCase().includes("meetup"), false);
   assert.equal(generatePlanCalls, 1);
+  assert.equal(
+    result.finalMemory.activeConstraints.some((constraint) =>
+      constraint.toLowerCase().includes("topic grounding: xpo: it helps people write and grow faster on x without the mental load"),
+    ),
+    true,
+  );
   assert.equal(result.finalMemory.unresolvedQuestion, null);
   assert.equal(result.finalMemory.pendingPlan, null);
 });

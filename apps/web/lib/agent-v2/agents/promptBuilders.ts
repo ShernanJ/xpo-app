@@ -80,7 +80,7 @@ ${isEditing ? `REQUIREMENTS:
 2. Keep the core angle intact unless the user explicitly asks to change it.
 3. If they ask to remove something (e.g. emojis), put that in "mustAvoid".
 4. If they ask to add something, put that in "mustInclude".
-5. If any active session constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not reintroduce the old assumption.` :
+5. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.` :
       `REQUIREMENTS:
 1. Identify a compelling, non-obvious angle for this topic.
 2. Choose a target lane (is this an original thought, or pushing back on common advice?)
@@ -221,7 +221,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
 10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
-12. If any Active Session Constraint starts with "Correction lock:", treat it as a hard factual correction. Preserve it exactly and do not drift back to the earlier assumption.
+12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 

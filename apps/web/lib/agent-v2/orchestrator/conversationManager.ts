@@ -1402,6 +1402,59 @@ User Profile Summary:
       .join(". ");
   }
 
+  function buildClarificationAwarePlanInput(args: {
+    userMessage: string;
+    activeConstraints: string[];
+  }): {
+    planMessage: string;
+    activeConstraints: string[];
+  } {
+    const trimmed = args.userMessage.trim().replace(/\s+/g, " ");
+    if (!trimmed || trimmed.includes("?") || !memory.unresolvedQuestion?.trim()) {
+      return {
+        planMessage: args.userMessage,
+        activeConstraints: args.activeConstraints,
+      };
+    }
+
+    const seedTopic =
+      memory.clarificationState?.seedTopic?.trim() || memory.topicSummary?.trim() || null;
+    if (!seedTopic) {
+      return {
+        planMessage: args.userMessage,
+        activeConstraints: args.activeConstraints,
+      };
+    }
+
+    const branchKey = memory.clarificationState?.branchKey;
+    const normalizedSeedTopic = seedTopic.toLowerCase();
+    const normalizedAnswer = trimmed.toLowerCase();
+    const groundedAnswer = normalizedAnswer.startsWith(`${normalizedSeedTopic} `)
+      ? trimmed
+      : `${seedTopic}: ${trimmed}`;
+
+    if (branchKey === "entity_context_missing") {
+      return {
+        planMessage: `write a post about ${seedTopic}. factual grounding: ${groundedAnswer}`,
+        activeConstraints: Array.from(
+          new Set([...args.activeConstraints, `Topic grounding: ${groundedAnswer}`]),
+        ),
+      };
+    }
+
+    if (branchKey === "topic_known_but_direction_missing") {
+      return {
+        planMessage: `write a post about ${seedTopic}. direction: ${trimmed}`,
+        activeConstraints: args.activeConstraints,
+      };
+    }
+
+    return {
+      planMessage: args.userMessage,
+      activeConstraints: args.activeConstraints,
+    };
+  }
+
   async function generateDraftWithGroundingRetry(args: {
     plan: StrategyPlan;
     activeConstraints: string[];
@@ -2304,10 +2357,14 @@ User Profile Summary:
   }
 
   async function handlePlanMode(): Promise<RawOrchestratorResponse> {
-    const plan = await services.generatePlan(
+    const clarificationAwarePlanInput = buildClarificationAwarePlanInput({
       userMessage,
+      activeConstraints: effectiveActiveConstraints,
+    });
+    const plan = await services.generatePlan(
+      clarificationAwarePlanInput.planMessage,
       memory.topicSummary,
-      effectiveActiveConstraints,
+      clarificationAwarePlanInput.activeConstraints,
       effectiveContext,
       activeDraft,
       {
@@ -2336,6 +2393,7 @@ User Profile Summary:
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
+    const planActiveConstraints = clarificationAwarePlanInput.activeConstraints;
 
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
@@ -2346,9 +2404,9 @@ User Profile Summary:
     ) {
       const draftResult = await generateDraftWithGroundingRetry({
         plan: guardedPlan,
-        activeConstraints: effectiveActiveConstraints,
+        activeConstraints: planActiveConstraints,
         activeDraft,
-        sourceUserMessage: userMessage,
+        sourceUserMessage: clarificationAwarePlanInput.planMessage,
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
         fallbackToWriterWhenCriticRejected: true,
@@ -2359,6 +2417,7 @@ User Profile Summary:
         // Fall through to plan presentation if draft generation fails.
         await writeMemory({
           topicSummary: guardedPlan.objective,
+          activeConstraints: planActiveConstraints,
           conversationState: "plan_pending_approval",
           pendingPlan: guardedPlan,
           clarificationState: null,
@@ -2397,7 +2456,7 @@ User Profile Summary:
           currentSummary: memory.rollingSummary,
           topicSummary: guardedPlan.objective,
           approvedPlan: guardedPlan,
-          activeConstraints: effectiveActiveConstraints,
+          activeConstraints: planActiveConstraints,
           latestDraftStatus: "Rough draft generated",
           formatPreference: guardedPlan.formatPreference || turnFormatPreference,
         })
@@ -2405,6 +2464,7 @@ User Profile Summary:
 
       await writeMemory({
         topicSummary: guardedPlan.objective,
+        activeConstraints: planActiveConstraints,
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
@@ -2440,6 +2500,7 @@ User Profile Summary:
 
     await writeMemory({
       topicSummary: guardedPlan.objective,
+      activeConstraints: planActiveConstraints,
       conversationState: "plan_pending_approval",
       pendingPlan: guardedPlan,
       clarificationState: null,

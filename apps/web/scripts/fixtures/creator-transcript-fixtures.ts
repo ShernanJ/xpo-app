@@ -143,7 +143,7 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
       },
       {
         role: "user",
-        message: "xpo is a x growth/content engine that helps people write and grow faster",
+        message: "it helps people write and grow faster on x without the mental load",
       },
     ],
   },
