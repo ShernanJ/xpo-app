@@ -4,6 +4,8 @@ import { generatePlan } from "../agents/planner";
 import { generateIdeasMenu } from "../agents/ideator";
 import { generateDrafts } from "../agents/writer";
 import { critiqueDrafts } from "../agents/critic";
+import type { WriterOutput } from "../agents/writer";
+import type { CriticOutput } from "../agents/critic";
 import { generateRevisionDraft } from "../agents/reviser";
 import { extractStyleRules } from "../agents/styleExtractor";
 import { extractCoreFacts } from "../agents/factExtractor";
@@ -43,6 +45,14 @@ import {
   looksLikeSemanticCorrection,
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
+import {
+  assessConcreteSceneDrift,
+  buildConcreteSceneRetryConstraint,
+  extractConcreteSceneAnchors,
+  isConcreteAnecdoteDraftRequest,
+  NO_FABRICATION_CONSTRAINT,
+  NO_FABRICATION_MUST_AVOID,
+} from "./draftGrounding";
 import { planTurn } from "./turnPlanner";
 import { respondConversationally, isConstraintDeclaration } from "./chatResponder";
 import { buildDraftReply } from "./draftReply";
@@ -1305,6 +1315,211 @@ User Profile Summary:
     });
   }
 
+  function buildConcreteSceneClarificationQuestion(sourceUserMessage: string): string {
+    const anchors = extractConcreteSceneAnchors(sourceUserMessage);
+    const anchorSummary =
+      anchors.length > 0 ? anchors.join(", ") : "the scene you mentioned";
+
+    return `i can write this, but i don't want to make up a lesson around ${anchorSummary}. do you want it to land as the funny loss itself, or tie to a takeaway you actually want to make?`;
+  }
+
+  function buildPlanSourceMessage(plan: StrategyPlan): string {
+    return [plan.objective, ...plan.mustInclude]
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(". ");
+  }
+
+  async function generateDraftWithGroundingRetry(args: {
+    plan: StrategyPlan;
+    activeConstraints: string[];
+    activeDraft?: string;
+    sourceUserMessage?: string | null;
+    draftPreference: DraftPreference;
+    formatPreference: DraftFormatPreference;
+    fallbackToWriterWhenCriticRejected: boolean;
+    topicSummary?: string | null;
+    pendingPlan?: StrategyPlan | null;
+  }): Promise<
+    | {
+        kind: "success";
+        writerOutput: WriterOutput;
+        criticOutput: CriticOutput;
+        draftToDeliver: string;
+      }
+    | {
+        kind: "response";
+        response: RawOrchestratorResponse;
+      }
+  > {
+    const runAttempt = async (
+      extraConstraints: string[] = [],
+    ): Promise<{
+      writerOutput: WriterOutput | null;
+      criticOutput: CriticOutput | null;
+      draftToDeliver: string | null;
+    }> => {
+      const attemptConstraints = Array.from(
+        new Set([...args.activeConstraints, ...extraConstraints]),
+      );
+      const writerOutput = await services.generateDrafts(
+        args.plan,
+        styleCard,
+        relevantTopicAnchors,
+        attemptConstraints,
+        effectiveContext,
+        args.activeDraft,
+        {
+          conversationState: memory.conversationState,
+          antiPatterns,
+          maxCharacterLimit,
+          goal,
+          draftPreference: args.draftPreference,
+          formatPreference: args.formatPreference,
+          sourceUserMessage: args.sourceUserMessage || undefined,
+        },
+      );
+
+      if (!writerOutput) {
+        return {
+          writerOutput: null,
+          criticOutput: null,
+          draftToDeliver: null,
+        };
+      }
+
+      const criticOutput = await services.critiqueDrafts(
+        writerOutput,
+        attemptConstraints,
+        styleCard,
+        {
+          maxCharacterLimit,
+          draftPreference: args.draftPreference,
+          formatPreference: args.formatPreference,
+          sourceUserMessage: args.sourceUserMessage || undefined,
+        },
+      );
+
+      if (!criticOutput) {
+        return {
+          writerOutput,
+          criticOutput: null,
+          draftToDeliver: null,
+        };
+      }
+
+      const draftToDeliver =
+        criticOutput.approved || !args.fallbackToWriterWhenCriticRejected
+          ? criticOutput.finalDraft
+          : writerOutput.draft;
+
+      return {
+        writerOutput,
+        criticOutput,
+        draftToDeliver,
+      };
+    };
+
+    const firstAttempt = await runAttempt();
+    if (!firstAttempt.writerOutput) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to write draft.",
+          memory,
+        },
+      };
+    }
+
+    if (!firstAttempt.criticOutput || !firstAttempt.draftToDeliver) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to critique draft.",
+          memory,
+        },
+      };
+    }
+
+    const firstAssessment = assessConcreteSceneDrift({
+      sourceUserMessage: args.sourceUserMessage,
+      draft: firstAttempt.draftToDeliver,
+    });
+
+    if (!firstAssessment.hasDrift) {
+      return {
+        kind: "success",
+        writerOutput: firstAttempt.writerOutput,
+        criticOutput: firstAttempt.criticOutput,
+        draftToDeliver: firstAttempt.draftToDeliver,
+      };
+    }
+
+    const retryConstraint = buildConcreteSceneRetryConstraint(
+      args.sourceUserMessage || "",
+    );
+    const secondAttempt = retryConstraint
+      ? await runAttempt([retryConstraint])
+      : firstAttempt;
+
+    if (!secondAttempt.writerOutput) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to write draft.",
+          memory,
+        },
+      };
+    }
+
+    if (!secondAttempt.criticOutput || !secondAttempt.draftToDeliver) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to critique draft.",
+          memory,
+        },
+      };
+    }
+
+    const secondAssessment = assessConcreteSceneDrift({
+      sourceUserMessage: args.sourceUserMessage,
+      draft: secondAttempt.draftToDeliver,
+    });
+
+    if (secondAssessment.hasDrift) {
+      return {
+        kind: "response",
+        response: await returnClarificationQuestion({
+          question: buildConcreteSceneClarificationQuestion(
+            args.sourceUserMessage || args.plan.objective,
+          ),
+          ...(args.topicSummary !== undefined
+            ? { topicSummary: args.topicSummary }
+            : {}),
+          ...(args.pendingPlan !== undefined
+            ? { pendingPlan: args.pendingPlan }
+            : {}),
+        }),
+      };
+    }
+
+    return {
+      kind: "success",
+      writerOutput: secondAttempt.writerOutput,
+      criticOutput: secondAttempt.criticOutput,
+      draftToDeliver: secondAttempt.draftToDeliver,
+    };
+  }
+
   if (
     !explicitIntent &&
     activeDraft &&
@@ -1371,59 +1586,26 @@ User Profile Summary:
         xHandle: effectiveXHandle,
       });
 
-      const writerOutput = await services.generateDrafts(
-        approvedPlan,
-        styleCard,
-        relevantTopicAnchors,
-        draftActiveConstraints,
-        effectiveContext,
+      const draftResult = await generateDraftWithGroundingRetry({
+        plan: approvedPlan,
+        activeConstraints: draftActiveConstraints,
         activeDraft,
-        {
-          conversationState: memory.conversationState,
-          antiPatterns,
-          maxCharacterLimit,
-          goal,
-          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
-          formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-          sourceUserMessage: [
-            approvedPlan.objective,
-            approvedPlan.angle,
-            ...approvedPlan.mustInclude,
-          ].join(" "),
-        },
-      );
+        sourceUserMessage: buildPlanSourceMessage(approvedPlan),
+        draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+        fallbackToWriterWhenCriticRejected: false,
+        topicSummary: approvedPlan.objective,
+        pendingPlan: approvedPlan,
+      });
 
-      if (!writerOutput) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to write draft.",
-          memory,
-        };
+      if (draftResult.kind === "response") {
+        return draftResult.response;
       }
 
-      const criticOutput = await services.critiqueDrafts(
-        writerOutput,
-        draftActiveConstraints,
-        styleCard,
-        {
-          maxCharacterLimit,
-          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
-          formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-        },
-      );
-
-      if (!criticOutput) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to critique draft.",
-          memory,
-        };
-      }
+      const { writerOutput, criticOutput, draftToDeliver } = draftResult;
 
       const noveltyCheck = services.checkDeterministicNovelty(
-        criticOutput.finalDraft,
+        draftToDeliver,
         historicalTexts,
       );
       if (!noveltyCheck.isNovel) {
@@ -1473,7 +1655,7 @@ User Profile Summary:
           feedbackMemoryNotice,
         ),
         data: {
-          draft: criticOutput.finalDraft,
+          draft: draftToDeliver,
           supportAsset: writerOutput.supportAsset,
           issuesFixed: criticOutput.issues,
         },
@@ -2007,24 +2189,18 @@ User Profile Summary:
     // "just write it" / "go ahead"), auto-approve the plan and proceed
     // directly to drafting instead of waiting for explicit approval.
     if (turnPlan?.userGoal === "draft" && hasEnoughContextToAct) {
-      const writerOutput = await services.generateDrafts(
-        guardedPlan,
-        styleCard,
-        relevantTopicAnchors,
-        effectiveActiveConstraints,
-        effectiveContext,
+      const draftResult = await generateDraftWithGroundingRetry({
+        plan: guardedPlan,
+        activeConstraints: effectiveActiveConstraints,
         activeDraft,
-        {
-          antiPatterns,
-          maxCharacterLimit,
-          goal,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
-          sourceUserMessage: userMessage,
-        },
-      );
+        sourceUserMessage: userMessage,
+        draftPreference: turnDraftPreference,
+        formatPreference: turnFormatPreference,
+        fallbackToWriterWhenCriticRejected: true,
+        topicSummary: guardedPlan.objective,
+      });
 
-      if (!writerOutput) {
+      if (draftResult.kind === "response" && draftResult.response.mode === "error") {
         // Fall through to plan presentation if draft generation fails.
         await writeMemory({
           topicSummary: guardedPlan.objective,
@@ -2055,20 +2231,11 @@ User Profile Summary:
         };
       }
 
-      const criticOutput = await services.critiqueDrafts(
-        writerOutput,
-        effectiveActiveConstraints,
-        styleCard,
-        {
-          maxCharacterLimit,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
-        },
-      );
+      if (draftResult.kind === "response") {
+        return draftResult.response;
+      }
 
-      const finalDraft = criticOutput?.approved
-        ? criticOutput.finalDraft
-        : writerOutput.draft;
+      const { writerOutput, criticOutput, draftToDeliver: finalDraft } = draftResult;
 
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
         ? buildRollingSummary({
@@ -2101,7 +2268,7 @@ User Profile Summary:
             userMessage,
             draftPreference: turnDraftPreference,
             isEdit: false,
-            issuesFixed: criticOutput?.issues || [],
+            issuesFixed: criticOutput.issues,
             styleCard,
           }),
           feedbackMemoryNotice,
@@ -2110,7 +2277,7 @@ User Profile Summary:
           draft: finalDraft,
           supportAsset: writerOutput.supportAsset,
           plan: guardedPlan,
-          issuesFixed: criticOutput?.issues || [],
+          issuesFixed: criticOutput.issues,
         },
         memory,
       };
@@ -2341,55 +2508,25 @@ User Profile Summary:
       ? appendNoFabricationConstraint(revisionActiveConstraints)
       : revisionActiveConstraints;
 
-    const writerOutput = await services.generateDrafts(
-      guardedPlan,
-      styleCard,
-      relevantTopicAnchors,
-      draftActiveConstraints,
-      effectiveContext,
+    const draftResult = await generateDraftWithGroundingRetry({
+      plan: guardedPlan,
+      activeConstraints: draftActiveConstraints,
       activeDraft,
-      {
-        conversationState: memory.conversationState,
-        antiPatterns,
-        maxCharacterLimit,
-        goal,
-        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-        sourceUserMessage: draftInstruction,
-      },
-    );
+      sourceUserMessage: draftInstruction,
+      draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      fallbackToWriterWhenCriticRejected: false,
+      topicSummary: guardedPlan.objective,
+    });
 
-    if (!writerOutput) {
-      return {
-        mode: "error",
-        outputShape: "coach_question",
-        response: "Failed to write draft.",
-        memory,
-      };
+    if (draftResult.kind === "response") {
+      return draftResult.response;
     }
 
-    const criticOutput = await services.critiqueDrafts(
-      writerOutput,
-      draftActiveConstraints,
-      styleCard,
-      {
-        maxCharacterLimit,
-        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-      },
-    );
-
-    if (!criticOutput) {
-      return {
-        mode: "error",
-        outputShape: "coach_question",
-        response: "Failed to critique draft.",
-        memory,
-      };
-    }
+    const { writerOutput, criticOutput, draftToDeliver } = draftResult;
 
     const noveltyCheck = services.checkDeterministicNovelty(
-      criticOutput.finalDraft,
+      draftToDeliver,
       historicalTexts,
     );
     if (!noveltyCheck.isNovel) {
@@ -2443,7 +2580,7 @@ User Profile Summary:
         feedbackMemoryNotice,
       ),
       data: {
-        draft: criticOutput.finalDraft,
+        draft: draftToDeliver,
         supportAsset: writerOutput.supportAsset,
         issuesFixed: criticOutput.issues,
       },

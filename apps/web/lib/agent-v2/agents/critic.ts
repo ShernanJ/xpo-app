@@ -18,6 +18,10 @@ import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
 } from "../prompts/promptHydrator";
+import {
+  assessConcreteSceneDrift,
+  buildConcreteSceneCriticBlock,
+} from "../orchestrator/draftGrounding";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
@@ -77,11 +81,13 @@ export async function critiqueDrafts(
     formatPreference?: DraftFormatPreference;
     previousDraft?: string;
     revisionChangeKind?: DraftRevisionChangeKind;
+    sourceUserMessage?: string;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
+  const concreteSceneBlock = buildConcreteSceneCriticBlock(options?.sourceUserMessage);
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
 Your job is to take a draft and ruthlessly enforce constraints.
@@ -103,6 +109,7 @@ ${writerOutput.draft}
 ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}
 ${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MUST OBEY): ${styleCard.customGuidelines.join(" | ")}` : ""}
+${concreteSceneBlock ? `\n${concreteSceneBlock}` : ""}
 
 Respond ONLY with a valid JSON matching this schema:
 {
@@ -179,6 +186,18 @@ Respond ONLY with a valid JSON matching this schema:
         nextIssues = [...nextIssues, "Revision drifted farther than the requested edit scope."];
         approved = false;
       }
+    }
+
+    const groundingAssessment = assessConcreteSceneDrift({
+      sourceUserMessage: options?.sourceUserMessage,
+      draft: styleAlignedDraft,
+    });
+    if (groundingAssessment.hasDrift) {
+      nextIssues = [
+        ...nextIssues,
+        groundingAssessment.reason || "Concrete scene drift detected.",
+      ];
+      approved = false;
     }
 
     return {
