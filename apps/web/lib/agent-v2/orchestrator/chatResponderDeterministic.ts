@@ -56,6 +56,15 @@ const CHAT_RESET_CUES = [
   "why are you asking that",
 ];
 
+const CAPABILITY_CUES = [
+  "what can you do",
+  "how can you help",
+  "what do you do",
+  "help me grow",
+  "i want to grow",
+  "help me write",
+];
+
 function normalizeMessage(message: string): string {
   return message
     .trim()
@@ -147,6 +156,15 @@ function looksLikeConversationReset(message: string): boolean {
   return CHAT_RESET_CUES.some((cue) => normalized.includes(cue));
 }
 
+function looksLikeCapabilityQuestion(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  return CAPABILITY_CUES.some((cue) => normalized.includes(cue));
+}
+
 function buildGreetingReply(message: string): string {
   const normalized = normalizeMessage(message);
   if (
@@ -158,19 +176,23 @@ function buildGreetingReply(message: string): string {
     return "doing good. you?";
   }
 
-  return "hey. what can i help with? i can draft posts, come up with ideas, or tighten up something you've already got.";
+  return "hey. i can help with post ideas, drafts, or tightening something you've already got.";
 }
 
 function buildSmallTalkReply(): string {
-  return "love that. if you want, i can help with post ideas, draft something, or tighten up something you've already got.";
+  return "nice. i can help with post ideas, draft something, or tighten up something you've already got.";
 }
 
 function buildConversationResetReply(): string {
-  return "fair lol. if you want, i can help with post ideas, draft something, or tighten up something you've already got.";
+  return "fair. i can help with post ideas, draft something, or tighten up something you've already got.";
 }
 
 function buildMetaAssistantReply(): string {
-  return "mostly by reacting to what the person actually said, using contractions, and not jumping into strategy mode too early. if you want, paste a reply and i'll make it sound more natural.";
+  return "react to what they actually said, use contractions, and don't jump into strategy too early. paste a reply and i'll make it sound more natural.";
+}
+
+function buildCapabilityReply(): string {
+  return "i can help you figure out what to post, draft in your voice, revise drafts, and give growth feedback without making you overthink it.";
 }
 
 export function getDeterministicChatReply(args: {
@@ -187,6 +209,10 @@ export function getDeterministicChatReply(args: {
 
   if (looksLikeConversationReset(args.userMessage)) {
     return buildConversationResetReply();
+  }
+
+  if (looksLikeCapabilityQuestion(args.userMessage)) {
+    return buildCapabilityReply();
   }
 
   if (looksLikeMetaAssistantQuestion(args.userMessage)) {

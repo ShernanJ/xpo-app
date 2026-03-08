@@ -28,6 +28,27 @@ test("response shaper strips memory notices and follow-up prompts for direct ans
   assert.equal(response, "that one feels cleaner now.");
 });
 
+test("response shaper strips fluffy lead-ins from visible replies", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "love that. i can help with post ideas, drafts, or revisions.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: "love that. i can help with post ideas, drafts, or revisions.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "i can help with post ideas, drafts, or revisions.");
+});
+
 test("surface mode selector marks draft revisions as revise_and_return", () => {
   const plan = selectResponseShapePlan({
     outputShape: "short_form_post",

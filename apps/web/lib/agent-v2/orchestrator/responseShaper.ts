@@ -17,6 +17,11 @@ const FEEDBACK_NOTICE_REPLIES = new Set([
   "noted - i'll remember that feedback for next drafts.",
 ]);
 
+const FLUFFY_LEAD_IN_PATTERNS = [
+  /^(?:love that|love it|totally|absolutely|for sure|fair lol|super fair)\s*[.!-]\s+/i,
+  /^(?:sounds good|cool)\s*[.!-]\s+/i,
+];
+
 function stripFeedbackNotice(response: string): string {
   const parts = response
     .split(/\n{2,}/)
@@ -74,6 +79,16 @@ function normalizeWhitespace(response: string): string {
     .trim();
 }
 
+function stripFluffyLeadIn(response: string): string {
+  let nextResponse = response.trim();
+
+  for (const pattern of FLUFFY_LEAD_IN_PATTERNS) {
+    nextResponse = nextResponse.replace(pattern, "");
+  }
+
+  return nextResponse.trim();
+}
+
 function shapeBySurfaceMode(response: string, surfaceMode: SurfaceMode): string {
   if (surfaceMode === "answer_directly" || surfaceMode === "revise_and_return") {
     return removeTrailingFollowUpQuestion(response);
@@ -90,6 +105,7 @@ export function shapeAssistantResponse(args: ShapeResponseArgs): string {
   let nextResponse = normalizeWhitespace(args.response);
   nextResponse = stripFeedbackNotice(nextResponse);
   nextResponse = removeAutomaticDraftPrompt(nextResponse);
+  nextResponse = stripFluffyLeadIn(nextResponse);
   nextResponse = shapeBySurfaceMode(nextResponse, args.plan.surfaceMode);
 
   if (

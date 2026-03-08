@@ -920,11 +920,11 @@ function buildPlanPitch(plan: StrategyPlan): string {
     toLead(plan.pitchResponse || "") ||
     pickDeterministic(
       [
-        "this direction feels strongest",
-        "here's the cleanest angle for this",
-        "this is how i'd run with it",
-        "this framing should land best",
-        "this direction gives you the clearest payoff",
+        "this direction works best",
+        "this is the cleanest angle",
+        "i'd run with this angle",
+        "this framing is the strongest",
+        "this gives you the clearest payoff",
       ].map((entry) => toLead(entry)),
       seed,
     );
@@ -933,9 +933,9 @@ function buildPlanPitch(plan: StrategyPlan): string {
   const objectiveLine = toSentence(plan.objective);
   const close = pickDeterministic(
     [
-      "want me to draft this as-is, or tweak the angle first?",
-      "does this direction feel right, or should i adjust it before drafting?",
-      "if this lands, i can draft it now - or we can tweak it first.",
+      "want me to draft it, or tweak the angle first?",
+      "i can draft it now, or adjust the angle first.",
+      "if the angle works, i'll draft it. if not, we can tweak it first.",
     ],
     `${seed}|close`,
   );
@@ -2683,7 +2683,7 @@ User Profile Summary:
 
     let finalResponse =
       coachReply?.response ||
-      "what's on your mind? i can help you draft, ideate, or figure out what to post.";
+      "i can help with ideas, drafts, revisions, or figuring out what to post.";
 
     return {
       mode: "coach",

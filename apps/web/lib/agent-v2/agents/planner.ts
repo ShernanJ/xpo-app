@@ -52,8 +52,9 @@ export async function generatePlan(
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
   const instruction = `
-You are shaping the strongest next post direction for an X creator.
+You are shaping the strongest next post direction for an X growth coach / ghostwriter system.
 Return a tight plan the writer can execute, not a presentation about your process.
+Optimize for low mental load: if there is enough context to move, choose a clean draftable direction instead of turning the turn into discovery theater.
 ${isEditing
       ? `This turn is about revising an existing draft. Keep the core idea unless the user clearly wants a different angle.`
       : `This turn is about a new ${formatPreference === "longform" ? "longform" : "shortform"} post.`}
@@ -92,12 +93,14 @@ ${isEditing ? `REQUIREMENTS:
 4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
 6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
-7. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-8. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+7. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
+8. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
+9. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
 
 STYLE:
 - No internal workflow language.
 - No consultant tone.
+- No fluff or performative friendliness.
 - No fake certainty if the topic is underspecified.
 - The plan can be structured, but the pitch to the user should feel like a smart DM, not a strategy memo.
 

@@ -262,7 +262,7 @@ test("draft handoff adapts to warm cadence when user prefers conversational repl
     },
   });
 
-  assert.equal(/does this feel|how does this feel/i.test(reply), true);
+  assert.equal(/want any tweaks|want me to tune|want me to adjust/i.test(reply), true);
   assert.equal(/\?/.test(reply), true);
 });
 
@@ -298,7 +298,7 @@ test("ideation reply rewrites rigid angle close into casual follow-up", () => {
 
   assert.equal(reply.toLowerCase().includes("flesh out"), false);
   assert.equal(
-    /what do you think|want me to draft|which one should we turn into a draft/i.test(
+    /pick one and i'll draft it|want one drafted|which one should i draft first|if one works, i'll draft it/i.test(
       reply,
     ),
     true,
@@ -335,7 +335,7 @@ test("ideation follow-up offers switch-up option on more ideas requests", () => 
 
   assert.equal(/more ideas|fresh batch of ideas|more angles/i.test(reply), true);
   assert.equal(
-    /switch it up|change it up|different direction|change direction|stick with this theme/i.test(
+    /change direction|different angle|more in this lane|stay on this theme/i.test(
       reply,
     ),
     true,
@@ -352,9 +352,9 @@ test("ideation reply rewrites stilted intros into natural first-pass lead", () =
   });
 
   assert.equal(/noticed you|riffing|culture clash|play to your/i.test(reply), false);
-  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), true);
+  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), false);
   assert.equal(
-    /what do you think|want me to draft|which one should we turn into a draft/i.test(
+    /pick one and i'll draft it|want one drafted|which one should i draft first|if one works, i'll draft it/i.test(
       reply,
     ),
     true,
@@ -379,7 +379,7 @@ test("ideation reply rewrites intros that drift from actual angle themes", () =>
     /saw your|people love|let's spin that into|xpo's magic/i.test(reply),
     false,
   );
-  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), true);
+  assert.equal(/sounds good|for sure|nice|cool/i.test(reply), false);
 });
 
 test("ideation reply keeps natural aligned intros", () => {

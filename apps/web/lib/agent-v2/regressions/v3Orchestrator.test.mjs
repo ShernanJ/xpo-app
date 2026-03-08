@@ -202,6 +202,26 @@ test("v3: conversation reset cue stays in coach chat", () => {
   assert.equal(result.shouldGenerate, false);
 });
 
+test("v3: broad growth ask stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "help me grow",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Immediate draft commands
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ test("chat responder offers generic help after a small-talk reply", async () => 
   });
 
   assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("love that"), false);
   assert.equal(reply?.toLowerCase().includes("post ideas"), true);
   assert.equal(reply?.toLowerCase().includes("draft something"), true);
   assert.equal(reply?.toLowerCase().includes("pain point"), false);
@@ -32,7 +33,7 @@ test("chat responder answers meta assistant questions directly", async () => {
 
   assert.equal(typeof reply, "string");
   assert.equal(reply?.toLowerCase().includes("contractions"), true);
-  assert.equal(reply?.toLowerCase().includes("strategy mode"), true);
+  assert.equal(reply?.toLowerCase().includes("strategy too early"), true);
   assert.equal(reply?.toLowerCase().includes("tweak the angle"), false);
 });
 
@@ -43,6 +44,19 @@ test("chat responder resets awkward discovery turns back to a generic help offer
   });
 
   assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("fair lol"), false);
   assert.equal(reply?.toLowerCase().includes("post ideas"), true);
   assert.equal(reply?.toLowerCase().includes("pain point"), false);
+});
+
+test("chat responder answers capability questions with the product role", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "what can you do",
+    recentHistory: "",
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("draft in your voice"), true);
+  assert.equal(reply?.toLowerCase().includes("growth feedback"), true);
+  assert.equal(reply?.toLowerCase().includes("overthink it"), true);
 });
