@@ -17,16 +17,8 @@ import {
 import {
   buildConcreteSceneDraftBlock,
   buildConcreteScenePlanBlock,
-  isConcreteAnecdoteDraftRequest,
 } from "../orchestrator/draftGrounding";
-
-function hasNoFabricationGuardrail(entries: string[]): boolean {
-  return entries.some((entry) =>
-    /(factual guardrail|invent(?:ed|ing)? personal anecdote|fabricat(?:ed|ing)|offline event|named place|timeline)/i.test(
-      entry,
-    ),
-  );
-}
+import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
 export interface BuildPlanInstructionArgs {
   userMessage: string;
@@ -147,15 +139,18 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference =
     args.options?.formatPreference || args.plan.formatPreference || "shortform";
-  const noFabricatedAnecdotesGuardrail = hasNoFabricationGuardrail([
-    ...args.plan.mustAvoid,
-    ...args.activeConstraints,
-  ]);
-  const sceneSource =
-    args.options?.sourceUserMessage ||
-    [args.plan.objective, args.plan.angle, ...args.plan.mustInclude].join(" ");
-  const concreteSceneMode =
-    noFabricatedAnecdotesGuardrail || isConcreteAnecdoteDraftRequest(sceneSource);
+  const {
+    noFabricatedAnecdotesGuardrail,
+    sceneSource,
+    concreteSceneMode,
+  } = resolveWriterPromptGuardrails({
+    planMustAvoid: args.plan.mustAvoid,
+    activeConstraints: args.activeConstraints,
+    sourceUserMessage: args.options?.sourceUserMessage,
+    objective: args.plan.objective,
+    angle: args.plan.angle,
+    mustInclude: args.plan.mustInclude,
+  });
   const concreteSceneBlock = concreteSceneMode
     ? buildConcreteSceneDraftBlock(sceneSource)
     : null;
@@ -211,10 +206,10 @@ REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
 2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
 2a. NEVER invent specific counts or quantities (for example years, teammates, launches, percentages, revenue, follower counts, timelines, or attendance) unless that exact number is explicitly present in RECENT CHAT HISTORY or Active Session Constraints.
-${noFabricatedAnecdotesGuardrail
+${concreteSceneMode
       ? `2b. STRICT FACTUAL MODE: Do NOT claim specific real-world events, attendance, conversations, travel, timelines, or named places (for example: "yesterday i was at ...") unless that fact is explicitly present in the chat history or active constraints. If details are missing, write a principle/opinion/framework post instead of an anecdote.`
       : ""}
-${noFabricatedAnecdotesGuardrail
+${concreteSceneMode
       ? `2c. If the user's request is built around a concrete scene, event, conversation, game, meeting, or anecdote, preserve that exact setup. Do NOT replace it with a different product pitch, internal tool, metric, or lesson the user never mentioned.`
       : ""}
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
