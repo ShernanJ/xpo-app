@@ -435,6 +435,26 @@ test("v3: vague product draft request routes into plan clarification", () => {
   assert.equal(result.shouldAutoDraftFromPlan, undefined);
 });
 
+test("v3: opaque entity draft request routes into plan clarification", () => {
+  const result = planTurn({
+    userMessage: "can you write me a post about xpo",
+    recentHistory: "",
+    memory: {
+      conversationState: "collecting_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "plan");
+  assert.equal(result.shouldAutoDraftFromPlan, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Chat question detection
 // ---------------------------------------------------------------------------

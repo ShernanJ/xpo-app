@@ -18,6 +18,7 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "casual-opening-to-help-offer"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "direct-draft-first-turn"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "vague-product-one-question"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "opaque-entity-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-loop"), true);
@@ -230,6 +231,57 @@ test("transcript replay asks one useful question for a vague product draft ask, 
     /made that edit|updated it|reworked it/i.test(result.turns[1]?.output.response || ""),
     false,
   );
+  assert.equal(generatePlanCalls, 1);
+  assert.equal(result.finalMemory.unresolvedQuestion, null);
+  assert.equal(result.finalMemory.pendingPlan, null);
+});
+
+test("transcript replay asks for entity definition before drafting an opaque named product topic", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "opaque-entity-one-question",
+  );
+  assert.ok(fixture);
+
+  let generatePlanCalls = 0;
+  const result = await replayTranscriptFixture(fixture, {
+    async generatePlan(message) {
+      generatePlanCalls += 1;
+      return {
+        objective: message,
+        angle: "position xpo as a direct growth engine, not generic software",
+        targetLane: "original",
+        mustInclude: ["x growth/content engine", "helps people write and grow faster"],
+        mustAvoid: ["hashtags", "meetup", "conference panel"],
+        hookType: "direct",
+        pitchResponse: "this angle is clean",
+      };
+    },
+    async generateDrafts(plan) {
+      return {
+        draft:
+          "xpo isn't another generic tool. it's a x growth/content engine that helps people write faster, post with more intent, and grow without burning mental cycles.",
+        plan,
+        supportAsset: null,
+      };
+    },
+    async critiqueDrafts(draft) {
+      return {
+        approved: true,
+        issues: [],
+        finalDraft: draft.draft,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 2);
+  assert.equal(result.turns[0]?.output.mode, "coach");
+  assert.equal(result.turns[0]?.output.surfaceMode, "ask_one_question");
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what is xpo"), true);
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("before i write the post"), true);
+  assert.equal(result.turns[1]?.output.mode, "draft");
+  assert.equal(result.turns[1]?.output.data?.draft?.toLowerCase().includes("hashtag"), false);
+  assert.equal(result.turns[1]?.output.data?.draft?.toLowerCase().includes("meetup"), false);
   assert.equal(generatePlanCalls, 1);
   assert.equal(result.finalMemory.unresolvedQuestion, null);
   assert.equal(result.finalMemory.pendingPlan, null);

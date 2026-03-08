@@ -130,6 +130,24 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
     ],
   },
   {
+    id: "opaque-entity-one-question",
+    title: "Opaque Entity One Question",
+    description:
+      "Checks that a bare named entity like XPO triggers one definition question before drafting instead of inventing what the product does.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    turns: [
+      {
+        role: "user",
+        message: "can you write me a post about xpo",
+      },
+      {
+        role: "user",
+        message: "xpo is a x growth/content engine that helps people write and grow faster",
+      },
+    ],
+  },
+  {
     id: "casual-opening-to-help-offer",
     title: "Casual Opening To Help Offer",
     description:

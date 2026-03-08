@@ -605,6 +605,76 @@ function inferBroadTopicDraftRequest(message: string): string | null {
   return topic;
 }
 
+function hasConstraintDefinedEntity(
+  activeConstraints: string[],
+  entityLabel: string,
+): boolean {
+  const normalizedEntity = entityLabel.trim().toLowerCase();
+  if (!normalizedEntity) {
+    return false;
+  }
+
+  return activeConstraints.some((constraint) => {
+    const normalizedConstraint = constraint.trim().toLowerCase();
+    if (!normalizedConstraint.startsWith("correction lock:")) {
+      return false;
+    }
+
+    return (
+      normalizedConstraint.includes(`${normalizedEntity} is `) ||
+      normalizedConstraint.includes(`${normalizedEntity} isn't `) ||
+      normalizedConstraint.includes(`${normalizedEntity} is not `) ||
+      normalizedConstraint.includes(`${normalizedEntity} does `) ||
+      normalizedConstraint.includes(`${normalizedEntity} doesn't `) ||
+      normalizedConstraint.includes(`${normalizedEntity} doesnt `)
+    );
+  });
+}
+
+function looksLikeOpaqueEntityTopic(args: {
+  topic: string;
+  userMessage: string;
+  activeConstraints: string[];
+}): boolean {
+  const topic = args.topic.trim().replace(/[.?!,]+$/, "");
+  if (!topic) {
+    return false;
+  }
+
+  if (hasConstraintDefinedEntity(args.activeConstraints, topic)) {
+    return false;
+  }
+
+  const normalizedTopic = topic.toLowerCase();
+  if (["what", "this", "that", "it", "something", "anything"].includes(normalizedTopic)) {
+    return false;
+  }
+
+  const topicWordCount = topic.split(/\s+/).filter(Boolean).length;
+  const isShortOpaqueLabel =
+    topic.length <= 32 &&
+    topicWordCount <= 3 &&
+    /^[a-z0-9][a-z0-9\s/&'’-]*$/i.test(topic);
+
+  if (!isShortOpaqueLabel) {
+    return false;
+  }
+
+  const normalizedMessage = args.userMessage.trim().toLowerCase();
+  const hasDefinitionCue =
+    normalizedMessage.includes(`${normalizedTopic} is`) ||
+    normalizedMessage.includes(`${normalizedTopic} does`) ||
+    normalizedMessage.includes(`${normalizedTopic} helps`) ||
+    normalizedMessage.includes(`${normalizedTopic} lets`) ||
+    normalizedMessage.includes(`${normalizedTopic} turns`) ||
+    normalizedMessage.includes(`${normalizedTopic} rewrites`) ||
+    hasFunctionalDetail(normalizedMessage) ||
+    hasProblemDetail(normalizedMessage) ||
+    hasRelationshipDetail(normalizedMessage);
+
+  return !hasDefinitionCue;
+}
+
 function inferDraftPreference(
   message: string,
   fallback: DraftPreference = "balanced",
@@ -1914,6 +1984,19 @@ User Profile Summary:
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
+      if (
+        looksLikeOpaqueEntityTopic({
+          topic: broadTopic,
+          userMessage,
+          activeConstraints: memory.activeConstraints,
+        })
+      ) {
+        return returnClarificationTree({
+          branchKey: "entity_context_missing",
+          seedTopic: broadTopic,
+        });
+      }
+
       return returnClarificationTree({
         branchKey: "topic_known_but_direction_missing",
         seedTopic: broadTopic,

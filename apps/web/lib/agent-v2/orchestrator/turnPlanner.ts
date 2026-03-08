@@ -446,6 +446,15 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  if (!hasDraftContext && directDraftPayload && !looksLikeSelfContainedDraftRequest(normalized)) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "plan",
+    };
+  }
+
   if (!hasDraftContext && directDraftPayload && looksLikeSelfContainedDraftRequest(normalized)) {
     return {
       userGoal: "draft",

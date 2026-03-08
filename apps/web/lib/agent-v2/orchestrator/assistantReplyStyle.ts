@@ -19,7 +19,7 @@ export function buildTopicFocusReply(topicLabel: string): string {
 }
 
 export function buildEntityContextReply(entityLabel: string): string {
-  return `what is ${entityLabel} in one line, and what does your thing actually do with it?`;
+  return `what is ${entityLabel} in one line, and what should i know about it before i write the post?`;
 }
 
 export function buildCareerDirectionReply(): string {
