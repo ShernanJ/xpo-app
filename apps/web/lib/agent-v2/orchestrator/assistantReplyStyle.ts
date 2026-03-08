@@ -41,20 +41,10 @@ export function buildCoachFallbackResponse(args: {
   const normalized = args.userMessage.trim().toLowerCase();
 
   if (normalized.startsWith(">")) {
-    return `love that angle. ${args.question}`;
+    return `answer that in one line and i'll work from it. ${args.question}`;
   }
 
-  if (
-    normalized.includes("building") ||
-    normalized.includes("app") ||
-    normalized.includes("product") ||
-    normalized.includes("extension") ||
-    normalized.includes("tool")
-  ) {
-    return `nice. ${args.question}`;
-  }
-
-  return `right. ${args.question}`;
+  return args.question;
 }
 
 export function buildComparisonRelationshipQuestion(reference: string): string {

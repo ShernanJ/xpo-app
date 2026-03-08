@@ -407,85 +407,12 @@ interface CreatorChatSuccess {
     | "thread_seed"
     | "reply_candidate"
     | "quote_candidate";
-    whyThisWorks: string[];
-    watchOutFor: string[];
-    debug: {
-      formatExemplar: {
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      } | null;
-      topicAnchors: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      pinnedVoiceReferences: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      pinnedEvidenceReferences: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      evidencePack: {
-        sourcePostIds: string[];
-        entities: string[];
-        metrics: string[];
-        proofPoints: string[];
-        storyBeats: string[];
-        constraints: string[];
-        requiredEvidenceCount: number;
-      };
-      formatBlueprint: string;
-      formatSkeleton: string;
-      outputShapeRationale: string;
-      draftDiagnostics: Array<{
-        preview: string;
-        score: number;
-        chosen: boolean;
-        evidenceCoverage: {
-          entityMatches: number;
-          metricMatches: number;
-          proofMatches: number;
-          total: number;
-        };
-        focusTermMatches: number;
-        genericPhraseCount: number;
-        strategyLeakCount: number;
-        matchesBlueprint: boolean | null;
-        matchesSkeleton: boolean | null;
-        reasons: string[];
-        validator: {
-          pass: boolean;
-          errors: string[];
-          metrics: {
-            wordCount: number;
-            sectionCount: number;
-            blankLineSeparators: number;
-            proofBullets: number;
-            mechanismSteps: number;
-            maxLineLen: number;
-            ngramOverlap5: number;
-            metricReuseCount: number;
-            bannedOpenerHit: boolean;
-          };
-        } | null;
-      }>;
-    };
-    source: "openai" | "groq" | "deterministic";
-    model: string | null;
-    mode: CreatorGenerationContract["mode"];
+    surfaceMode?:
+      | "answer_directly"
+      | "ask_one_question"
+      | "revise_and_return"
+      | "offer_options"
+      | "generate_full_output";
     newThreadId?: string;
     messageId?: string;
     threadTitle?: string;
@@ -496,6 +423,11 @@ interface CreatorChatSuccess {
       topicSummary: string | null;
       concreteAnswerCount: number;
       currentDraftArtifactId: string | null;
+      activeDraftRef?: {
+        messageId: string;
+        versionId: string;
+        revisionChainId?: string | null;
+      } | null;
       rollingSummary?: string | null;
       pendingPlan?: {
         objective: string;
@@ -513,6 +445,10 @@ interface CreatorChatSuccess {
         seedTopic: string | null;
       } | null;
       assistantTurnCount?: number;
+      latestRefinementInstruction?: string | null;
+      unresolvedQuestion?: string | null;
+      clarificationQuestionsAsked?: number;
+      preferredSurfaceMode?: "natural" | "structured" | null;
       formatPreference?: "shortform" | "longform" | null;
       voiceFidelity?: "balanced";
     };
@@ -615,10 +551,8 @@ interface ChatMessage {
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
-  debug?: CreatorChatSuccess["data"]["debug"];
-  source?: "openai" | "groq" | "deterministic";
-  model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
+  surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
 }
@@ -2299,6 +2233,40 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
   return "ignore";
 }
 
+function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
+  if (!message.quickReplies?.length) {
+    return false;
+  }
+
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return (
+    message.surfaceMode === "ask_one_question" ||
+    message.surfaceMode === "offer_options"
+  );
+}
+
+function shouldShowOptionArtifactsForMessage(message: ChatMessage): boolean {
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return message.surfaceMode === "offer_options";
+}
+
+function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return (
+    message.surfaceMode === "generate_full_output" ||
+    message.surfaceMode === "revise_and_return"
+  );
+}
+
 function buildDraftRevisionTimeline(args: {
   messages: ChatMessage[];
   activeDraftSelection: DraftDrawerSelection | null;
@@ -3294,7 +3262,7 @@ function ChatPageContent() {
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
   const [expandedPriorityIndex, setExpandedPriorityIndex] = useState<number | null>(null);
-  const [conversationMemory, setConversationMemory] = useState<
+  const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
@@ -5767,8 +5735,6 @@ function ChatPageContent() {
           revisionChainId: data.data.assistantMessage.revisionChainId,
           supportAsset: data.data.assistantMessage.supportAsset,
           outputShape: data.data.assistantMessage.outputShape,
-          source: data.data.assistantMessage.source,
-          model: data.data.assistantMessage.model,
           feedbackValue: null,
         },
       ]);
@@ -6196,7 +6162,6 @@ function ChatPageContent() {
               : {}),
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
-            ...(conversationMemory ? { memory: conversationMemory } : {}),
           }),
         });
 
@@ -6249,11 +6214,7 @@ function ChatPageContent() {
               revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
-              whyThisWorks: data.data.whyThisWorks,
-              watchOutFor: data.data.watchOutFor,
-              debug: data.data.debug,
-              source: data.data.source,
-              model: data.data.model ?? null,
+              surfaceMode: data.data.surfaceMode,
               feedbackValue: null,
               quickReplies:
                 data.data.quickReplies && data.data.quickReplies.length > 0
@@ -6404,11 +6365,7 @@ function ChatPageContent() {
             revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
-            whyThisWorks: streamedResult.whyThisWorks,
-            watchOutFor: streamedResult.watchOutFor,
-            debug: streamedResult.debug,
-            source: streamedResult.source,
-            model: streamedResult.model ?? null,
+            surfaceMode: streamedResult.surfaceMode,
             feedbackValue: null,
             quickReplies:
               streamedResult.quickReplies && streamedResult.quickReplies.length > 0
@@ -6484,7 +6441,6 @@ function ChatPageContent() {
       activeToneInputs,
       contract,
       context,
-      conversationMemory,
       currentPreferencePayload,
       isMainChatLocked,
       messages,
@@ -7612,14 +7568,14 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
-                            message.quickReplies?.length &&
+                            shouldShowQuickRepliesForMessage(message) &&
                             index === messages.length - 1 &&
                             !(
                               message.outputShape === "ideation_angles" &&
                               message.angles?.length
                             ) ? (
                             <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies.map((quickReply) => (
+                              {message.quickReplies?.map((quickReply) => (
                                 <button
                                   key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
                                   type="button"
@@ -7636,6 +7592,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowOptionArtifactsForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.angles?.length ? (
                             <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
@@ -7676,10 +7633,10 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             message.outputShape === "ideation_angles" &&
                             message.angles?.length &&
-                            message.quickReplies?.length &&
+                            shouldShowQuickRepliesForMessage(message) &&
                             index === messages.length - 1 ? (
                             <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies.map((quickReply) => (
+                              {message.quickReplies?.map((quickReply) => (
                                 <button
                                   key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
                                   type="button"
@@ -7696,6 +7653,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.outputShape !== "short_form_post" &&
                             message.outputShape !== "long_form_post" &&
@@ -7743,6 +7701,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.draft ? (() => {
                               const username = context?.creatorProfile?.identity?.username || "user";
@@ -7992,6 +7951,7 @@ function ChatPageContent() {
                             })() : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.supportAsset &&
                             !message.draftArtifacts?.length ? (
                             <div className="mt-4 border-t border-white/10 pt-4">

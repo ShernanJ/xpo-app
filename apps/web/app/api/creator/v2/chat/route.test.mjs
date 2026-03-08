@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
   buildDraftVersionMetadata,
   looksLikeDraftHandoff,
@@ -47,11 +48,27 @@ test("normalizeDraftPayload preserves conversational handoff replies", () => {
     draft: "sample draft body",
     drafts: ["sample draft body"],
     outputShape: "short_form_post",
+    surfaceMode: "generate_full_output",
+    shouldAskFollowUp: true,
   });
 
   assert.equal(result.reply, handoffReply);
   assert.equal(result.draft, "sample draft body");
   assert.equal(looksLikeDraftHandoff(handoffReply), true);
+});
+
+test("normalizeDraftPayload can emit a non-question revision handoff", () => {
+  const result = normalizeDraftPayload({
+    reply: "",
+    draft: "updated draft body",
+    drafts: ["updated draft body"],
+    outputShape: "short_form_post",
+    surfaceMode: "revise_and_return",
+    shouldAskFollowUp: false,
+  });
+
+  assert.equal(result.reply.includes("?"), false);
+  assert.equal(result.reply.length > 0, true);
 });
 
 test("long_form_post remains a valid route draft kind", () => {
@@ -76,6 +93,30 @@ test("revision metadata is preserved when a selected draft context is present", 
   assert.equal(metadata.basedOnVersionId, "ver_1");
   assert.equal(metadata.revisionChainId, "revision-chain-msg_1");
   assert.equal(metadata.previousVersionSnapshot?.content, "old version");
+});
+
+test("initial draft version payload preserves revision linkage and stored max limit", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_5",
+    versionId: "ver_5",
+    content: "old draft",
+    source: "assistant_generated",
+    maxCharacterLimit: 4000,
+    revisionChainId: "revision-chain-msg_5",
+  });
+
+  const payload = buildInitialDraftVersionPayload({
+    draft: "new revised draft",
+    outputShape: "long_form_post",
+    supportAsset: null,
+    selectedDraftContext,
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 4000);
+  assert.equal(payload.draftVersions?.[0]?.basedOnVersionId, "ver_5");
+  assert.equal(payload.previousVersionSnapshot?.versionId, "ver_5");
+  assert.equal(payload.revisionChainId, "revision-chain-msg_5");
 });
 
 test("conversation context builder keeps recent history and prefers selected draft context", () => {

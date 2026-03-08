@@ -75,10 +75,14 @@ import {
   hasRelationshipDetail,
   inferComparisonReference,
 } from "./draftContextSlots";
+import { selectResponseShapePlan } from "./surfaceModeSelector";
+import { shapeAssistantResponse } from "./responseShaper";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
   DraftPreference,
+  ResponseShapePlan,
+  SurfaceMode,
   StrategyPlan,
   V2ChatIntent,
   V2ChatOutputShape,
@@ -111,9 +115,16 @@ export type OrchestratorResponse = {
   mode: "coach" | "ideate" | "plan" | "draft" | "error";
   outputShape: V2ChatOutputShape;
   response: string;
+  surfaceMode: SurfaceMode;
+  responseShapePlan: ResponseShapePlan;
   data?: OrchestratorData;
   memory: V2ConversationMemory;
 };
+
+type RawOrchestratorResponse = Omit<
+  OrchestratorResponse,
+  "surfaceMode" | "responseShapePlan"
+>;
 
 export interface ConversationServices {
   classifyIntent: typeof classifyIntent;
@@ -205,9 +216,9 @@ function isLazyDraftRequest(message: string): boolean {
 }
 
 const NO_FABRICATION_CONSTRAINT =
-  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, or named places. If facts are missing, use opinion/framework language instead.";
+  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims. If facts are missing, stay literal or use opinion/framework language instead.";
 const NO_FABRICATION_MUST_AVOID =
-  "Invented personal anecdotes, offline events, timelines, or named places that were not explicitly provided by the user.";
+  "Invented personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims that were not explicitly provided by the user.";
 
 function isRandomizedDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase();
@@ -223,6 +234,54 @@ function isRandomizedDraftRequest(message: string): boolean {
     "anything is fine",
     "idk just write it",
   ].some((candidate) => normalized.includes(candidate));
+}
+
+function isConcreteAnecdoteDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  const isDraftRequest = [
+    "write me a post",
+    "write a post",
+    "draft me a post",
+    "draft a post",
+    "write me something",
+    "tweet about",
+    "post about",
+    "turn this into a post",
+    "can you write me a post",
+  ].some((candidate) => normalized.includes(candidate));
+
+  if (!isDraftRequest) {
+    return false;
+  }
+
+  const sceneCues = [
+    "office",
+    "ceo",
+    "founder",
+    "meeting",
+    "call",
+    "league",
+    "game",
+    "match",
+    "team",
+    "against",
+    "with the",
+    "at the",
+    "playing",
+    "played",
+    "losing",
+    "lost",
+    "won",
+    "yesterday",
+    "last night",
+  ];
+
+  const cueCount = sceneCues.reduce(
+    (count, cue) => (normalized.includes(cue) ? count + 1 : count),
+    0,
+  );
+
+  return cueCount >= 2;
 }
 
 function hasNoFabricationPlanGuardrail(plan: StrategyPlan | null | undefined): boolean {
@@ -262,6 +321,10 @@ function shouldForceNoFabricationPlanGuardrail(args: {
   behaviorKnown: boolean;
   stakesKnown: boolean;
 }): boolean {
+  if (isConcreteAnecdoteDraftRequest(args.userMessage)) {
+    return true;
+  }
+
   if (!isRandomizedDraftRequest(args.userMessage)) {
     return false;
   }
@@ -583,17 +646,7 @@ function buildDraftMeaningResponse(draft: string): string {
     return "fair question. tell me the exact line that's unclear and i'll rewrite it plainly.";
   }
 
-  const lower = normalizedDraft.toLowerCase();
-
-  if (lower.includes(" vs ") || lower.includes("versus")) {
-    return "it's contrasting your public-facing persona with what you actually felt in that moment. if you want, i can rewrite it in cleaner language.";
-  }
-
-  if (/\bbut\b/.test(lower)) {
-    return "it's saying there's a gap between what you posted publicly and what you actually felt. if you want, i can rewrite it more clearly.";
-  }
-
-  return `it's trying to say: ${normalizedDraft}. if you want, i can rewrite it in clearer language.`;
+  return "fair question. as written, it's muddy. i should rewrite it more plainly instead of trying to explain around it. if you want, i'll rewrite it in plain english.";
 }
 
 function inferBroadTopicDraftRequest(message: string): string | null {
@@ -806,6 +859,34 @@ function pickDeterministic<T>(options: T[], seed: string): T {
   return options[deterministicIndex(seed, options.length)];
 }
 
+function finalizeOrchestratorResponse(
+  rawResponse: RawOrchestratorResponse,
+): OrchestratorResponse {
+  const resultData = rawResponse.data as Record<string, unknown> | undefined;
+  const responseShapePlan = selectResponseShapePlan({
+    outputShape: rawResponse.outputShape,
+    response: rawResponse.response,
+    hasQuickReplies:
+      Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
+    hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
+    hasPlan: Boolean(resultData?.plan),
+    hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
+    conversationState: rawResponse.memory.conversationState,
+    preferredSurfaceMode: rawResponse.memory.preferredSurfaceMode,
+  });
+
+  return {
+    ...rawResponse,
+    response: shapeAssistantResponse({
+      response: rawResponse.response,
+      outputShape: rawResponse.outputShape,
+      plan: responseShapePlan,
+    }),
+    surfaceMode: responseShapePlan.surfaceMode,
+    responseShapePlan,
+  };
+}
+
 function buildPlanPitch(plan: StrategyPlan): string {
   const normalizeLine = (value: string): string =>
     value
@@ -839,11 +920,11 @@ function buildPlanPitch(plan: StrategyPlan): string {
     toLead(plan.pitchResponse || "") ||
     pickDeterministic(
       [
-        "this direction feels strongest",
-        "here's the cleanest angle for this",
-        "this is how i'd run with it",
-        "this framing should land best",
-        "this direction gives you the clearest payoff",
+        "this direction works best",
+        "this is the cleanest angle",
+        "i'd run with this angle",
+        "this framing is the strongest",
+        "this gives you the clearest payoff",
       ].map((entry) => toLead(entry)),
       seed,
     );
@@ -852,9 +933,9 @@ function buildPlanPitch(plan: StrategyPlan): string {
   const objectiveLine = toSentence(plan.objective);
   const close = pickDeterministic(
     [
-      "want me to draft this as-is, or tweak the angle first?",
-      "does this direction feel right, or should i adjust it before drafting?",
-      "if this lands, i can draft it now - or we can tweak it first.",
+      "want me to draft it, or tweak the angle first?",
+      "i can draft it now, or adjust the angle first.",
+      "if the angle works, i'll draft it. if not, we can tweak it first.",
     ],
     `${seed}|close`,
   );
@@ -891,6 +972,22 @@ function applyMemoryPatch(
         : patch.clarificationState,
     rollingSummary:
       patch.rollingSummary === undefined ? current.rollingSummary : patch.rollingSummary,
+    activeDraftRef:
+      patch.activeDraftRef === undefined ? current.activeDraftRef : patch.activeDraftRef,
+    latestRefinementInstruction:
+      patch.latestRefinementInstruction === undefined
+        ? current.latestRefinementInstruction
+        : patch.latestRefinementInstruction,
+    unresolvedQuestion:
+      patch.unresolvedQuestion === undefined ? current.unresolvedQuestion : patch.unresolvedQuestion,
+    clarificationQuestionsAsked:
+      patch.clarificationQuestionsAsked === undefined
+        ? current.clarificationQuestionsAsked
+        : patch.clarificationQuestionsAsked,
+    preferredSurfaceMode:
+      patch.preferredSurfaceMode === undefined
+        ? current.preferredSurfaceMode
+        : patch.preferredSurfaceMode,
     formatPreference:
       patch.formatPreference === undefined
         ? current.formatPreference
@@ -1033,6 +1130,7 @@ export async function manageConversationTurn(
     explicitIntent,
   });
 
+  const rawResponse = await (async (): Promise<RawOrchestratorResponse> => {
   let classification;
   if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
     // Deterministic override — skip LLM classification.
@@ -1217,6 +1315,11 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      activeDraftRef: patch.activeDraftRef,
+      latestRefinementInstruction: patch.latestRefinementInstruction,
+      unresolvedQuestion: patch.unresolvedQuestion,
+      clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
+      preferredSurfaceMode: patch.preferredSurfaceMode,
       formatPreference: patch.formatPreference,
       lastIdeationAngles: patch.lastIdeationAngles,
       topicSummary: patch.topicSummary ?? memory.topicSummary,
@@ -1238,6 +1341,11 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      activeDraftRef: patch.activeDraftRef,
+      latestRefinementInstruction: patch.latestRefinementInstruction,
+      unresolvedQuestion: patch.unresolvedQuestion,
+      clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
+      preferredSurfaceMode: patch.preferredSurfaceMode,
       formatPreference: patch.formatPreference,
       lastIdeationAngles: patch.lastIdeationAngles,
     });
@@ -1246,6 +1354,19 @@ User Profile Summary:
       ? createConversationMemorySnapshot(updated as unknown as Record<string, unknown>)
       : optimistic;
   };
+
+  function buildClarificationPatch(question: string) {
+    return {
+      unresolvedQuestion: question,
+      clarificationQuestionsAsked: memory.clarificationQuestionsAsked + 1,
+    } as const;
+  }
+
+  function clearClarificationPatch() {
+    return {
+      unresolvedQuestion: null,
+    } as const;
+  }
 
   const nextAssistantTurnCount = memory.assistantTurnCount + 1;
   const turnDraftPreference = inferDraftPreference(
@@ -1266,6 +1387,69 @@ User Profile Summary:
   );
   let draftInstruction = userMessage;
 
+  async function returnClarificationQuestion(args: {
+    question: string;
+    reply?: string;
+    clarificationState?: V2ConversationMemory["clarificationState"] | null;
+    quickReplies?: CreatorChatQuickReply[];
+    topicSummary?: string | null;
+    pendingPlan?: StrategyPlan | null;
+  }): Promise<RawOrchestratorResponse> {
+    await writeMemory({
+      ...(args.topicSummary !== undefined ? { topicSummary: args.topicSummary } : {}),
+      ...(args.pendingPlan !== undefined ? { pendingPlan: args.pendingPlan } : {}),
+      conversationState: "needs_more_context",
+      clarificationState: args.clarificationState ?? null,
+      assistantTurnCount: nextAssistantTurnCount,
+      ...buildClarificationPatch(args.question),
+    });
+
+    return {
+      mode: "coach",
+      outputShape: "coach_question",
+      response: prependFeedbackMemoryNotice(
+        args.reply || args.question,
+        feedbackMemoryNotice,
+      ),
+      ...(args.quickReplies?.length
+        ? {
+            data: {
+              quickReplies: args.quickReplies,
+            },
+          }
+        : {}),
+      memory,
+    };
+  }
+
+  async function returnClarificationTree(args: {
+    branchKey: Parameters<typeof buildClarificationTree>[0]["branchKey"];
+    seedTopic: string | null;
+    isVerifiedAccount?: boolean;
+    topicSummary?: string | null;
+    pendingPlan?: StrategyPlan | null;
+    replyOverride?: string;
+  }): Promise<RawOrchestratorResponse> {
+    const clarification = buildClarificationTree({
+      branchKey: args.branchKey,
+      seedTopic: args.seedTopic,
+      styleCard,
+      topicAnchors: relevantTopicAnchors,
+      ...(args.isVerifiedAccount !== undefined
+        ? { isVerifiedAccount: args.isVerifiedAccount }
+        : {}),
+    });
+
+    return returnClarificationQuestion({
+      question: clarification.reply,
+      reply: args.replyOverride,
+      clarificationState: clarification.clarificationState,
+      quickReplies: clarification.quickReplies,
+      ...(args.topicSummary !== undefined ? { topicSummary: args.topicSummary } : {}),
+      ...(args.pendingPlan !== undefined ? { pendingPlan: args.pendingPlan } : {}),
+    });
+  }
+
   if (
     !explicitIntent &&
     activeDraft &&
@@ -1283,6 +1467,8 @@ User Profile Summary:
       activeConstraints: nextConstraints,
       clarificationState: null,
       conversationState: "editing",
+      latestRefinementInstruction: repairDirective.rewriteRequest,
+      ...clearClarificationPatch(),
     });
 
     mode = "edit";
@@ -1295,6 +1481,7 @@ User Profile Summary:
         memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
       clarificationState: null,
       assistantTurnCount: nextAssistantTurnCount,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -1380,30 +1567,13 @@ User Profile Summary:
         historicalTexts,
       );
       if (!noveltyCheck.isNovel) {
-        const clarification = buildClarificationTree({
+        return returnClarificationTree({
           branchKey: "plan_reject",
           seedTopic: approvedPlan.objective,
-          styleCard,
-          topicAnchors: relevantTopicAnchors,
-        });
-
-        await writeMemory({
-          conversationState: "needs_more_context",
           pendingPlan: null,
-          clarificationState: clarification.clarificationState,
-          assistantTurnCount: nextAssistantTurnCount,
-        });
-
-        return {
-          mode: "coach",
-          outputShape: "coach_question",
-          response: prependFeedbackMemoryNotice(
+          replyOverride:
             "this version felt too close to something you've already posted. let's shift it.",
-            feedbackMemoryNotice,
-          ),
-          data: { quickReplies: clarification.quickReplies },
-          memory,
-        };
+        });
       }
 
       const rollingSummary = buildRollingSummary({
@@ -1423,6 +1593,8 @@ User Profile Summary:
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1497,6 +1669,8 @@ User Profile Summary:
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference:
           guardedRevisedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1519,32 +1693,11 @@ User Profile Summary:
     }
 
     if (decision === "reject") {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "plan_reject",
         seedTopic: memory.pendingPlan.objective,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
-      });
-
-      await writeMemory({
-        conversationState: "needs_more_context",
         pendingPlan: null,
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
       });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarification.reply,
-          feedbackMemoryNotice,
-        ),
-        data: {
-          quickReplies: clarification.quickReplies,
-        },
-        memory,
-      };
     }
 
     await writeMemory({
@@ -1552,6 +1705,7 @@ User Profile Summary:
       pendingPlan: memory.pendingPlan,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -1576,37 +1730,26 @@ User Profile Summary:
   // V3: Over-questioning guard. After 2 concrete answers from the user,
   // skip ALL clarification gates and proceed to ideation or plan generation.
   // This prevents the "keeps asking questions" problem.
+  const hasOutstandingClarification = Boolean(memory.unresolvedQuestion?.trim());
   const hasEnoughContextToAct =
     memory.concreteAnswerCount >= 2 ||
     (memory.topicSummary && memory.pendingPlan) ||
     (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3);
-
-  if (
+  const canAskPlanClarification = (): boolean =>
     !explicitIntent &&
     !hasEnoughContextToAct &&
-    mode === "plan"
-  ) {
+    mode === "plan" &&
+    !hasOutstandingClarification;
+
+  if (canAskPlanClarification()) {
     if (
       turnDraftContextSlots.ambiguousReferenceNeedsClarification &&
       turnDraftContextSlots.ambiguousReference
     ) {
-      await writeMemory({
-        conversationState: "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          buildAmbiguousReferenceQuestion(
-            turnDraftContextSlots.ambiguousReference,
-          ),
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
+      const question = buildAmbiguousReferenceQuestion(
+        turnDraftContextSlots.ambiguousReference,
+      );
+      return returnClarificationQuestion({ question });
     }
 
     if (
@@ -1618,57 +1761,18 @@ User Profile Summary:
         stakesKnown: turnDraftContextSlots.stakesKnown,
       })
     ) {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "career_context_missing",
         seedTopic: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
         isVerifiedAccount,
       });
-
-      await writeMemory({
-        conversationState: "needs_more_context",
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarification.reply,
-          feedbackMemoryNotice,
-        ),
-        data: {
-          quickReplies: clarification.quickReplies,
-        },
-        memory,
-      };
     }
 
     if (turnDraftContextSlots.entityNeedsDefinition && turnDraftContextSlots.namedEntity) {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "entity_context_missing",
         seedTopic: turnDraftContextSlots.namedEntity,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
       });
-
-      await writeMemory({
-        conversationState: "needs_more_context",
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarification.reply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
     }
 
     if (
@@ -1678,125 +1782,48 @@ User Profile Summary:
       const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
 
       if (clarificationQuestion) {
-        await writeMemory({
-          conversationState: "needs_more_context",
-          clarificationState: null,
-          assistantTurnCount: nextAssistantTurnCount,
+        return returnClarificationQuestion({
+          question: clarificationQuestion,
         });
-
-        return {
-          mode: "coach",
-          outputShape: "coach_question",
-          response: prependFeedbackMemoryNotice(
-            clarificationQuestion,
-            feedbackMemoryNotice,
-          ),
-          memory,
-        };
       }
     }
   }
 
-  if (
-    !explicitIntent &&
-    !hasEnoughContextToAct &&
-    mode === "plan"
-  ) {
+  if (canAskPlanClarification()) {
     const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
 
     if (clarificationQuestion) {
-      await writeMemory({
-        conversationState: "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
+      return returnClarificationQuestion({
+        question: clarificationQuestion,
       });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarificationQuestion,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
     }
   }
 
-  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
+  if (canAskPlanClarification()) {
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "topic_known_but_direction_missing",
         seedTopic: broadTopic,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
         isVerifiedAccount,
-      });
-
-      await writeMemory({
         topicSummary: broadTopic,
-        conversationState: "needs_more_context",
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
       });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarification.reply,
-          feedbackMemoryNotice,
-        ),
-        data: {
-          quickReplies: clarification.quickReplies,
-        },
-        memory,
-      };
     }
   }
 
-  if (
-    !explicitIntent &&
-    !hasEnoughContextToAct &&
-    mode === "plan" &&
-    isBareDraftRequest(userMessage)
-  ) {
-    const clarification = buildClarificationTree({
+  if (canAskPlanClarification() && isBareDraftRequest(userMessage)) {
+    return returnClarificationTree({
       branchKey: isLazyDraftRequest(userMessage)
         ? "lazy_request"
         : "vague_draft_request",
       seedTopic: null,
-      styleCard,
-      topicAnchors: relevantTopicAnchors,
       isVerifiedAccount,
     });
-
-    await writeMemory({
-      conversationState: "needs_more_context",
-      clarificationState: clarification.clarificationState,
-      assistantTurnCount: nextAssistantTurnCount,
-    });
-
-    return {
-      mode: "coach",
-      outputShape: "coach_question",
-      response: prependFeedbackMemoryNotice(
-        clarification.reply,
-        feedbackMemoryNotice,
-      ),
-      data: {
-        quickReplies: clarification.quickReplies,
-      },
-      memory,
-    };
   }
 
   if (
-    !explicitIntent &&
-    !hasEnoughContextToAct &&
-    mode === "plan" &&
+    canAskPlanClarification() &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
     classification.confidence < 0.7
@@ -1804,63 +1831,21 @@ User Profile Summary:
     const branchKey = isLazyDraftRequest(userMessage)
       ? "lazy_request"
       : "vague_draft_request";
-    const clarification = buildClarificationTree({
+    return returnClarificationTree({
       branchKey,
       seedTopic: userMessage || memory.topicSummary,
-      styleCard,
-      topicAnchors: relevantTopicAnchors,
     });
-
-    await writeMemory({
-      conversationState: "needs_more_context",
-      clarificationState: clarification.clarificationState,
-      assistantTurnCount: nextAssistantTurnCount,
-    });
-
-    return {
-      mode: "coach",
-      outputShape: "coach_question",
-      response: prependFeedbackMemoryNotice(
-        clarification.reply,
-        feedbackMemoryNotice,
-      ),
-      data: {
-        quickReplies: clarification.quickReplies,
-      },
-      memory,
-    };
   }
 
-  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
+  if (canAskPlanClarification()) {
     const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
 
     if (abstractTopicSeed) {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "abstract_topic_focus_pick",
         seedTopic: abstractTopicSeed,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
-      });
-
-      await writeMemory({
         topicSummary: abstractTopicSeed,
-        conversationState: "needs_more_context",
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
       });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          clarification.reply,
-          feedbackMemoryNotice,
-        ),
-        data: {
-          quickReplies: clarification.quickReplies,
-        },
-        memory,
-      };
     }
   }
 
@@ -1878,6 +1863,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1900,6 +1886,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1927,6 +1914,7 @@ User Profile Summary:
         conversationState: "ready_to_ideate",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1953,6 +1941,7 @@ User Profile Summary:
             : "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1982,6 +1971,7 @@ User Profile Summary:
           memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2005,6 +1995,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: buildSemanticRepairState(memory.topicSummary),
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(correctionRepairQuestion),
       });
 
       return {
@@ -2032,6 +2023,8 @@ User Profile Summary:
         clarificationState: null,
         conversationState: "editing",
         assistantTurnCount: nextAssistantTurnCount,
+        latestRefinementInstruction: repairDirective.rewriteRequest,
+        ...clearClarificationPatch(),
       });
 
       mode = "edit";
@@ -2043,7 +2036,7 @@ User Profile Summary:
   // Mode Handlers
   // ---------------------------------------------------------------------------
 
-  async function handleIdeateMode(): Promise<OrchestratorResponse> {
+  async function handleIdeateMode(): Promise<RawOrchestratorResponse> {
     const ideas = await services.generateIdeasMenu(
       userMessage,
       memory.topicSummary,
@@ -2088,6 +2081,7 @@ User Profile Summary:
           unresolvedQuestion: ideas?.close || null,
         })
         : memory.rollingSummary,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2115,7 +2109,7 @@ User Profile Summary:
     };
   }
 
-  async function handlePlanMode(): Promise<OrchestratorResponse> {
+  async function handlePlanMode(): Promise<RawOrchestratorResponse> {
     const plan = await services.generatePlan(
       userMessage,
       memory.topicSummary,
@@ -2178,6 +2172,7 @@ User Profile Summary:
           clarificationState: null,
           assistantTurnCount: nextAssistantTurnCount,
           formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+          ...clearClarificationPatch(),
         });
 
         return {
@@ -2233,6 +2228,8 @@ User Profile Summary:
         assistantTurnCount: nextAssistantTurnCount,
         rollingSummary,
         formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2265,6 +2262,7 @@ User Profile Summary:
       clarificationState: null,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2286,7 +2284,7 @@ User Profile Summary:
     };
   }
 
-  async function handleDraftEditReviewMode(): Promise<OrchestratorResponse> {
+  async function handleDraftEditReviewMode(): Promise<RawOrchestratorResponse> {
     // V3: Harden the edit path. If mode is edit/review but the frontend
     // did not send activeDraft, try to recover the last draft from the
     // most recent assistant message in the thread.
@@ -2319,6 +2317,10 @@ User Profile Summary:
       }
     }
 
+    const revisionActiveConstraints = isConstraintDeclaration(userMessage)
+      ? Array.from(new Set([...effectiveActiveConstraints, userMessage.trim()]))
+      : effectiveActiveConstraints;
+
     if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
       const revision = normalizeDraftRevisionInstruction(
         draftInstruction,
@@ -2329,7 +2331,7 @@ User Profile Summary:
         revision,
         styleCard,
         topicAnchors: relevantTopicAnchors,
-        activeConstraints: effectiveActiveConstraints,
+        activeConstraints: revisionActiveConstraints,
         recentHistory: effectiveContext,
         options: {
           conversationState: "editing",
@@ -2358,7 +2360,7 @@ User Profile Summary:
           whyThisWorks: "",
           watchOutFor: "",
         },
-        effectiveActiveConstraints,
+        revisionActiveConstraints,
         styleCard,
         {
           maxCharacterLimit,
@@ -2387,7 +2389,7 @@ User Profile Summary:
           currentSummary: memory.rollingSummary,
           topicSummary: memory.topicSummary,
           approvedPlan: memory.pendingPlan,
-          activeConstraints: effectiveActiveConstraints,
+          activeConstraints: revisionActiveConstraints,
           latestDraftStatus: "Draft revised",
           formatPreference: memory.formatPreference || turnFormatPreference,
         })
@@ -2405,11 +2407,14 @@ User Profile Summary:
 
       await writeMemory({
         conversationState: "editing",
+        activeConstraints: revisionActiveConstraints,
         pendingPlan: null,
         clarificationState: null,
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference: turnFormatPreference,
+        latestRefinementInstruction: draftInstruction,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2442,7 +2447,7 @@ User Profile Summary:
     const plan = await services.generatePlan(
       draftInstruction,
       memory.topicSummary,
-      effectiveActiveConstraints,
+      revisionActiveConstraints,
       effectiveContext,
       activeDraft,
       {
@@ -2472,8 +2477,8 @@ User Profile Summary:
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
     const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
-      ? appendNoFabricationConstraint(effectiveActiveConstraints)
-      : effectiveActiveConstraints;
+      ? appendNoFabricationConstraint(revisionActiveConstraints)
+      : revisionActiveConstraints;
 
     const writerOutput = await services.generateDrafts(
       guardedPlan,
@@ -2526,32 +2531,13 @@ User Profile Summary:
       historicalTexts,
     );
     if (!noveltyCheck.isNovel) {
-      const clarification = buildClarificationTree({
+      return returnClarificationTree({
         branchKey: "plan_reject",
         seedTopic: plan.objective,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
-      });
-
-      await writeMemory({
-        conversationState: "needs_more_context",
         pendingPlan: null,
-        clarificationState: clarification.clarificationState,
-        assistantTurnCount: nextAssistantTurnCount,
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
+        replyOverride:
           "that version felt too close to something you've already posted. let's shift it.",
-          feedbackMemoryNotice,
-        ),
-        data: {
-          quickReplies: clarification.quickReplies,
-        },
-        memory,
-      };
+      });
     }
 
     const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
@@ -2574,6 +2560,8 @@ User Profile Summary:
       rollingSummary,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      latestRefinementInstruction: null,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2601,7 +2589,7 @@ User Profile Summary:
     };
   }
 
-  async function handleCoachMode(): Promise<OrchestratorResponse> {
+  async function handleCoachMode(): Promise<RawOrchestratorResponse> {
     // V3: Fast-path for non-generation turns (constraint acks, comparisons,
     // simple questions). Skips the full coach LLM call when deterministic
     // answers are sufficient.
@@ -2636,6 +2624,7 @@ User Profile Summary:
                 : "needs_more_context",
           ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
           assistantTurnCount: nextAssistantTurnCount,
+          ...clearClarificationPatch(),
         });
 
         return {
@@ -2686,25 +2675,15 @@ User Profile Summary:
       concreteAnswerCount: nextConcreteAnswerCount,
       rollingSummary,
       assistantTurnCount: nextAssistantTurnCount,
+      unresolvedQuestion: coachReply?.probingQuestion || null,
+      clarificationQuestionsAsked: coachReply?.probingQuestion
+        ? memory.clarificationQuestionsAsked + 1
+        : memory.clarificationQuestionsAsked,
     });
-
-    const willHaveEnoughContext =
-      nextConcreteAnswerCount >= 2 ||
-      (nextAssistantTurnCount >= 3 &&
-        Boolean(memory.topicSummary) &&
-        nextConcreteAnswerCount >= 1);
 
     let finalResponse =
       coachReply?.response ||
-      "what's on your mind? i can help you draft, ideate, or figure out what to post.";
-
-    if (
-      willHaveEnoughContext &&
-      !finalResponse.toLowerCase().includes("want me to") &&
-      !finalResponse.toLowerCase().includes("draft")
-    ) {
-      finalResponse = finalResponse.trim() + " want me to turn that into a post?";
-    }
+      "i can help with ideas, drafts, revisions, or figuring out what to post.";
 
     return {
       mode: "coach",
@@ -2732,4 +2711,7 @@ User Profile Summary:
     default:
       return handleCoachMode();
   }
+  })();
+
+  return finalizeOrchestratorResponse(rawResponse);
 }

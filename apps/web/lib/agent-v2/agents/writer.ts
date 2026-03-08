@@ -118,6 +118,9 @@ REQUIREMENTS:
 ${noFabricatedAnecdotesGuardrail
       ? `2b. STRICT FACTUAL MODE: Do NOT claim specific real-world events, attendance, conversations, travel, timelines, or named places (for example: "yesterday i was at ...") unless that fact is explicitly present in the chat history or active constraints. If details are missing, write a principle/opinion/framework post instead of an anecdote.`
       : ""}
+${noFabricatedAnecdotesGuardrail
+      ? `2c. If the user's request is built around a concrete scene, event, conversation, game, meeting, or anecdote, preserve that exact setup. Do NOT replace it with a different product pitch, internal tool, metric, or lesson the user never mentioned.`
+      : ""}
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
 4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
 5. If the user did not specify a concrete topic, stay inside the user's usual subject matter and angles from their historical posts instead of drifting into random generic business content.

@@ -167,6 +167,7 @@ function looksStiltedIdeationIntro(value: string): boolean {
   }
 
   return (
+    /^(?:gotcha|sounds good|for sure|nice|cool)\b/.test(normalized) ||
     /\bsaw your\b/.test(normalized) ||
     /\bnoticed you\b/.test(normalized) ||
     /\byou keep riffing\b/.test(normalized) ||
@@ -188,8 +189,8 @@ function pickFirstIdeasLead(args: {
   if (args.warm) {
     return pickDeterministic(
       [
-        "sounds good. i pulled a few ideas for you.",
-        "cool, i got a few ideas you can run with.",
+        "i pulled a few ideas.",
+        "here are a few directions.",
       ],
       `${args.seed}|first|warm`,
     );
@@ -198,8 +199,8 @@ function pickFirstIdeasLead(args: {
   if (args.concise) {
     return pickDeterministic(
       [
-        "sounds good. here are a few ideas.",
-        "nice. i pulled a few ideas.",
+        "here are a few ideas.",
+        "a few ideas below.",
       ],
       `${args.seed}|first|concise`,
     );
@@ -207,8 +208,8 @@ function pickFirstIdeasLead(args: {
 
   return pickDeterministic(
     [
-      "sounds good. i got a few ideas for you.",
-      "for sure. here are a few ideas to play with.",
+      "i pulled a few ideas.",
+      "here are a few directions.",
     ],
     `${args.seed}|first|balanced`,
   );
@@ -222,8 +223,8 @@ function pickMoreIdeasLead(args: {
   if (args.warm) {
     return pickDeterministic(
       [
-        "sounds good - i got some more ideas for you.",
-        "love it. i pulled together more ideas for you.",
+        "i pulled more ideas.",
+        "more ideas below.",
       ],
       `${args.seed}|more|warm`,
     );
@@ -232,8 +233,8 @@ function pickMoreIdeasLead(args: {
   if (args.concise) {
     return pickDeterministic(
       [
-        "sounds good. i got more ideas for you.",
-        "nice. got more ideas for you.",
+        "more ideas below.",
+        "got more ideas.",
       ],
       `${args.seed}|more|concise`,
     );
@@ -241,8 +242,8 @@ function pickMoreIdeasLead(args: {
 
   return pickDeterministic(
     [
-      "sounds good - i got some more ideas for you.",
-      "for sure. i pulled together a fresh batch of ideas for you.",
+      "more ideas below.",
+      "i pulled another batch.",
     ],
     `${args.seed}|more|balanced`,
   );
@@ -256,9 +257,9 @@ function pickCasualClose(args: {
   if (args.warm) {
     return pickDeterministic(
       [
-        "here are a few ideas. what do you think?",
-        "here are some ideas i thought of. what feels most like you?",
-        "here are a few options. want me to draft one?",
+        "pick one and i can draft it.",
+        "which one feels most like you?",
+        "want one drafted?",
       ],
       `${args.seed}|warm`,
     );
@@ -267,7 +268,7 @@ function pickCasualClose(args: {
   if (args.concise) {
     return pickDeterministic(
       [
-        "here are some ideas. what do you think?",
+        "pick one and i'll draft it.",
         "pick one and i'll draft it.",
         "which one should i draft first?",
       ],
@@ -277,9 +278,9 @@ function pickCasualClose(args: {
 
   return pickDeterministic(
     [
-      "here are a few ideas. what do you think?",
-      "here are some ideas i thought of. which one should we turn into a draft?",
-      "a few options to start. want me to draft one now?",
+      "pick one and i'll draft it.",
+      "which one should i draft first?",
+      "if one works, i'll draft it.",
     ],
     `${args.seed}|balanced`,
   );
@@ -293,8 +294,8 @@ function pickMoreIdeasClose(args: {
   if (args.warm) {
     return pickDeterministic(
       [
-        "here are a few more ideas. what do you think, or want me to switch it up?",
-        "here are more options. want me to stay on this theme, or should i take it in a different direction?",
+        "want me to stay on this theme or change direction?",
+        "want more in this lane or a different angle?",
       ],
       `${args.seed}|more|close|warm`,
     );
@@ -303,8 +304,8 @@ function pickMoreIdeasClose(args: {
   if (args.concise) {
     return pickDeterministic(
       [
-        "here are more ideas. stay on this theme or switch it up?",
-        "more ideas ready. want to stay with this angle or change direction?",
+        "stay on this theme or change direction?",
+        "more in this lane or a different angle?",
       ],
       `${args.seed}|more|close|concise`,
     );
@@ -312,8 +313,8 @@ function pickMoreIdeasClose(args: {
 
   return pickDeterministic(
     [
-      "here are a few more ideas. what do you think, or want me to switch it up?",
-      "fresh ideas below. want me to stick with this theme, or should i take it in a different direction?",
+      "stay on this theme or change direction?",
+      "want more in this lane or a different angle?",
     ],
     `${args.seed}|more|close|balanced`,
   );

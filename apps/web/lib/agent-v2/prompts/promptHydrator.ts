@@ -19,9 +19,12 @@ export function buildConversationToneBlock(): string {
     "HUMAN SPEECH POLICY:",
     "- Be short, reactive, and specific.",
     "- Do not use canned affirmations like 'great question' or 'absolutely.'",
+    "- Do not add fluff, hype, praise, or performative friendliness.",
+    "- Avoid filler openers like 'love that', 'totally', or 'for sure' unless the user is clearly talking that way first.",
     "- Do not repeat the same opener patterns turn after turn.",
     "- Ask at most one question unless the UI is showing explicit choice chips.",
     "- Prefer concrete language over abstract strategy jargon.",
+    "- Make every sentence earn its place. If a line does not help the user write, choose, revise, or understand, cut it.",
   ].join("\n");
 }
 

@@ -102,6 +102,126 @@ test("v3: 'make it shorter' with draft_ready state triggers edit", () => {
   assert.equal(result.overrideClassifiedIntent, "edit");
 });
 
+test("v3: reaction-style draft feedback routes to edit", () => {
+  const result = planTurn({
+    userMessage: "that one feels too forced",
+    recentHistory: "",
+    activeDraft: "some current draft",
+    memory: {
+      conversationState: "draft_ready",
+      concreteAnswerCount: 1,
+      topicSummary: "founder updates",
+      pendingPlan: null,
+      currentDraftArtifactId: "draft-xyz",
+      assistantTurnCount: 4,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.overrideClassifiedIntent, "edit");
+});
+
+test("v3: greeting routes to coach chat without generation", () => {
+  const result = planTurn({
+    userMessage: "hi how are you",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: small-talk reply after assistant asks back stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "vibing",
+    recentHistory: "assistant: hey hey, doing good. you?",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 1,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: meta assistant question routes to coach chat", () => {
+  const result = planTurn({
+    userMessage: "how do i make u sound more human",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: conversation reset cue stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "wow super random",
+    recentHistory: "assistant: what's the biggest pain point your app solves?",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 1,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: broad growth ask stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "help me grow",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Immediate draft commands
 // ---------------------------------------------------------------------------
@@ -153,6 +273,25 @@ test("v3: 'go ahead' with pending plan routes to planner_feedback", () => {
   assert.ok(result);
   assert.equal(result.userGoal, "draft");
   assert.equal(result.overrideClassifiedIntent, "planner_feedback");
+});
+
+test("v3: answering the active clarification question routes forward instead of looping coach", () => {
+  const result = planTurn({
+    userMessage: "the problem is most builders only see vanity metrics",
+    recentHistory: "assistant: what's the actual problem it fixes?",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 1,
+      topicSummary: "analytics",
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 2,
+      unresolvedQuestion: "what's the actual problem it fixes?",
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.overrideClassifiedIntent, "plan");
 });
 
 test("v3: 'just write it' without any context returns null (no override)", () => {

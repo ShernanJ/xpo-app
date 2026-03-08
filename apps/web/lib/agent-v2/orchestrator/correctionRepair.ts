@@ -422,6 +422,8 @@ export function inferSourceTransparencyReply(args: {
   recentHistory: string;
   contextAnchors: string[];
 }): string | null {
+  void args.contextAnchors;
+
   if (!looksLikeSourceTransparencyRequest(args.userMessage)) {
     return null;
   }
@@ -439,7 +441,6 @@ export function inferSourceTransparencyReply(args: {
 
   const priorMessage = chatTurns.length > 0 ? chatTurns[chatTurns.length - 1] : "";
   const earlierChat = chatTurns.length > 1 ? chatTurns.slice(0, -1).join(" ") : "";
-  const styleMemory = (args.contextAnchors || []).filter(Boolean).join(" ");
 
   const referenceText = (args.referenceText || args.activeDraft || "").trim();
   const referenceTokens = extractSourceTokens(referenceText);
@@ -454,11 +455,6 @@ export function inferSourceTransparencyReply(args: {
       label: "current chat",
       text: earlierChat,
     },
-    {
-      key: "style_memory" as const,
-      label: "style memory",
-      text: styleMemory,
-    },
   ].map((candidate) => ({
     ...candidate,
     score: scoreSourceMatch(candidate.text, referenceTokens),
@@ -470,18 +466,14 @@ export function inferSourceTransparencyReply(args: {
     .sort((left, right) => right.score - left.score)[0];
 
   if (!bestMatch || bestMatch.score < 2 || !bestMatch.text.trim()) {
-    return "it didn't come from your prior message, current chat, or style memory. that was my mistake and i should've asked first.";
+    return "it didn't come from anything you explicitly said earlier in this chat. that was my mistake and i should've asked first.";
   }
 
   if (bestMatch.key === "prior_message") {
     return `that came from your prior message in this chat: "${bestMatch.snippet}".`;
   }
 
-  if (bestMatch.key === "current_chat") {
-    return `that came from earlier in this chat (not your last message): "${bestMatch.snippet}".`;
-  }
-
-  return `that came from style memory i had saved for you: "${bestMatch.snippet}".`;
+  return `that came from earlier in this chat (not your last message): "${bestMatch.snippet}".`;
 }
 
 export function looksLikeSemanticCorrection(message: string): boolean {

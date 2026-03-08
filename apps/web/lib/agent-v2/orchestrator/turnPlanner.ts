@@ -44,6 +44,17 @@ const EDIT_INSTRUCTION_CUES = [
   "tone it down",
   "dial back",
   "dial it back",
+  "less cringe",
+  "cleaner",
+  "too much",
+  "too forced",
+  "sounds forced",
+  "feels forced",
+  "builder-coded",
+  "builder coded",
+  "stronger hook",
+  "same idea",
+  "keep the same idea",
   "make the hook",
   "fix the hook",
   "rewrite the hook",
@@ -64,6 +75,8 @@ const EDIT_INSTRUCTION_CUES = [
 const EDIT_REGEX_PATTERNS = [
   /^(?:make|change|fix|rewrite|remove|delete|cut|drop|add|swap|replace|rephrase)\b/,
   /\b(?:too harsh|too aggressive|too long|too short|too generic|too salesy|too polished)\b/,
+  /\b(?:feels|sounds)\s+too\s+\w+\b/,
+  /\bkeep the same idea\b/,
   /\bdon'?t (?:say|use|mention|include)\b/,
 ];
 
@@ -75,6 +88,9 @@ const CHAT_CUES = [
   "how can you help",
   "what can you do",
   "what are you",
+  "help me grow",
+  "i want to grow",
+  "help me write",
   "which angle",
   "which one",
   "what do you think",
@@ -94,6 +110,64 @@ const CHAT_CUES = [
   "compare these",
   "compare the",
   "between these",
+];
+
+const GREETING_CUES = [
+  "hi",
+  "hey",
+  "hello",
+  "yo",
+  "sup",
+  "what's up",
+  "whats up",
+  "how are you",
+  "how're you",
+  "how are u",
+  "how you doing",
+  "how's it going",
+];
+
+const SMALL_TALK_STATUS_CUES = [
+  "good",
+  "great",
+  "pretty good",
+  "doing good",
+  "doing well",
+  "all good",
+  "solid",
+  "chilling",
+  "vibing",
+  "hanging in",
+  "not bad",
+  "tired",
+  "busy",
+];
+
+const META_ASSISTANT_CUES = [
+  "sound more human",
+  "sound more natural",
+  "sound less robotic",
+  "sound less like a bot",
+  "make you sound more human",
+  "make u sound more human",
+  "make this sound more human",
+  "make it sound more human",
+  "how do i make you sound more human",
+  "how do i make u sound more human",
+  "why do you sound robotic",
+  "why do u sound robotic",
+  "why do you sound like a bot",
+  "how do i make this flow better",
+  "how do i make this more conversational",
+];
+
+const CHAT_RESET_CUES = [
+  "super random",
+  "that's random",
+  "thats random",
+  "kinda random",
+  "kind of random",
+  "why are you asking that",
 ];
 
 // --- Draft commands (skip clarification gauntlet) ---------------------------
@@ -168,6 +242,7 @@ export interface PlanTurnInput {
     | "pendingPlan"
     | "currentDraftArtifactId"
     | "assistantTurnCount"
+    | "unresolvedQuestion"
   >;
   explicitIntent?: V2ChatIntent | null;
 }
@@ -209,6 +284,19 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
       shouldGenerate: true,
       responseStyle: "structured",
       overrideClassifiedIntent: "edit",
+    };
+  }
+
+  if (
+    looksLikeGreetingOrSmallTalk(normalized, trimmed, input.recentHistory) ||
+    looksLikeConversationReset(normalized, trimmed) ||
+    looksLikeMetaAssistantQuestion(normalized, trimmed)
+  ) {
+    return {
+      userGoal: "chat",
+      shouldGenerate: false,
+      responseStyle: "natural",
+      overrideClassifiedIntent: "coach",
     };
   }
 
@@ -273,6 +361,19 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  const answeredOutstandingQuestion =
+    Boolean(input.memory.unresolvedQuestion?.trim()) &&
+    looksLikeClarificationAnswer(normalized, trimmed);
+
+  if (!hasDraftContext && answeredOutstandingQuestion) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "plan",
+    };
+  }
+
   // --- Rule 4: Conversational question (no generation needed) -------------
   // Short messages that are clearly about discussing, not producing content.
 
@@ -314,6 +415,83 @@ function looksLikeImmediateDraftCommand(normalized: string): boolean {
   return IMMEDIATE_DRAFT_CUES.some((cue) => normalized.includes(cue));
 }
 
+function looksLikeGreetingOrSmallTalk(
+  normalized: string,
+  original: string,
+  recentHistory: string,
+): boolean {
+  if (original.length > 120) {
+    return false;
+  }
+
+  const compact = normalized.replace(/[.?!,]+$/g, "").trim();
+  if (!compact) {
+    return false;
+  }
+
+  if (GREETING_CUES.some((cue) => compact === cue)) {
+    return true;
+  }
+
+  const greetingPrefix = GREETING_CUES.find((cue) => compact.startsWith(`${cue} `));
+  if (greetingPrefix && compact.length <= 40) {
+    const remainder = compact.slice(greetingPrefix.length).trim();
+    if (
+      [
+        "there",
+        "hey",
+        "hello",
+        "how are you",
+        "how are u",
+        "how you doing",
+        "how's it going",
+        "what's up",
+        "whats up",
+      ].some((value) => remainder === value)
+    ) {
+      return true;
+    }
+  }
+
+  const lastAssistantMessage = recentHistory
+    .split("\n")
+    .filter((line) => line.trim().startsWith("assistant:"))
+    .pop()
+    ?.toLowerCase() || "";
+
+  const assistantWasDoingSmallTalk =
+    lastAssistantMessage.includes("how are you") ||
+    lastAssistantMessage.includes("how are u") ||
+    lastAssistantMessage.includes("how you doing") ||
+    /\byou\?\s*$/.test(lastAssistantMessage.trim());
+
+  if (!assistantWasDoingSmallTalk) {
+    return false;
+  }
+
+  const wordCount = compact.split(/\s+/).filter(Boolean).length;
+  return (
+    wordCount <= 4 &&
+    SMALL_TALK_STATUS_CUES.some((cue) => compact === cue || compact.includes(cue))
+  );
+}
+
+function looksLikeMetaAssistantQuestion(normalized: string, original: string): boolean {
+  if (original.length > 160) {
+    return false;
+  }
+
+  return META_ASSISTANT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeConversationReset(normalized: string, original: string): boolean {
+  if (original.length > 80) {
+    return false;
+  }
+
+  return CHAT_RESET_CUES.some((cue) => normalized.includes(cue));
+}
+
 function looksLikeChatQuestion(
   normalized: string,
   original: string,
@@ -324,4 +502,28 @@ function looksLikeChatQuestion(
   }
 
   return CHAT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeClarificationAnswer(
+  normalized: string,
+  original: string,
+): boolean {
+  if (!original || original.length > 240) {
+    return false;
+  }
+
+  if (original.includes("?")) {
+    return false;
+  }
+
+  if (looksLikeImmediateDraftCommand(normalized) || looksLikeConstraintOnly(normalized)) {
+    return false;
+  }
+
+  if (looksLikeChatQuestion(normalized, original)) {
+    return false;
+  }
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  return wordCount >= 2 || normalized.length >= 12;
 }
