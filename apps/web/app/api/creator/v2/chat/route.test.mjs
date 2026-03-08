@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
   buildDraftVersionMetadata,
   looksLikeDraftHandoff,
@@ -92,6 +93,30 @@ test("revision metadata is preserved when a selected draft context is present", 
   assert.equal(metadata.basedOnVersionId, "ver_1");
   assert.equal(metadata.revisionChainId, "revision-chain-msg_1");
   assert.equal(metadata.previousVersionSnapshot?.content, "old version");
+});
+
+test("initial draft version payload preserves revision linkage and stored max limit", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_5",
+    versionId: "ver_5",
+    content: "old draft",
+    source: "assistant_generated",
+    maxCharacterLimit: 4000,
+    revisionChainId: "revision-chain-msg_5",
+  });
+
+  const payload = buildInitialDraftVersionPayload({
+    draft: "new revised draft",
+    outputShape: "long_form_post",
+    supportAsset: null,
+    selectedDraftContext,
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 4000);
+  assert.equal(payload.draftVersions?.[0]?.basedOnVersionId, "ver_5");
+  assert.equal(payload.previousVersionSnapshot?.versionId, "ver_5");
+  assert.equal(payload.revisionChainId, "revision-chain-msg_5");
 });
 
 test("conversation context builder keeps recent history and prefers selected draft context", () => {

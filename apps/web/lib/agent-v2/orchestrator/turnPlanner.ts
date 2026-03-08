@@ -109,6 +109,55 @@ const CHAT_CUES = [
   "between these",
 ];
 
+const GREETING_CUES = [
+  "hi",
+  "hey",
+  "hello",
+  "yo",
+  "sup",
+  "what's up",
+  "whats up",
+  "how are you",
+  "how're you",
+  "how are u",
+  "how you doing",
+  "how's it going",
+];
+
+const SMALL_TALK_STATUS_CUES = [
+  "good",
+  "great",
+  "pretty good",
+  "doing good",
+  "doing well",
+  "all good",
+  "solid",
+  "chilling",
+  "vibing",
+  "hanging in",
+  "not bad",
+  "tired",
+  "busy",
+];
+
+const META_ASSISTANT_CUES = [
+  "sound more human",
+  "sound more natural",
+  "sound less robotic",
+  "sound less like a bot",
+  "make you sound more human",
+  "make u sound more human",
+  "make this sound more human",
+  "make it sound more human",
+  "how do i make you sound more human",
+  "how do i make u sound more human",
+  "why do you sound robotic",
+  "why do u sound robotic",
+  "why do you sound like a bot",
+  "how do i make this flow better",
+  "how do i make this more conversational",
+];
+
 // --- Draft commands (skip clarification gauntlet) ---------------------------
 
 const IMMEDIATE_DRAFT_CUES = [
@@ -226,6 +275,18 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  if (
+    looksLikeGreetingOrSmallTalk(normalized, trimmed, input.recentHistory) ||
+    looksLikeMetaAssistantQuestion(normalized, trimmed)
+  ) {
+    return {
+      userGoal: "chat",
+      shouldGenerate: false,
+      responseStyle: "natural",
+      overrideClassifiedIntent: "coach",
+    };
+  }
+
   // --- Rule 2: Constraint capture -----------------------------------------
   // "no emojis", "don't use hashtags" etc. should be acknowledged and stored,
   // not trigger a new generation pipeline. Route to coach for acknowledgment.
@@ -339,6 +400,57 @@ function looksLikeConstraintOnly(normalized: string): boolean {
 
 function looksLikeImmediateDraftCommand(normalized: string): boolean {
   return IMMEDIATE_DRAFT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeGreetingOrSmallTalk(
+  normalized: string,
+  original: string,
+  recentHistory: string,
+): boolean {
+  if (original.length > 120) {
+    return false;
+  }
+
+  const compact = normalized.replace(/[.?!,]+$/g, "").trim();
+  if (!compact) {
+    return false;
+  }
+
+  if (
+    GREETING_CUES.some((cue) => compact === cue || compact.startsWith(`${cue} `))
+  ) {
+    return true;
+  }
+
+  const lastAssistantMessage = recentHistory
+    .split("\n")
+    .filter((line) => line.trim().startsWith("assistant:"))
+    .pop()
+    ?.toLowerCase() || "";
+
+  const assistantWasDoingSmallTalk =
+    lastAssistantMessage.includes("how are you") ||
+    lastAssistantMessage.includes("how are u") ||
+    lastAssistantMessage.includes("how you doing") ||
+    /\byou\?\s*$/.test(lastAssistantMessage.trim());
+
+  if (!assistantWasDoingSmallTalk) {
+    return false;
+  }
+
+  const wordCount = compact.split(/\s+/).filter(Boolean).length;
+  return (
+    wordCount <= 4 &&
+    SMALL_TALK_STATUS_CUES.some((cue) => compact === cue || compact.includes(cue))
+  );
+}
+
+function looksLikeMetaAssistantQuestion(normalized: string, original: string): boolean {
+  if (original.length > 160) {
+    return false;
+  }
+
+  return META_ASSISTANT_CUES.some((cue) => normalized.includes(cue));
 }
 
 function looksLikeChatQuestion(

@@ -407,85 +407,6 @@ interface CreatorChatSuccess {
     | "thread_seed"
     | "reply_candidate"
     | "quote_candidate";
-    whyThisWorks: string[];
-    watchOutFor: string[];
-    debug: {
-      formatExemplar: {
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      } | null;
-      topicAnchors: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      pinnedVoiceReferences: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      pinnedEvidenceReferences: Array<{
-        id: string;
-        lane: "original" | "reply" | "quote";
-        text: string;
-        selectionReason: string;
-        goalFitScore: number;
-      }>;
-      evidencePack: {
-        sourcePostIds: string[];
-        entities: string[];
-        metrics: string[];
-        proofPoints: string[];
-        storyBeats: string[];
-        constraints: string[];
-        requiredEvidenceCount: number;
-      };
-      formatBlueprint: string;
-      formatSkeleton: string;
-      outputShapeRationale: string;
-      draftDiagnostics: Array<{
-        preview: string;
-        score: number;
-        chosen: boolean;
-        evidenceCoverage: {
-          entityMatches: number;
-          metricMatches: number;
-          proofMatches: number;
-          total: number;
-        };
-        focusTermMatches: number;
-        genericPhraseCount: number;
-        strategyLeakCount: number;
-        matchesBlueprint: boolean | null;
-        matchesSkeleton: boolean | null;
-        reasons: string[];
-        validator: {
-          pass: boolean;
-          errors: string[];
-          metrics: {
-            wordCount: number;
-            sectionCount: number;
-            blankLineSeparators: number;
-            proofBullets: number;
-            mechanismSteps: number;
-            maxLineLen: number;
-            ngramOverlap5: number;
-            metricReuseCount: number;
-            bannedOpenerHit: boolean;
-          };
-        } | null;
-      }>;
-    };
-    source: "openai" | "groq" | "deterministic";
-    model: string | null;
-    mode: CreatorGenerationContract["mode"];
     surfaceMode?:
       | "answer_directly"
       | "ask_one_question"
@@ -630,9 +551,6 @@ interface ChatMessage {
   supportAsset?: string | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
-  debug?: CreatorChatSuccess["data"]["debug"];
-  source?: "openai" | "groq" | "deterministic";
-  model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
   surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
   feedbackValue?: MessageFeedbackValue | null;
@@ -2327,6 +2245,25 @@ function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
   return (
     message.surfaceMode === "ask_one_question" ||
     message.surfaceMode === "offer_options"
+  );
+}
+
+function shouldShowOptionArtifactsForMessage(message: ChatMessage): boolean {
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return message.surfaceMode === "offer_options";
+}
+
+function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return (
+    message.surfaceMode === "generate_full_output" ||
+    message.surfaceMode === "revise_and_return"
   );
 }
 
@@ -5798,8 +5735,6 @@ function ChatPageContent() {
           revisionChainId: data.data.assistantMessage.revisionChainId,
           supportAsset: data.data.assistantMessage.supportAsset,
           outputShape: data.data.assistantMessage.outputShape,
-          source: data.data.assistantMessage.source,
-          model: data.data.assistantMessage.model,
           feedbackValue: null,
         },
       ]);
@@ -6280,11 +6215,6 @@ function ChatPageContent() {
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
               surfaceMode: data.data.surfaceMode,
-              whyThisWorks: data.data.whyThisWorks,
-              watchOutFor: data.data.watchOutFor,
-              debug: data.data.debug,
-              source: data.data.source,
-              model: data.data.model ?? null,
               feedbackValue: null,
               quickReplies:
                 data.data.quickReplies && data.data.quickReplies.length > 0
@@ -6436,11 +6366,6 @@ function ChatPageContent() {
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
             surfaceMode: streamedResult.surfaceMode,
-            whyThisWorks: streamedResult.whyThisWorks,
-            watchOutFor: streamedResult.watchOutFor,
-            debug: streamedResult.debug,
-            source: streamedResult.source,
-            model: streamedResult.model ?? null,
             feedbackValue: null,
             quickReplies:
               streamedResult.quickReplies && streamedResult.quickReplies.length > 0
@@ -7667,6 +7592,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowOptionArtifactsForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.angles?.length ? (
                             <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
@@ -7727,6 +7653,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.outputShape !== "short_form_post" &&
                             message.outputShape !== "long_form_post" &&
@@ -7774,6 +7701,7 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
                             message.draft ? (() => {
                               const username = context?.creatorProfile?.identity?.username || "user";
@@ -8023,6 +7951,7 @@ function ChatPageContent() {
                             })() : null}
 
                           {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
                             message.supportAsset &&
                             !message.draftArtifacts?.length ? (
                             <div className="mt-4 border-t border-white/10 pt-4">

@@ -1,6 +1,29 @@
 import type { SurfaceMode } from "../../../../../lib/agent-v2/contracts/chat.ts";
+// @ts-expect-error TS5097 - route logic is executed directly in node strip-types tests.
+import { buildDraftArtifact, buildDraftArtifactTitle, computeXWeightedCharacterCount, type DraftArtifactDetails } from "../../../../../lib/onboarding/draftArtifacts.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
+
+interface DraftVersionEntry {
+  id: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  basedOnVersionId: string | null;
+  weightedCharacterCount: number;
+  maxCharacterLimit: number;
+  supportAsset: string | null;
+}
+
+interface PreviousVersionSnapshot {
+  messageId: string;
+  versionId: string;
+  content: string;
+  source: DraftVersionSource;
+  createdAt: string;
+  maxCharacterLimit?: number;
+  revisionChainId?: string;
+}
 
 const DRAFT_HANDOFF_REPLIES = new Set([
   "here's the draft. take a look.",
@@ -380,7 +403,7 @@ export function buildDraftVersionMetadata(args: {
 } {
   const revisionChainId =
     args.selectedDraftContext?.revisionChainId ||
-    `revision-chain-${args.selectedDraftContext?.messageId || "fresh"}`;
+    buildRevisionChainId(args.selectedDraftContext?.messageId);
 
   return {
     source: args.selectedDraftContext ? "assistant_revision" : "assistant_generated",
@@ -396,5 +419,100 @@ export function buildDraftVersionMetadata(args: {
           },
         }
       : {}),
+  };
+}
+
+function buildRevisionChainId(seed?: string): string {
+  const normalizedSeed = typeof seed === "string" ? seed.trim() : "";
+  if (normalizedSeed) {
+    return `revision-chain-${normalizedSeed}`;
+  }
+
+  return `revision-chain-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function buildInitialDraftVersionPayload(args: {
+  draft: string | null;
+  outputShape: string;
+  supportAsset: string | null;
+  selectedDraftContext: SelectedDraftContext | null;
+}): {
+  draftArtifacts: DraftArtifactDetails[];
+  draftVersions?: DraftVersionEntry[];
+  activeDraftVersionId?: string;
+  previousVersionSnapshot?: PreviousVersionSnapshot | null;
+  revisionChainId?: string;
+} {
+  if (!args.draft) {
+    return {
+      draftArtifacts: [],
+    };
+  }
+
+  const artifactKind = resolveDraftArtifactKind(args.outputShape);
+  if (!artifactKind) {
+    return {
+      draftArtifacts: [],
+    };
+  }
+
+  const createdAt = new Date().toISOString();
+  const versionId = `version-${Date.now()}`;
+  const metadata = buildDraftVersionMetadata({
+    selectedDraftContext: args.selectedDraftContext,
+  });
+  const revisionChainId = metadata.revisionChainId;
+  const primaryArtifact = buildDraftArtifact({
+    id: `${artifactKind}-1`,
+    title: buildDraftArtifactTitle(artifactKind, 0),
+    kind: artifactKind,
+    content: args.draft,
+    supportAsset: args.supportAsset,
+  });
+  const maxCharacterLimit =
+    args.selectedDraftContext?.maxCharacterLimit ?? primaryArtifact.maxCharacterLimit;
+  const adjustedPrimaryArtifact =
+    maxCharacterLimit === primaryArtifact.maxCharacterLimit
+      ? primaryArtifact
+      : {
+          ...primaryArtifact,
+          maxCharacterLimit,
+          isWithinXLimit: primaryArtifact.weightedCharacterCount <= maxCharacterLimit,
+        };
+
+  const draftVersion: DraftVersionEntry = {
+    id: versionId,
+    content: args.draft,
+    source: metadata.source,
+    createdAt,
+    basedOnVersionId: metadata.basedOnVersionId,
+    weightedCharacterCount:
+      adjustedPrimaryArtifact.weightedCharacterCount ?? computeXWeightedCharacterCount(args.draft),
+    maxCharacterLimit,
+    supportAsset: args.supportAsset,
+  };
+
+  const previousVersionSnapshot = args.selectedDraftContext
+    ? {
+        messageId: args.selectedDraftContext.messageId,
+        versionId: args.selectedDraftContext.versionId,
+        content: args.selectedDraftContext.content,
+        source: args.selectedDraftContext.source ?? "assistant_generated",
+        createdAt: args.selectedDraftContext.createdAt ?? createdAt,
+        ...(args.selectedDraftContext.maxCharacterLimit
+          ? { maxCharacterLimit: args.selectedDraftContext.maxCharacterLimit }
+          : {}),
+        ...(args.selectedDraftContext.revisionChainId
+          ? { revisionChainId: args.selectedDraftContext.revisionChainId }
+          : {}),
+      }
+    : undefined;
+
+  return {
+    draftArtifacts: [adjustedPrimaryArtifact],
+    draftVersions: [draftVersion],
+    activeDraftVersionId: versionId,
+    revisionChainId,
+    ...(previousVersionSnapshot ? { previousVersionSnapshot } : {}),
   };
 }
