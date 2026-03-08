@@ -1,4 +1,5 @@
 import "dotenv/config";
+import dns from "node:dns/promises";
 
 import {
   findReplayFixture,
@@ -59,6 +60,17 @@ function printUsage() {
   );
 }
 
+async function ensureGroqConnectivity() {
+  try {
+    await dns.lookup("api.groq.com");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "DNS lookup failed";
+    throw new Error(
+      `Live transcript replay needs network access to api.groq.com. Current environment cannot reach it: ${detail}`,
+    );
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -87,6 +99,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  await ensureGroqConnectivity();
 
   const result = await replayTranscriptFixture(fixture);
 

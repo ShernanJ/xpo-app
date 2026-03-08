@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { createRequire } from "node:module";
 
 import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
@@ -68,6 +69,69 @@ interface ReplayMemoryRecord {
   activeConstraints: ReplayMemoryEnvelope;
   concreteAnswerCount: number;
   lastDraftArtifactId: string | null;
+}
+
+let extensionlessTsResolutionEnabled = false;
+const require = createRequire(import.meta.url);
+const { registerHooks } = require("node:module") as {
+  registerHooks: (hooks: {
+    resolve: (
+      specifier: string,
+      context: { parentURL?: string | undefined },
+      nextResolve: (
+        nextSpecifier: string,
+        nextContext: { parentURL?: string | undefined },
+      ) => { url: string; shortCircuit?: boolean },
+    ) => { url: string; shortCircuit?: boolean };
+  }) => void;
+};
+
+function looksLikeRelativeTsImport(specifier: string): boolean {
+  return (
+    (specifier.startsWith("./") ||
+      specifier.startsWith("../") ||
+      specifier.startsWith("/")) &&
+    !/\.[a-z0-9]+$/i.test(specifier)
+  );
+}
+
+function enableExtensionlessTsResolution(): void {
+  if (extensionlessTsResolutionEnabled) {
+    return;
+  }
+
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      try {
+        return nextResolve(specifier, context);
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !("code" in error) ||
+          error.code !== "ERR_MODULE_NOT_FOUND" ||
+          !looksLikeRelativeTsImport(specifier)
+        ) {
+          throw error;
+        }
+
+        try {
+          return nextResolve(`${specifier}.ts`, context);
+        } catch (tsError) {
+          if (
+            !(tsError instanceof Error) ||
+            !("code" in tsError) ||
+            tsError.code !== "ERR_MODULE_NOT_FOUND"
+          ) {
+            throw tsError;
+          }
+
+          return nextResolve(`${specifier}/index.ts`, context);
+        }
+      }
+    },
+  });
+
+  extensionlessTsResolutionEnabled = true;
 }
 
 export interface TranscriptReplayResult {
@@ -249,7 +313,7 @@ function buildDefaultStyleCard(): VoiceStyleCard {
 export function buildRecentHistory(turns: TranscriptReplayTurn[]): string {
   const lines = turns
     .filter((turn) => turn.message.trim().length > 0)
-    .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.message.trim()}`);
+    .map((turn) => `${turn.role}: ${turn.message.trim()}`);
 
   return lines.length > 0 ? lines.join("\n") : "None";
 }
@@ -376,6 +440,8 @@ export function createReplayServiceOverrides(
 export async function replayTranscriptFixture(
   fixture: TranscriptReplayFixture,
 ): Promise<TranscriptReplayRun> {
+  enableExtensionlessTsResolution();
+
   let manageConversationTurn:
     | ((
         input: {

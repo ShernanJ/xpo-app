@@ -36,7 +36,7 @@ test("recent history builder mirrors route-style user and assistant lines", () =
 
   assert.equal(
     history,
-    "User: hi how are you\nAssistant: doing good. you?\nUser: vibing",
+    "user: hi how are you\nassistant: doing good. you?\nuser: vibing",
   );
 });
 

@@ -1,6 +1,6 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
-import { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
 import {
   buildAntiPatternBlock,
