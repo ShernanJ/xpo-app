@@ -23,6 +23,11 @@ import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,
 } from "./orchestrator/feedbackMemoryNotice.ts";
+import {
+  buildComparisonRelationshipQuestion,
+  buildProblemStakeQuestion,
+  buildProductCapabilityQuestion,
+} from "./orchestrator/assistantReplyStyle.ts";
 import { buildRollingSummary, shouldRefreshRollingSummary } from "./memory/summaryManager.ts";
 import {
   buildEffectiveContext,
@@ -156,6 +161,28 @@ test("planner quick replies adapt casing to lowercase voice style", () => {
 
   assert.equal(quickReplies[0].label, quickReplies[0].label.toLowerCase());
   assert.equal(quickReplies[0].value, quickReplies[0].value.toLowerCase());
+});
+
+test("assistant fallback questions stay direct without helper prefixes", () => {
+  assert.equal(
+    buildComparisonRelationshipQuestion("stanley").startsWith("one more thing:"),
+    false,
+  );
+  assert.equal(
+    buildProblemStakeQuestion().startsWith("one more thing:"),
+    false,
+  );
+  assert.equal(
+    buildProductCapabilityQuestion({ kind: "generic" }).startsWith("quick check:"),
+    false,
+  );
+  assert.equal(
+    buildProductCapabilityQuestion({
+      kind: "comparison",
+      target: "x",
+    }).startsWith("quick check:"),
+    false,
+  );
 });
 
 test("ideation quick replies expose more-like-this and change-it-up chips", () => {

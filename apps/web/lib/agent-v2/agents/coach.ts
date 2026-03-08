@@ -14,6 +14,7 @@ import {
   isTemplateyWelcomeMessage,
 } from "../welcomeMessage";
 import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../orchestrator/assistantReplyStyle";
+import { finalizeCoachReplyForSurface } from "./coachReplyNormalizer";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -265,7 +266,9 @@ Respond ONLY with valid JSON:
 
   try {
     const parsed = CoachReplySchema.parse(data);
-    return normalizeCoachReply(parsed, userMessage, topicSummary);
+    return finalizeCoachReplyForSurface(
+      normalizeCoachReply(parsed, userMessage, topicSummary),
+    );
   } catch (err) {
     console.error("Coach validation failed", err);
     return null;

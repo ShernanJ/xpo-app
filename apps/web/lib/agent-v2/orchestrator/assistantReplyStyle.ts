@@ -48,11 +48,11 @@ export function buildCoachFallbackResponse(args: {
 }
 
 export function buildComparisonRelationshipQuestion(reference: string): string {
-  return `one more thing: how does it relate to ${reference} exactly - replacement, extension, or something that works alongside it?`;
+  return `how does it relate to ${reference} exactly - replacement, extension, or something that works alongside it?`;
 }
 
 export function buildProblemStakeQuestion(): string {
-  return "one more thing: what's the actual problem it fixes, or why does it matter enough to post about?";
+  return "what's the actual problem it fixes, or why does it matter enough to post about?";
 }
 
 export function buildProductCapabilityQuestion(args: {
@@ -63,19 +63,19 @@ export function buildProductCapabilityQuestion(args: {
 
   if (args.kind === "comparison") {
     return target
-      ? `quick check: what does your version actually do on ${target}, and what's different about it?`
-      : "quick check: what does your version actually do, and what's different about it?";
+      ? `what does your version actually do on ${target}, and what's different about it?`
+      : "what does your version actually do, and what's different about it?";
   }
 
   if (args.kind === "extension") {
     return target
-      ? `quick check: what does the extension do, and what should someone know about ${target}?`
-      : "quick check: what does the extension actually do?";
+      ? `what does the extension do, and what should someone know about ${target}?`
+      : "what does the extension actually do?";
   }
 
   return target
-    ? `quick check: what does it do, and what should someone know about ${target}?`
-    : "quick check: what does it actually do?";
+    ? `what does it do, and what should someone know about ${target}?`
+    : "what does it actually do?";
 }
 
 export function buildDraftReviewPrompt(mode: DraftReviewMode): string {

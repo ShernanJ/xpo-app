@@ -328,10 +328,10 @@ function buildAmbiguousReferenceQuestion(reference: string): string {
   const normalized = reference.trim().toLowerCase();
 
   if (normalized === "ampm") {
-    return "quick check: when you say ampm, do you mean the downtown toronto club, the convenience store brand, or am/pm as time of day?";
+    return "when you say ampm, do you mean the downtown toronto club, the convenience store brand, or am/pm as time of day?";
   }
 
-  return `quick check: when you say ${reference}, what exactly are you referring to in this post?`;
+  return `when you say ${reference}, what exactly are you referring to in this post?`;
 }
 
 const IDEA_TOPIC_STOPWORDS = new Set([
