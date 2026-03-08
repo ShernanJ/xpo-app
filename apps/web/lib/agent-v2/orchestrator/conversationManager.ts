@@ -216,9 +216,9 @@ function isLazyDraftRequest(message: string): boolean {
 }
 
 const NO_FABRICATION_CONSTRAINT =
-  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, or named places. If facts are missing, use opinion/framework language instead.";
+  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims. If facts are missing, stay literal or use opinion/framework language instead.";
 const NO_FABRICATION_MUST_AVOID =
-  "Invented personal anecdotes, offline events, timelines, or named places that were not explicitly provided by the user.";
+  "Invented personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims that were not explicitly provided by the user.";
 
 function isRandomizedDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase();
@@ -234,6 +234,54 @@ function isRandomizedDraftRequest(message: string): boolean {
     "anything is fine",
     "idk just write it",
   ].some((candidate) => normalized.includes(candidate));
+}
+
+function isConcreteAnecdoteDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  const isDraftRequest = [
+    "write me a post",
+    "write a post",
+    "draft me a post",
+    "draft a post",
+    "write me something",
+    "tweet about",
+    "post about",
+    "turn this into a post",
+    "can you write me a post",
+  ].some((candidate) => normalized.includes(candidate));
+
+  if (!isDraftRequest) {
+    return false;
+  }
+
+  const sceneCues = [
+    "office",
+    "ceo",
+    "founder",
+    "meeting",
+    "call",
+    "league",
+    "game",
+    "match",
+    "team",
+    "against",
+    "with the",
+    "at the",
+    "playing",
+    "played",
+    "losing",
+    "lost",
+    "won",
+    "yesterday",
+    "last night",
+  ];
+
+  const cueCount = sceneCues.reduce(
+    (count, cue) => (normalized.includes(cue) ? count + 1 : count),
+    0,
+  );
+
+  return cueCount >= 2;
 }
 
 function hasNoFabricationPlanGuardrail(plan: StrategyPlan | null | undefined): boolean {
@@ -273,6 +321,10 @@ function shouldForceNoFabricationPlanGuardrail(args: {
   behaviorKnown: boolean;
   stakesKnown: boolean;
 }): boolean {
+  if (isConcreteAnecdoteDraftRequest(args.userMessage)) {
+    return true;
+  }
+
   if (!isRandomizedDraftRequest(args.userMessage)) {
     return false;
   }
@@ -594,17 +646,7 @@ function buildDraftMeaningResponse(draft: string): string {
     return "fair question. tell me the exact line that's unclear and i'll rewrite it plainly.";
   }
 
-  const lower = normalizedDraft.toLowerCase();
-
-  if (lower.includes(" vs ") || lower.includes("versus")) {
-    return "it's contrasting your public-facing persona with what you actually felt in that moment. if you want, i can rewrite it in cleaner language.";
-  }
-
-  if (/\bbut\b/.test(lower)) {
-    return "it's saying there's a gap between what you posted publicly and what you actually felt. if you want, i can rewrite it more clearly.";
-  }
-
-  return `it's trying to say: ${normalizedDraft}. if you want, i can rewrite it in clearer language.`;
+  return "fair question. as written, it's muddy. i should rewrite it more plainly instead of trying to explain around it. if you want, i'll rewrite it in plain english.";
 }
 
 function inferBroadTopicDraftRequest(message: string): string | null {

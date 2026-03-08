@@ -462,7 +462,7 @@ test("source transparency cites current chat when detail was mentioned earlier b
   assert.equal(reply?.toLowerCase().includes("earlier in this chat"), true);
 });
 
-test("source transparency cites style memory when chat does not contain the detail", () => {
+test("source transparency does not treat style memory as factual evidence", () => {
   const reply = inferSourceTransparencyReply({
     userMessage: "where did you get that?",
     activeDraft: "my ampm creator nights changed how i write because the energy is real",
@@ -475,7 +475,10 @@ test("source transparency cites style memory when chat does not contain the deta
   });
 
   assert.equal(typeof reply, "string");
-  assert.equal(reply?.toLowerCase().includes("style memory"), true);
+  assert.equal(
+    reply?.toLowerCase().includes("didn't come from anything you explicitly said earlier in this chat"),
+    true,
+  );
 });
 
 test("source transparency admits no source when detail is unsupported", () => {
@@ -491,9 +494,7 @@ test("source transparency admits no source when detail is unsupported", () => {
 
   assert.equal(typeof reply, "string");
   assert.equal(
-    reply?.toLowerCase().includes(
-      "didn't come from your prior message, current chat, or style memory",
-    ),
+    reply?.toLowerCase().includes("didn't come from anything you explicitly said earlier in this chat"),
     true,
   );
 });

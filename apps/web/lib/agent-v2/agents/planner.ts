@@ -91,8 +91,9 @@ ${isEditing ? `REQUIREMENTS:
 3. Determine what must be included (proof points) and avoided (cliches).
 4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
-6. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-7. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
+7. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
+8. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
 
 STYLE:
 - No internal workflow language.
