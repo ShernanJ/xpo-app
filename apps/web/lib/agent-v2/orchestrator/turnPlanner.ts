@@ -398,18 +398,32 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
       userGoal: "draft",
       shouldGenerate: true,
       responseStyle: "structured",
+      shouldAutoDraftFromPlan: true,
       overrideClassifiedIntent: "draft",
     };
   }
 
+  const directDraftPayload = extractDirectDraftPayload(normalized);
+
   if (
     !hasDraftContext &&
-    looksLikeSelfContainedDraftRequest(normalized)
+    directDraftPayload &&
+    looksLikeVagueProductDraftRequest(normalized, directDraftPayload)
   ) {
     return {
       userGoal: "draft",
       shouldGenerate: true,
       responseStyle: "structured",
+      overrideClassifiedIntent: "plan",
+    };
+  }
+
+  if (!hasDraftContext && directDraftPayload && looksLikeSelfContainedDraftRequest(normalized)) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      shouldAutoDraftFromPlan: true,
       overrideClassifiedIntent: "draft",
     };
   }
@@ -423,6 +437,7 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
       userGoal: "draft",
       shouldGenerate: true,
       responseStyle: "structured",
+      shouldAutoDraftFromPlan: true,
       overrideClassifiedIntent: "plan",
     };
   }

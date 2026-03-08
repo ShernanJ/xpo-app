@@ -798,9 +798,9 @@ function buildPlanPitch(plan: StrategyPlan): string {
   const objectiveLine = toSentence(plan.objective);
   const close = pickDeterministic(
     [
-      "want me to draft it, or tweak the angle first?",
-      "i can draft it now, or adjust the angle first.",
-      "if the angle works, i'll draft it. if not, we can tweak it first.",
+      "if that's the angle, i'll draft it.",
+      "if this direction works, i'll write it from here.",
+      "if you want this angle, i'll run with it.",
     ],
     `${seed}|close`,
   );
@@ -2188,7 +2188,10 @@ User Profile Summary:
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
     // directly to drafting instead of waiting for explicit approval.
-    if (turnPlan?.userGoal === "draft" && hasEnoughContextToAct) {
+    if (
+      turnPlan?.userGoal === "draft" &&
+      (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)
+    ) {
       const draftResult = await generateDraftWithGroundingRetry({
         plan: guardedPlan,
         activeConstraints: effectiveActiveConstraints,

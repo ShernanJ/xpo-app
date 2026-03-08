@@ -264,6 +264,7 @@ test("v3: 'just write it' skips clarification when context exists", () => {
   assert.equal(result.userGoal, "draft");
   assert.equal(result.overrideClassifiedIntent, "draft");
   assert.equal(result.shouldGenerate, true);
+  assert.equal(result.shouldAutoDraftFromPlan, true);
 });
 
 test("v3: 'go ahead' with pending plan routes to planner_feedback", () => {
@@ -312,6 +313,7 @@ test("v3: answering the active clarification question routes forward instead of 
 
   assert.ok(result);
   assert.equal(result.overrideClassifiedIntent, "plan");
+  assert.equal(result.shouldAutoDraftFromPlan, true);
 });
 
 test("v3: 'just write it' without any context returns null (no override)", () => {
@@ -369,6 +371,7 @@ test("v3: specific first-turn draft request routes straight to draft", () => {
   assert.equal(result.userGoal, "draft");
   assert.equal(result.overrideClassifiedIntent, "draft");
   assert.equal(result.shouldGenerate, true);
+  assert.equal(result.shouldAutoDraftFromPlan, true);
 });
 
 test("v3: topical first-turn draft request routes straight to draft", () => {
@@ -388,9 +391,10 @@ test("v3: topical first-turn draft request routes straight to draft", () => {
   assert.ok(result);
   assert.equal(result.userGoal, "draft");
   assert.equal(result.overrideClassifiedIntent, "draft");
+  assert.equal(result.shouldAutoDraftFromPlan, true);
 });
 
-test("v3: vague product draft request still falls through for clarification", () => {
+test("v3: vague product draft request routes into plan clarification", () => {
   const result = planTurn({
     userMessage: "write a post about my extension for stanley",
     recentHistory: "",
@@ -404,7 +408,10 @@ test("v3: vague product draft request still falls through for clarification", ()
     },
   });
 
-  assert.equal(result, null);
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "plan");
+  assert.equal(result.shouldAutoDraftFromPlan, undefined);
 });
 
 // ---------------------------------------------------------------------------

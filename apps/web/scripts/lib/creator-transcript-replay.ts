@@ -134,6 +134,12 @@ function enableExtensionlessTsResolution(): void {
   extensionlessTsResolutionEnabled = true;
 }
 
+function ensureReplayModelEnv(): void {
+  if (!process.env.GROQ_API_KEY) {
+    process.env.GROQ_API_KEY = "replay-test-key";
+  }
+}
+
 export interface TranscriptReplayResult {
   turnNumber: number;
   userMessage: string;
@@ -439,8 +445,10 @@ export function createReplayServiceOverrides(
 
 export async function replayTranscriptFixture(
   fixture: TranscriptReplayFixture,
+  serviceOverrides?: Partial<ConversationServices>,
 ): Promise<TranscriptReplayRun> {
   enableExtensionlessTsResolution();
+  ensureReplayModelEnv();
 
   let manageConversationTurn:
     | ((
@@ -472,7 +480,10 @@ export async function replayTranscriptFixture(
   const runId = fixture.runId || `replay_${fixture.id}`;
   const threadId = fixture.threadId || `replay_${fixture.id}`;
   const userId = fixture.userId || "replay-user";
-  const serviceOverrides = createReplayServiceOverrides(fixture);
+  const mergedServiceOverrides: Partial<ConversationServices> = {
+    ...createReplayServiceOverrides(fixture),
+    ...(serviceOverrides || {}),
+  };
   const history: TranscriptReplayTurn[] = [];
   const turnResults: TranscriptReplayResult[] = [];
   let activeDraft: string | null = null;
@@ -499,7 +510,7 @@ export async function replayTranscriptFixture(
         explicitIntent: turn.explicitIntent ?? null,
         activeDraft: turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
       },
-      serviceOverrides,
+      mergedServiceOverrides,
     );
 
     const nextActiveDraft =
@@ -523,7 +534,7 @@ export async function replayTranscriptFixture(
     activeDraft = nextActiveDraft;
   }
 
-  const finalMemoryRecord = await serviceOverrides.getConversationMemory?.({
+  const finalMemoryRecord = await mergedServiceOverrides.getConversationMemory?.({
     runId,
     threadId,
   });

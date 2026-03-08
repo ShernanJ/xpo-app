@@ -135,6 +135,7 @@ export interface TurnPlan {
   userGoal: UserGoal;
   shouldGenerate: boolean;
   responseStyle: "natural" | "structured";
+  shouldAutoDraftFromPlan?: boolean;
   targetDraftId?: string;
   /** If set, skip LLM classification and use this intent directly. */
   overrideClassifiedIntent?: V2ChatIntent;

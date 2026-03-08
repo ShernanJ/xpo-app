@@ -18,6 +18,38 @@ const bluntStyleCard: VoiceStyleCard = {
 
 export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
   {
+    id: "direct-draft-first-turn",
+    title: "Direct Draft First Turn",
+    description:
+      "Checks that a self-contained draft ask goes straight to draft delivery instead of a visible planning step.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    turns: [
+      {
+        role: "user",
+        message: "write one about onboarding mistakes early-stage founders keep making",
+      },
+    ],
+  },
+  {
+    id: "vague-product-one-question",
+    title: "Vague Product One Question",
+    description:
+      "Checks that a vague product draft ask triggers one useful clarification, then drafts after the user answers.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    turns: [
+      {
+        role: "user",
+        message: "write a post about my extension for stanley",
+      },
+      {
+        role: "user",
+        message: "it rewrites replies in my voice and helps me ship posts way faster",
+      },
+    ],
+  },
+  {
     id: "casual-opening-to-help-offer",
     title: "Casual Opening To Help Offer",
     description:
