@@ -136,6 +136,27 @@ function normalizeText(value: string | null | undefined): string {
     .replace(/\s+/g, " ");
 }
 
+function extractGroundingLines(activeConstraints: string[]): string[] {
+  return activeConstraints
+    .filter(
+      (entry) =>
+        /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+    )
+    .map((entry) =>
+      entry
+        .replace(/^Correction lock:\s*/i, "")
+        .replace(/^Topic grounding:\s*/i, "")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+function containsFirstPersonUsageClaim(value: string): boolean {
+  return /\b(?:i|we)\s+(?:built|build|made|make|use|used|tried|try|let|switched|switch|rely|run)\b/i.test(
+    value,
+  );
+}
+
 function looksLikeDraftRequest(normalized: string): boolean {
   if (DRAFT_REQUEST_CUES.some((candidate) => normalized.includes(candidate))) {
     return true;
@@ -275,6 +296,52 @@ ${growthAllowed
     ? "- If there is a takeaway, keep it grounded in the original scene."
     : "- If the draft invents a growth lesson, product tactic, or tool that was not in the source scene, rewrite it back to the literal anecdote or reject it."}
   `.trim();
+}
+
+export function assessGroundedProductDrift(args: {
+  activeConstraints: string[];
+  sourceUserMessage?: string | null;
+  draft: string;
+}): {
+  shouldGuard: boolean;
+  hasDrift: boolean;
+  reason: string | null;
+} {
+  const groundingLines = extractGroundingLines(args.activeConstraints);
+  if (groundingLines.length === 0) {
+    return {
+      shouldGuard: false,
+      hasDrift: false,
+      reason: null,
+    };
+  }
+
+  const combinedGrounding = normalizeText(
+    [args.sourceUserMessage || "", ...groundingLines].join(" "),
+  );
+  const draft = args.draft.trim();
+  const draftNormalized = normalizeText(draft);
+  const groundingAllowsFirstPersonUsage = containsFirstPersonUsageClaim(combinedGrounding);
+  const draftAddsFirstPersonUsage = containsFirstPersonUsageClaim(draftNormalized);
+
+  if (!draftAddsFirstPersonUsage || groundingAllowsFirstPersonUsage) {
+    return {
+      shouldGuard: true,
+      hasDrift: false,
+      reason: null,
+    };
+  }
+
+  return {
+    shouldGuard: true,
+    hasDrift: true,
+    reason:
+      "Grounded product drift: draft invented first-person product usage that the user never provided.",
+  };
+}
+
+export function buildGroundedProductRetryConstraint(): string {
+  return "Grounded product retry: do not invent first-person product usage, testing, or build-story claims unless the user explicitly said them. State the grounded product fact plainly.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {

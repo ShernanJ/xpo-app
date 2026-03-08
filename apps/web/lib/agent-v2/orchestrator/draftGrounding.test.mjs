@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assessGroundedProductDrift,
+  buildGroundedProductRetryConstraint,
   assessConcreteSceneDrift,
   buildConcreteSceneDraftBlock,
   extractConcreteSceneAnchors,
@@ -86,4 +88,39 @@ test("concrete scene draft block tells the writer not to force a growth lesson",
   assert.equal(block?.includes("Do NOT inject a growth lesson"), true);
   assert.equal(block?.includes("stan office"), true);
   assert.equal(block?.includes("league"), true);
+});
+
+test("grounded product assessment flags invented first-person usage", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "i let xpo handle the mental load so i can write and grow faster on x.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft invented first-person product usage that the user never provided.",
+  );
+});
+
+test("grounded product assessment allows plain grounded product claims", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "xpo helps people write and grow faster on x without the mental load.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, false);
+  assert.equal(buildGroundedProductRetryConstraint().includes("do not invent first-person"), true);
 });

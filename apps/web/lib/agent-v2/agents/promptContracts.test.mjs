@@ -133,4 +133,10 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT invent first-person usage, personal testing, rollout history, or "i use / i tried / i let it" claims',
+    ),
+    true,
+  );
 });

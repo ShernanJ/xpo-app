@@ -224,7 +224,7 @@ test("transcript replay asks one useful question for a vague product draft ask, 
   assert.equal(result.turns.length, 2);
   assert.equal(result.turns[0]?.output.mode, "coach");
   assert.equal(result.turns[0]?.output.surfaceMode, "ask_one_question");
-  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("stanley"), true);
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("extension"), true);
   assert.equal(/\?$/.test(result.turns[0]?.output.response.trim()), true);
   assert.equal(result.turns[1]?.output.mode, "draft");
   assert.equal(result.turns[1]?.output.outputShape, "short_form_post");
@@ -283,7 +283,7 @@ test("transcript replay asks for entity definition before drafting an opaque nam
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what is xpo"), true);
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("before i write the post"), true);
   assert.equal(result.turns[1]?.output.mode, "draft");
-  assert.equal(lastPlanMessage.toLowerCase().includes("write a post about xpo"), true);
+  assert.equal(lastPlanMessage.toLowerCase().includes("post about xpo"), true);
   assert.equal(lastPlanMessage.toLowerCase().includes("factual grounding"), true);
   assert.equal(lastPlanMessage.toLowerCase().includes("mental load"), true);
   assert.equal(result.turns[1]?.output.data?.draft?.toLowerCase().includes("hashtag"), false);

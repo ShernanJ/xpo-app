@@ -49,7 +49,9 @@ import {
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
+  assessGroundedProductDrift,
   assessConcreteSceneDrift,
+  buildGroundedProductRetryConstraint,
   buildConcreteSceneRetryConstraint,
   extractConcreteSceneAnchors,
   isConcreteAnecdoteDraftRequest,
@@ -285,6 +287,10 @@ function inferMissingSpecificQuestion(message: string): string | null {
     ["extension", "plugin", "tool", "app", "product"].some((cue) =>
       normalized.includes(cue),
     ) ||
+    /^(?:can you\s+)?(?:write|draft|make|create|generate|do)\b/.test(normalized) &&
+      ["extension", "plugin", "tool", "app", "product"].some((cue) =>
+        normalized.includes(cue),
+      ) ||
     comparisonOnly;
 
   if (!isBuildingSomething) {
@@ -335,6 +341,17 @@ function buildAmbiguousReferenceQuestion(reference: string): string {
   }
 
   return `when you say ${reference}, what exactly are you referring to in this post?`;
+}
+
+function extractPriorUserTurn(recentHistory: string): string | null {
+  const userTurns = recentHistory
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^user:/i.test(line))
+    .map((line) => line.replace(/^user:\s*/i, "").trim())
+    .filter(Boolean);
+
+  return userTurns.length > 0 ? userTurns[userTurns.length - 1] || null : null;
 }
 
 const IDEA_TOPIC_STOPWORDS = new Set([
@@ -1438,6 +1455,11 @@ User Profile Summary:
     return `i can write this, but i don't want to make up a lesson around ${anchorSummary}. do you want it to land as the funny loss itself, or tie to a takeaway you actually want to make?`;
   }
 
+  function buildGroundedProductClarificationQuestion(sourceUserMessage: string): string {
+    const normalized = sourceUserMessage.trim().replace(/\s+/g, " ");
+    return `i can write this, but i don't want to fake a personal usage story around ${normalized}. should i keep it as a plain product claim, or are you speaking from your own use/build experience?`;
+  }
+
   function buildPlanSourceMessage(plan: StrategyPlan): string {
     return [plan.objective, ...plan.mustInclude]
       .map((entry) => entry.trim())
@@ -1475,10 +1497,18 @@ User Profile Summary:
     const groundedAnswer = normalizedAnswer.startsWith(`${normalizedSeedTopic} `)
       ? trimmed
       : `${seedTopic}: ${trimmed}`;
+    const priorUserTurn = extractPriorUserTurn(recentHistory);
+    const priorDraftRequest =
+      priorUserTurn &&
+      /^(?:can you\s+)?(?:write|draft|make|create|generate|do)\b/i.test(priorUserTurn)
+        ? priorUserTurn
+        : null;
 
     if (branchKey === "entity_context_missing") {
+      const basePrompt = priorDraftRequest || `write a post about ${seedTopic}`;
+
       return {
-        planMessage: `write a post about ${seedTopic}. factual grounding: ${groundedAnswer}`,
+        planMessage: `${basePrompt}. factual grounding: ${groundedAnswer}`,
         activeConstraints: Array.from(
           new Set([...args.activeConstraints, `Topic grounding: ${groundedAnswer}`]),
         ),
@@ -1489,6 +1519,15 @@ User Profile Summary:
       return {
         planMessage: `write a post about ${seedTopic}. direction: ${trimmed}`,
         activeConstraints: args.activeConstraints,
+      };
+    }
+
+    if (priorDraftRequest) {
+      return {
+        planMessage: `${priorDraftRequest}. factual grounding: ${groundedAnswer}`,
+        activeConstraints: Array.from(
+          new Set([...args.activeConstraints, `Topic grounding: ${groundedAnswer}`]),
+        ),
       };
     }
 
@@ -1617,8 +1656,13 @@ User Profile Summary:
       sourceUserMessage: args.sourceUserMessage,
       draft: firstAttempt.draftToDeliver,
     });
+    const firstProductAssessment = assessGroundedProductDrift({
+      activeConstraints: args.activeConstraints,
+      sourceUserMessage: args.sourceUserMessage,
+      draft: firstAttempt.draftToDeliver,
+    });
 
-    if (!firstAssessment.hasDrift) {
+    if (!firstAssessment.hasDrift && !firstProductAssessment.hasDrift) {
       return {
         kind: "success",
         writerOutput: firstAttempt.writerOutput,
@@ -1627,11 +1671,16 @@ User Profile Summary:
       };
     }
 
-    const retryConstraint = buildConcreteSceneRetryConstraint(
-      args.sourceUserMessage || "",
-    );
-    const secondAttempt = retryConstraint
-      ? await runAttempt([retryConstraint])
+    const retryConstraints = [
+      ...(firstAssessment.hasDrift
+        ? [buildConcreteSceneRetryConstraint(args.sourceUserMessage || "")]
+        : []),
+      ...(firstProductAssessment.hasDrift
+        ? [buildGroundedProductRetryConstraint()]
+        : []),
+    ].filter(Boolean) as string[];
+    const secondAttempt = retryConstraints.length > 0
+      ? await runAttempt(retryConstraints)
       : firstAttempt;
 
     if (!secondAttempt.writerOutput) {
@@ -1662,21 +1711,38 @@ User Profile Summary:
       sourceUserMessage: args.sourceUserMessage,
       draft: secondAttempt.draftToDeliver,
     });
+    const secondProductAssessment = assessGroundedProductDrift({
+      activeConstraints: args.activeConstraints,
+      sourceUserMessage: args.sourceUserMessage,
+      draft: secondAttempt.draftToDeliver,
+    });
 
-    if (secondAssessment.hasDrift) {
+    if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
       return {
         kind: "response",
-        response: await returnClarificationQuestion({
-          question: buildConcreteSceneClarificationQuestion(
-            args.sourceUserMessage || args.plan.objective,
-          ),
-          ...(args.topicSummary !== undefined
-            ? { topicSummary: args.topicSummary }
-            : {}),
-          ...(args.pendingPlan !== undefined
-            ? { pendingPlan: args.pendingPlan }
-            : {}),
-        }),
+        response: secondAssessment.hasDrift
+          ? await returnClarificationQuestion({
+              question: buildConcreteSceneClarificationQuestion(
+                args.sourceUserMessage || args.plan.objective,
+              ),
+              ...(args.topicSummary !== undefined
+                ? { topicSummary: args.topicSummary }
+                : {}),
+              ...(args.pendingPlan !== undefined
+                ? { pendingPlan: args.pendingPlan }
+                : {}),
+            })
+          : await returnClarificationQuestion({
+              question: buildGroundedProductClarificationQuestion(
+                args.sourceUserMessage || args.plan.objective,
+              ),
+              ...(args.topicSummary !== undefined
+                ? { topicSummary: args.topicSummary }
+                : {}),
+              ...(args.pendingPlan !== undefined
+                ? { pendingPlan: args.pendingPlan }
+                : {}),
+            }),
       };
     }
 
@@ -2046,13 +2112,6 @@ User Profile Summary:
       });
     }
 
-    if (turnDraftContextSlots.entityNeedsDefinition && turnDraftContextSlots.namedEntity) {
-      return returnClarificationTree({
-        branchKey: "entity_context_missing",
-        seedTopic: turnDraftContextSlots.namedEntity,
-      });
-    }
-
     if (
       turnDraftContextSlots.isProductLike &&
       (!turnDraftContextSlots.behaviorKnown || !turnDraftContextSlots.stakesKnown)
@@ -2062,8 +2121,16 @@ User Profile Summary:
       if (clarificationQuestion) {
         return returnClarificationQuestion({
           question: clarificationQuestion,
+          topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
         });
       }
+    }
+
+    if (turnDraftContextSlots.entityNeedsDefinition && turnDraftContextSlots.namedEntity) {
+      return returnClarificationTree({
+        branchKey: "entity_context_missing",
+        seedTopic: turnDraftContextSlots.namedEntity,
+      });
     }
   }
 
