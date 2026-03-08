@@ -350,6 +350,63 @@ test("v3: 'run with it' triggers draft when topic is known", () => {
   assert.equal(result.overrideClassifiedIntent, "draft");
 });
 
+test("v3: specific first-turn draft request routes straight to draft", () => {
+  const result = planTurn({
+    userMessage:
+      "can you write me a post on playing league at the stan office against the ceo and losing hard",
+    recentHistory: "",
+    memory: {
+      conversationState: "collecting_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "draft");
+  assert.equal(result.shouldGenerate, true);
+});
+
+test("v3: topical first-turn draft request routes straight to draft", () => {
+  const result = planTurn({
+    userMessage: "write one about onboarding mistakes early-stage founders keep making",
+    recentHistory: "",
+    memory: {
+      conversationState: "collecting_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "draft");
+});
+
+test("v3: vague product draft request still falls through for clarification", () => {
+  const result = planTurn({
+    userMessage: "write a post about my extension for stanley",
+    recentHistory: "",
+    memory: {
+      conversationState: "collecting_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.equal(result, null);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Chat question detection
 // ---------------------------------------------------------------------------

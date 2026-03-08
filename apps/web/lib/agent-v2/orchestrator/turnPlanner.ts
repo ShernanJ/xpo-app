@@ -204,6 +204,47 @@ const IMMEDIATE_DRAFT_CUES = [
   "write this",
 ];
 
+const DIRECT_DRAFT_REQUEST_PATTERNS = [
+  /^(?:can you\s+)?(?:write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?(?:post|tweet)\s+(?:about|on)\s+(.+)$/,
+  /^(?:can you\s+)?(?:write|draft|make|do)\s+(?:me\s+)?(?:one|something)\s+(?:about|on)\s+(.+)$/,
+  /^(?:can you\s+)?(?:write|draft|make|create|generate)\s+(?:me\s+)?something\s+about\s+(.+)$/,
+];
+
+const DIRECT_DRAFT_STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "for",
+  "with",
+  "about",
+  "on",
+  "my",
+  "this",
+  "that",
+  "something",
+  "post",
+  "tweet",
+]);
+
+const VAGUE_PRODUCT_DRAFT_CUES = ["tool", "app", "product", "extension", "plugin"];
+const PRODUCT_DETAIL_CUES = [
+  "it helps",
+  "it does",
+  "it lets",
+  "it turns",
+  "it rewrites",
+  "it automates",
+  "it converts",
+  "works with",
+  "works for",
+  "because",
+  "so that",
+  "so you can",
+  "different from",
+];
+
 // --- Constraint acknowledgment cues -----------------------------------------
 
 const CONSTRAINT_CUES = [
@@ -361,6 +402,18 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  if (
+    !hasDraftContext &&
+    looksLikeSelfContainedDraftRequest(normalized)
+  ) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "draft",
+    };
+  }
+
   const answeredOutstandingQuestion =
     Boolean(input.memory.unresolvedQuestion?.trim()) &&
     looksLikeClarificationAnswer(normalized, trimmed);
@@ -413,6 +466,67 @@ function looksLikeConstraintOnly(normalized: string): boolean {
 
 function looksLikeImmediateDraftCommand(normalized: string): boolean {
   return IMMEDIATE_DRAFT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function extractDirectDraftPayload(normalized: string): string | null {
+  for (const pattern of DIRECT_DRAFT_REQUEST_PATTERNS) {
+    const match = normalized.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+function payloadLooksSpecific(payload: string): boolean {
+  const tokens = payload
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token && !DIRECT_DRAFT_STOPWORDS.has(token));
+
+  return tokens.length >= 3 || payload.length >= 24;
+}
+
+function looksLikeVagueProductDraftRequest(
+  normalized: string,
+  payload: string,
+): boolean {
+  const mentionsProductCue = VAGUE_PRODUCT_DRAFT_CUES.some((cue) =>
+    normalized.includes(cue),
+  );
+
+  if (!mentionsProductCue) {
+    return false;
+  }
+
+  if (PRODUCT_DETAIL_CUES.some((cue) => normalized.includes(cue))) {
+    return false;
+  }
+
+  const payloadTokens = payload
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return payloadTokens.length <= 8;
+}
+
+function looksLikeSelfContainedDraftRequest(normalized: string): boolean {
+  const payload = extractDirectDraftPayload(normalized);
+  if (!payload) {
+    return false;
+  }
+
+  if (!payloadLooksSpecific(payload)) {
+    return false;
+  }
+
+  if (looksLikeVagueProductDraftRequest(normalized, payload)) {
+    return false;
+  }
+
+  return true;
 }
 
 function looksLikeGreetingOrSmallTalk(
