@@ -109,6 +109,25 @@ test("grounded product assessment flags invented first-person usage", () => {
   );
 });
 
+test("grounded product assessment flags implied first-person benefit phrasing", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "xpo lets me write faster on x, grow quicker, and stay mentally clear.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft invented first-person product usage that the user never provided.",
+  );
+});
+
 test("grounded product assessment allows plain grounded product claims", () => {
   const result = assessGroundedProductDrift({
     activeConstraints: [
@@ -209,6 +228,44 @@ test("grounded product assessment flags imperative promo phrasing when the user 
       "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
     draft:
       "tired of mental overload? try xpo. it strips the process so you can write and grow faster on x. no extra steps, just results.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+  );
+});
+
+test("grounded product assessment flags invented pain-point setup when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "stopped overthinking tweets. xpo lifts the mental load, letting you write and grow faster on x.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+  );
+});
+
+test("grounded product assessment flags invented forced-feeling setup when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "posting on x feels forced by mental load. xpo lifts that, letting you write and grow faster.",
   });
 
   assert.equal(result.shouldGuard, true);

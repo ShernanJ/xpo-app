@@ -269,6 +269,7 @@ test("draft handoff adapts to blunt cadence when user prefers direct replies", (
   assert.equal(reply.length < 96, true);
   assert.equal(/drafted|put together|ran with/i.test(reply), true);
   assert.equal(/how does this feel/i.test(reply), false);
+  assert.equal(/for you|here's one take/i.test(reply), false);
 });
 
 test("draft handoff adapts to warm cadence when user prefers conversational replies", () => {
@@ -302,7 +303,8 @@ test("draft handoff does not mislabel factual clarification answers as edits", (
   });
 
   assert.equal(/updated it|made the edit|reworked it/i.test(reply), false);
-  assert.equal(/drafted|put together|here's one take|ran with/i.test(reply), true);
+  assert.equal(/drafted|put together|ran with|kept this/i.test(reply), true);
+  assert.equal(/for you|here's one take/i.test(reply), false);
 });
 
 test("draft handoff respects lowercase casing preference", () => {

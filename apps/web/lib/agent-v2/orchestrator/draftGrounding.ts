@@ -152,8 +152,12 @@ function extractGroundingLines(activeConstraints: string[]): string[] {
 }
 
 function containsFirstPersonUsageClaim(value: string): boolean {
-  return /\b(?:i|we)\s+(?:built|build|made|make|use|used|tried|try|let|switched|switch|rely|run)\b/i.test(
-    value,
+  return (
+    /\b(?:i|we)\s+(?:built|build|made|make|use|used|tried|try|let|switched|switch|rely|run)\b/i.test(
+      value,
+    ) ||
+    /\blets?\s+(?:me|us)\b/i.test(value) ||
+    /\bhelps?\s+(?:me|us)\b/i.test(value)
   );
 }
 
@@ -198,6 +202,9 @@ const PRODUCT_PROMOTIONAL_INFLATION_TERMS = [
   "see the speed for yourself",
   "no extra steps",
   "just results",
+  "tired of",
+  "stopped overthinking",
+  "feels forced",
 ];
 
 const PRODUCT_PROMOTIONAL_INFLATION_PATTERNS = [
@@ -473,7 +480,7 @@ export function assessGroundedProductDrift(args: {
 }
 
 export function buildGroundedProductRetryConstraint(): string {
-  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, inflated market contrast, or promotional CTA/payoff language unless the user explicitly said them. State the grounded product fact plainly.";
+  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, inflated market contrast, or promotional CTA/payoff language unless the user explicitly said them. State the grounded product fact plainly, and stay close to the user's grounded wording when it is already clear.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {

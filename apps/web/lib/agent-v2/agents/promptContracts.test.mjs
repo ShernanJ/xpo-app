@@ -152,4 +152,16 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      "If the grounding already contains clear usable wording, stay close to it instead of rewriting it into new marketing language or synonyms.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT add an invented before-state or pain-point setup like "tired of...", "stopped overthinking...", or similar framing unless the user actually gave that setup.',
+    ),
+    true,
+  );
 });

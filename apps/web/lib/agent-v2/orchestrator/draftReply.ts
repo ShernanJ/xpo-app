@@ -405,8 +405,8 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         ],
         balanced: [
           "ran with your angle and kept it in your voice.",
-          "drafted this to sound like you.",
-          "put together a version that stays natural to your tone.",
+          "kept this in your voice.",
+          "drafted it close to your tone.",
         ],
         warm: [
           "ran with your angle and kept it true to your voice.",
@@ -474,11 +474,11 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
     return buildCadenceReply({
       action: {
         blunt: [
-          "kept it tight and post-ready.",
+          "kept it tight.",
           "tightened it so it reads fast.",
         ],
         balanced: [
-          "kept it tight and post-ready.",
+          "kept it tight.",
           "tightened it up so it reads fast.",
         ],
         warm: [
@@ -518,7 +518,7 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         ],
         balanced: [
           "ran with that idea and drafted this.",
-          "put together the draft from that angle.",
+          "drafted it from that angle.",
           "drafted it as-is.",
         ],
         warm: [
@@ -553,9 +553,9 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         "put together a draft.",
       ],
       balanced: [
-        "drafted a version for you.",
-        "here's one take.",
-        "put together a draft you can use.",
+        "drafted a version.",
+        "ran with this.",
+        "put together a draft.",
       ],
       warm: [
         "put together a draft for you.",
