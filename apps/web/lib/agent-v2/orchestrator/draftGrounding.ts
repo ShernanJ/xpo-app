@@ -157,6 +157,21 @@ function containsFirstPersonUsageClaim(value: string): boolean {
   );
 }
 
+const PRODUCT_ADJACENT_MECHANIC_TERMS = [
+  "analytics",
+  "timing",
+  "distribution",
+  "algorithm",
+  "engagement",
+  "reach",
+  "format",
+  "handles the rest",
+  "does the rest",
+  "growth happens automatically",
+  "friction free",
+  "friction-free",
+];
+
 function looksLikeDraftRequest(normalized: string): boolean {
   if (DRAFT_REQUEST_CUES.some((candidate) => normalized.includes(candidate))) {
     return true;
@@ -323,12 +338,29 @@ export function assessGroundedProductDrift(args: {
   const draftNormalized = normalizeText(draft);
   const groundingAllowsFirstPersonUsage = containsFirstPersonUsageClaim(combinedGrounding);
   const draftAddsFirstPersonUsage = containsFirstPersonUsageClaim(draftNormalized);
+  const adjacentMechanicTerms = collectAbsentTerms(
+    combinedGrounding,
+    draftNormalized,
+    PRODUCT_ADJACENT_MECHANIC_TERMS,
+  );
 
-  if (!draftAddsFirstPersonUsage || groundingAllowsFirstPersonUsage) {
+  if (
+    (!draftAddsFirstPersonUsage || groundingAllowsFirstPersonUsage) &&
+    adjacentMechanicTerms.length === 0
+  ) {
     return {
       shouldGuard: true,
       hasDrift: false,
       reason: null,
+    };
+  }
+
+  if (adjacentMechanicTerms.length > 0) {
+    return {
+      shouldGuard: true,
+      hasDrift: true,
+      reason:
+        "Grounded product drift: draft introduced adjacent product mechanics that were not in the user's grounding.",
     };
   }
 
@@ -341,7 +373,7 @@ export function assessGroundedProductDrift(args: {
 }
 
 export function buildGroundedProductRetryConstraint(): string {
-  return "Grounded product retry: do not invent first-person product usage, testing, or build-story claims unless the user explicitly said them. State the grounded product fact plainly.";
+  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, or adjacent mechanics unless the user explicitly said them. State the grounded product fact plainly.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {

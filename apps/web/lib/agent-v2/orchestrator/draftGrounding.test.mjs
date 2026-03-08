@@ -124,3 +124,23 @@ test("grounded product assessment allows plain grounded product claims", () => {
   assert.equal(result.hasDrift, false);
   assert.equal(buildGroundedProductRetryConstraint().includes("do not invent first-person"), true);
 });
+
+test("grounded product assessment flags invented adjacent mechanics", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "xpo wipes the mental load and handles timing, analytics, and the rest so you grow faster on x.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced adjacent product mechanics that were not in the user's grounding.",
+  );
+  assert.equal(buildGroundedProductRetryConstraint().includes("adjacent mechanics"), true);
+});
