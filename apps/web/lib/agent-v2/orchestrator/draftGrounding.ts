@@ -185,6 +185,25 @@ const PRODUCT_INFLATED_CONTRAST_TERMS = [
   "the only tool",
 ];
 
+const PRODUCT_PROMOTIONAL_INFLATION_TERMS = [
+  "just launched",
+  "launching",
+  "post-ready",
+  "follower growth",
+  "followers",
+  "faster publishing",
+  "give it a try",
+  "try it",
+  "see for yourself",
+  "see the speed for yourself",
+  "no extra steps",
+  "just results",
+];
+
+const PRODUCT_PROMOTIONAL_INFLATION_PATTERNS = [
+  /\btry\s+[a-z0-9][a-z0-9_-]*\b/i,
+];
+
 const EXPLICIT_CONTRAST_REQUEST_PATTERNS = [
   /\bvs\b/i,
   /\bversus\b/i,
@@ -208,6 +227,12 @@ const EXPLICIT_CONTRAST_REQUEST_PATTERNS = [
 
 function containsExplicitContrastRequest(value: string): boolean {
   return EXPLICIT_CONTRAST_REQUEST_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function hasPromotionalInflationPattern(source: string, draft: string): boolean {
+  return PRODUCT_PROMOTIONAL_INFLATION_PATTERNS.some(
+    (pattern) => pattern.test(draft) && !pattern.test(source),
+  );
 }
 
 function looksLikeDraftRequest(normalized: string): boolean {
@@ -388,11 +413,22 @@ export function assessGroundedProductDrift(args: {
       draftNormalized,
       PRODUCT_INFLATED_CONTRAST_TERMS,
     );
+  const promotionalInflationTerms = collectAbsentTerms(
+    combinedGrounding,
+    draftNormalized,
+    PRODUCT_PROMOTIONAL_INFLATION_TERMS,
+  );
+  const promotionalInflationPattern = hasPromotionalInflationPattern(
+    combinedGrounding,
+    draftNormalized,
+  );
 
   if (
     (!draftAddsFirstPersonUsage || groundingAllowsFirstPersonUsage) &&
     adjacentMechanicTerms.length === 0 &&
-    inflatedContrastTerms.length === 0
+    inflatedContrastTerms.length === 0 &&
+    promotionalInflationTerms.length === 0 &&
+    !promotionalInflationPattern
   ) {
     return {
       shouldGuard: true,
@@ -419,6 +455,15 @@ export function assessGroundedProductDrift(args: {
     };
   }
 
+  if (promotionalInflationTerms.length > 0 || promotionalInflationPattern) {
+    return {
+      shouldGuard: true,
+      hasDrift: true,
+      reason:
+        "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+    };
+  }
+
   return {
     shouldGuard: true,
     hasDrift: true,
@@ -428,7 +473,7 @@ export function assessGroundedProductDrift(args: {
 }
 
 export function buildGroundedProductRetryConstraint(): string {
-  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, or inflated market contrast unless the user explicitly said them. State the grounded product fact plainly.";
+  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, inflated market contrast, or promotional CTA/payoff language unless the user explicitly said them. State the grounded product fact plainly.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {

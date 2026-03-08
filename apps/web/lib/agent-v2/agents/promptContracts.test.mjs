@@ -146,4 +146,10 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT invent launch language, proof points, or promo CTA copy unless the user explicitly gave them.',
+    ),
+    true,
+  );
 });

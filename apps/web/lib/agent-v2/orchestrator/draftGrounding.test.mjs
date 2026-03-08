@@ -179,3 +179,42 @@ test("grounded product assessment allows contrast when the user explicitly asked
   assert.equal(result.shouldGuard, true);
   assert.equal(result.hasDrift, false);
 });
+
+test("grounded product assessment flags promotional payoff language when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "xpo removes the mental load of drafting, letting you go straight to post-ready tweets. give it a try and see the speed for yourself.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+  );
+  assert.equal(buildGroundedProductRetryConstraint().includes("CTA/payoff"), true);
+});
+
+test("grounded product assessment flags imperative promo phrasing when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "tired of mental overload? try xpo. it strips the process so you can write and grow faster on x. no extra steps, just results.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced promotional payoff or CTA language that was not in the user's grounding.",
+  );
+});

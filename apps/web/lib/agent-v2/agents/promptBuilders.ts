@@ -101,6 +101,8 @@ PLAIN FACTUAL PRODUCT MODE:
 - The user gave grounded product facts, not a comparison brief.
 - Default to a plain descriptive angle before reaching for a contrarian or market-level framing.
 - Do NOT open with universal claims like "every tool", "most tools", "most people", "everyone", "just another tool", or similar broad contrast unless the user explicitly asked for that angle.
+- Do NOT invent launch language, proof points, or promo CTA copy unless the user explicitly gave them.
+- Avoid adding payoff phrasing like "post-ready tweets", "quicker follower growth", "give it a try", or "see for yourself" when those details were not in the grounding.
 - If the grounding is simple, keep the framing simple.
   `.trim();
 }
@@ -340,6 +342,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
 12b. If FACTUAL GROUNDING is present, do NOT invent first-person product usage or testing claims such as "i tried", "i use", "i let it", or "we switched to it" unless the user explicitly said that in the chat.
 12c. If PLAIN FACTUAL PRODUCT MODE is present, avoid inflated market contrast. Do NOT default to lines like "every tool...", "most tools...", "most people...", or "everyone..." unless the user explicitly asked for a comparison angle.
+12d. If PLAIN FACTUAL PRODUCT MODE is present, do NOT invent launch framing, extra proof claims, or generic marketing CTA copy. Keep the product wording plain and grounded.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 
