@@ -1,3 +1,5 @@
+// @ts-expect-error TS5097 - helper is imported directly in node strip-types tests.
+import { extractTopicGrounding } from "./correctionRepair.ts";
 import type { TurnPlan, V2ChatIntent, V2ConversationMemory } from "../contracts/chat";
 
 // ---------------------------------------------------------------------------
@@ -310,6 +312,7 @@ export interface PlanTurnInput {
     | "topicSummary"
     | "pendingPlan"
     | "currentDraftArtifactId"
+    | "activeConstraints"
     | "assistantTurnCount"
     | "unresolvedQuestion"
   >;
@@ -432,6 +435,19 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
   }
 
   const directDraftPayload = extractDirectDraftPayload(normalized);
+  const groundedDirectDraftPayload =
+    directDraftPayload &&
+    extractTopicGrounding(input.memory.activeConstraints || [], directDraftPayload);
+
+  if (!hasDraftContext && directDraftPayload && groundedDirectDraftPayload) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      shouldAutoDraftFromPlan: true,
+      overrideClassifiedIntent: "draft",
+    };
+  }
 
   if (
     !hasDraftContext &&

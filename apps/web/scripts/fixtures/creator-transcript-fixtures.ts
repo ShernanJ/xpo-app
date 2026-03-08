@@ -98,6 +98,31 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
     ],
   },
   {
+    id: "xpo-correction-then-redraft",
+    title: "XPO Correction Then Redraft",
+    description:
+      "Checks that a saved product correction gets reused on the next draft request instead of asking again or drifting back to the bad assumption.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    initialMemory: {
+      topicSummary: "xpo",
+      activeConstraints: [
+        "Correction lock: xpo is a x growth/content engine",
+        "Correction lock: xpo doesn't generate hashtags",
+      ],
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 1,
+      assistantTurnCount: 2,
+      formatPreference: "shortform",
+    },
+    turns: [
+      {
+        role: "user",
+        message: "write me a post about xpo",
+      },
+    ],
+  },
+  {
     id: "direct-draft-first-turn",
     title: "Direct Draft First Turn",
     description:

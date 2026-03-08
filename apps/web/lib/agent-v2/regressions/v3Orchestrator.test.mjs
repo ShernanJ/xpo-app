@@ -455,6 +455,31 @@ test("v3: opaque entity draft request routes into plan clarification", () => {
   assert.equal(result.shouldAutoDraftFromPlan, undefined);
 });
 
+test("v3: grounded entity draft request goes straight to draft", () => {
+  const result = planTurn({
+    userMessage: "can you write me a post about xpo",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: "xpo",
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      activeConstraints: [
+        "Correction lock: xpo is a x growth/content engine",
+        "Correction lock: xpo doesn't generate hashtags",
+      ],
+      assistantTurnCount: 2,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "draft");
+  assert.equal(result.shouldAutoDraftFromPlan, true);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Chat question detection
 // ---------------------------------------------------------------------------

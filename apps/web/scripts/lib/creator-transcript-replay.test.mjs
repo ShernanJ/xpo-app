@@ -22,6 +22,7 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-loop"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-then-redraft"), true);
 });
 
 test("replay fixture lookup returns the matching transcript", () => {
@@ -404,4 +405,52 @@ test("transcript replay keeps xpo corrections factual instead of turning them in
     ),
     true,
   );
+});
+
+test("transcript replay reuses product correction locks on the next draft request", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "xpo-correction-then-redraft",
+  );
+  assert.ok(fixture);
+
+  let lastPlanMessage = "";
+  const result = await replayTranscriptFixture(fixture, {
+    async generatePlan(message) {
+      lastPlanMessage = message;
+      return {
+        objective: "write a post about xpo",
+        angle: "position xpo as a x growth/content engine without fake mechanics",
+        targetLane: "original",
+        mustInclude: ["x growth/content engine"],
+        mustAvoid: ["hashtags", "conference panel", "meetup"],
+        hookType: "direct",
+        pitchResponse: "this angle is clean",
+      };
+    },
+    async generateDrafts(plan) {
+      return {
+        draft:
+          "xpo is a x growth/content engine. it helps people write and grow faster without adding more mental load.",
+        plan,
+        supportAsset: null,
+      };
+    },
+    async critiqueDrafts(draft) {
+      return {
+        approved: true,
+        issues: [],
+        finalDraft: draft.draft,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "draft");
+  assert.equal(result.turns[0]?.output.surfaceMode, "generate_full_output");
+  assert.equal(lastPlanMessage.toLowerCase().includes("factual grounding"), true);
+  assert.equal(lastPlanMessage.toLowerCase().includes("xpo is a x growth/content engine"), true);
+  assert.equal(lastPlanMessage.toLowerCase().includes("xpo doesn't generate hashtags"), true);
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what is xpo"), false);
+  assert.equal(result.turns[0]?.output.data?.draft?.toLowerCase().includes("hashtag"), false);
 });

@@ -628,6 +628,40 @@ export function extractLatestCorrectionLock(activeConstraints: string[]): string
   return latest ? latest.replace(/^Correction lock:\s*/i, "").trim() || null : null;
 }
 
+function normalizeTopicToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[.?!,]+$/, "");
+}
+
+function extractGroundingPayload(constraint: string): string | null {
+  if (/^Correction lock:/i.test(constraint)) {
+    return constraint.replace(/^Correction lock:\s*/i, "").trim() || null;
+  }
+
+  if (/^Topic grounding:/i.test(constraint)) {
+    return constraint.replace(/^Topic grounding:\s*/i, "").trim() || null;
+  }
+
+  return null;
+}
+
+export function extractTopicGrounding(
+  activeConstraints: string[],
+  topic: string,
+): string | null {
+  const normalizedTopic = normalizeTopicToken(topic);
+  if (!normalizedTopic) {
+    return null;
+  }
+
+  const details = activeConstraints
+    .map((constraint) => extractGroundingPayload(constraint))
+    .filter((detail): detail is string => Boolean(detail))
+    .filter((detail) => normalizeTopicToken(detail).includes(normalizedTopic));
+
+  const uniqueDetails = Array.from(new Set(details.map((detail) => detail.trim()).filter(Boolean)));
+  return uniqueDetails.length > 0 ? uniqueDetails.join(". ") : null;
+}
+
 export function buildSemanticCorrectionAcknowledgment(args: {
   userMessage: string;
   activeConstraints: string[];

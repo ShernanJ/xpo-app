@@ -36,6 +36,7 @@ import {
   buildSemanticCorrectionAcknowledgment,
   buildSemanticRepairDirective,
   buildSemanticRepairState,
+  extractTopicGrounding,
   hasConcreteCorrectionDetail,
   inferCorrectionRepairQuestion,
   inferIdeationRationaleReply,
@@ -675,6 +676,44 @@ function looksLikeOpaqueEntityTopic(args: {
   return !hasDefinitionCue;
 }
 
+function buildGroundedTopicDraftInput(args: {
+  userMessage: string;
+  activeConstraints: string[];
+}): {
+  topic: string | null;
+  grounding: string | null;
+  nextConstraints: string[];
+  planMessage: string | null;
+} {
+  const topic = inferBroadTopicDraftRequest(args.userMessage);
+  if (!topic) {
+    return {
+      topic: null,
+      grounding: null,
+      nextConstraints: args.activeConstraints,
+      planMessage: null,
+    };
+  }
+
+  const grounding = extractTopicGrounding(args.activeConstraints, topic);
+  if (!grounding) {
+    return {
+      topic,
+      grounding: null,
+      nextConstraints: args.activeConstraints,
+      planMessage: null,
+    };
+  }
+
+  const topicGroundingConstraint = `Topic grounding: ${grounding}`;
+  return {
+    topic,
+    grounding,
+    nextConstraints: Array.from(new Set([...args.activeConstraints, topicGroundingConstraint])),
+    planMessage: `write a post about ${topic}. factual grounding: ${grounding}`,
+  };
+}
+
 function inferDraftPreference(
   message: string,
   fallback: DraftPreference = "balanced",
@@ -1306,6 +1345,10 @@ User Profile Summary:
   }
 
   const nextAssistantTurnCount = memory.assistantTurnCount + 1;
+  const groundedTopicDraftInput = buildGroundedTopicDraftInput({
+    userMessage,
+    activeConstraints: effectiveActiveConstraints,
+  });
   const turnDraftPreference = inferDraftPreference(
     userMessage,
     memory.pendingPlan?.deliveryPreference || "balanced",
@@ -1968,7 +2011,8 @@ User Profile Summary:
   const hasEnoughContextToAct =
     memory.concreteAnswerCount >= 2 ||
     (memory.topicSummary && memory.pendingPlan) ||
-    (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3);
+    (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3) ||
+    Boolean(groundedTopicDraftInput.grounding);
   const canAskPlanClarification = (): boolean =>
     !explicitIntent &&
     !hasEnoughContextToAct &&
@@ -2361,10 +2405,20 @@ User Profile Summary:
       userMessage,
       activeConstraints: effectiveActiveConstraints,
     });
+    const planInput =
+      clarificationAwarePlanInput.planMessage !== userMessage ||
+      clarificationAwarePlanInput.activeConstraints !== effectiveActiveConstraints
+        ? clarificationAwarePlanInput
+        : groundedTopicDraftInput.planMessage
+          ? {
+              planMessage: groundedTopicDraftInput.planMessage,
+              activeConstraints: groundedTopicDraftInput.nextConstraints,
+            }
+          : clarificationAwarePlanInput;
     const plan = await services.generatePlan(
-      clarificationAwarePlanInput.planMessage,
+      planInput.planMessage,
       memory.topicSummary,
-      clarificationAwarePlanInput.activeConstraints,
+      planInput.activeConstraints,
       effectiveContext,
       activeDraft,
       {
@@ -2393,7 +2447,7 @@ User Profile Summary:
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
-    const planActiveConstraints = clarificationAwarePlanInput.activeConstraints;
+    const planActiveConstraints = planInput.activeConstraints;
 
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
@@ -2406,7 +2460,7 @@ User Profile Summary:
         plan: guardedPlan,
         activeConstraints: planActiveConstraints,
         activeDraft,
-        sourceUserMessage: clarificationAwarePlanInput.planMessage,
+        sourceUserMessage: planInput.planMessage,
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
         fallbackToWriterWhenCriticRejected: true,
