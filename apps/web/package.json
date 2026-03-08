@@ -16,9 +16,11 @@
     "test:v2-feedback": "node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/feedback/route.test.mjs",
     "test:v2-preferences": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/orchestrator/preferenceConstraints.test.mjs",
     "test:v2-policy": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/core/finalDraftPolicy.test.mjs",
+    "test:transcript-replay": "node --test --experimental-strip-types --experimental-specifier-resolution=node scripts/lib/creator-transcript-replay.test.mjs",
     "test:billing-policy": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/billing/policy.test.mjs",
     "test:v3-orchestrator": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/regressions/v3Orchestrator.test.mjs",
     "test:v2": "pnpm run test:v2-response-quality && pnpm run test:v2-regressions && pnpm run test:v2-orchestrator && pnpm run test:v2-route && pnpm run test:v2-feedback && pnpm run test:v2-preferences && pnpm run test:v2-policy && pnpm run test:billing-policy && pnpm run test:v3-orchestrator",
+    "replay:creator-transcript": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/replay-creator-transcript.mjs",
     "capture:user-tweets": "node scripts/capture-user-tweets-playwright.mjs",
     "scrape:user-tweets:http": "node scripts/scrape-user-tweets-http.mjs"
   },
