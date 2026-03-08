@@ -24,6 +24,10 @@ export const IDEATION_COMMAND_FIXTURES = [
     shouldBeIdeationCommand: true,
   },
   {
+    input: "what should i post today?",
+    shouldBeIdeationCommand: true,
+  },
+  {
     input: "what do i post today",
     shouldBeIdeationCommand: true,
   },
@@ -32,7 +36,7 @@ export const IDEATION_COMMAND_FIXTURES = [
     shouldBeIdeationCommand: true,
   },
   {
-    input: "what should i tweet today",
+    input: "what should i tweet today?",
     shouldBeIdeationCommand: true,
   },
   {

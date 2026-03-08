@@ -20,9 +20,10 @@ test("chat responder offers generic help after a small-talk reply", async () => 
 
   assert.equal(typeof reply, "string");
   assert.equal(reply?.toLowerCase().includes("love that"), false);
-  assert.equal(reply?.toLowerCase().includes("post ideas"), true);
+  assert.equal(reply?.toLowerCase().includes("what to post"), true);
   assert.equal(reply?.toLowerCase().includes("draft something"), true);
   assert.equal(reply?.toLowerCase().includes("pain point"), false);
+  assert.equal(reply?.includes("?"), false);
 });
 
 test("chat responder answers meta assistant questions directly", async () => {
@@ -45,8 +46,9 @@ test("chat responder resets awkward discovery turns back to a generic help offer
 
   assert.equal(typeof reply, "string");
   assert.equal(reply?.toLowerCase().includes("fair lol"), false);
-  assert.equal(reply?.toLowerCase().includes("post ideas"), true);
+  assert.equal(reply?.toLowerCase().includes("what to post"), true);
   assert.equal(reply?.toLowerCase().includes("pain point"), false);
+  assert.equal(reply?.includes("?"), false);
 });
 
 test("chat responder answers capability questions with the product role", async () => {
@@ -58,7 +60,8 @@ test("chat responder answers capability questions with the product role", async 
   assert.equal(typeof reply, "string");
   assert.equal(reply?.toLowerCase().includes("draft in your voice"), true);
   assert.equal(reply?.toLowerCase().includes("growth feedback"), true);
-  assert.equal(reply?.toLowerCase().includes("overthink it"), true);
+  assert.equal(reply?.toLowerCase().includes("what to post on x"), true);
+  assert.equal(reply?.includes("?"), false);
 });
 
 test("chat responder answers broad x growth asks with a concrete starting point", async () => {
@@ -71,4 +74,22 @@ test("chat responder answers broad x growth asks with a concrete starting point"
   assert.equal(reply?.toLowerCase().includes("what to post on x"), true);
   assert.equal(reply?.toLowerCase().includes("rough idea"), true);
   assert.equal(reply?.includes("?"), false);
+});
+
+test("chat responder transcript flow stays generic after small talk", async () => {
+  const openingReply = await getDeterministicChatReply({
+    userMessage: "hi how are you",
+    recentHistory: "",
+  });
+  const smallTalkReply = await getDeterministicChatReply({
+    userMessage: "vibing",
+    recentHistory: `assistant: ${openingReply}`,
+  });
+
+  assert.equal(openingReply, "doing good. you?");
+  assert.equal(typeof smallTalkReply, "string");
+  assert.equal(smallTalkReply?.toLowerCase().includes("what's the biggest pain point"), false);
+  assert.equal(smallTalkReply?.toLowerCase().includes("toronto growth pros"), false);
+  assert.equal(smallTalkReply?.toLowerCase().includes("what to post"), true);
+  assert.equal(smallTalkReply?.toLowerCase().includes("draft something"), true);
 });

@@ -49,7 +49,11 @@ function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
 }
 
 function isGenericThreadPrompt(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,:;]+$/g, "")
+    .replace(/\s+/g, " ");
   return [
     "give me some ideas",
     "i need some ideas",
