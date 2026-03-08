@@ -20,6 +20,34 @@ import {
 } from "../orchestrator/draftGrounding";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
+function buildHardGroundingBlock(activeConstraints: string[]): string | null {
+  const groundingLines = activeConstraints
+    .filter(
+      (entry) =>
+        /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+    )
+    .map((entry) =>
+      entry
+        .replace(/^Correction lock:\s*/i, "")
+        .replace(/^Topic grounding:\s*/i, "")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  if (groundingLines.length === 0) {
+    return null;
+  }
+
+  return `
+FACTUAL GROUNDING:
+${groundingLines.map((line) => `- ${line}`).join("\n")}
+
+Treat these lines as source-of-truth facts.
+Do NOT widen them into adjacent product categories, event framing, or mechanics the user did not state.
+Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growth hack, or any other nearby framing unless the grounding explicitly says that.
+`.trim();
+}
+
 export interface BuildPlanInstructionArgs {
   userMessage: string;
   topicSummary: string | null;
@@ -43,6 +71,7 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference = args.options?.formatPreference || "shortform";
   const concreteSceneBlock = buildConcreteScenePlanBlock(args.userMessage);
+  const hardGroundingBlock = buildHardGroundingBlock(args.activeConstraints);
 
   return `
 You are shaping the strongest next post direction for an X growth coach / ghostwriter system.
@@ -73,6 +102,8 @@ ${args.userMessage}
 ACTIVE SESSION CONSTRAINTS (Rules the user has previously set):
 ${args.activeConstraints.join(" | ") || "None"}
 
+${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
+
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 
 ${isEditing ? `REQUIREMENTS:
@@ -88,9 +119,10 @@ ${isEditing ? `REQUIREMENTS:
 4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
 6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
-7. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
-8. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-9. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+7. If FACTUAL GROUNDING is present, use it as the source of truth for the plan. Do NOT broaden the product into a nearby category or implied mechanic that is not explicitly in that grounding.
+8. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
+9. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
+10. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
 
 STYLE:
 - No internal workflow language.
@@ -143,6 +175,7 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
     noFabricatedAnecdotesGuardrail,
     sceneSource,
     concreteSceneMode,
+    hardFactualGrounding,
   } = resolveWriterPromptGuardrails({
     planMustAvoid: args.plan.mustAvoid,
     activeConstraints: args.activeConstraints,
@@ -154,6 +187,17 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
   const concreteSceneBlock = concreteSceneMode
     ? buildConcreteSceneDraftBlock(sceneSource)
     : null;
+  const hardGroundingBlock =
+    hardFactualGrounding.length > 0
+      ? `
+FACTUAL GROUNDING:
+${hardFactualGrounding.map((line) => `- ${line}`).join("\n")}
+
+Treat these lines as source-of-truth facts.
+Do NOT widen them into adjacent product categories, event framing, or mechanics the user did not state.
+Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growth hack, or any other nearby framing unless the grounding explicitly says that.
+`.trim()
+      : null;
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -201,6 +245,7 @@ ${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRIT
     }
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
+${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
@@ -222,6 +267,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
+12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 

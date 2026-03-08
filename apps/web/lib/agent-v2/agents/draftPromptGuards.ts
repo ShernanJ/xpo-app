@@ -9,6 +9,21 @@ function hasNoFabricationGuardrail(entries: string[]): boolean {
   );
 }
 
+function extractHardFactualGrounding(activeConstraints: string[]): string[] {
+  return activeConstraints
+    .filter(
+      (entry) =>
+        /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+    )
+    .map((entry) =>
+      entry
+        .replace(/^Correction lock:\s*/i, "")
+        .replace(/^Topic grounding:\s*/i, "")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
 export function resolveWriterPromptGuardrails(args: {
   planMustAvoid: string[];
   activeConstraints: string[];
@@ -20,11 +35,13 @@ export function resolveWriterPromptGuardrails(args: {
   noFabricatedAnecdotesGuardrail: boolean;
   sceneSource: string;
   concreteSceneMode: boolean;
+  hardFactualGrounding: string[];
 } {
   const noFabricatedAnecdotesGuardrail = hasNoFabricationGuardrail([
     ...args.planMustAvoid,
     ...args.activeConstraints,
   ]);
+  const hardFactualGrounding = extractHardFactualGrounding(args.activeConstraints);
   const sceneSource =
     args.sourceUserMessage ||
     [args.objective, args.angle, ...args.mustInclude].join(" ");
@@ -35,5 +52,6 @@ export function resolveWriterPromptGuardrails(args: {
     noFabricatedAnecdotesGuardrail,
     sceneSource,
     concreteSceneMode,
+    hardFactualGrounding,
   };
 }

@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   buildConcreteSceneDraftBlock,
@@ -83,4 +85,52 @@ test("writer prompt guardrails still enable strict factual mode from no-fabricat
 
   assert.equal(guardrails.noFabricatedAnecdotesGuardrail, true);
   assert.equal(guardrails.concreteSceneMode, true);
+});
+
+test("writer prompt guardrails extract hard factual grounding from saved constraints", () => {
+  const guardrails = resolveWriterPromptGuardrails({
+    planMustAvoid: [],
+    activeConstraints: [
+      "Correction lock: xpo is a x growth/content engine",
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    objective: "write a post about xpo",
+    angle: "position xpo clearly",
+    mustInclude: ["xpo"],
+  });
+
+  assert.equal(guardrails.hardFactualGrounding.length, 2);
+  assert.equal(
+    guardrails.hardFactualGrounding.some((line) =>
+      line.includes("xpo is a x growth/content engine"),
+    ),
+    true,
+  );
+  assert.equal(
+    guardrails.hardFactualGrounding.some((line) =>
+      line.includes("mental load"),
+    ),
+    true,
+  );
+});
+
+test("planner and writer prompts surface hard factual grounding for product asks", async () => {
+  const promptBuildersSource = readFileSync(
+    fileURLToPath(new URL("./promptBuilders.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(promptBuildersSource.includes("FACTUAL GROUNDING:"), true);
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growth hack',
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Do NOT widen them into adjacent mechanics, categories, or claims",
+    ),
+    true,
+  );
 });
