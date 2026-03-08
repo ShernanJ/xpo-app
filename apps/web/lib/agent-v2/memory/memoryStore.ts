@@ -104,7 +104,9 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     record.deliveryPreference === "growth_first"
       ? { deliveryPreference: record.deliveryPreference }
       : {}),
-    ...(record.formatPreference === "shortform" || record.formatPreference === "longform"
+    ...(record.formatPreference === "shortform" ||
+    record.formatPreference === "longform" ||
+    record.formatPreference === "thread"
       ? { formatPreference: record.formatPreference }
       : {}),
   };
@@ -176,8 +178,11 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
       const formatPreference:
         | "shortform"
         | "longform"
+        | "thread"
         | undefined =
-        item.formatPreference === "shortform" || item.formatPreference === "longform"
+        item.formatPreference === "shortform" ||
+        item.formatPreference === "longform" ||
+        item.formatPreference === "thread"
           ? item.formatPreference
           : undefined;
 
@@ -287,7 +292,9 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
         ? record.preferredSurfaceMode
         : null,
     formatPreference:
-      record.formatPreference === "shortform" || record.formatPreference === "longform"
+      record.formatPreference === "shortform" ||
+      record.formatPreference === "longform" ||
+      record.formatPreference === "thread"
         ? record.formatPreference
         : null,
   };

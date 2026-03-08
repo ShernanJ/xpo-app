@@ -479,6 +479,7 @@ export function createReplayServiceOverrides(
         topicAnchors: fixture.topicAnchors || fixture.historicalPosts || [],
         laneAnchors: [],
         formatAnchors: [],
+        rankedAnchors: [],
       };
     },
     async generateStyleProfile() {

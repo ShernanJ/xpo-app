@@ -3,6 +3,7 @@ import type { UserPreferences, VoiceStyleCard } from "./styleProfile";
 
 const SHORT_FORM_X_LIMIT = 280;
 const LONG_FORM_X_LIMIT = 25_000;
+const THREAD_TOTAL_X_LIMIT = 1_680;
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
@@ -156,8 +157,12 @@ function applyStyleCardVoice(value: string, styleCard: VoiceStyleCard | null): s
 
 function getXCharacterLimitForFormat(
   isVerified: boolean,
-  formatPreference: "shortform" | "longform",
+  formatPreference: "shortform" | "longform" | "thread",
 ): number {
+  if (formatPreference === "thread") {
+    return THREAD_TOTAL_X_LIMIT;
+  }
+
   if (formatPreference === "longform" && isVerified) {
     return LONG_FORM_X_LIMIT;
   }
@@ -425,7 +430,12 @@ export function applyFinalDraftPolicyWithReport(args: {
   };
 } {
   const normalizedPreferences = normalizeUserPreferences(args.userPreferences);
-  const formatPreference = args.formatPreference === "longform" ? "longform" : "shortform";
+  const formatPreference =
+    args.formatPreference === "longform"
+      ? "longform"
+      : args.formatPreference === "thread"
+        ? "thread"
+        : "shortform";
   const hardLimit =
     typeof args.maxCharacterLimit === "number" && args.maxCharacterLimit > 0
       ? args.maxCharacterLimit
@@ -434,6 +444,8 @@ export function applyFinalDraftPolicyWithReport(args: {
   const shortformFirstLimit =
     formatPreference === "longform"
       ? hardLimit
+      : formatPreference === "thread"
+        ? hardLimit
       : Math.min(hardLimit, getXCharacterLimitForFormat(Boolean(args.isVerifiedAccount), "shortform"));
 
   const withNoMarkdown = stripUnsupportedMarkdown(args.draft);

@@ -1,6 +1,7 @@
 import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceTarget } from "../core/voiceTarget";
 import type { PlannerOutput } from "./planner";
 import type {
   ConversationState,
@@ -38,15 +39,19 @@ export async function generateDrafts(
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
     sourceUserMessage?: string;
+    voiceTarget?: VoiceTarget | null;
+    referenceAnchorMode?: "historical_posts" | "reference_hints";
   },
 ): Promise<WriterOutput | null> {
   const instruction = buildWriterInstruction({
     plan,
     styleCard,
     topicAnchors,
+    referenceAnchorMode: options?.referenceAnchorMode,
     activeConstraints,
     recentHistory,
     activeDraft,
+    voiceTarget: options?.voiceTarget,
     options,
   });
 

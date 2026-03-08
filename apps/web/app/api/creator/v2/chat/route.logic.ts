@@ -13,6 +13,7 @@ interface DraftVersionEntry {
   weightedCharacterCount: number;
   maxCharacterLimit: number;
   supportAsset: string | null;
+  artifact?: DraftArtifactDetails;
 }
 
 interface PreviousVersionSnapshot {
@@ -189,7 +190,11 @@ export function normalizeDraftPayload(args: {
     draft = drafts[0] || null;
   }
 
-  if (args.outputShape === "short_form_post" || args.outputShape === "long_form_post") {
+  if (
+    args.outputShape === "short_form_post" ||
+    args.outputShape === "long_form_post" ||
+    args.outputShape === "thread_seed"
+  ) {
     const trimmedReply = reply.trim();
     const replyLooksLikeDraft =
       trimmedReply.length > 40 && !looksLikeDraftHandoff(trimmedReply);
@@ -436,6 +441,10 @@ export function buildInitialDraftVersionPayload(args: {
   outputShape: string;
   supportAsset: string | null;
   selectedDraftContext: SelectedDraftContext | null;
+  posts?: string[];
+  replyPlan?: string[];
+  voiceTarget?: DraftArtifactDetails["voiceTarget"];
+  noveltyNotes?: string[];
 }): {
   draftArtifacts: DraftArtifactDetails[];
   draftVersions?: DraftVersionEntry[];
@@ -468,6 +477,10 @@ export function buildInitialDraftVersionPayload(args: {
     kind: artifactKind,
     content: args.draft,
     supportAsset: args.supportAsset,
+    ...(args.posts?.length ? { posts: args.posts } : {}),
+    ...(args.replyPlan?.length ? { replyPlan: args.replyPlan } : {}),
+    ...(args.voiceTarget ? { voiceTarget: args.voiceTarget } : {}),
+    ...(args.noveltyNotes?.length ? { noveltyNotes: args.noveltyNotes } : {}),
   });
   const maxCharacterLimit =
     args.selectedDraftContext?.maxCharacterLimit ?? primaryArtifact.maxCharacterLimit;
@@ -490,6 +503,7 @@ export function buildInitialDraftVersionPayload(args: {
       adjustedPrimaryArtifact.weightedCharacterCount ?? computeXWeightedCharacterCount(args.draft),
     maxCharacterLimit,
     supportAsset: args.supportAsset,
+    artifact: adjustedPrimaryArtifact,
   };
 
   const previousVersionSnapshot = args.selectedDraftContext

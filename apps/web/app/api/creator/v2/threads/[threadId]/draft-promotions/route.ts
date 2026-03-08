@@ -19,6 +19,7 @@ interface DraftVersionEntry {
   weightedCharacterCount: number;
   maxCharacterLimit: number;
   supportAsset: string | null;
+  artifact?: DraftArtifactDetails;
 }
 
 interface DraftVersionSnapshot {
@@ -38,6 +39,10 @@ interface DraftPromotionRequest extends Record<string, unknown> {
   maxCharacterLimit?: unknown;
   revisionChainId?: unknown;
   basedOn?: unknown;
+  posts?: unknown;
+  replyPlan?: unknown;
+  voiceTarget?: unknown;
+  noveltyNotes?: unknown;
 }
 
 function resolveDraftArtifactKind(
@@ -62,6 +67,10 @@ function buildDraftArtifactWithLimit(params: {
   content: string;
   supportAsset: string | null;
   maxCharacterLimit: number;
+  posts?: string[];
+  replyPlan?: string[];
+  voiceTarget?: DraftArtifactDetails["voiceTarget"];
+  noveltyNotes?: string[];
 }): DraftArtifactDetails {
   const artifact = buildDraftArtifact({
     id: params.id,
@@ -69,6 +78,10 @@ function buildDraftArtifactWithLimit(params: {
     kind: params.kind,
     content: params.content,
     supportAsset: params.supportAsset,
+    ...(params.posts?.length ? { posts: params.posts } : {}),
+    ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
+    ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
+    ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
   });
 
   if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
@@ -171,6 +184,28 @@ export async function POST(
     typeof body.maxCharacterLimit === "number" && body.maxCharacterLimit > 0
       ? body.maxCharacterLimit
       : 280;
+  const posts = Array.isArray(body.posts)
+    ? body.posts
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+  const replyPlan = Array.isArray(body.replyPlan)
+    ? body.replyPlan
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+  const voiceTarget =
+    body.voiceTarget && typeof body.voiceTarget === "object" && !Array.isArray(body.voiceTarget)
+      ? (body.voiceTarget as DraftArtifactDetails["voiceTarget"])
+      : null;
+  const noveltyNotes = Array.isArray(body.noveltyNotes)
+    ? body.noveltyNotes
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
   const basedOn = parseBasedOn(body.basedOn);
   const revisionChainId = buildRevisionChainId(
     typeof body.revisionChainId === "string" ? body.revisionChainId : basedOn?.revisionChainId,
@@ -210,6 +245,10 @@ export async function POST(
       content,
       supportAsset,
       maxCharacterLimit,
+      ...(posts.length ? { posts } : {}),
+      ...(replyPlan.length ? { replyPlan } : {}),
+      ...(voiceTarget ? { voiceTarget } : {}),
+      ...(noveltyNotes.length ? { noveltyNotes } : {}),
     });
     const draftVersion: DraftVersionEntry = {
       id: versionId,
@@ -220,6 +259,7 @@ export async function POST(
       weightedCharacterCount: computeXWeightedCharacterCount(content),
       maxCharacterLimit,
       supportAsset,
+      artifact,
     };
 
     const userContent = "make this the current version";

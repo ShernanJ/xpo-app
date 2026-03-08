@@ -115,6 +115,40 @@ function looksLikeBuildMessage(normalized: string): boolean {
   );
 }
 
+function inferBuildSubject(message: string): string | null {
+  const match = message.match(
+    /\b(?:building|making|creating|shipping|launching|working on|rebuilding)\s+([a-z0-9][a-z0-9\s'-]{1,30}?)(?:\s+for\b|\s+on\b|\s+with\b|[.?!,]|$)/i,
+  );
+  const candidate = match?.[1]?.trim().replace(/[.?!,]+$/, "") || "";
+  if (!candidate) {
+    return null;
+  }
+
+  const normalized = candidate.toLowerCase();
+  if (
+    [
+      "something",
+      "anything",
+      "everything",
+      "content",
+      "posts",
+      "post",
+      "tool",
+      "app",
+      "product",
+      "extension",
+      "plugin",
+    ].includes(normalized) ||
+    normalized.startsWith("a ") ||
+    normalized.startsWith("an ") ||
+    normalized.startsWith("my ")
+  ) {
+    return null;
+  }
+
+  return candidate;
+}
+
 function inferNamedEntity(message: string): string | null {
   const cleanCandidate = (value: string | undefined): string | null => {
     const candidate = value?.trim().replace(/[.?!,]+$/, "") || "";
@@ -164,6 +198,7 @@ function inferNamedEntity(message: string): string | null {
   );
 
   return (
+    cleanCandidate(inferBuildSubject(message) || undefined) ||
     cleanCandidate(productLinkedMatch?.[1]) ||
     cleanCandidate(comparisonMatch?.[1]) ||
     cleanCandidate(genericMatch?.[1])
@@ -295,15 +330,16 @@ export function evaluateDraftContextSlots(args: {
   const isProductLike =
     looksLikeBuildMessage(normalized) ||
     productCuePresent ||
+    Boolean(inferBuildSubject(trimmed)) ||
     (Boolean(namedEntity) && looksLikeComparison) ||
     (Boolean(namedEntity) && hasRelationshipDetail(normalized));
   const subjectKnown = Boolean((args.topicSummary || trimmed).trim());
+  const localContext = `${normalized} ${(args.topicSummary || "").toLowerCase()}`.trim();
   const externalContextKnown =
     !namedEntity ||
-    normalized.includes(`${namedEntity.toLowerCase()} is`) ||
-    args.contextAnchors.some((anchor) =>
-      anchor.toLowerCase().includes(namedEntity.toLowerCase()),
-    );
+    localContext.includes(`${namedEntity.toLowerCase()} is`) ||
+    localContext.includes(`${namedEntity.toLowerCase()}:`) ||
+    (localContext.includes(namedEntity.toLowerCase()) && hasFunctionalDetail(localContext));
   const entityNeedsDefinition =
     isProductLike && Boolean(namedEntity) && !externalContextKnown;
   const domainHint: DraftContextDomainHint = isProductLike

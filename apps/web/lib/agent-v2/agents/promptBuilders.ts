@@ -1,4 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceTarget } from "../core/voiceTarget";
 import type {
   ConversationState,
   DraftFormatPreference,
@@ -116,6 +117,7 @@ export interface BuildPlanInstructionArgs {
   activeConstraints: string[];
   recentHistory: string;
   activeDraft?: string;
+  voiceTarget?: VoiceTarget | null;
   options?: {
     goal?: string;
     conversationState?: ConversationState;
@@ -145,13 +147,14 @@ Return a tight plan the writer can execute, not a presentation about your proces
 Optimize for low mental load: if there is enough context to move, choose a clean draftable direction instead of turning the turn into discovery theater.
 ${isEditing
       ? `This turn is about revising an existing draft. Keep the core idea unless the user clearly wants a different angle.`
-      : `This turn is about a new ${formatPreference === "longform" ? "longform" : "shortform"} post.`}
+      : `This turn is about a new ${formatPreference === "longform" ? "longform" : formatPreference === "thread" ? "thread" : "shortform"} post.`}
 
 ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "plan")}
 ${buildStateHydrationBlock(conversationState, "plan")}
 ${buildDraftPreferenceBlock(draftPreference, "plan")}
 ${buildFormatPreferenceBlock(formatPreference, "plan")}
+${buildVoiceHydrationBlock(null, args.voiceTarget)}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${args.activeDraft}\n\n` : ""}
@@ -190,6 +193,7 @@ ${isEditing ? `REQUIREMENTS:
 7. If FACTUAL GROUNDING is present, use it as the source of truth for the plan. Do NOT broaden the product into a nearby category or implied mechanic that is not explicitly in that grounding.
 8. If FACTUAL GROUNDING is present, do NOT add first-person product usage, adoption stories, or market comparisons unless the user explicitly gave them.
 8a. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
+8b. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction / grounding as the source of truth and ignore the older assistant wording.
 9. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
 10. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
 11. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
@@ -218,9 +222,11 @@ export interface BuildWriterInstructionArgs {
   plan: StrategyPlan;
   styleCard: VoiceStyleCard | null;
   topicAnchors: string[];
+  referenceAnchorMode?: "historical_posts" | "reference_hints";
   activeConstraints: string[];
   recentHistory: string;
   activeDraft?: string;
+  voiceTarget?: VoiceTarget | null;
   options?: {
     conversationState?: ConversationState;
     antiPatterns?: string[];
@@ -272,6 +278,19 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     sourceText: args.options?.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" "),
     activeConstraints: args.activeConstraints,
   });
+  const referenceAnchorBlock =
+    args.referenceAnchorMode === "reference_hints"
+      ? `
+SAFE REFERENCE HINTS (VOICE/SHAPE ONLY):
+${args.topicAnchors.length > 0 ? args.topicAnchors.map((anchor) => `- ${anchor}`).join("\n") : "- None"}
+Use these only for cadence, structure, and thematic fit.
+Do NOT turn them into facts, product mechanics, timelines, anecdotes, or proof claims.
+`.trim()
+      : `
+USER'S HISTORICAL POSTS (FOR VOICE AND THEMATIC REFERENCE):
+${args.topicAnchors.join("\n---") || "None"}
+CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them to understand the user's voice, pacing, and recurring thematic territory only.
+`.trim();
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -283,7 +302,7 @@ ${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
 ${buildFormatPreferenceBlock(formatPreference, "draft")}
-${buildVoiceHydrationBlock(args.styleCard)}
+${buildVoiceHydrationBlock(args.styleCard, args.voiceTarget)}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activeDraft}\n\n` : ""}
@@ -300,9 +319,7 @@ Must Include: ${args.plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${args.plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${args.activeConstraints.join(" | ") || "None"}
 
-USER'S HISTORICAL POSTS (FOR VOICE AND THEMATIC REFERENCE):
-${args.topicAnchors.join("\n---") || "None"}
-CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them to understand the user's voice, pacing, and recurring thematic territory only.
+${referenceAnchorBlock}
 
 ${args.styleCard
       ? `
@@ -334,12 +351,12 @@ ${concreteSceneMode
       : ""}
 ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless the plan requires it. Keep the original structure and phrasing as much as possible, applying ONLY the edits requested in the "mustInclude", "mustAvoid", or "Angle" sections.` : `3. The draft should be the best possible execution of the plan.`}
 4. Make it sound like the user actually wrote it — match their voice perfectly (e.g., if they write in all lowercase, YOU MUST write in all lowercase).
-5. If the user did not specify a concrete topic, stay inside the user's usual subject matter and angles from their historical posts instead of drifting into random generic business content.
+5. If the user did not specify a concrete topic, stay inside the user's usual subject matter and angles from their historical signals/reference material instead of drifting into random generic business content.
 6. Provide an idea for a "supportAsset" (image/video idea to attach).
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp.
+10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only --- and keep every post within 280 weighted X characters.
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
@@ -349,13 +366,14 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12e. If PLAIN FACTUAL PRODUCT MODE is present and the user's grounded wording is already clear, keep the core wording close to the user's phrasing instead of swapping in looser synonyms.
 12f. If PLAIN FACTUAL PRODUCT MODE is present, do NOT prepend an invented pain-point or before-state setup unless the user explicitly gave it.
 12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
+12h. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 
 Respond ONLY with a valid JSON matching this schema:
 {
   "angle": "...",
-  "draft": "The actual post text...",
+  "draft": "The actual post text. If this is a thread, serialize posts using --- separators between each post.",
   "supportAsset": "...",
   "whyThisWorks": "...",
   "watchOutFor": "..."

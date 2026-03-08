@@ -188,7 +188,15 @@ export function shouldUseRevisionDraftPath(args: {
 }
 
 export function resolveDraftOutputShape(
-  formatPreference: "shortform" | "longform",
-): "short_form_post" | "long_form_post" {
-  return formatPreference === "longform" ? "long_form_post" : "short_form_post";
+  formatPreference: "shortform" | "longform" | "thread",
+): "short_form_post" | "long_form_post" | "thread_seed" {
+  if (formatPreference === "longform") {
+    return "long_form_post";
+  }
+
+  if (formatPreference === "thread") {
+    return "thread_seed";
+  }
+
+  return "short_form_post";
 }

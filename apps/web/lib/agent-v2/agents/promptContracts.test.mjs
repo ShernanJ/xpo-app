@@ -170,4 +170,26 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes("SAFE REFERENCE HINTS (VOICE/SHAPE ONLY):"),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Do NOT turn them into facts, product mechanics, timelines, anecdotes, or proof claims.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "treat the correction / grounding as the source of truth and ignore the older assistant wording.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "treat that earlier text as superseded and do NOT reuse it.",
+    ),
+    true,
+  );
 });

@@ -269,6 +269,59 @@ interface DraftPromotionFailure {
 
 type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
 
+type DraftCandidateStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "edited"
+  | "posted"
+  | "observed";
+
+interface DraftQueueCandidate {
+  id: string;
+  title: string;
+  sourcePrompt: string;
+  sourcePlaybook: string | null;
+  outputShape: CreatorChatSuccess["data"]["outputShape"] | string;
+  status: DraftCandidateStatus;
+  artifact: DraftArtifact;
+  voiceTarget: DraftArtifact["voiceTarget"];
+  noveltyNotes: string[] | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt: string | null;
+  editedAt: string | null;
+  postedAt: string | null;
+  observedAt: string | null;
+  observedMetrics: Record<string, unknown> | null;
+}
+
+interface DraftQueueSuccess {
+  ok: true;
+  data: {
+    candidates: DraftQueueCandidate[];
+  };
+}
+
+interface DraftQueueFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type DraftQueueResponse = DraftQueueSuccess | DraftQueueFailure;
+
+interface DraftQueueCandidateMutationSuccess {
+  ok: true;
+  data: {
+    candidate: DraftQueueCandidate;
+  };
+}
+
+type DraftQueueCandidateMutationResponse =
+  | DraftQueueCandidateMutationSuccess
+  | DraftQueueFailure;
+
 interface PreferencesSuccess {
   ok: true;
   data: {
@@ -388,7 +441,7 @@ interface CreatorChatSuccess {
       mustAvoid: string[];
       hookType: string;
       pitchResponse: string;
-      formatPreference?: "shortform" | "longform";
+      formatPreference?: "shortform" | "longform" | "thread";
     } | null;
     draft?: string | null;
     drafts: string[];
@@ -437,7 +490,7 @@ interface CreatorChatSuccess {
         mustAvoid: string[];
         hookType: string;
         pitchResponse: string;
-        formatPreference?: "shortform" | "longform";
+        formatPreference?: "shortform" | "longform" | "thread";
       } | null;
       clarificationState?: {
         branchKey: string;
@@ -449,7 +502,7 @@ interface CreatorChatSuccess {
       unresolvedQuestion?: string | null;
       clarificationQuestionsAsked?: number;
       preferredSurfaceMode?: "natural" | "structured" | null;
-      formatPreference?: "shortform" | "longform" | null;
+      formatPreference?: "shortform" | "longform" | "thread" | null;
       voiceFidelity?: "balanced";
     };
   };
@@ -499,6 +552,7 @@ interface DraftVersionEntry {
   weightedCharacterCount: number;
   maxCharacterLimit: number;
   supportAsset: string | null;
+  artifact?: DraftArtifact;
 }
 
 interface DraftVersionSnapshot {
@@ -572,7 +626,7 @@ interface ChatQuickReply {
   label: string;
   suggestedFocus?: ChatContentFocus;
   explicitIntent?: ChatIntent;
-  formatPreference?: "shortform" | "longform";
+  formatPreference?: "shortform" | "longform" | "thread";
 }
 
 interface ChatStrategyInputs {
@@ -2022,6 +2076,10 @@ function buildDraftArtifactWithLimit(params: {
   content: string;
   supportAsset: string | null;
   maxCharacterLimit: number;
+  posts?: string[];
+  replyPlan?: string[];
+  voiceTarget?: DraftArtifact["voiceTarget"];
+  noveltyNotes?: string[];
 }): DraftArtifact {
   const artifact = buildDraftArtifact({
     id: params.id,
@@ -2029,6 +2087,10 @@ function buildDraftArtifactWithLimit(params: {
     kind: params.kind,
     content: params.content,
     supportAsset: params.supportAsset,
+    ...(params.posts?.length ? { posts: params.posts } : {}),
+    ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
+    ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
+    ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
   });
 
   if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
@@ -2040,6 +2102,148 @@ function buildDraftArtifactWithLimit(params: {
     maxCharacterLimit: params.maxCharacterLimit,
     isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
   };
+}
+
+function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] {
+  if (!artifact) {
+    return [];
+  }
+
+  if (artifact.posts?.length) {
+    return artifact.posts.map((post) => post.content);
+  }
+
+  return artifact.content ? [artifact.content] : [];
+}
+
+function joinThreadPosts(posts: string[]): string {
+  return posts
+    .map((post) => post.trim())
+    .filter(Boolean)
+    .join("\n\n---\n\n");
+}
+
+function splitThreadPostAtBoundary(content: string): [string, string] | null {
+  const normalized = content.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const paragraphParts = normalized.split(/\n{2,}/).filter(Boolean);
+  if (paragraphParts.length > 1) {
+    const pivot = Math.ceil(paragraphParts.length / 2);
+    return [
+      paragraphParts.slice(0, pivot).join("\n\n").trim(),
+      paragraphParts.slice(pivot).join("\n\n").trim(),
+    ];
+  }
+
+  const sentenceParts = normalized.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (sentenceParts.length > 1) {
+    const pivot = Math.ceil(sentenceParts.length / 2);
+    return [
+      sentenceParts.slice(0, pivot).join(" ").trim(),
+      sentenceParts.slice(pivot).join(" ").trim(),
+    ];
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length < 8) {
+    return null;
+  }
+
+  const pivot = Math.ceil(words.length / 2);
+  return [
+    words.slice(0, pivot).join(" ").trim(),
+    words.slice(pivot).join(" ").trim(),
+  ];
+}
+
+function splitThreadContent(content: string): string[] {
+  return content
+    .split(/\n\s*---\s*\n/g)
+    .map((post) => post.trim())
+    .filter(Boolean);
+}
+
+function buildEditableThreadPosts(
+  artifact: DraftArtifact | null | undefined,
+  content: string,
+): string[] {
+  const artifactPosts = getArtifactPosts(artifact)
+    .map((post) => post.trim())
+    .filter(Boolean);
+
+  if (artifactPosts.length > 0) {
+    return artifactPosts;
+  }
+
+  const contentPosts = splitThreadContent(content);
+  if (contentPosts.length > 0) {
+    return contentPosts;
+  }
+
+  const normalizedContent = content.trim();
+  return normalizedContent ? [normalizedContent] : [""];
+}
+
+function ensureEditableThreadPosts(posts: string[]): string[] {
+  const normalized = posts.map((post) => post.replace(/\r\n/g, "\n"));
+  return normalized.length > 0 ? normalized : [""];
+}
+
+function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
+    case "edited":
+      return "Edited";
+    case "posted":
+      return "Posted";
+    case "observed":
+      return "Observed";
+    case "pending":
+    default:
+      return "Pending";
+  }
+}
+
+function getDraftQueueStatusClassName(status: DraftCandidateStatus): string {
+  switch (status) {
+    case "approved":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+    case "rejected":
+      return "border-red-500/30 bg-red-500/10 text-red-200";
+    case "edited":
+      return "border-sky-500/30 bg-sky-500/10 text-sky-200";
+    case "posted":
+      return "border-violet-500/30 bg-violet-500/10 text-violet-200";
+    case "observed":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-200";
+    case "pending":
+    default:
+      return "border-white/10 bg-white/[0.05] text-zinc-300";
+  }
+}
+
+function summarizeVoiceTarget(
+  voiceTarget: DraftArtifact["voiceTarget"] | null | undefined,
+): string | null {
+  if (!voiceTarget) {
+    return null;
+  }
+
+  const parts = [
+    voiceTarget.lane ? formatEnumLabel(voiceTarget.lane) : null,
+    voiceTarget.compression ? formatEnumLabel(voiceTarget.compression) : null,
+    voiceTarget.hookStyle ? formatEnumLabel(voiceTarget.hookStyle) : null,
+    voiceTarget.formality ? formatEnumLabel(voiceTarget.formality) : null,
+    voiceTarget.emojiPolicy ? formatEnumLabel(voiceTarget.emojiPolicy) : null,
+  ].filter(Boolean) as string[];
+
+  return parts.length > 0 ? parts.slice(0, 3).join(" • ") : null;
 }
 
 function normalizeDraftVersionBundle(
@@ -2077,6 +2281,7 @@ function normalizeDraftVersionBundle(
             maxCharacterLimit:
               message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
             supportAsset,
+            artifact: message.draftArtifacts?.[0],
           },
         ];
       })();
@@ -2087,10 +2292,11 @@ function normalizeDraftVersionBundle(
 
   const mappedVersions = rawVersions.map((version) => {
     const content = typeof version.content === "string" ? version.content : "";
+    const artifact = version.artifact;
     const maxCharacterLimit =
       typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
         ? version.maxCharacterLimit
-        : message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
+        : artifact?.maxCharacterLimit ?? message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
 
     return {
       id: version.id,
@@ -2101,6 +2307,7 @@ function normalizeDraftVersionBundle(
       weightedCharacterCount: computeXWeightedCharacterCount(content),
       maxCharacterLimit,
       supportAsset: version.supportAsset ?? supportAsset,
+      artifact,
     };
   });
 
@@ -2856,6 +3063,7 @@ function ChatPageContent() {
         setConversationMemory(null);
         setActiveDraftEditor(null);
         setEditorDraftText("");
+        setEditorDraftPosts([]);
         setTypedAssistantLengths({});
         setErrorMessage(null);
         setIsLeavingHero(false);
@@ -2933,6 +3141,14 @@ function ChatPageContent() {
   const [selectedModalProCadence, setSelectedModalProCadence] = useState<"monthly" | "annual">(
     "monthly",
   );
+  const [draftQueueOpen, setDraftQueueOpen] = useState(false);
+  const [draftQueueItems, setDraftQueueItems] = useState<DraftQueueCandidate[]>([]);
+  const [isDraftQueueLoading, setIsDraftQueueLoading] = useState(false);
+  const [isDraftQueueGenerating, setIsDraftQueueGenerating] = useState(false);
+  const [draftQueueActionById, setDraftQueueActionById] = useState<Record<string, string>>({});
+  const [draftQueueError, setDraftQueueError] = useState<string | null>(null);
+  const [editingDraftCandidateId, setEditingDraftCandidateId] = useState<string | null>(null);
+  const [editingDraftCandidateText, setEditingDraftCandidateText] = useState("");
 
   const loadBillingState = useCallback(
     async (options?: {
@@ -2982,6 +3198,144 @@ function ChatPageContent() {
       })
       .catch(err => console.error("Failed to fetch threads:", err));
   }, [accountName]);
+
+  const loadDraftQueue = useCallback(async () => {
+    if (!session?.user?.id) {
+      return;
+    }
+
+    setIsDraftQueueLoading(true);
+    setDraftQueueError(null);
+
+    try {
+      const query = activeThreadId
+        ? `?threadId=${encodeURIComponent(activeThreadId)}`
+        : "";
+      const response = await fetch(`/api/creator/v2/draft-candidates${query}`, {
+        method: "GET",
+      });
+      const data = (await response.json()) as DraftQueueResponse;
+
+      if (!response.ok || !data.ok) {
+        const failure = data as DraftQueueFailure;
+        throw new Error(failure.errors?.[0]?.message || "Failed to load the draft queue.");
+      }
+
+      setDraftQueueItems(data.data.candidates);
+    } catch (error) {
+      setDraftQueueItems([]);
+      setDraftQueueError(
+        error instanceof Error ? error.message : "Failed to load the draft queue.",
+      );
+    } finally {
+      setIsDraftQueueLoading(false);
+    }
+  }, [activeThreadId, session?.user?.id]);
+
+  const generateDraftQueue = useCallback(async () => {
+    if (!context?.runId) {
+      setDraftQueueError("Load a profile workspace before generating the draft queue.");
+      return;
+    }
+
+    setIsDraftQueueGenerating(true);
+    setDraftQueueError(null);
+
+    try {
+      const response = await fetch("/api/creator/v2/draft-candidates", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          count: 4,
+          ...(activeThreadId ? { threadId: activeThreadId } : {}),
+          runId: context.runId,
+        }),
+      });
+      const data = (await response.json()) as DraftQueueResponse;
+
+      if (!response.ok || !data.ok) {
+        const failure = data as DraftQueueFailure;
+        throw new Error(failure.errors?.[0]?.message || "Failed to generate queue drafts.");
+      }
+
+      await loadDraftQueue();
+    } catch (error) {
+      setDraftQueueError(
+        error instanceof Error ? error.message : "Failed to generate queue drafts.",
+      );
+    } finally {
+      setIsDraftQueueGenerating(false);
+    }
+  }, [activeThreadId, context?.runId, loadDraftQueue]);
+
+  const mutateDraftQueueCandidate = useCallback(
+    async (
+      candidateId: string,
+      payload: {
+        action: "approve" | "reject" | "edit" | "posted" | "observed" | "regenerate";
+        content?: string;
+        rejectionReason?: string;
+        observedMetrics?: Record<string, unknown>;
+      },
+    ) => {
+      setDraftQueueActionById((current) => ({
+        ...current,
+        [candidateId]: payload.action,
+      }));
+      setDraftQueueError(null);
+
+      try {
+        const response = await fetch(
+          `/api/creator/v2/draft-candidates/${encodeURIComponent(candidateId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+        const data = (await response.json()) as DraftQueueCandidateMutationResponse;
+
+        if (!response.ok || !data.ok) {
+          const failure = data as DraftQueueFailure;
+          throw new Error(failure.errors?.[0]?.message || "Failed to update the candidate.");
+        }
+
+        setDraftQueueItems((current) =>
+          current.map((candidate) =>
+            candidate.id === candidateId ? data.data.candidate : candidate,
+          ),
+        );
+
+        if (payload.action === "edit") {
+          setEditingDraftCandidateId(null);
+          setEditingDraftCandidateText("");
+        }
+      } catch (error) {
+        setDraftQueueError(
+          error instanceof Error ? error.message : "Failed to update the candidate.",
+        );
+      } finally {
+        setDraftQueueActionById((current) => {
+          const next = { ...current };
+          delete next[candidateId];
+          return next;
+        });
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!draftQueueOpen) {
+      return;
+    }
+
+    void loadDraftQueue();
+  }, [draftQueueOpen, loadDraftQueue]);
 
   useEffect(() => {
     if (!session?.user?.id) {
@@ -3157,6 +3511,7 @@ function ChatPageContent() {
     setConversationMemory(null);
     setActiveDraftEditor(null);
     setEditorDraftText("");
+    setEditorDraftPosts([]);
     setTypedAssistantLengths({});
     setErrorMessage(null);
     setIsLeavingHero(false);
@@ -3258,6 +3613,7 @@ function ChatPageContent() {
   );
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
+  const [editorDraftPosts, setEditorDraftPosts] = useState<string[]>([]);
   const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
@@ -4757,6 +5113,11 @@ function ChatPageContent() {
     setActiveStrategyInputs(DEFAULT_CHAT_STRATEGY_INPUTS);
     setActiveDraftEditor(null);
     setEditorDraftText("");
+    setEditorDraftPosts([]);
+    setDraftQueueItems([]);
+    setDraftQueueError(null);
+    setEditingDraftCandidateId(null);
+    setEditingDraftCandidateText("");
     setTypedAssistantLengths({});
     setIsLeavingHero(false);
   }, [accountName]);
@@ -5351,6 +5712,25 @@ function ChatPageContent() {
       ) ?? selectedDraftBundle.activeVersion
     );
   }, [activeDraftEditor, selectedDraftBundle]);
+  const selectedDraftArtifact = useMemo(
+    () => selectedDraftVersion?.artifact ?? selectedDraftMessage?.draftArtifacts?.[0] ?? null,
+    [selectedDraftMessage?.draftArtifacts, selectedDraftVersion?.artifact],
+  );
+  const isSelectedDraftThread =
+    selectedDraftArtifact?.kind === "thread_seed" ||
+    selectedDraftMessage?.outputShape === "thread_seed";
+  const draftEditorSerializedContent = useMemo(
+    () =>
+      isSelectedDraftThread
+        ? joinThreadPosts(
+            ensureEditableThreadPosts(editorDraftPosts)
+              .map((post) => post.trim())
+              .filter(Boolean),
+          )
+        : editorDraftText,
+    [editorDraftPosts, editorDraftText, isSelectedDraftThread],
+  );
+  const selectedDraftReplyPlan = selectedDraftArtifact?.replyPlan ?? [];
   const selectedDraftContext = useMemo(() => {
     if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
       return null;
@@ -5359,14 +5739,19 @@ function ChatPageContent() {
     return {
       messageId: activeDraftEditor.messageId,
       versionId: selectedDraftVersion.id,
-      content: editorDraftText.trim() || selectedDraftVersion.content,
+      content: draftEditorSerializedContent.trim() || selectedDraftVersion.content,
       source: selectedDraftVersion.source,
       createdAt: selectedDraftVersion.createdAt,
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
       revisionChainId:
         activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
     };
-  }, [activeDraftEditor, editorDraftText, selectedDraftMessage, selectedDraftVersion]);
+  }, [
+    activeDraftEditor,
+    draftEditorSerializedContent,
+    selectedDraftMessage,
+    selectedDraftVersion,
+  ]);
   const selectedDraftTimeline = useMemo(
     () =>
       buildDraftRevisionTimeline({
@@ -5403,8 +5788,8 @@ function ChatPageContent() {
     selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
   const hasDraftEditorChanges =
     selectedDraftVersion !== null &&
-    editorDraftText.trim().length > 0 &&
-    editorDraftText.trim() !== selectedDraftVersion.content.trim();
+    draftEditorSerializedContent.trim().length > 0 &&
+    draftEditorSerializedContent.trim() !== selectedDraftVersion.content.trim();
   const shouldShowRevertDraftCta =
     isViewingHistoricalDraftVersion && !hasDraftEditorChanges;
   const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
@@ -5413,7 +5798,7 @@ function ChatPageContent() {
   const isDraftEditorPrimaryActionDisabled =
     shouldShowRevertDraftCta
       ? false
-      : !editorDraftText.trim() || !hasDraftEditorChanges;
+      : !draftEditorSerializedContent.trim() || !hasDraftEditorChanges;
   const draftInspectorActionLabel = isViewingHistoricalDraftVersion
     ? "Compare to Current"
     : "Analyze this Draft";
@@ -5431,15 +5816,25 @@ function ChatPageContent() {
   useEffect(() => {
     if (!selectedDraftVersionId) {
       setEditorDraftText("");
+      setEditorDraftPosts([]);
       setHasCopiedDraftEditorText(false);
       return;
     }
 
     setEditorDraftText(selectedDraftVersionContent);
+    setEditorDraftPosts(
+      isSelectedDraftThread
+        ? ensureEditableThreadPosts(
+            buildEditableThreadPosts(selectedDraftArtifact, selectedDraftVersionContent),
+          )
+        : [],
+    );
     setHasCopiedDraftEditorText(false);
   }, [
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
+    isSelectedDraftThread,
+    selectedDraftArtifact,
     selectedDraftVersionContent,
     selectedDraftVersionId,
   ]);
@@ -5505,6 +5900,77 @@ function ChatPageContent() {
       revisionChainId: message.revisionChainId ?? undefined,
     });
   }, [composerCharacterLimit, messages]);
+
+  const updateThreadDraftPost = useCallback((index: number, content: string) => {
+    setEditorDraftPosts((current) =>
+      current.map((post, postIndex) => (postIndex === index ? content : post)),
+    );
+  }, []);
+
+  const moveThreadDraftPost = useCallback((index: number, direction: "up" | "down") => {
+    setEditorDraftPosts((current) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || index >= current.length || targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [movedPost] = next.splice(index, 1);
+      next.splice(targetIndex, 0, movedPost);
+      return next;
+    });
+  }, []);
+
+  const splitThreadDraftPost = useCallback((index: number) => {
+    setEditorDraftPosts((current) => {
+      const target = current[index] ?? "";
+      const split = splitThreadPostAtBoundary(target);
+      if (!split) {
+        return current;
+      }
+
+      const next = [...current];
+      next.splice(index, 1, split[0], split[1]);
+      return next;
+    });
+  }, []);
+
+  const mergeThreadDraftPostDown = useCallback((index: number) => {
+    setEditorDraftPosts((current) => {
+      if (index < 0 || index >= current.length - 1) {
+        return current;
+      }
+
+      const currentPost = current[index]?.trim() ?? "";
+      const nextPost = current[index + 1]?.trim() ?? "";
+      const merged = [currentPost, nextPost].filter(Boolean).join("\n\n");
+      const next = [...current];
+      next.splice(index, 2, merged);
+      return ensureEditableThreadPosts(next);
+    });
+  }, []);
+
+  const addThreadDraftPost = useCallback((index?: number) => {
+    setEditorDraftPosts((current) => {
+      const next = [...current];
+      const insertionIndex =
+        typeof index === "number" && Number.isFinite(index)
+          ? Math.max(0, Math.min(next.length, index))
+          : next.length;
+      next.splice(insertionIndex, 0, "");
+      return ensureEditableThreadPosts(next);
+    });
+  }, []);
+
+  const removeThreadDraftPost = useCallback((index: number) => {
+    setEditorDraftPosts((current) => {
+      if (current.length <= 1) {
+        return [""];
+      }
+
+      return ensureEditableThreadPosts(current.filter((_, postIndex) => postIndex !== index));
+    });
+  }, []);
 
   const submitAssistantMessageFeedback = useCallback(
     async (messageId: string, value: MessageFeedbackValue) => {
@@ -5660,7 +6126,14 @@ function ChatPageContent() {
       return;
     }
 
-    const nextContent = editorDraftText.trim();
+    const nextPosts = isSelectedDraftThread
+      ? ensureEditableThreadPosts(editorDraftPosts)
+          .map((post) => post.trim())
+          .filter(Boolean)
+      : [];
+    const nextContent = (isSelectedDraftThread
+      ? joinThreadPosts(nextPosts)
+      : editorDraftText).trim();
     if (!nextContent) {
       return;
     }
@@ -5689,6 +6162,16 @@ function ChatPageContent() {
               selectedDraftVersion.supportAsset ??
               getDraftVersionSupportAsset(selectedDraftMessage),
             maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+            ...(nextPosts.length ? { posts: nextPosts } : {}),
+            ...(selectedDraftArtifact?.replyPlan?.length
+              ? { replyPlan: selectedDraftArtifact.replyPlan }
+              : {}),
+            ...(selectedDraftArtifact?.voiceTarget
+              ? { voiceTarget: selectedDraftArtifact.voiceTarget }
+              : {}),
+            ...(selectedDraftArtifact?.noveltyNotes?.length
+              ? { noveltyNotes: selectedDraftArtifact.noveltyNotes }
+              : {}),
             revisionChainId,
             basedOn: {
               messageId: selectedDraftMessage.id,
@@ -5750,7 +6233,10 @@ function ChatPageContent() {
   }, [
     activeDraftEditor,
     activeThreadId,
+    editorDraftPosts,
     editorDraftText,
+    isSelectedDraftThread,
+    selectedDraftArtifact,
     selectedDraftMessage,
     selectedDraftVersion,
     scrollThreadToBottom,
@@ -5774,7 +6260,12 @@ function ChatPageContent() {
       selectedDraftMessage.draftVersions && selectedDraftMessage.draftVersions.length > 0
         ? selectedDraftMessage.draftVersions
         : (selectedDraftBundle?.versions ?? [selectedDraftVersion]);
-    const sourceArtifact = selectedDraftMessage.draftArtifacts?.[0];
+    const sourceArtifact =
+      selectedDraftVersion.artifact ?? selectedDraftMessage.draftArtifacts?.[0];
+    const restoredPosts =
+      isSelectedDraftThread || sourceArtifact?.kind === "thread_seed"
+        ? buildEditableThreadPosts(sourceArtifact, nextContent)
+        : [];
     const activeDraftArtifact = buildDraftArtifactWithLimit({
       id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
       title: sourceArtifact?.title ?? "Draft",
@@ -5782,6 +6273,10 @@ function ChatPageContent() {
       content: nextContent,
       supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      ...(restoredPosts.length ? { posts: restoredPosts } : {}),
+      ...(sourceArtifact?.replyPlan?.length ? { replyPlan: sourceArtifact.replyPlan } : {}),
+      ...(sourceArtifact?.voiceTarget ? { voiceTarget: sourceArtifact.voiceTarget } : {}),
+      ...(sourceArtifact?.noveltyNotes?.length ? { noveltyNotes: sourceArtifact.noveltyNotes } : {}),
     });
 
     setMessages((current) =>
@@ -5851,18 +6346,19 @@ function ChatPageContent() {
   }, [
     activeDraftEditor?.revisionChainId,
     activeThreadId,
+    isSelectedDraftThread,
     selectedDraftBundle,
     selectedDraftMessage,
     selectedDraftVersion,
   ]);
 
   const copyDraftEditor = useCallback(async () => {
-    if (!editorDraftText.trim()) {
+    if (!draftEditorSerializedContent.trim()) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(editorDraftText);
+      await navigator.clipboard.writeText(draftEditorSerializedContent);
       setHasCopiedDraftEditorText(true);
       window.setTimeout(() => {
         setHasCopiedDraftEditorText(false);
@@ -5870,7 +6366,7 @@ function ChatPageContent() {
     } catch {
       setErrorMessage("Copy failed. Try selecting the text manually.");
     }
-  }, [editorDraftText]);
+  }, [draftEditorSerializedContent]);
 
   const shareDraftEditorToX = useCallback(() => {
     window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
@@ -5900,7 +6396,8 @@ function ChatPageContent() {
       return;
     }
 
-    const inspectedDraft = editorDraftText.trim() || selectedDraftVersion.content.trim();
+    const inspectedDraft =
+      draftEditorSerializedContent.trim() || selectedDraftVersion.content.trim();
     if (!inspectedDraft) {
       return;
     }
@@ -6041,7 +6538,7 @@ function ChatPageContent() {
     activeThreadId,
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
-    editorDraftText,
+    draftEditorSerializedContent,
     isViewingHistoricalDraftVersion,
     latestDraftTimelineEntry,
     selectedDraftVersion,
@@ -6056,7 +6553,7 @@ function ChatPageContent() {
       includeUserMessageInHistory?: boolean;
       selectedAngle?: string | null;
       intent?: ChatIntent;
-      formatPreferenceOverride?: "shortform" | "longform" | null;
+      formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
       selectedDraftContextOverride?: DraftVersionSnapshot | null;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
@@ -6980,6 +7477,605 @@ function ChatPageContent() {
     }`;
   const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
     }`;
+  const renderDraftEditorPanel = (isMobile: boolean) => {
+    if (!(selectedDraftVersion && selectedDraftBundle)) {
+      return null;
+    }
+
+    const panelPaddingClassName = isMobile ? "px-4 pb-4" : "px-5 pb-5";
+    const panelHeaderPaddingClassName = isMobile ? "px-4 pb-3 pt-4" : "px-5 pb-3 pt-5";
+    const panelFooterPaddingClassName = isMobile ? "px-4 py-4" : "px-5 py-4";
+    const avatarSizeClassName = isMobile ? "h-10 w-10 text-sm" : "h-11 w-11 text-sm";
+    const displayNameClassName = isMobile ? "text-sm" : "text-[15px]";
+    const usernameClassName = isMobile ? "text-[11px]" : "text-xs";
+    const bodyTextClassName = isMobile ? "text-[15px] leading-7" : "text-[16px] leading-8";
+    const threadPosts = isSelectedDraftThread
+      ? ensureEditableThreadPosts(editorDraftPosts)
+      : [];
+    const serializedThreadContent = isSelectedDraftThread
+      ? draftEditorSerializedContent
+      : editorDraftText;
+    const footerCounterLabel = isSelectedDraftThread
+      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+          selectedDraftVersion.maxCharacterLimit,
+          composerCharacterLimit,
+        )} chars`
+      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+          selectedDraftVersion.maxCharacterLimit,
+          composerCharacterLimit,
+        )} chars`;
+
+    return (
+      <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+        <div className={panelHeaderPaddingClassName}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 font-bold uppercase text-white ${avatarSizeClassName}`}>
+                {context?.avatarUrl ? (
+                  <div
+                    className="h-full w-full bg-cover bg-center"
+                    style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                    role="img"
+                    aria-label={`${heroIdentityLabel} profile photo`}
+                  />
+                ) : (
+                  heroInitials.charAt(0)
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className={`truncate font-semibold text-white ${displayNameClassName}`}>
+                    {context?.creatorProfile.identity.displayName ??
+                      context?.creatorProfile.identity.username ??
+                      accountName ??
+                      "You"}
+                  </p>
+                  {isVerifiedAccount ? (
+                    <Image
+                      src="/x-verified.svg"
+                      alt="Verified account"
+                      width={isMobile ? 14 : 16}
+                      height={isMobile ? 14 : 16}
+                      className={isMobile ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"}
+                    />
+                  ) : null}
+                </div>
+                <p className={`mt-0.5 line-clamp-1 text-zinc-400 ${usernameClassName}`}>
+                  @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveDraftEditor(null)}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+              aria-label="Close draft editor"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => navigateDraftTimeline("back")}
+                  disabled={!canNavigateDraftBack}
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Previous draft version"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateDraftTimeline("forward")}
+                  disabled={!canNavigateDraftForward}
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Next draft version"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="truncate text-[11px] font-medium text-zinc-500">
+                Version {selectedDraftTimelinePosition} of {selectedDraftTimeline.length}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                void (shouldShowRevertDraftCta
+                  ? revertToSelectedDraftVersion()
+                  : saveDraftEditor());
+              }}
+              disabled={isDraftEditorPrimaryActionDisabled}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {draftEditorPrimaryActionLabel}
+            </button>
+          </div>
+        </div>
+
+        <div className={`min-h-0 flex-1 ${panelPaddingClassName}`}>
+          {isSelectedDraftThread ? (
+            <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+              {threadPosts.map((post, index) => {
+                const weightedCount = computeXWeightedCharacterCount(post);
+                const isOverPostLimit = weightedCount > 280;
+
+                return (
+                  <div
+                    key={`draft-thread-post-${index}`}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                          Post {index + 1}
+                        </span>
+                        <span className={`text-[11px] ${isOverPostLimit ? "text-red-400" : "text-zinc-500"}`}>
+                          {weightedCount}/280
+                        </span>
+                      </div>
+                      {!isViewingHistoricalDraftVersion ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => moveThreadDraftPost(index, "up")}
+                            disabled={index === 0}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveThreadDraftPost(index, "down")}
+                            disabled={index === threadPosts.length - 1}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            Down
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => splitThreadDraftPost(index)}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                          >
+                            Split
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => mergeThreadDraftPostDown(index)}
+                            disabled={index === threadPosts.length - 1}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            Merge
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => addThreadDraftPost(index + 1)}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                          >
+                            Add Below
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeThreadDraftPost(index)}
+                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {isViewingHistoricalDraftVersion ? (
+                      <div className={`mt-3 whitespace-pre-wrap text-white ${bodyTextClassName}`}>
+                        {post}
+                      </div>
+                    ) : (
+                      <textarea
+                        value={post}
+                        onChange={(event) => updateThreadDraftPost(index, event.target.value)}
+                        className={`mt-3 min-h-[120px] w-full resize-none overflow-y-auto rounded-2xl border ${isOverPostLimit ? "border-red-500/30" : "border-white/10"} bg-transparent px-3 py-3 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+                        placeholder={`Thread post ${index + 1}`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              {!isViewingHistoricalDraftVersion ? (
+                <button
+                  type="button"
+                  onClick={() => addThreadDraftPost()}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 px-4 py-3 text-sm font-medium text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.04] hover:text-white"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add another post
+                </button>
+              ) : null}
+
+            </div>
+          ) : isViewingHistoricalDraftVersion ? (
+            <div className={`h-full min-h-full overflow-y-auto whitespace-pre-wrap text-white ${bodyTextClassName}`}>
+              {editorDraftText}
+            </div>
+          ) : (
+            <textarea
+              value={editorDraftText}
+              onChange={(event) => setEditorDraftText(event.target.value)}
+              className={`h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+              placeholder="Draft content"
+            />
+          )}
+        </div>
+
+        <div className={`border-t border-white/10 ${panelFooterPaddingClassName}`}>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                void runDraftInspector();
+              }}
+              disabled={isDraftInspectorLoading}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {draftInspectorActionLabel}
+            </button>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-zinc-500">{footerCounterLabel}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  void copyDraftEditor();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                aria-label="Copy current draft"
+              >
+                {hasCopiedDraftEditorText ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  shareDraftEditorToX();
+                }}
+                className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
+              >
+                Share
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDraftQueueModal = () =>
+    draftQueueOpen ? (
+      <div
+        className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) {
+            setDraftQueueOpen(false);
+            setEditingDraftCandidateId(null);
+            setEditingDraftCandidateText("");
+          }
+        }}
+      >
+        <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+          <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Draft Queue
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold text-white">
+                Review queued drafts outside the chat
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                Generate a fresh batch from your playbooks, then approve, reject, edit, or regenerate without cluttering the main thread.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void generateDraftQueue();
+                }}
+                disabled={isDraftQueueGenerating || !context?.runId}
+                className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                {isDraftQueueGenerating ? "Generating" : "Generate 4 Drafts"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftQueueOpen(false);
+                  setEditingDraftCandidateId(null);
+                  setEditingDraftCandidateText("");
+                }}
+                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto px-6 py-6">
+            {draftQueueError ? (
+              <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                {draftQueueError}
+              </div>
+            ) : null}
+
+            {isDraftQueueLoading ? (
+              <div className="rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-10 text-center text-sm text-zinc-400">
+                Loading the queue...
+              </div>
+            ) : draftQueueItems.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-center">
+                <p className="text-sm font-medium text-white">No queued drafts yet</p>
+                <p className="mt-2 text-sm text-zinc-500">
+                  Generate a batch and review them here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {draftQueueItems.map((candidate) => {
+                  const candidatePosts = getArtifactPosts(candidate.artifact);
+                  const isThreadCandidate =
+                    candidate.artifact.kind === "thread_seed" || candidatePosts.length > 1;
+                  const isEditingCandidate = editingDraftCandidateId === candidate.id;
+                  const activeCandidateAction = draftQueueActionById[candidate.id] ?? null;
+                  const candidateVoiceSummary = summarizeVoiceTarget(
+                    candidate.voiceTarget ?? candidate.artifact.voiceTarget,
+                  );
+
+                  return (
+                    <div
+                      key={candidate.id}
+                      className="rounded-3xl border border-white/10 bg-white/[0.02] p-5"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${getDraftQueueStatusClassName(candidate.status)}`}>
+                              {formatDraftQueueStatusLabel(candidate.status)}
+                            </span>
+                            {candidate.sourcePlaybook ? (
+                              <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                {candidate.sourcePlaybook.replace(/_/g, " ")}
+                              </span>
+                            ) : null}
+                            <span className="text-[11px] text-zinc-500">
+                              {new Date(candidate.updatedAt).toLocaleString([], {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-white">
+                              {candidate.title}
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-zinc-400">
+                              {candidate.sourcePrompt}
+                            </p>
+                          </div>
+                          {candidateVoiceSummary ? (
+                            <p className="text-xs text-zinc-500">
+                              Voice target: {candidateVoiceSummary}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void mutateDraftQueueCandidate(candidate.id, { action: "approve" });
+                            }}
+                            disabled={Boolean(activeCandidateAction)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {activeCandidateAction === "approve" ? "Approving" : "Approve"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void mutateDraftQueueCandidate(candidate.id, {
+                                action: "reject",
+                                rejectionReason: "Rejected from the draft queue.",
+                              });
+                            }}
+                            disabled={Boolean(activeCandidateAction)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {activeCandidateAction === "reject" ? "Rejecting" : "Reject"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isEditingCandidate) {
+                                setEditingDraftCandidateId(null);
+                                setEditingDraftCandidateText("");
+                                return;
+                              }
+
+                              setEditingDraftCandidateId(candidate.id);
+                              setEditingDraftCandidateText(candidate.artifact.content);
+                            }}
+                            disabled={Boolean(activeCandidateAction)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {isEditingCandidate ? "Cancel Edit" : "Edit"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void mutateDraftQueueCandidate(candidate.id, { action: "regenerate" });
+                            }}
+                            disabled={Boolean(activeCandidateAction)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {activeCandidateAction === "regenerate" ? "Regenerating" : "Regenerate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void mutateDraftQueueCandidate(candidate.id, { action: "posted" });
+                            }}
+                            disabled={Boolean(activeCandidateAction)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {activeCandidateAction === "posted" ? "Updating" : "Mark Posted"}
+                          </button>
+                          {(candidate.status === "posted" || candidate.status === "observed") ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void mutateDraftQueueCandidate(candidate.id, {
+                                  action: "observed",
+                                  observedMetrics: candidate.observedMetrics ?? {},
+                                });
+                              }}
+                              disabled={Boolean(activeCandidateAction)}
+                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {activeCandidateAction === "observed" ? "Updating" : "Mark Observed"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        {isEditingCandidate ? (
+                          <div className="space-y-3">
+                            <textarea
+                              value={editingDraftCandidateText}
+                              onChange={(event) => setEditingDraftCandidateText(event.target.value)}
+                              className="min-h-[200px] w-full resize-y rounded-2xl border border-white/10 bg-transparent px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
+                              placeholder="Edit draft candidate"
+                            />
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs text-zinc-500">
+                                {computeXWeightedCharacterCount(editingDraftCandidateText)}/
+                                {candidate.artifact.maxCharacterLimit} chars
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void mutateDraftQueueCandidate(candidate.id, {
+                                    action: "edit",
+                                    content: editingDraftCandidateText.trim(),
+                                  });
+                                }}
+                                disabled={!editingDraftCandidateText.trim() || Boolean(activeCandidateAction)}
+                                className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                              >
+                                {activeCandidateAction === "edit" ? "Saving" : "Save Edit"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : isThreadCandidate ? (
+                          <div className="space-y-3">
+                            {candidatePosts.map((post, index) => (
+                              <div
+                                key={`${candidate.id}-post-${index}`}
+                                className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                    Post {index + 1}
+                                  </span>
+                                  <span className={`text-[11px] ${computeXWeightedCharacterCount(post) > 280 ? "text-red-400" : "text-zinc-500"}`}>
+                                    {computeXWeightedCharacterCount(post)}/280
+                                  </span>
+                                </div>
+                                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-100">
+                                  {post}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-100">
+                            {candidate.artifact.content}
+                          </p>
+                        )}
+
+                        {candidate.artifact.supportAsset ? (
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                              Support asset
+                            </p>
+                            <p className="mt-2 text-xs leading-6 text-zinc-300">
+                              {candidate.artifact.supportAsset}
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {candidate.noveltyNotes?.length ? (
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                              Novelty guardrails
+                            </p>
+                            <ul className="mt-2 space-y-1.5 text-xs leading-6 text-zinc-300">
+                              {candidate.noveltyNotes.slice(0, 3).map((note, index) => (
+                                <li key={`${candidate.id}-novelty-${index}`}>{note}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <p className="text-xs text-zinc-500">
+                          {candidate.artifact.weightedCharacterCount}/{candidate.artifact.maxCharacterLimit} chars
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void copyPreviewDraft(candidate.id, candidate.artifact.content);
+                            }}
+                            className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                            aria-label="Copy candidate draft"
+                          >
+                            {copiedPreviewDraftMessageId === candidate.id ? (
+                              <Check className="h-4 w-4" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              shareDraftEditorToX();
+                            }}
+                            className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200"
+                          >
+                            Open X
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    ) : null;
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -7063,6 +8159,17 @@ function ChatPageContent() {
                   >
                     <BookOpen className="h-4 w-4 shrink-0" />
                     <span>Playbook</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftQueueError(null);
+                      setDraftQueueOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
+                  >
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    <span>Draft Queue</span>
                   </button>
                   <button
                     type="button"
@@ -7657,6 +8764,7 @@ function ChatPageContent() {
                             message.outputShape !== "coach_question" &&
                             message.outputShape !== "short_form_post" &&
                             message.outputShape !== "long_form_post" &&
+                            message.outputShape !== "thread_seed" &&
                             message.draftArtifacts?.length ? (
                             <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
                               {message.draftArtifacts.map((artifact, index) => {
@@ -7711,8 +8819,17 @@ function ChatPageContent() {
                                 message,
                                 composerCharacterLimit,
                               );
+                              const previewArtifact =
+                                draftBundle?.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
                               const previewDraft =
                                 draftBundle?.activeVersion.content ?? message.draft ?? "";
+                              const previewPosts = previewArtifact
+                                ? getArtifactPosts(previewArtifact)
+                                : splitThreadContent(previewDraft);
+                              const isThreadPreview =
+                                previewArtifact?.kind === "thread_seed" ||
+                                message.outputShape === "thread_seed" ||
+                                previewPosts.length > 1;
                               const draftCounter = getXCharacterCounterMeta(
                                 previewDraft,
                                 getDisplayedDraftCharacterLimit(
@@ -7721,13 +8838,16 @@ function ChatPageContent() {
                                 ),
                               );
                               const isLongformPreview =
-                                message.outputShape === "long_form_post" ||
-                                (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280;
+                                !isThreadPreview &&
+                                (message.outputShape === "long_form_post" ||
+                                  (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280);
                               const canToggleDraftFormat =
-                                isVerifiedAccount || isLongformPreview;
+                                !isThreadPreview && (isVerifiedAccount || isLongformPreview);
                               const transformDraftPrompt = isLongformPreview
                                 ? "turn this into a shortform post under 280 characters"
                                 : "turn this into a longform post with more detail";
+                              const convertToThreadPrompt =
+                                "turn this into a thread with 4 to 6 posts. keep every post under 280 characters and make the flow feel native to x.";
                               const isFocusedDraftPreview =
                                 selectedDraftMessageId === message.id;
                               return (
@@ -7795,15 +8915,44 @@ function ChatPageContent() {
 
                                     {/* Post Content */}
                                     <div className="mt-3">
-                                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                        {previewDraft}
-                                      </p>
+                                      {isThreadPreview ? (
+                                        <div className="space-y-3">
+                                          {previewPosts.map((post, index) => (
+                                            <div
+                                              key={`${message.id}-preview-post-${index}`}
+                                              className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3"
+                                            >
+                                              <div className="flex items-center justify-between gap-2">
+                                                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                                  Post {index + 1}
+                                                </span>
+                                                <span className={`text-[11px] ${computeXWeightedCharacterCount(post) > 280 ? "text-red-400" : "text-zinc-500"}`}>
+                                                  {computeXWeightedCharacterCount(post)}/280
+                                                </span>
+                                              </div>
+                                              <p className="mt-2 whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                                {post}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                          {previewDraft}
+                                        </p>
+                                      )}
                                     </div>
 
                                     {/* Timestamp */}
                                     <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
                                       <span>Just now</span>
                                       <span>·</span>
+                                      {isThreadPreview ? (
+                                        <>
+                                          <span>{previewPosts.length} posts</span>
+                                          <span>·</span>
+                                        </>
+                                      ) : null}
                                       <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
                                     </div>
 
@@ -7913,6 +9062,22 @@ function ChatPageContent() {
                                             {isLongformPreview
                                               ? "Turn into Shortform"
                                               : "Turn into Longform"}
+                                          </button>
+                                        ) : null}
+                                        {!isThreadPreview ? (
+                                          <button
+                                            type="button"
+                                            disabled={isMainChatLocked}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void requestDraftCardRevision(
+                                                message.id,
+                                                convertToThreadPrompt,
+                                              );
+                                            }}
+                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                                          >
+                                            Turn into Thread
                                           </button>
                                         ) : null}
                                       </div>
@@ -8067,321 +9232,19 @@ function ChatPageContent() {
         selectedDraftVersion && selectedDraftBundle ? (
           <>
             <div className="pointer-events-none fixed bottom-32 right-4 top-24 z-20 hidden lg:block xl:right-6">
-              <div className="pointer-events-auto flex h-full w-[25.5rem] max-w-[calc(100vw-24rem)] flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-                <div className="px-5 pb-3 pt-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                        {context?.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                            role="img"
-                            aria-label={`${heroIdentityLabel} profile photo`}
-                          />
-                        ) : (
-                          heroInitials.charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="truncate text-[15px] font-semibold text-white">
-                            {context?.creatorProfile.identity.displayName ??
-                              context?.creatorProfile.identity.username ??
-                              accountName ??
-                              "You"}
-                          </p>
-                          {isVerifiedAccount ? (
-                            <Image
-                              src="/x-verified.svg"
-                              alt="Verified account"
-                              width={16}
-                              height={16}
-                              className="h-4 w-4 shrink-0"
-                            />
-                          ) : null}
-                        </div>
-                        <p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">
-                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setActiveDraftEditor(null)}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                      aria-label="Close draft editor"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => navigateDraftTimeline("back")}
-                          disabled={!canNavigateDraftBack}
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label="Previous draft version"
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => navigateDraftTimeline("forward")}
-                          disabled={!canNavigateDraftForward}
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label="Next draft version"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <p className="truncate text-[11px] font-medium text-zinc-500">
-                        Version {selectedDraftTimelinePosition}
-                        {" "}of {selectedDraftTimeline.length}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void (shouldShowRevertDraftCta
-                          ? revertToSelectedDraftVersion()
-                          : saveDraftEditor());
-                      }}
-                      disabled={isDraftEditorPrimaryActionDisabled}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {draftEditorPrimaryActionLabel}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-hidden px-5 pb-5">
-                  {isViewingHistoricalDraftVersion ? (
-                    <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[16px] leading-8 text-white">
-                      {editorDraftText}
-                    </div>
-                  ) : (
-                    <textarea
-                      value={editorDraftText}
-                      onChange={(event) => setEditorDraftText(event.target.value)}
-                      className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[16px] leading-8 text-white outline-none placeholder:text-zinc-600"
-                      placeholder="Draft content"
-                    />
-                  )}
-                </div>
-
-                <div className="border-t border-white/10 px-5 py-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runDraftInspector();
-                      }}
-                      disabled={isDraftInspectorLoading}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {draftInspectorActionLabel}
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-zinc-500">
-                        {computeXWeightedCharacterCount(editorDraftText)}/
-                        {getDisplayedDraftCharacterLimit(
-                          selectedDraftVersion.maxCharacterLimit,
-                          composerCharacterLimit,
-                        )} chars
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyDraftEditor();
-                        }}
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                        aria-label="Copy current draft"
-                      >
-                        {hasCopiedDraftEditorText ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          shareDraftEditorToX();
-                        }}
-                        className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
-                      >
-                        Share
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              <div className="pointer-events-auto h-full w-[25.5rem] max-w-[calc(100vw-24rem)]">
+                {renderDraftEditorPanel(false)}
               </div>
             </div>
 
             <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
-              <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-                <div className="px-4 pb-3 pt-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                        {context?.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                            role="img"
-                            aria-label={`${heroIdentityLabel} profile photo`}
-                          />
-                        ) : (
-                          heroInitials.charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {context?.creatorProfile.identity.displayName ??
-                              context?.creatorProfile.identity.username ??
-                              accountName ??
-                              "You"}
-                          </p>
-                          {isVerifiedAccount ? (
-                            <Image
-                              src="/x-verified.svg"
-                              alt="Verified account"
-                              width={14}
-                              height={14}
-                              className="h-3.5 w-3.5 shrink-0"
-                            />
-                          ) : null}
-                        </div>
-                        <p className="mt-0.5 text-[11px] text-zinc-400">
-                          @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveDraftEditor(null)}
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-                      aria-label="Close draft editor"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => navigateDraftTimeline("back")}
-                          disabled={!canNavigateDraftBack}
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label="Previous draft version"
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => navigateDraftTimeline("forward")}
-                          disabled={!canNavigateDraftForward}
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label="Next draft version"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <p className="truncate text-[11px] text-zinc-500">
-                        Version {selectedDraftTimelinePosition}
-                        {" "}of {selectedDraftTimeline.length}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void (shouldShowRevertDraftCta
-                          ? revertToSelectedDraftVersion()
-                          : saveDraftEditor());
-                      }}
-                      disabled={isDraftEditorPrimaryActionDisabled}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {draftEditorPrimaryActionLabel}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
-                  {isViewingHistoricalDraftVersion ? (
-                    <div className="h-full min-h-full overflow-y-auto whitespace-pre-wrap text-[15px] leading-7 text-white">
-                      {editorDraftText}
-                    </div>
-                  ) : (
-                    <textarea
-                      value={editorDraftText}
-                      onChange={(event) => setEditorDraftText(event.target.value)}
-                      className="h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-[15px] leading-7 text-white outline-none placeholder:text-zinc-600"
-                      placeholder="Draft content"
-                    />
-                  )}
-                </div>
-
-                <div className="border-t border-white/10 px-4 py-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runDraftInspector();
-                      }}
-                      disabled={isDraftInspectorLoading}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {draftInspectorActionLabel}
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-zinc-500">
-                        {computeXWeightedCharacterCount(editorDraftText)}/
-                        {getDisplayedDraftCharacterLimit(
-                          selectedDraftVersion.maxCharacterLimit,
-                          composerCharacterLimit,
-                        )} chars
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyDraftEditor();
-                        }}
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                        aria-label="Copy current draft"
-                      >
-                        {hasCopiedDraftEditorText ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          shareDraftEditorToX();
-                        }}
-                        className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
-                      >
-                        Share
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {renderDraftEditorPanel(true)}
             </div>
           </>
         ) : null
       }
+
+      {renderDraftQueueModal()}
 
       {
         settingsModalOpen ? (

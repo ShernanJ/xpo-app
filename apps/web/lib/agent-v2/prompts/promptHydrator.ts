@@ -1,4 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceTarget } from "../core/voiceTarget";
 import {
   inferLowercasePreference,
   inferPreferredListMarker,
@@ -79,15 +80,27 @@ export function buildStateHydrationBlock(
   }
 }
 
-export function buildVoiceHydrationBlock(styleCard: VoiceStyleCard | null): string {
+export function buildVoiceHydrationBlock(
+  styleCard: VoiceStyleCard | null,
+  voiceTarget?: VoiceTarget | null,
+): string {
   if (!styleCard) {
-    return "VOICE BIAS: Mirror a direct, casual peer by default.";
+    if (!voiceTarget) {
+      return "VOICE BIAS: Mirror a direct, casual peer by default.";
+    }
+
+    return [
+      "VOICE BIAS:",
+      "- Treat the resolved VoiceTarget below as the authoritative style target for this turn.",
+      `- Resolved target: ${voiceTarget.summary}`,
+      ...voiceTarget.rationale.map((line) => `- ${line}`),
+    ].join("\n");
   }
 
   const prefersLowercase = inferLowercasePreference(styleCard);
   const preferredListMarker = inferPreferredListMarker(styleCard);
 
-  return [
+  const lines = [
     "VOICE BIAS:",
     "- Match the creator's actual voice. Do not make it more polished, corporate, or professional just because the account is verified or established.",
     `- Pacing: ${styleCard.pacing || "direct and conversational"}`,
@@ -102,7 +115,17 @@ export function buildVoiceHydrationBlock(styleCard: VoiceStyleCard | null): stri
     styleCard.formattingRules?.length
       ? `- Formatting: ${styleCard.formattingRules.join(" | ")}`
       : "- Formatting: keep it readable and natural.",
-  ].join("\n");
+  ];
+
+  if (voiceTarget) {
+    lines.push(
+      "- VoiceTarget override: treat these per-turn settings as authoritative even when the stored history is mixed.",
+      `- Resolved target: ${voiceTarget.summary}`,
+      ...voiceTarget.rationale.map((line) => `- ${line}`),
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export function buildAntiPatternBlock(antiPatterns: string[]): string {
@@ -120,6 +143,16 @@ export function buildFormatPreferenceBlock(
   formatPreference: DraftFormatPreference,
   mode: "plan" | "draft" | "critic",
 ): string {
+  if (formatPreference === "thread") {
+    return [
+      `FORMAT BIAS (${mode}):`,
+      "- Treat this as an X thread, not a single standalone post.",
+      "- Build 4-6 tight posts that can stand on their own while still feeling like one chain.",
+      "- Each post must fit within 280 weighted X characters.",
+      "- When serializing the final draft string, separate posts with a line containing only --- so the thread builder can split it cleanly.",
+    ].join("\n");
+  }
+
   if (formatPreference === "longform") {
     return [
       `FORMAT BIAS (${mode}):`,

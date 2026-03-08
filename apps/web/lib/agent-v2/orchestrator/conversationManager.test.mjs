@@ -24,6 +24,7 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding.ts";
+import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
@@ -192,6 +193,7 @@ test("selected draft review/edit modes use the revision flow", () => {
 test("verified longform maps to long_form_post", () => {
   assert.equal(resolveDraftOutputShape("longform"), "long_form_post");
   assert.equal(resolveDraftOutputShape("shortform"), "short_form_post");
+  assert.equal(resolveDraftOutputShape("thread"), "thread_seed");
 });
 
 test("career prompts are routed into the career clarification gate", () => {
@@ -243,6 +245,32 @@ test("slot evaluator treats undefined product references as entity-definition ga
   assert.equal(slots.namedEntity, "stanley");
 });
 
+test("slot evaluator treats vague named build prompts as product definition gaps", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage: "write me a post about how im building stanley for x",
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  assert.equal(slots.domainHint, "product");
+  assert.equal(slots.entityNeedsDefinition, true);
+  assert.equal(slots.behaviorKnown, false);
+  assert.equal(slots.namedEntity, "stanley");
+});
+
+test("historical anchors do not satisfy missing product definition for named products", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage: "write me a post about how im building stanley for x",
+    topicSummary: null,
+    contextAnchors: [
+      "stanley scans live engagement and finds the top hashtags for any tweet",
+    ],
+  });
+
+  assert.equal(slots.entityNeedsDefinition, true);
+  assert.equal(slots.namedEntity, "stanley");
+});
+
 test("slot evaluator flags ampm when reference is ambiguous", () => {
   const slots = evaluateDraftContextSlots({
     userMessage: "draft a post about the ampm event",
@@ -252,6 +280,35 @@ test("slot evaluator flags ampm when reference is ambiguous", () => {
 
   assert.equal(slots.ambiguousReferenceNeedsClarification, true);
   assert.equal(slots.ambiguousReference, "ampm");
+});
+
+test("missing DraftCandidate table errors are downgraded safely", () => {
+  assert.equal(
+    isMissingDraftCandidateTableError({
+      code: "P2021",
+      meta: { table: "public.DraftCandidate" },
+      message: "The table `public.DraftCandidate` does not exist in the current database.",
+    }),
+    true,
+  );
+
+  assert.equal(
+    isMissingDraftCandidateTableError({
+      code: "P2021",
+      meta: { table: "public.Post" },
+      message: "The table `public.Post` does not exist in the current database.",
+    }),
+    false,
+  );
+
+  assert.equal(
+    isMissingDraftCandidateTableError({
+      code: "P2002",
+      meta: { table: "public.DraftCandidate" },
+      message: "Unique constraint failed.",
+    }),
+    false,
+  );
 });
 
 test("slot evaluator skips ampm clarification when context already disambiguates", () => {

@@ -1,10 +1,20 @@
 import type { CreatorGenerationOutputShape } from "./generationContract";
+import type { VoiceTarget } from "../agent-v2/core/voiceTarget";
+
+export interface DraftArtifactPost {
+  id: string;
+  content: string;
+  weightedCharacterCount: number;
+  maxCharacterLimit: number;
+  isWithinXLimit: boolean;
+}
 
 export interface DraftArtifactDetails {
   id: string;
   title: string;
   kind: CreatorGenerationOutputShape;
   content: string;
+  posts: DraftArtifactPost[];
   characterCount: number;
   weightedCharacterCount: number;
   maxCharacterLimit: number;
@@ -12,6 +22,8 @@ export interface DraftArtifactDetails {
   supportAsset: string | null;
   betterClosers: string[];
   replyPlan: string[];
+  voiceTarget: VoiceTarget | null;
+  noveltyNotes: string[];
 }
 
 export interface DraftArtifactInput {
@@ -20,16 +32,35 @@ export interface DraftArtifactInput {
   kind: CreatorGenerationOutputShape;
   content: string;
   supportAsset: string | null;
+  posts?: string[];
+  replyPlan?: string[];
+  voiceTarget?: VoiceTarget | null;
+  noveltyNotes?: string[];
 }
 
 export const SHORT_FORM_X_LIMIT = 280;
 export const LONG_FORM_X_LIMIT = 25_000;
-export type DraftLengthMode = "shortform" | "longform";
+export const THREAD_POST_X_LIMIT = 280;
+export const THREAD_DEFAULT_POST_COUNT = 6;
+export const THREAD_TOTAL_X_LIMIT = THREAD_POST_X_LIMIT * THREAD_DEFAULT_POST_COUNT;
+export type DraftLengthMode = "shortform" | "longform" | "thread";
+
+function getThreadPostLimit(): number {
+  return THREAD_POST_X_LIMIT;
+}
 
 export function getXCharacterLimitForShape(
   outputShape: CreatorGenerationOutputShape,
 ): number {
-  return outputShape === "long_form_post" ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT;
+  if (outputShape === "long_form_post") {
+    return LONG_FORM_X_LIMIT;
+  }
+
+  if (outputShape === "thread_seed") {
+    return THREAD_TOTAL_X_LIMIT;
+  }
+
+  return SHORT_FORM_X_LIMIT;
 }
 
 export function getXCharacterLimitForAccount(isVerified: boolean): number {
@@ -40,6 +71,10 @@ export function getXCharacterLimitForFormat(
   isVerified: boolean,
   formatPreference: DraftLengthMode,
 ): number {
+  if (formatPreference === "thread") {
+    return THREAD_TOTAL_X_LIMIT;
+  }
+
   if (formatPreference === "longform" && isVerified) {
     return LONG_FORM_X_LIMIT;
   }
@@ -51,6 +86,8 @@ export function buildDraftArtifacts(params: {
   drafts: string[];
   outputShape: CreatorGenerationOutputShape | "ideation_angles";
   supportAsset: string | null;
+  voiceTarget?: VoiceTarget | null;
+  noveltyNotes?: string[];
 }): DraftArtifactDetails[] {
   if (params.outputShape === "ideation_angles") {
     return [];
@@ -65,26 +102,75 @@ export function buildDraftArtifacts(params: {
       kind: artifactKind,
       content: draft,
       supportAsset: params.supportAsset,
+      voiceTarget: params.voiceTarget ?? null,
+      noveltyNotes: params.noveltyNotes || [],
     }),
   );
 }
 
 export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDetails {
-  const weightedCharacterCount = computeXWeightedCharacterCount(params.content);
-  const maxCharacterLimit = getXCharacterLimitForShape(params.kind);
+  const rawPosts =
+    params.posts && params.posts.length > 0
+      ? params.posts
+      : params.kind === "thread_seed"
+        ? splitDraftIntoThreadPosts(params.content)
+        : [params.content.trim()];
+  const posts = rawPosts
+    .map((post) => post.trim())
+    .filter(Boolean)
+    .map((post, index) => buildArtifactPost(post, params.kind, index));
+  const content =
+    params.kind === "thread_seed"
+      ? posts.map((post) => post.content).join("\n\n---\n\n")
+      : posts[0]?.content || params.content.trim();
+  const weightedCharacterCount = posts.reduce(
+    (total, post) => total + post.weightedCharacterCount,
+    0,
+  );
+  const maxCharacterLimit =
+    params.kind === "thread_seed"
+      ? THREAD_TOTAL_X_LIMIT
+      : getXCharacterLimitForShape(params.kind);
+  const isWithinXLimit =
+    posts.every((post) => post.isWithinXLimit) &&
+    weightedCharacterCount <= maxCharacterLimit;
 
   return {
     id: params.id,
     title: params.title,
     kind: params.kind,
-    content: params.content,
-    characterCount: params.content.length,
+    content,
+    posts,
+    characterCount: content.length,
+    weightedCharacterCount,
+    maxCharacterLimit,
+    isWithinXLimit,
+    supportAsset: params.supportAsset,
+    betterClosers: buildBetterClosers(content, params.kind),
+    replyPlan:
+      params.replyPlan && params.replyPlan.length > 0
+        ? params.replyPlan.slice(0, 3)
+        : buildReplyPlan(posts, params.kind),
+    voiceTarget: params.voiceTarget ?? null,
+    noveltyNotes: (params.noveltyNotes || []).slice(0, 3),
+  };
+}
+
+function buildArtifactPost(
+  content: string,
+  kind: CreatorGenerationOutputShape,
+  index: number,
+): DraftArtifactPost {
+  const maxCharacterLimit =
+    kind === "thread_seed" ? getThreadPostLimit() : getXCharacterLimitForShape(kind);
+  const weightedCharacterCount = computeXWeightedCharacterCount(content);
+
+  return {
+    id: `post-${index + 1}`,
+    content,
     weightedCharacterCount,
     maxCharacterLimit,
     isWithinXLimit: weightedCharacterCount <= maxCharacterLimit,
-    supportAsset: params.supportAsset,
-    betterClosers: buildBetterClosers(params.content, params.kind),
-    replyPlan: buildReplyPlan(params.content, params.kind),
   };
 }
 
@@ -94,7 +180,7 @@ export function buildDraftArtifactTitle(
 ): string {
   switch (outputShape) {
     case "thread_seed":
-      return `Thread Seed ${index + 1}`;
+      return `Thread ${index + 1}`;
     case "long_form_post":
       return `Long Form ${index + 1}`;
     case "reply_candidate":
@@ -210,6 +296,96 @@ function isWideCharacter(char: string): boolean {
   );
 }
 
+function splitDraftIntoThreadPosts(value: string): string[] {
+  const normalized = value.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const explicitSplit = normalized
+    .split(/\n\s*---\s*\n/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (explicitSplit.length > 1) {
+    return explicitSplit.map((part) => trimToXCharacterLimit(part, THREAD_POST_X_LIMIT));
+  }
+
+  const chunks = normalized
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => splitChunkToThreadUnits(paragraph.trim()))
+    .filter(Boolean);
+
+  const posts: string[] = [];
+  let current = "";
+
+  for (const chunk of chunks) {
+    const candidate = current ? `${current}\n\n${chunk}` : chunk;
+    if (computeXWeightedCharacterCount(candidate) <= THREAD_POST_X_LIMIT) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      posts.push(current);
+    }
+    current = chunk;
+  }
+
+  if (current) {
+    posts.push(current);
+  }
+
+  return posts.slice(0, THREAD_DEFAULT_POST_COUNT).map((post) =>
+    trimToXCharacterLimit(post, THREAD_POST_X_LIMIT),
+  );
+}
+
+function splitChunkToThreadUnits(chunk: string): string[] {
+  if (!chunk) {
+    return [];
+  }
+
+  if (computeXWeightedCharacterCount(chunk) <= THREAD_POST_X_LIMIT) {
+    return [chunk];
+  }
+
+  const sentenceParts = chunk
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (sentenceParts.length > 1) {
+    return sentenceParts.flatMap((part) => splitChunkToThreadUnits(part));
+  }
+
+  return splitLongChunkByWords(chunk);
+}
+
+function splitLongChunkByWords(chunk: string): string[] {
+  const words = chunk.split(/\s+/).filter(Boolean);
+  const units: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (computeXWeightedCharacterCount(candidate) <= THREAD_POST_X_LIMIT) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      units.push(current);
+    }
+    current = trimToXCharacterLimit(word, THREAD_POST_X_LIMIT);
+  }
+
+  if (current) {
+    units.push(current);
+  }
+
+  return units;
+}
+
 export function buildBetterClosers(
   draft: string,
   kind: CreatorGenerationOutputShape,
@@ -217,7 +393,11 @@ export function buildBetterClosers(
   const lower = draft.toLowerCase();
   const suggestions = new Set<string>();
 
-  if (lower.includes("build") || lower.includes("project") || lower.includes("app")) {
+  if (kind === "thread_seed") {
+    suggestions.add("if you want the breakdown, i'll post the next part.");
+    suggestions.add("curious where you'd push back on this.");
+    suggestions.add("if you've run into this too, tell me what broke first.");
+  } else if (lower.includes("build") || lower.includes("project") || lower.includes("app")) {
     suggestions.add("thoughts?");
     suggestions.add("would you use this?");
     suggestions.add("what would you add?");
@@ -233,33 +413,50 @@ export function buildBetterClosers(
   return Array.from(suggestions).slice(0, 3);
 }
 
-export function buildReplyPlan(
-  draft: string,
+function buildReplyPlan(
+  posts: DraftArtifactPost[],
   kind: CreatorGenerationOutputShape,
 ): string[] {
-  const plan: string[] = [];
+  const seeds = posts
+    .flatMap((post) =>
+      post.content
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    )
+    .filter((line) => line.length >= 12)
+    .slice(0, 4);
+  const primary = seeds[0] || posts[0]?.content || "";
+  const secondary = seeds[1] || primary;
+  const tertiary = seeds[2] || secondary;
 
   if (kind === "reply_candidate") {
-    plan.push(
-      "If they engage, ask one tighter follow-up instead of dropping a second argument.",
-    );
-    plan.push(
-      "If they push back, reply with one concrete example instead of broadening the claim.",
-    );
-    return plan;
+    return [
+      `fair push. the concrete part i mean is ${cleanReplySeed(primary)}.`,
+      `the example i had in mind: ${cleanReplySeed(secondary)}.`,
+      `if i had to compress it even more: ${cleanReplySeed(tertiary)}.`,
+    ].slice(0, 3);
   }
 
-  if (draft.trim().endsWith("?")) {
-    plan.push("Reply to the first useful answer quickly and ask one deeper follow-up.");
-  } else {
-    plan.push(
-      "When someone asks for details, reply with the concrete step, metric, or build constraint you left out.",
-    );
+  if (kind === "thread_seed") {
+    return [
+      `quick add:\n\n${secondary}`,
+      `the part i cut to keep this readable:\n\n${tertiary}`,
+      "if people want the next part, i can break down the exact workflow.",
+    ].slice(0, 3);
   }
 
-  plan.push(
-    "If someone disagrees, answer with one specific example before defending the whole thesis.",
-  );
-  plan.push("If the thread gets traction, pin one short follow-up that adds the missing proof.");
-  return plan.slice(0, 3);
+  return [
+    `quick add:\n\n${secondary}`,
+    `the part i left out:\n\n${tertiary}`,
+    "if people want it, i can unpack the exact steps in a follow-up.",
+  ].slice(0, 3);
+}
+
+function cleanReplySeed(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/[.?!:;,]+$/g, "")
+    .trim()
+    .slice(0, 180);
 }

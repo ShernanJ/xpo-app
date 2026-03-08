@@ -119,6 +119,24 @@ test("initial draft version payload preserves revision linkage and stored max li
   assert.equal(payload.revisionChainId, "revision-chain-msg_5");
 });
 
+test("thread payloads build structured thread artifacts with posts", () => {
+  const payload = buildInitialDraftVersionPayload({
+    draft: "hook\n\n---\n\nproof\n\n---\n\ncta",
+    outputShape: "thread_seed",
+    supportAsset: "pair with a screenshot of the workflow",
+    selectedDraftContext: null,
+    noveltyNotes: ["avoid mirroring last week's thread hook"],
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.kind, "thread_seed");
+  assert.equal(payload.draftArtifacts[0]?.posts.length, 3);
+  assert.equal(payload.draftArtifacts[0]?.posts[1]?.content, "proof");
+  assert.equal(payload.draftVersions?.[0]?.artifact?.posts.length, 3);
+  assert.equal(payload.draftVersions?.[0]?.artifact?.supportAsset, "pair with a screenshot of the workflow");
+  assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");
+});
+
 test("conversation context builder keeps recent history and prefers selected draft context", () => {
   const selectedDraftContext = parseSelectedDraftContext({
     messageId: "msg_9",

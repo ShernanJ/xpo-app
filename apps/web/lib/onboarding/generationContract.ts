@@ -95,7 +95,6 @@ function prefersLongFormVoice(
   creatorProfile: ReturnType<typeof buildCreatorAgentContext>["creatorProfile"],
 ): boolean {
   return (
-    creatorProfile.identity.isVerified ||
     creatorProfile.voice.averageLengthBand === "long" ||
     creatorProfile.performance.recommendedLengthBand === "long" ||
     (creatorProfile.voice.averageLengthBand === "medium" &&
@@ -229,7 +228,6 @@ function resolveTargetTone(params: {
   summary: string;
 } {
   const isLongFormCreator =
-    params.creatorProfile.identity.isVerified ||
     params.creatorProfile.voice.averageLengthBand === "long" ||
     params.creatorProfile.playbook.cadence.threadBias === "high" ||
     params.creatorProfile.voice.multiLinePostRate >= 30;

@@ -52,6 +52,15 @@ enum ChatMessageFeedbackValue {
   down
 }
 
+enum DraftCandidateStatus {
+  pending
+  approved
+  rejected
+  edited
+  posted
+  observed
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -68,6 +77,7 @@ model User {
   memories                 ConversationMemory[]
   voiceProfiles            VoiceProfile[]
   chatThreads              ChatThread[]
+  draftCandidates          DraftCandidate[]
   chatMessageFeedbacks     ChatMessageFeedback[]
   feedbackSubmissions      FeedbackSubmission[]
   billingEntitlement       BillingEntitlement?
@@ -83,8 +93,9 @@ model OnboardingRun {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
-  memories ConversationMemory[]
+  user            User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  memories        ConversationMemory[]
+  draftCandidates DraftCandidate[]
 }
 
 model ScrapeCaptureCache {
@@ -114,9 +125,10 @@ model ChatThread {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  memories ConversationMemory[]
-  messages ChatMessage[]
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memories        ConversationMemory[]
+  messages        ChatMessage[]
+  draftCandidates DraftCandidate[]
   messageFeedbacks ChatMessageFeedback[]
 }
 
@@ -190,6 +202,38 @@ model VoiceProfile {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DraftCandidate {
+  id              String               @id @default(cuid())
+  userId          String
+  xHandle         String?
+  threadId        String?
+  runId           String?
+  title           String
+  sourcePrompt    String
+  sourcePlaybook  String?
+  outputShape     String
+  status          DraftCandidateStatus @default(pending)
+  artifact        Json
+  voiceTarget     Json?
+  noveltyNotes    Json?
+  rejectionReason String?
+  approvedAt      DateTime?
+  editedAt        DateTime?
+  postedAt        DateTime?
+  observedAt      DateTime?
+  observedMetrics Json?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  run    OnboardingRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([userId, xHandle, status, createdAt])
+  @@index([threadId, createdAt])
+  @@index([runId, createdAt])
 }
 
 model FeedbackSubmission {

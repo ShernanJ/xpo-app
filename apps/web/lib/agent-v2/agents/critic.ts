@@ -2,6 +2,7 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceTarget } from "../core/voiceTarget";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
 // TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
 // import type { DraftScore } from "../contracts/chat";
@@ -82,6 +83,7 @@ export async function critiqueDrafts(
     previousDraft?: string;
     revisionChangeKind?: DraftRevisionChangeKind;
     sourceUserMessage?: string;
+    voiceTarget?: VoiceTarget | null;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
@@ -109,6 +111,7 @@ ${writerOutput.draft}
 ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}
 ${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MUST OBEY): ${styleCard.customGuidelines.join(" | ")}` : ""}
+${options?.voiceTarget ? `\nVOICE TARGET (AUTHORITATIVE FOR THIS TURN): ${options.voiceTarget.summary}\n${options.voiceTarget.rationale.map((line) => `- ${line}`).join("\n")}` : ""}
 ${concreteSceneBlock ? `\n${concreteSceneBlock}` : ""}
 
 Respond ONLY with a valid JSON matching this schema:

@@ -21,7 +21,7 @@ export type DraftPreference =
   | "voice_first"
   | "growth_first";
 
-export type DraftFormatPreference = "shortform" | "longform";
+export type DraftFormatPreference = "shortform" | "longform" | "thread";
 
 export type ResponseMode =
   | "natural_chat"
@@ -117,7 +117,8 @@ export type V2ChatOutputShape =
   | "ideation_angles"
   | "planning_outline"
   | "short_form_post"
-  | "long_form_post";
+  | "long_form_post"
+  | "thread_seed";
 
 // ---------------------------------------------------------------------------
 // V3 Conversational Orchestrator Types

@@ -17,6 +17,31 @@ function collectCorrectionLockTerms(activeConstraints: string[]): string[] {
     .flatMap((constraint) => collectTerms(constraint.replace(/^Correction lock:\s*/i, "")));
 }
 
+export function buildFactSafeReferenceHints(args?: {
+  lane?: "original" | "reply" | "quote";
+  formatPreference?: "shortform" | "longform" | "thread";
+}): string[] {
+  const laneHint =
+    args?.lane === "reply"
+      ? "Shape hint: keep it reply-like and direct instead of turning it into a broad thesis."
+      : args?.lane === "quote"
+        ? "Shape hint: keep it reactive with one clear stance instead of a standalone essay."
+        : "Shape hint: lead with one direct claim instead of a long setup.";
+  const formatHint =
+    args?.formatPreference === "thread"
+      ? "Format hint: build one clean beat per post and let the chain carry the progression."
+      : args?.formatPreference === "longform"
+        ? "Format hint: allow a little more setup, but keep every section concrete and grounded."
+        : "Format hint: keep it shortform with one hook and one payoff.";
+
+  return [
+    "Use historical context only for cadence, structure, and thematic fit, not for factual material.",
+    laneHint,
+    formatHint,
+    "Let the user's supplied facts carry the draft. Do not import older anecdotes, mechanics, timelines, or metrics.",
+  ];
+}
+
 export function retrieveRelevantContext(args: {
   userMessage: string;
   topicSummary: string | null;
@@ -63,6 +88,7 @@ export function buildEffectiveContext(args: {
   relevantTopicAnchors: string[];
   contextAnchors?: string[];
   activeConstraints?: string[];
+  referenceLabel?: string;
 }): string {
   const recentLines = args.recentHistory
     .split("\n")
@@ -86,7 +112,7 @@ export function buildEffectiveContext(args: {
     args.rollingSummary ? `ROLLING SUMMARY:\n${args.rollingSummary}` : null,
     recentLines.length > 0 ? `RECENT TURNS:\n${recentLines.join("\n")}` : null,
     args.relevantTopicAnchors.length > 0
-      ? `RELEVANT TOPIC ANCHORS:\n${args.relevantTopicAnchors.join("\n---\n")}`
+      ? `${args.referenceLabel || "RELEVANT TOPIC ANCHORS"}:\n${args.relevantTopicAnchors.join("\n---\n")}`
       : null,
   ].filter(Boolean);
 

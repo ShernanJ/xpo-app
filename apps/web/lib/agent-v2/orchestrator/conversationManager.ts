@@ -20,7 +20,11 @@ import {
   createConversationMemory,
   updateConversationMemory,
 } from "../memory/memoryStore";
-import { buildEffectiveContext, retrieveRelevantContext } from "../memory/contextRetriever";
+import {
+  buildEffectiveContext,
+  buildFactSafeReferenceHints,
+  retrieveRelevantContext,
+} from "../memory/contextRetriever";
 import {
   buildRollingSummary,
   shouldRefreshRollingSummary,
@@ -28,6 +32,7 @@ import {
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
+import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
 import { getXCharacterLimitForFormat } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
@@ -74,6 +79,7 @@ import {
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
 } from "./assistantReplyStyle";
+import { isMissingDraftCandidateTableError } from "./prismaGuards";
 import {
   isBareDraftRequest,
   isBareIdeationRequest,
@@ -132,6 +138,8 @@ export interface OrchestratorData {
   supportAsset?: string | null;
   issuesFixed?: string[];
   quickReplies?: CreatorChatQuickReply[];
+  voiceTarget?: VoiceTarget | null;
+  noveltyNotes?: string[];
 }
 
 export type OrchestratorResponse = {
@@ -212,16 +220,49 @@ export function createDefaultConversationServices(): ConversationServices {
     },
     async getHistoricalPosts(args: { userId: string; xHandle?: string | null }) {
       const normalizedHandle = normalizeHandleForContext(args.xHandle);
-      const posts = await prisma.post.findMany({
-        where: {
-          userId: args.userId,
-          ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        select: { text: true },
-      });
-      return posts.map((post) => post.text);
+      const [posts, queuedCandidates] = await Promise.all([
+        prisma.post.findMany({
+          where: {
+            userId: args.userId,
+            ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+          },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+          select: { text: true },
+        }),
+        prisma.draftCandidate
+          .findMany({
+            where: {
+              userId: args.userId,
+              ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+              status: {
+                in: ["pending", "approved", "edited", "posted", "observed"],
+              },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 40,
+            select: { artifact: true },
+          })
+          .catch((error) => {
+            if (isMissingDraftCandidateTableError(error)) {
+              return [];
+            }
+
+            throw error;
+          }),
+      ]);
+
+      const queuedDrafts = queuedCandidates
+        .map((candidate) => {
+          const artifact =
+            candidate.artifact && typeof candidate.artifact === "object" && !Array.isArray(candidate.artifact)
+              ? (candidate.artifact as Record<string, unknown>)
+              : null;
+          return typeof artifact?.content === "string" ? artifact.content : null;
+        })
+        .filter((value): value is string => Boolean(value));
+
+      return [...posts.map((post) => post.text), ...queuedDrafts];
     },
   };
 }
@@ -271,6 +312,10 @@ function looksLikeIdeationRetryCommand(message: string): boolean {
 function inferMissingSpecificQuestion(message: string): string | null {
   const normalized = message.trim().toLowerCase();
   const comparisonReference = inferComparisonReference(message);
+  const buildSubjectMatch = message.match(
+    /\b(?:building|making|creating|shipping|launching|working on|rebuilding)\s+([a-z0-9][a-z0-9\s'-]{1,30}?)(?:\s+for\b|\s+on\b|\s+with\b|[.?!,]|$)/i,
+  );
+  const buildSubject = buildSubjectMatch?.[1]?.trim().replace(/[.?!,]+$/, "") || "";
 
   const comparisonOnly =
     Boolean(comparisonReference) ||
@@ -287,6 +332,10 @@ function inferMissingSpecificQuestion(message: string): string | null {
     ["extension", "plugin", "tool", "app", "product"].some((cue) =>
       normalized.includes(cue),
     ) ||
+    (Boolean(buildSubject) &&
+      ["building", "making", "working on", "creating", "shipping", "launching", "rebuilding"].some((cue) =>
+        normalized.includes(cue),
+      )) ||
     /^(?:can you\s+)?(?:write|draft|make|create|generate|do)\b/.test(normalized) &&
       ["extension", "plugin", "tool", "app", "product"].some((cue) =>
         normalized.includes(cue),
@@ -793,6 +842,19 @@ function inferDraftFormatPreference(
 
   if (
     [
+      "thread",
+      "x thread",
+      "tweet thread",
+      "make it a thread",
+      "turn this into a thread",
+      "write a thread",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return "thread";
+  }
+
+  if (
+    [
       "longform",
       "long form",
       "long-form",
@@ -1254,14 +1316,6 @@ export async function manageConversationTurn(
     contextAnchors: styleCard?.contextAnchors || [],
     activeConstraints: effectiveActiveConstraints,
   });
-
-  const effectiveContext = buildEffectiveContext({
-    recentHistory,
-    rollingSummary: memory.rollingSummary,
-    relevantTopicAnchors,
-    contextAnchors: styleCard?.contextAnchors || [],
-    activeConstraints: effectiveActiveConstraints,
-  });
   const turnDraftContextSlots = evaluateDraftContextSlots({
     userMessage,
     topicSummary: memory.topicSummary,
@@ -1375,13 +1429,69 @@ User Profile Summary:
     memory.pendingPlan?.formatPreference || memory.formatPreference || "shortform",
     formatPreference,
   );
-  const turnFormatPreference = isVerifiedAccount
-    ? requestedFormatPreference
-    : "shortform";
+  const turnFormatPreference =
+    requestedFormatPreference === "thread"
+      ? "thread"
+      : isVerifiedAccount
+        ? requestedFormatPreference
+        : "shortform";
   const maxCharacterLimit = getXCharacterLimitForFormat(
     isVerifiedAccount,
     turnFormatPreference,
   );
+  const baseVoiceTarget = resolveVoiceTarget({
+    styleCard,
+    userMessage,
+    draftPreference: turnDraftPreference,
+    formatPreference: turnFormatPreference,
+  });
+  const hasStrictFactualReferenceGuardrails = (constraints: string[]): boolean =>
+    constraints.some(
+      (constraint) =>
+        /^Correction lock:/i.test(constraint) ||
+        /^Topic grounding:/i.test(constraint) ||
+        constraint === NO_FABRICATION_CONSTRAINT ||
+        constraint === NO_FABRICATION_MUST_AVOID ||
+        /factual guardrail/i.test(constraint),
+    );
+  const shouldUseFactSafeReferenceHints = (args: {
+    sourceText: string;
+    activeConstraints: string[];
+  }): boolean => {
+    if (hasStrictFactualReferenceGuardrails(args.activeConstraints)) {
+      return true;
+    }
+
+    const sourceSlots = evaluateDraftContextSlots({
+      userMessage: args.sourceText,
+      topicSummary: memory.topicSummary,
+      contextAnchors: styleCard?.contextAnchors || [],
+    });
+
+    return sourceSlots.isProductLike;
+  };
+  const useFactSafeReferenceHintsForTurn =
+    shouldForceNoFabricationGuardrailForTurn ||
+    shouldUseFactSafeReferenceHints({
+      sourceText: userMessage,
+      activeConstraints: effectiveActiveConstraints,
+    });
+  const modelReferenceAnchors = useFactSafeReferenceHintsForTurn
+    ? buildFactSafeReferenceHints({
+        lane: memory.pendingPlan?.targetLane || "original",
+        formatPreference: turnFormatPreference,
+      })
+    : relevantTopicAnchors;
+  const effectiveContext = buildEffectiveContext({
+    recentHistory,
+    rollingSummary: memory.rollingSummary,
+    relevantTopicAnchors: modelReferenceAnchors,
+    contextAnchors: styleCard?.contextAnchors || [],
+    activeConstraints: effectiveActiveConstraints,
+    ...(useFactSafeReferenceHintsForTurn
+      ? { referenceLabel: "REFERENCE HINTS" }
+      : {}),
+  });
   let draftInstruction = userMessage;
 
   async function returnClarificationQuestion(args: {
@@ -1537,6 +1647,74 @@ User Profile Summary:
     };
   }
 
+  async function resolveDraftAnchorsForPlan(args: {
+    plan: StrategyPlan;
+    formatPreference: DraftFormatPreference;
+    activeConstraints: string[];
+  }): Promise<{
+    topicAnchors: string[];
+    retrievalReasons: string[];
+    referenceAnchorMode: "historical_posts" | "reference_hints";
+  }> {
+    const retrieval = await services.retrieveAnchors(
+      userId,
+      effectiveXHandle,
+      `${args.plan.objective}. ${args.plan.angle}`,
+      {
+        targetLane: args.plan.targetLane,
+        preferredFormat: args.formatPreference,
+        limit: 5,
+      },
+    );
+    const mergedAnchors = [
+      ...retrieval.topicAnchors,
+      ...retrieval.laneAnchors,
+      ...retrieval.formatAnchors,
+    ];
+    const useFactSafeReferenceHintsForPlan = shouldUseFactSafeReferenceHints({
+      sourceText: [args.plan.objective, args.plan.angle, ...args.plan.mustInclude].join(" "),
+      activeConstraints: args.activeConstraints,
+    });
+
+    return {
+      topicAnchors: useFactSafeReferenceHintsForPlan
+        ? buildFactSafeReferenceHints({
+            lane: args.plan.targetLane,
+            formatPreference: args.formatPreference,
+          })
+        : retrieveRelevantContext({
+            userMessage: args.plan.objective,
+            topicSummary: memory.topicSummary,
+            rollingSummary: memory.rollingSummary,
+            topicAnchors: mergedAnchors,
+            contextAnchors: styleCard?.contextAnchors || [],
+            activeConstraints: args.activeConstraints,
+          }),
+      retrievalReasons: retrieval.rankedAnchors
+        .slice(0, 3)
+        .map((anchor) => anchor.reason)
+        .filter(Boolean),
+      referenceAnchorMode: useFactSafeReferenceHintsForPlan
+        ? "reference_hints"
+        : "historical_posts",
+    };
+  }
+
+  function buildNoveltyNotes(args: {
+    noveltyCheck?: { isNovel: boolean; reason: string | null; maxSimilarity: number };
+    retrievalReasons?: string[];
+  }): string[] {
+    const notes = [
+      args.noveltyCheck?.reason ||
+        (args.noveltyCheck
+          ? `Max similarity against recent history: ${Math.round(args.noveltyCheck.maxSimilarity * 100)}%.`
+          : null),
+      ...(args.retrievalReasons || []).map((reason) => `Grounded on ${reason}.`),
+    ].filter(Boolean) as string[];
+
+    return Array.from(new Set(notes)).slice(0, 3);
+  }
+
   async function generateDraftWithGroundingRetry(args: {
     plan: StrategyPlan;
     activeConstraints: string[];
@@ -1550,12 +1728,14 @@ User Profile Summary:
   }): Promise<
     | {
         kind: "success";
-        writerOutput: WriterOutput;
-        criticOutput: CriticOutput;
-        draftToDeliver: string;
-      }
+      writerOutput: WriterOutput;
+      criticOutput: CriticOutput;
+      draftToDeliver: string;
+      voiceTarget: VoiceTarget;
+      retrievalReasons: string[];
+    }
     | {
-        kind: "response";
+      kind: "response";
         response: RawOrchestratorResponse;
       }
   > {
@@ -1565,14 +1745,28 @@ User Profile Summary:
       writerOutput: WriterOutput | null;
       criticOutput: CriticOutput | null;
       draftToDeliver: string | null;
+      voiceTarget: VoiceTarget;
+      retrievalReasons: string[];
     }> => {
       const attemptConstraints = Array.from(
         new Set([...args.activeConstraints, ...extraConstraints]),
       );
+      const voiceTarget = resolveVoiceTarget({
+        styleCard,
+        userMessage: args.sourceUserMessage || args.plan.objective,
+        draftPreference: args.draftPreference,
+        formatPreference: args.formatPreference,
+        lane: args.plan.targetLane,
+      });
+      const requestConditionedAnchors = await resolveDraftAnchorsForPlan({
+        plan: args.plan,
+        formatPreference: args.formatPreference,
+        activeConstraints: attemptConstraints,
+      });
       const writerOutput = await services.generateDrafts(
         args.plan,
         styleCard,
-        relevantTopicAnchors,
+        requestConditionedAnchors.topicAnchors,
         attemptConstraints,
         effectiveContext,
         args.activeDraft,
@@ -1584,6 +1778,8 @@ User Profile Summary:
           draftPreference: args.draftPreference,
           formatPreference: args.formatPreference,
           sourceUserMessage: args.sourceUserMessage || undefined,
+          voiceTarget,
+          referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
         },
       );
 
@@ -1592,6 +1788,8 @@ User Profile Summary:
           writerOutput: null,
           criticOutput: null,
           draftToDeliver: null,
+          voiceTarget,
+          retrievalReasons: requestConditionedAnchors.retrievalReasons,
         };
       }
 
@@ -1604,6 +1802,7 @@ User Profile Summary:
           draftPreference: args.draftPreference,
           formatPreference: args.formatPreference,
           sourceUserMessage: args.sourceUserMessage || undefined,
+          voiceTarget,
         },
       );
 
@@ -1612,6 +1811,8 @@ User Profile Summary:
           writerOutput,
           criticOutput: null,
           draftToDeliver: null,
+          voiceTarget,
+          retrievalReasons: requestConditionedAnchors.retrievalReasons,
         };
       }
 
@@ -1624,6 +1825,8 @@ User Profile Summary:
         writerOutput,
         criticOutput,
         draftToDeliver,
+        voiceTarget,
+        retrievalReasons: requestConditionedAnchors.retrievalReasons,
       };
     };
 
@@ -1668,6 +1871,8 @@ User Profile Summary:
         writerOutput: firstAttempt.writerOutput,
         criticOutput: firstAttempt.criticOutput,
         draftToDeliver: firstAttempt.draftToDeliver,
+        voiceTarget: firstAttempt.voiceTarget,
+        retrievalReasons: firstAttempt.retrievalReasons,
       };
     }
 
@@ -1751,6 +1956,8 @@ User Profile Summary:
       writerOutput: secondAttempt.writerOutput,
       criticOutput: secondAttempt.criticOutput,
       draftToDeliver: secondAttempt.draftToDeliver,
+      voiceTarget: secondAttempt.voiceTarget,
+      retrievalReasons: secondAttempt.retrievalReasons,
     };
   }
 
@@ -1903,7 +2110,13 @@ User Profile Summary:
         return draftResult.response;
       }
 
-      const { writerOutput, criticOutput, draftToDeliver } = draftResult;
+      const {
+        writerOutput,
+        criticOutput,
+        draftToDeliver,
+        voiceTarget,
+        retrievalReasons,
+      } = draftResult;
 
       const noveltyCheck = services.checkDeterministicNovelty(
         draftToDeliver,
@@ -1959,6 +2172,11 @@ User Profile Summary:
           draft: draftToDeliver,
           supportAsset: writerOutput.supportAsset,
           issuesFixed: criticOutput.issues,
+          voiceTarget,
+          noveltyNotes: buildNoveltyNotes({
+            noveltyCheck,
+            retrievalReasons,
+          }),
         },
         memory,
       };
@@ -1977,14 +2195,15 @@ User Profile Summary:
         effectiveActiveConstraints,
         effectiveContext,
         activeDraft,
-        {
-          goal,
-          conversationState: memory.conversationState,
-          antiPatterns,
-          draftPreference: turnDraftPreference,
-          formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
-        },
-      );
+      {
+        goal,
+        conversationState: memory.conversationState,
+        antiPatterns,
+        draftPreference: turnDraftPreference,
+        formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+        voiceTarget: baseVoiceTarget,
+      },
+    );
 
       if (!revisedPlan) {
         return {
@@ -2494,6 +2713,7 @@ User Profile Summary:
         antiPatterns,
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
+        voiceTarget: baseVoiceTarget,
       },
     );
 
@@ -2570,7 +2790,21 @@ User Profile Summary:
         return draftResult.response;
       }
 
-      const { writerOutput, criticOutput, draftToDeliver: finalDraft } = draftResult;
+      const {
+        writerOutput,
+        criticOutput,
+        draftToDeliver: finalDraft,
+        voiceTarget,
+        retrievalReasons,
+      } = draftResult;
+      const historicalTexts = await services.getHistoricalPosts({
+        userId,
+        xHandle: effectiveXHandle,
+      });
+      const noveltyCheck = services.checkDeterministicNovelty(
+        finalDraft,
+        historicalTexts,
+      );
 
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
         ? buildRollingSummary({
@@ -2614,6 +2848,11 @@ User Profile Summary:
           supportAsset: writerOutput.supportAsset,
           plan: guardedPlan,
           issuesFixed: criticOutput.issues,
+          voiceTarget,
+          noveltyNotes: buildNoveltyNotes({
+            noveltyCheck,
+            retrievalReasons,
+          }),
         },
         memory,
       };
@@ -2749,6 +2988,12 @@ User Profile Summary:
       const finalizedRevisionDraft = revisionWasRejectedByCritic
         ? reviserOutput.revisedDraft
         : criticOutput.finalDraft;
+      const revisionVoiceTarget = resolveVoiceTarget({
+        styleCard,
+        userMessage,
+        draftPreference: turnDraftPreference,
+        formatPreference: turnFormatPreference,
+      });
       const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
         ? buildRollingSummary({
           currentSummary: memory.rollingSummary,
@@ -2799,6 +3044,8 @@ User Profile Summary:
           draft: finalizedRevisionDraft,
           supportAsset: reviserOutput.supportAsset,
           issuesFixed,
+          voiceTarget: revisionVoiceTarget,
+          noveltyNotes: buildNoveltyNotes({}),
         },
         memory,
       };
@@ -2821,6 +3068,7 @@ User Profile Summary:
         antiPatterns,
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
+        voiceTarget: baseVoiceTarget,
       },
     );
 
@@ -2860,7 +3108,13 @@ User Profile Summary:
       return draftResult.response;
     }
 
-    const { writerOutput, criticOutput, draftToDeliver } = draftResult;
+    const {
+      writerOutput,
+      criticOutput,
+      draftToDeliver,
+      voiceTarget,
+      retrievalReasons,
+    } = draftResult;
 
     const noveltyCheck = services.checkDeterministicNovelty(
       draftToDeliver,
@@ -2920,6 +3174,11 @@ User Profile Summary:
         draft: draftToDeliver,
         supportAsset: writerOutput.supportAsset,
         issuesFixed: criticOutput.issues,
+        voiceTarget,
+        noveltyNotes: buildNoveltyNotes({
+          noveltyCheck,
+          retrievalReasons,
+        }),
       },
       memory,
     };

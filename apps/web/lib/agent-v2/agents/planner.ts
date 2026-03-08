@@ -6,6 +6,7 @@ import type {
   DraftPreference,
   StrategyPlan,
 } from "../contracts/chat";
+import type { VoiceTarget } from "../core/voiceTarget";
 import { buildPlanInstruction } from "./promptBuilders";
 
 export const PlannerOutputSchema = z.object({
@@ -36,6 +37,7 @@ export async function generatePlan(
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    voiceTarget?: VoiceTarget | null;
   },
 ): Promise<PlannerOutput | null> {
   const instruction = buildPlanInstruction({
@@ -44,6 +46,7 @@ export async function generatePlan(
     activeConstraints,
     recentHistory,
     activeDraft,
+    voiceTarget: options?.voiceTarget,
     options,
   });
 

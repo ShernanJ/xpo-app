@@ -30,6 +30,7 @@ import {
 } from "./orchestrator/assistantReplyStyle.ts";
 import { buildRollingSummary, shouldRefreshRollingSummary } from "./memory/summaryManager.ts";
 import {
+  buildFactSafeReferenceHints,
   buildEffectiveContext,
   retrieveRelevantContext,
 } from "./memory/contextRetriever.ts";
@@ -791,6 +792,32 @@ test("context retrieval prioritizes correction locks and builds fact-first conte
   assert.match(effectiveContext, /FACTS YOU ALREADY KNOW:/);
   assert.match(effectiveContext, /taiv is a real interview checkpoint/);
   assert.match(effectiveContext, /taiv requested an interview/);
+});
+
+test("fact-safe reference hints replace raw topic anchors in strict factual turns", () => {
+  const hints = buildFactSafeReferenceHints({
+    lane: "original",
+    formatPreference: "shortform",
+  });
+
+  assert.equal(hints.length >= 3, true);
+  assert.equal(
+    hints.some((hint) => /cadence, structure, and thematic fit/i.test(hint)),
+    true,
+  );
+
+  const effectiveContext = buildEffectiveContext({
+    recentHistory: "user: write me a post about stanley",
+    rollingSummary: null,
+    relevantTopicAnchors: hints,
+    referenceLabel: "REFERENCE HINTS",
+    contextAnchors: [],
+    activeConstraints: ["Topic grounding: stanley helps people write and grow faster on x"],
+  });
+
+  assert.match(effectiveContext, /REFERENCE HINTS:/);
+  assert.doesNotMatch(effectiveContext, /RELEVANT TOPIC ANCHORS:/);
+  assert.match(effectiveContext, /Do not import older anecdotes, mechanics, timelines, or metrics/i);
 });
 
 test("rolling summary refresh cadence stays stable", () => {

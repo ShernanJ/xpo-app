@@ -8,6 +8,7 @@ import {
   updateConversationMemory,
 } from "@/lib/agent-v2/memory/memoryStore";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
+import type { VoiceTarget } from "@/lib/agent-v2/core/voiceTarget";
 import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
   buildPreferenceConstraintsFromPreferences,
@@ -180,7 +181,9 @@ export async function POST(request: NextRequest) {
 
   const intent = typeof body.intent === "string" ? body.intent.trim() : "";
   const formatPreference =
-    body.formatPreference === "shortform" || body.formatPreference === "longform"
+    body.formatPreference === "shortform" ||
+    body.formatPreference === "longform" ||
+    body.formatPreference === "thread"
       ? body.formatPreference
       : null;
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
@@ -417,7 +420,7 @@ export async function POST(request: NextRequest) {
       mustAvoid?: string[];
       hookType?: string;
       pitchResponse?: string;
-      formatPreference?: "shortform" | "longform";
+      formatPreference?: "shortform" | "longform" | "thread";
     } | null;
     const shouldPromoteThreadTitle = canPromoteThreadTitle({
       currentTitle: storedThread?.title,
@@ -466,10 +469,16 @@ export async function POST(request: NextRequest) {
       plan?.formatPreference ||
       formatPreference ||
       result.memory.formatPreference ||
-      (result.outputShape === "long_form_post" ? "longform" : "shortform");
+      (result.outputShape === "thread_seed"
+        ? "thread"
+        : result.outputShape === "long_form_post"
+          ? "longform"
+          : "shortform");
     const policyDraft =
       normalizedDraftPayload.draft && (
-        result.outputShape === "short_form_post" || result.outputShape === "long_form_post"
+        result.outputShape === "short_form_post" ||
+        result.outputShape === "long_form_post" ||
+        result.outputShape === "thread_seed"
       )
         ? applyFinalDraftPolicy({
             draft: normalizedDraftPayload.draft,
@@ -482,12 +491,24 @@ export async function POST(request: NextRequest) {
                 : null,
           })
         : normalizedDraftPayload.draft;
+    const responseVoiceTarget =
+      resultData && typeof resultData === "object" && "voiceTarget" in resultData
+        ? ((resultData as Record<string, unknown>).voiceTarget as VoiceTarget | null)
+        : null;
+    const responseNoveltyNotes =
+      resultData &&
+      typeof resultData === "object" &&
+      Array.isArray((resultData as Record<string, unknown>).noveltyNotes)
+        ? ((resultData as Record<string, unknown>).noveltyNotes as string[])
+        : [];
     const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
     const draftVersionPayload = buildInitialDraftVersionPayload({
       draft: policyDraft,
       outputShape: result.outputShape,
       supportAsset: (resultData?.supportAsset as string) || null,
       selectedDraftContext,
+      voiceTarget: responseVoiceTarget,
+      noveltyNotes: responseNoveltyNotes,
     });
     const mappedData = {
       reply: normalizedDraftPayload.reply,
