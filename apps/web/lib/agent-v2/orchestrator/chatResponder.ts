@@ -1,6 +1,8 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
-import { generateCoachReply } from "../agents/coach";
+// @ts-expect-error TS5097 - orchestrator utilities are executed directly in node strip-types tests.
+import { generateCoachReply } from "../agents/coach.ts";
+import { getDeterministicChatReply } from "./chatResponderDeterministic";
 
 // ---------------------------------------------------------------------------
 // Chat Responder (V3)
@@ -80,6 +82,14 @@ export async function respondConversationally(args: {
   // Short-circuit for constraint declarations — no LLM call needed.
   if (isConstraintDeclaration(args.userMessage)) {
     return buildConstraintAcknowledgment(args.userMessage);
+  }
+
+  const deterministicReply = getDeterministicChatReply({
+    userMessage: args.userMessage,
+    recentHistory: args.recentHistory,
+  });
+  if (deterministicReply) {
+    return deterministicReply;
   }
 
   // Otherwise use the existing coach for a conversational reply.

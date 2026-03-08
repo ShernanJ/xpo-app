@@ -122,6 +122,86 @@ test("v3: reaction-style draft feedback routes to edit", () => {
   assert.equal(result.overrideClassifiedIntent, "edit");
 });
 
+test("v3: greeting routes to coach chat without generation", () => {
+  const result = planTurn({
+    userMessage: "hi how are you",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: small-talk reply after assistant asks back stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "vibing",
+    recentHistory: "assistant: hey hey, doing good. you?",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 1,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: meta assistant question routes to coach chat", () => {
+  const result = planTurn({
+    userMessage: "how do i make u sound more human",
+    recentHistory: "",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 0,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
+test("v3: conversation reset cue stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "wow super random",
+    recentHistory: "assistant: what's the biggest pain point your app solves?",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 1,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
 // ---------------------------------------------------------------------------
 // Turn Planner — Immediate draft commands
 // ---------------------------------------------------------------------------

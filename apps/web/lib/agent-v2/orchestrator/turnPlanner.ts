@@ -158,6 +158,15 @@ const META_ASSISTANT_CUES = [
   "how do i make this more conversational",
 ];
 
+const CHAT_RESET_CUES = [
+  "super random",
+  "that's random",
+  "thats random",
+  "kinda random",
+  "kind of random",
+  "why are you asking that",
+];
+
 // --- Draft commands (skip clarification gauntlet) ---------------------------
 
 const IMMEDIATE_DRAFT_CUES = [
@@ -277,6 +286,7 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
 
   if (
     looksLikeGreetingOrSmallTalk(normalized, trimmed, input.recentHistory) ||
+    looksLikeConversationReset(normalized, trimmed) ||
     looksLikeMetaAssistantQuestion(normalized, trimmed)
   ) {
     return {
@@ -416,10 +426,28 @@ function looksLikeGreetingOrSmallTalk(
     return false;
   }
 
-  if (
-    GREETING_CUES.some((cue) => compact === cue || compact.startsWith(`${cue} `))
-  ) {
+  if (GREETING_CUES.some((cue) => compact === cue)) {
     return true;
+  }
+
+  const greetingPrefix = GREETING_CUES.find((cue) => compact.startsWith(`${cue} `));
+  if (greetingPrefix && compact.length <= 40) {
+    const remainder = compact.slice(greetingPrefix.length).trim();
+    if (
+      [
+        "there",
+        "hey",
+        "hello",
+        "how are you",
+        "how are u",
+        "how you doing",
+        "how's it going",
+        "what's up",
+        "whats up",
+      ].some((value) => remainder === value)
+    ) {
+      return true;
+    }
   }
 
   const lastAssistantMessage = recentHistory
@@ -451,6 +479,14 @@ function looksLikeMetaAssistantQuestion(normalized: string, original: string): b
   }
 
   return META_ASSISTANT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeConversationReset(normalized: string, original: string): boolean {
+  if (original.length > 80) {
+    return false;
+  }
+
+  return CHAT_RESET_CUES.some((cue) => normalized.includes(cue));
 }
 
 function looksLikeChatQuestion(
