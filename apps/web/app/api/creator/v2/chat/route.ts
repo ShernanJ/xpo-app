@@ -49,7 +49,11 @@ function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
 }
 
 function isGenericThreadPrompt(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/[.?!,:;]+$/g, "")
+    .replace(/\s+/g, " ");
   return [
     "give me some ideas",
     "i need some ideas",
@@ -63,7 +67,22 @@ function isGenericThreadPrompt(message: string): boolean {
     "help me write",
     "help me figure out what to post",
     "what should i post",
+    "what should i post today",
+    "what should i post this week",
+    "what should i post right now",
+    "what should i post on x",
+    "what should i post on twitter",
+    "what should i tweet",
+    "what should i tweet today",
+    "what should i tweet this week",
     "what do i post",
+    "what do i post today",
+    "what do i post this week",
+    "what do i post on x",
+    "what do i post on twitter",
+    "what do i tweet",
+    "what do i tweet today",
+    "what do i tweet this week",
     "write it",
     "looks good",
     "sounds good",

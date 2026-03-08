@@ -61,6 +61,13 @@ const CAPABILITY_CUES = [
   "how can you help",
   "what do you do",
   "help me grow",
+  "help me grow on x",
+  "help me grow on twitter",
+  "help with x growth",
+  "help with twitter growth",
+  "grow on x",
+  "grow on twitter",
+  "grow my account",
   "i want to grow",
   "help me write",
 ];
@@ -69,7 +76,7 @@ function normalizeMessage(message: string): string {
   return message
     .trim()
     .toLowerCase()
-    .replace(/[.?!,]+$/g, "")
+    .replace(/[.?!,:;]+$/g, "")
     .replace(/\s+/g, " ");
 }
 
@@ -176,15 +183,15 @@ function buildGreetingReply(message: string): string {
     return "doing good. you?";
   }
 
-  return "hey. i can help with post ideas, drafts, or tightening something you've already got.";
+  return "hey. i can help with what to post, draft something, or tighten something you've already got.";
 }
 
 function buildSmallTalkReply(): string {
-  return "nice. i can help with post ideas, draft something, or tighten up something you've already got.";
+  return "nice. i can help with what to post, draft something, or tighten something you've already got.";
 }
 
 function buildConversationResetReply(): string {
-  return "fair. i can help with post ideas, draft something, or tighten up something you've already got.";
+  return "fair. i can help with what to post, draft something, or tighten something you've already got.";
 }
 
 function buildMetaAssistantReply(): string {
@@ -192,7 +199,7 @@ function buildMetaAssistantReply(): string {
 }
 
 function buildCapabilityReply(): string {
-  return "i can help you figure out what to post, draft in your voice, revise drafts, and give growth feedback without making you overthink it.";
+  return "i can help with what to post on x, draft in your voice, revise drafts, and give blunt growth feedback. send what to post today, a rough idea, or a draft.";
 }
 
 export function getDeterministicChatReply(args: {

@@ -20,6 +20,26 @@ export const IDEATION_COMMAND_FIXTURES = [
     shouldBeIdeationCommand: true,
   },
   {
+    input: "what should i post today",
+    shouldBeIdeationCommand: true,
+  },
+  {
+    input: "what should i post today?",
+    shouldBeIdeationCommand: true,
+  },
+  {
+    input: "what do i post today",
+    shouldBeIdeationCommand: true,
+  },
+  {
+    input: "what should i post on x",
+    shouldBeIdeationCommand: true,
+  },
+  {
+    input: "what should i tweet today?",
+    shouldBeIdeationCommand: true,
+  },
+  {
     input: "give me more post ideas about onboarding",
     shouldBeIdeationCommand: false,
   },
