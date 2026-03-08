@@ -181,6 +181,10 @@ test("transcript replay asks one useful question for a vague product draft ask, 
   assert.equal(/\?$/.test(result.turns[0]?.output.response.trim()), true);
   assert.equal(result.turns[1]?.output.mode, "draft");
   assert.equal(result.turns[1]?.output.outputShape, "short_form_post");
+  assert.equal(
+    /made that edit|updated it|reworked it/i.test(result.turns[1]?.output.response || ""),
+    false,
+  );
   assert.equal(generatePlanCalls, 1);
   assert.equal(result.finalMemory.unresolvedQuestion, null);
   assert.equal(result.finalMemory.pendingPlan, null);

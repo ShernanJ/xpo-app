@@ -293,6 +293,18 @@ test("draft handoff adapts to warm cadence when user prefers conversational repl
   assert.equal(/\?/.test(reply), true);
 });
 
+test("draft handoff does not mislabel factual clarification answers as edits", () => {
+  const reply = buildDraftReply({
+    userMessage: "it rewrites replies in my voice and helps me ship posts faster",
+    draftPreference: "voice_first",
+    isEdit: false,
+    issuesFixed: [],
+  });
+
+  assert.equal(/updated it|made the edit|reworked it/i.test(reply), false);
+  assert.equal(/drafted|put together|here's one take|ran with/i.test(reply), true);
+});
+
 test("draft handoff respects lowercase casing preference", () => {
   const reply = buildDraftReply({
     userMessage: "make it tighter",

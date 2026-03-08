@@ -216,6 +216,28 @@ function buildCadenceReply(args: {
   return applyCadenceCase(`${actionLine} ${followUp}`, args.profile);
 }
 
+function looksLikeRevisionRequestMessage(normalized: string): boolean {
+  if (!normalized) {
+    return false;
+  }
+
+  const normalizedCompact = normalized.replace(/[.?!,]+$/g, "").trim();
+  if (!normalizedCompact) {
+    return false;
+  }
+
+  return [
+    /^(?:make|change|fix|rewrite|remove|delete|cut|drop|add|swap|replace|rephrase|update)\b/,
+    /^(?:tighten|trim|shorten|expand|soften)\b/,
+    /^(?:tone|dial)\s+(?:it\s+)?down\b/,
+    /^(?:keep|make)\s+it\b/,
+    /^(?:same idea|keep the same idea|start over)\b/,
+    /\b(?:less harsh|less aggressive|less salesy|less hype|less cringe|more like me|sound like me|stronger hook|better hook)\b/,
+    /\b(?:too harsh|too aggressive|too long|too short|too generic|too salesy|too polished|too forced)\b/,
+    /\b(?:feels|sounds)\s+too\s+\w+\b/,
+  ].some((pattern) => pattern.test(normalizedCompact));
+}
+
 export function buildDraftReply(args: BuildDraftReplyArgs): string {
   const normalized = args.userMessage.trim().toLowerCase();
   const issuesFixed = args.issuesFixed || [];
@@ -228,18 +250,7 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
     cadenceProfile.tone,
     cadenceProfile.lowercase ? "lowercase" : "normal",
   ].join("|");
-  const isRevisionRequest =
-    args.isEdit ||
-    [
-      "edit",
-      "change",
-      "tweak",
-      "revise",
-      "rewrite",
-      "fix",
-      "make it",
-      "update",
-    ].some((cue) => normalized.includes(cue));
+  const isRevisionRequest = args.isEdit || looksLikeRevisionRequestMessage(normalized);
 
   if (isRevisionRequest) {
     if (args.draftPreference === "voice_first") {
