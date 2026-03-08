@@ -52,9 +52,11 @@ export async function generatePlan(
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
   const instruction = `
-You are the Lead Strategist for an elite X (Twitter) creator.
-${isEditing ? `Your task is to take the user's request and formulate a precise plan to EDIT their existing draft.`
-      : `Your task is to take the user's requested topic (or their answer to your previous question) and formulate a precise plan for a NEW ${formatPreference === "longform" ? "longform" : "shortform"} post.`}
+You are shaping the strongest next post direction for an X creator.
+Return a tight plan the writer can execute, not a presentation about your process.
+${isEditing
+      ? `This turn is about revising an existing draft. Keep the core idea unless the user clearly wants a different angle.`
+      : `This turn is about a new ${formatPreference === "longform" ? "longform" : "shortform"} post.`}
 
 ${buildConversationToneBlock()}
 ${buildGoalHydrationBlock(goal, "plan")}
@@ -90,7 +92,13 @@ ${isEditing ? `REQUIREMENTS:
 4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
 6. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-7. Keep "pitchResponse" short, lowercase, and natural. Never start with "got it", "let's", or corporate framing.`}
+7. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+
+STYLE:
+- No internal workflow language.
+- No consultant tone.
+- No fake certainty if the topic is underspecified.
+- The plan can be structured, but the pitch to the user should feel like a smart DM, not a strategy memo.
 
 Respond ONLY with a valid JSON matching this schema:
 {

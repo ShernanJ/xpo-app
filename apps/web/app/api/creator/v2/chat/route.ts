@@ -21,8 +21,6 @@ import {
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
-import { selectResponseShapePlan } from "@/lib/agent-v2/orchestrator/surfaceModeSelector";
-import { shapeAssistantResponse } from "@/lib/agent-v2/orchestrator/responseShaper";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
@@ -843,29 +841,15 @@ export async function POST(request: NextRequest) {
               : null,
         })
       : null;
-    const responseShapePlan = selectResponseShapePlan({
-      outputShape: result.outputShape,
-      response: result.response,
-      hasQuickReplies: Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
-      hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
-      hasPlan: Boolean(resultData?.plan),
-      hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
-      conversationState: result.memory.conversationState,
-      preferredSurfaceMode: result.memory.preferredSurfaceMode,
-    });
-    const shapedReply = shapeAssistantResponse({
-      response: result.response,
-      outputShape: result.outputShape,
-      plan: responseShapePlan,
-    });
+    const responseShapePlan = result.responseShapePlan;
     const normalizedDraftPayload = normalizeDraftPayload({
-      reply: shapedReply,
+      reply: result.response,
       draft: resultData?.draft as string || null,
       drafts: resultData?.draft
         ? [resultData.draft as string]
         : [],
       outputShape: result.outputShape,
-      surfaceMode: responseShapePlan.surfaceMode,
+      surfaceMode: result.surfaceMode,
       shouldAskFollowUp:
         responseShapePlan.shouldAskFollowUp && responseShapePlan.maxFollowUps > 0,
     });
@@ -935,7 +919,7 @@ export async function POST(request: NextRequest) {
       source: "deterministic",
       model: activeModel,
       mode: "full_generation",
-      surfaceMode: responseShapePlan.surfaceMode,
+      surfaceMode: result.surfaceMode,
       memory: result.memory,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
       billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
