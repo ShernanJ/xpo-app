@@ -519,10 +519,15 @@ export function looksLikeSemanticCorrection(message: string): boolean {
     "hallucinated",
     "you didn't ask",
     "you didnt ask",
+    "i was correcting you",
+    "i was just correcting you",
+    "that was a correction",
+    "that's not a pain point",
+    "thats not a pain point",
   ].some((candidate) => normalized.includes(candidate));
 }
 
-function hasConcreteCorrectionDetail(message: string): boolean {
+export function hasConcreteCorrectionDetail(message: string): boolean {
   const normalized = message.trim().toLowerCase();
 
   if (normalized.length < 24) {
@@ -551,6 +556,8 @@ function hasConcreteCorrectionDetail(message: string): boolean {
     "it rewrites",
     "works for",
     "because",
+    "doesn't",
+    "doesnt",
   ].some((candidate) => normalized.includes(candidate));
 }
 
@@ -607,8 +614,45 @@ export function inferCorrectionRepairQuestion(
 function normalizeRepairDetail(message: string): string {
   return message
     .trim()
+    .replace(/^(?:but|and|ok|okay|nah|no)\s+/i, "")
     .replace(/\s+/g, " ")
     .replace(/[.?!,]+$/, "");
+}
+
+export function extractLatestCorrectionLock(activeConstraints: string[]): string | null {
+  const latest = activeConstraints
+    .slice()
+    .reverse()
+    .find((constraint) => /^Correction lock:/i.test(constraint));
+
+  return latest ? latest.replace(/^Correction lock:\s*/i, "").trim() || null : null;
+}
+
+export function buildSemanticCorrectionAcknowledgment(args: {
+  userMessage: string;
+  activeConstraints: string[];
+  hadPendingPlan: boolean;
+}): string | null {
+  const detail = hasConcreteCorrectionDetail(args.userMessage)
+    ? normalizeRepairDetail(args.userMessage)
+    : extractLatestCorrectionLock(args.activeConstraints);
+
+  if (!detail) {
+    return null;
+  }
+
+  const normalized = args.userMessage.trim().toLowerCase();
+  const correctionLead =
+    normalized.includes("correcting you") ||
+    normalized.includes("that was a correction") ||
+    normalized.includes("not a pain point")
+      ? "right. you were correcting me."
+      : "right.";
+  const correctionClose = args.hadPendingPlan
+    ? " want me to rework the post around that?"
+    : " i'll keep that straight from here.";
+
+  return `${correctionLead} i'll keep this factual: ${detail}.${correctionClose}`;
 }
 
 export function buildSemanticRepairState(topicSummary: string | null): ClarificationState {

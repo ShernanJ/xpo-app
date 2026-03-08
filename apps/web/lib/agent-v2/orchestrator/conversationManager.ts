@@ -33,8 +33,10 @@ import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
+  buildSemanticCorrectionAcknowledgment,
   buildSemanticRepairDirective,
   buildSemanticRepairState,
+  hasConcreteCorrectionDetail,
   inferCorrectionRepairQuestion,
   inferIdeationRationaleReply,
   inferPostReferenceReply,
@@ -1565,6 +1567,73 @@ User Profile Summary:
     };
   }
 
+  const hadPendingPlan =
+    memory.conversationState === "plan_pending_approval" && Boolean(memory.pendingPlan);
+  const hasCorrectionLock = memory.activeConstraints.some((constraint) =>
+    /^Correction lock:/i.test(constraint),
+  );
+  const shouldUseNonDraftCorrectionPath =
+    !explicitIntent &&
+    !activeDraft &&
+    (
+      looksLikeSemanticCorrection(userMessage) ||
+      (hasConcreteCorrectionDetail(userMessage) && (hadPendingPlan || hasCorrectionLock))
+    );
+
+  if (shouldUseNonDraftCorrectionPath) {
+    const correctionReply = buildSemanticCorrectionAcknowledgment({
+      userMessage,
+      activeConstraints: memory.activeConstraints,
+      hadPendingPlan,
+    });
+
+    if (correctionReply) {
+      const nextConstraints = hasConcreteCorrectionDetail(userMessage)
+        ? Array.from(
+            new Set([
+              ...memory.activeConstraints,
+              buildSemanticRepairDirective(userMessage, memory.topicSummary).constraint,
+            ]),
+          )
+        : memory.activeConstraints;
+
+      await writeMemory({
+        activeConstraints: nextConstraints,
+        conversationState:
+          memory.conversationState === "ready_to_ideate"
+            ? "ready_to_ideate"
+            : "needs_more_context",
+        pendingPlan: hadPendingPlan ? null : memory.pendingPlan,
+        clarificationState: null,
+        assistantTurnCount: nextAssistantTurnCount,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
+      });
+
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: prependFeedbackMemoryNotice(
+          correctionReply,
+          feedbackMemoryNotice,
+        ),
+        memory,
+      };
+    }
+
+    const correctionRepairQuestion = inferCorrectionRepairQuestion(
+      userMessage,
+      memory.topicSummary,
+    );
+
+    if (correctionRepairQuestion) {
+      return returnClarificationQuestion({
+        question: correctionRepairQuestion,
+        pendingPlan: hadPendingPlan ? null : memory.pendingPlan,
+      });
+    }
+  }
+
   if (
     shouldUsePendingPlanApprovalPath({
       mode,
@@ -2595,7 +2664,7 @@ User Profile Summary:
     // V3: Fast-path for non-generation turns (constraint acks, comparisons,
     // simple questions). Skips the full coach LLM call when deterministic
     // answers are sufficient.
-    if (turnPlan && !turnPlan.shouldGenerate) {
+    if ((turnPlan && !turnPlan.shouldGenerate) || mode === "answer_question") {
       const fastReply = await respondConversationally({
         userMessage,
         recentHistory: effectiveContext,
@@ -2603,6 +2672,7 @@ User Profile Summary:
         styleCard,
         topicAnchors: relevantTopicAnchors,
         userContextString,
+        activeConstraints: memory.activeConstraints,
         options: {
           goal,
           conversationState: memory.conversationState,

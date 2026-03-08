@@ -125,6 +125,19 @@ const CHAT_CUES = [
   "compare these",
   "compare the",
   "between these",
+  "what do you know about me",
+  "summarize me",
+  "what are my preferences",
+  "highest performing",
+  "best post",
+  "top post",
+  "most comments",
+  "most likes",
+  "when did i write that",
+  "should i use images",
+  "should i use an image",
+  "should i use screenshots",
+  "should i use visuals",
 ];
 
 const GREETING_CUES = [

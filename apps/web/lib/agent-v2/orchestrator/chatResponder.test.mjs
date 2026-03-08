@@ -76,6 +76,48 @@ test("chat responder answers broad x growth asks with a concrete starting point"
   assert.equal(reply?.includes("?"), false);
 });
 
+test("chat responder keeps self-knowledge answers grounded", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "what do you know about me?",
+    recentHistory: "",
+    userContextString: [
+      "User Profile Summary:",
+      "- Stage: 0-1k",
+      "- Primary Goal: follower growth",
+    ].join("\n"),
+    activeConstraints: ["no emojis"],
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("hidden analytics"), true);
+  assert.equal(reply?.toLowerCase().includes("0-1k"), true);
+  assert.equal(reply?.toLowerCase().includes("200 votes"), false);
+});
+
+test("chat responder refuses to invent best-post analytics", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "what is my best post",
+    recentHistory: "",
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("can't see your actual top posts"), true);
+  assert.equal(reply?.toLowerCase().includes("paste a few posts"), true);
+  assert.equal(reply?.toLowerCase().includes("day 28"), false);
+});
+
+test("chat responder gives general image advice without inventing product specifics", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "should i use images in my post?",
+    recentHistory: "",
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("adds proof"), true);
+  assert.equal(reply?.toLowerCase().includes("hashtag"), false);
+  assert.equal(reply?.toLowerCase().includes("app ui"), false);
+});
+
 test("chat responder transcript flow stays generic after small talk", async () => {
   const openingReply = await getDeterministicChatReply({
     userMessage: "hi how are you",

@@ -20,6 +20,7 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "vague-product-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-loop"), true);
 });
 
 test("replay fixture lookup returns the matching transcript", () => {
@@ -302,5 +303,42 @@ test("transcript replay revises a draft after 'that feels forced' and stays blun
   assert.equal(
     /the point is|what this means is/i.test(result.turns[2]?.output.response || ""),
     false,
+  );
+});
+
+test("transcript replay keeps xpo corrections factual instead of turning them into new ideation prompts", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "xpo-correction-loop",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture, {
+    async classifyIntent() {
+      return {
+        intent: "coach",
+        needs_memory_update: false,
+        confidence: 1,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 3);
+  assert.equal(result.turns[0]?.output.mode, "coach");
+  assert.equal(result.turns[1]?.output.mode, "coach");
+  assert.equal(result.turns[2]?.output.mode, "coach");
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("keep this factual"), true);
+  assert.equal(result.turns[1]?.output.response.toLowerCase().includes("hashtags"), true);
+  assert.equal(result.turns[2]?.output.response.toLowerCase().includes("you were correcting me"), true);
+  assert.equal(
+    /pain point|which one should i draft first/i.test(result.turns[2]?.output.response || ""),
+    false,
+  );
+  assert.equal(result.finalMemory.pendingPlan, null);
+  assert.equal(
+    result.finalMemory.activeConstraints.some((constraint) =>
+      constraint.toLowerCase().includes("xpo doesn't generate hashtags"),
+    ),
+    true,
   );
 });

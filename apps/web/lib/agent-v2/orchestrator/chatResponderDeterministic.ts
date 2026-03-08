@@ -72,6 +72,36 @@ const CAPABILITY_CUES = [
   "help me write",
 ];
 
+const USER_KNOWLEDGE_CUES = [
+  "what do you know about me",
+  "what do you know abt me",
+  "summarize me",
+  "what are my preferences",
+  "what do you know about my writing",
+];
+
+const PERFORMANCE_CUES = [
+  "highest performing post",
+  "highest performing posts",
+  "best post",
+  "best tweet",
+  "top post",
+  "top tweet",
+  "most comments",
+  "most likes",
+  "best performing",
+];
+
+const VISUAL_ADVICE_CUES = [
+  "should i use images",
+  "should i use image",
+  "should i use an image",
+  "should i use visuals",
+  "should i use screenshots",
+  "should i add an image",
+  "should i add images",
+];
+
 function normalizeMessage(message: string): string {
   return message
     .trim()
@@ -172,6 +202,87 @@ function looksLikeCapabilityQuestion(message: string): boolean {
   return CAPABILITY_CUES.some((cue) => normalized.includes(cue));
 }
 
+function looksLikeUserKnowledgeQuestion(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 160) {
+    return false;
+  }
+
+  return USER_KNOWLEDGE_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikePerformanceQuestion(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 160) {
+    return false;
+  }
+
+  return PERFORMANCE_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeVisualAdviceQuestion(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  return VISUAL_ADVICE_CUES.some((cue) => normalized.includes(cue));
+}
+
+function extractGoal(userContextString: string | undefined): string | null {
+  const match = userContextString?.match(/- Primary Goal:\s*(.+)$/mi);
+  const goal = match?.[1]?.trim();
+  if (!goal || /^audience growth$/i.test(goal)) {
+    return null;
+  }
+  return goal;
+}
+
+function extractStage(userContextString: string | undefined): string | null {
+  const match = userContextString?.match(/- Stage:\s*(.+)$/mi);
+  const stage = match?.[1]?.trim();
+  if (!stage || /^unknown$/i.test(stage)) {
+    return null;
+  }
+  return stage;
+}
+
+function summarizeConstraints(activeConstraints: string[] | undefined): string[] {
+  return (activeConstraints || [])
+    .filter((constraint) => !/^correction lock:/i.test(constraint))
+    .map((constraint) => constraint.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function buildUserKnowledgeReply(args: {
+  userContextString?: string;
+  activeConstraints?: string[];
+}): string {
+  const facts: string[] = [];
+  const goal = extractGoal(args.userContextString);
+  const stage = extractStage(args.userContextString);
+  const constraints = summarizeConstraints(args.activeConstraints);
+
+  if (stage) {
+    facts.push(`your stage is ${stage}`);
+  }
+
+  if (goal) {
+    facts.push(`your main goal is ${goal}`);
+  }
+
+  if (constraints.length > 0) {
+    facts.push(`you've asked for ${constraints.join(" and ")}`);
+  }
+
+  if (facts.length === 0) {
+    return "not much beyond what you've actually told me in this thread. i can keep track of your voice, constraints, and product facts as we go, but i don't have hidden account data unless you share it.";
+  }
+
+  return `only what you've actually given me here: ${facts.join("; ")}. i don't have hidden analytics or private account history unless you share them.`;
+}
+
 function buildGreetingReply(message: string): string {
   const normalized = normalizeMessage(message);
   if (
@@ -202,9 +313,19 @@ function buildCapabilityReply(): string {
   return "i can help with what to post on x, draft in your voice, revise drafts, and give blunt growth feedback. send what to post today, a rough idea, or a draft.";
 }
 
+function buildPerformanceReply(): string {
+  return "i can't see your actual top posts or performance analytics in this chat. if you paste a few posts or screenshots, i'll tell you which one hit hardest and why.";
+}
+
+function buildVisualAdviceReply(): string {
+  return "sometimes. use an image only if it adds proof, context, or a visual punchline. if the text already lands on its own, skip it.";
+}
+
 export function getDeterministicChatReply(args: {
   userMessage: string;
   recentHistory: string;
+  userContextString?: string;
+  activeConstraints?: string[];
 }): string | null {
   if (looksLikeGreeting(args.userMessage)) {
     return buildGreetingReply(args.userMessage);
@@ -220,6 +341,21 @@ export function getDeterministicChatReply(args: {
 
   if (looksLikeCapabilityQuestion(args.userMessage)) {
     return buildCapabilityReply();
+  }
+
+  if (looksLikeUserKnowledgeQuestion(args.userMessage)) {
+    return buildUserKnowledgeReply({
+      userContextString: args.userContextString,
+      activeConstraints: args.activeConstraints,
+    });
+  }
+
+  if (looksLikePerformanceQuestion(args.userMessage)) {
+    return buildPerformanceReply();
+  }
+
+  if (looksLikeVisualAdviceQuestion(args.userMessage)) {
+    return buildVisualAdviceReply();
   }
 
   if (looksLikeMetaAssistantQuestion(args.userMessage)) {

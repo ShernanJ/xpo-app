@@ -54,6 +54,50 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
     ],
   },
   {
+    id: "xpo-correction-loop",
+    title: "XPO Correction Loop",
+    description:
+      "Checks that factual product corrections clear the bad plan, create correction locks, and stop turning corrections into ideation prompts.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    initialMemory: {
+      topicSummary: "xpo",
+      conversationState: "plan_pending_approval",
+      concreteAnswerCount: 1,
+      assistantTurnCount: 1,
+      pendingPlan: {
+        objective: "write a post about xpo",
+        angle: "treat xpo like a hashtag engine at a meetup",
+        targetLane: "original",
+        mustInclude: ["hashtags", "conference panel"],
+        mustAvoid: [],
+        hookType: "contrarian",
+        pitchResponse: "run with this angle",
+        formatPreference: "shortform",
+      },
+      formatPreference: "shortform",
+    },
+    turns: [
+      {
+        role: "assistant",
+        message:
+          "most people treat xpo like a meetup. the real value is the live hashtag data it generates. if that's the angle, i'll draft it.",
+      },
+      {
+        role: "user",
+        message: "xpo is not that though, its a x growth/content engine",
+      },
+      {
+        role: "user",
+        message: "but xpo doesn't generate hashtags",
+      },
+      {
+        role: "user",
+        message: "thats not a pain point, i was correcting you",
+      },
+    ],
+  },
+  {
     id: "direct-draft-first-turn",
     title: "Direct Draft First Turn",
     description:

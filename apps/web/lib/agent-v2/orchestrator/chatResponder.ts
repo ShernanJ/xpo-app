@@ -73,6 +73,7 @@ export async function respondConversationally(args: {
   styleCard: VoiceStyleCard | null;
   topicAnchors: string[];
   userContextString: string;
+  activeConstraints?: string[];
   options?: {
     goal?: string;
     conversationState?: ConversationState;
@@ -87,6 +88,8 @@ export async function respondConversationally(args: {
   const deterministicReply = getDeterministicChatReply({
     userMessage: args.userMessage,
     recentHistory: args.recentHistory,
+    userContextString: args.userContextString,
+    activeConstraints: args.activeConstraints,
   });
   if (deterministicReply) {
     return deterministicReply;
