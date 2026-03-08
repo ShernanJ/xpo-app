@@ -708,6 +708,26 @@ test("draft revision normalizer recognizes length trims", () => {
   assert.match(directive.instruction, /shorten the current draft/i);
 });
 
+test("draft revision normalizer recognizes style nudges like less linkedin", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "less linkedin",
+    "shipping updates should not read like a corporate announcement",
+  );
+
+  assert.equal(directive.changeKind, "tone_shift");
+  assert.match(directive.instruction, /adjust the tone of the current draft/i);
+});
+
+test("draft revision normalizer treats 'clean this up' as a tone shift", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "clean this up",
+    "a rough draft that gets the point across but sounds clunky",
+  );
+
+  assert.equal(directive.changeKind, "tone_shift");
+  assert.match(directive.instruction, /adjust the tone of the current draft/i);
+});
+
 test("anti-pattern helpers separate mechanical edits from tonal rejection", () => {
   assert.equal(looksLikeMechanicalEdit("remove commas and fix punctuation"), true);
   assert.equal(looksLikeNegativeFeedback("this sounds like linkedin"), true);

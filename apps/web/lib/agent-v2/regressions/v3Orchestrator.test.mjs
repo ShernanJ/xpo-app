@@ -122,6 +122,27 @@ test("v3: reaction-style draft feedback routes to edit", () => {
   assert.equal(result.overrideClassifiedIntent, "edit");
 });
 
+test("v3: style-nudge draft feedback like 'less linkedin' routes to edit", () => {
+  const result = planTurn({
+    userMessage: "less linkedin",
+    recentHistory: "",
+    activeDraft: "some current draft",
+    memory: {
+      conversationState: "draft_ready",
+      concreteAnswerCount: 1,
+      topicSummary: "founder updates",
+      pendingPlan: null,
+      currentDraftArtifactId: "draft-xyz",
+      assistantTurnCount: 4,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "edit");
+  assert.equal(result.overrideClassifiedIntent, "edit");
+});
+
 test("v3: greeting routes to coach chat without generation", () => {
   const result = planTurn({
     userMessage: "hi how are you",
