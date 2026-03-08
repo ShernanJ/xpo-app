@@ -172,6 +172,44 @@ const PRODUCT_ADJACENT_MECHANIC_TERMS = [
   "friction-free",
 ];
 
+const PRODUCT_INFLATED_CONTRAST_TERMS = [
+  "every tool",
+  "every growth tool",
+  "most tools",
+  "most growth tools",
+  "most tool",
+  "most people",
+  "everyone",
+  "just another tool",
+  "another tool",
+  "the only tool",
+];
+
+const EXPLICIT_CONTRAST_REQUEST_PATTERNS = [
+  /\bvs\b/i,
+  /\bversus\b/i,
+  /\bcompare(?:d)?\s+to\b/i,
+  /\bbetter\s+than\b/i,
+  /\bworse\s+than\b/i,
+  /\binstead\s+of\b/i,
+  /\bunlike\b/i,
+  /\bnot\s+just\b/i,
+  /\bnot\s+another\b/i,
+  /\bmyth\b/i,
+  /\bmyths\b/i,
+  /\bcontrarian\b/i,
+  /\bpush\s+back\b/i,
+  /\bpushback\b/i,
+  /\bwrong\s+about\b/i,
+  /\boverrated\b/i,
+  /\bunderrated\b/i,
+  /\bbeats?\b/i,
+];
+
+function containsExplicitContrastRequest(value: string): boolean {
+  return EXPLICIT_CONTRAST_REQUEST_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 function looksLikeDraftRequest(normalized: string): boolean {
   if (DRAFT_REQUEST_CUES.some((candidate) => normalized.includes(candidate))) {
     return true;
@@ -343,10 +381,18 @@ export function assessGroundedProductDrift(args: {
     draftNormalized,
     PRODUCT_ADJACENT_MECHANIC_TERMS,
   );
+  const inflatedContrastTerms = containsExplicitContrastRequest(combinedGrounding)
+    ? []
+    : collectAbsentTerms(
+      combinedGrounding,
+      draftNormalized,
+      PRODUCT_INFLATED_CONTRAST_TERMS,
+    );
 
   if (
     (!draftAddsFirstPersonUsage || groundingAllowsFirstPersonUsage) &&
-    adjacentMechanicTerms.length === 0
+    adjacentMechanicTerms.length === 0 &&
+    inflatedContrastTerms.length === 0
   ) {
     return {
       shouldGuard: true,
@@ -364,6 +410,15 @@ export function assessGroundedProductDrift(args: {
     };
   }
 
+  if (inflatedContrastTerms.length > 0) {
+    return {
+      shouldGuard: true,
+      hasDrift: true,
+      reason:
+        "Grounded product drift: draft introduced inflated market contrast that was not in the user's grounding.",
+    };
+  }
+
   return {
     shouldGuard: true,
     hasDrift: true,
@@ -373,7 +428,7 @@ export function assessGroundedProductDrift(args: {
 }
 
 export function buildGroundedProductRetryConstraint(): string {
-  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, or adjacent mechanics unless the user explicitly said them. State the grounded product fact plainly.";
+  return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, or inflated market contrast unless the user explicitly said them. State the grounded product fact plainly.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {

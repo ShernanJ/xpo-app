@@ -139,4 +139,11 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(promptBuildersSource.includes("PLAIN FACTUAL PRODUCT MODE:"), true);
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT open with universal claims like "every tool", "most tools", "most people", "everyone", "just another tool"',
+    ),
+    true,
+  );
 });

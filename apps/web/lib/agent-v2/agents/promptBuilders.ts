@@ -49,6 +49,62 @@ Do NOT invent first-person usage, personal testing, rollout history, or "i use /
 `.trim();
 }
 
+const EXPLICIT_CONTRAST_REQUEST_PATTERNS = [
+  /\bvs\b/i,
+  /\bversus\b/i,
+  /\bcompare(?:d)?\s+to\b/i,
+  /\bbetter\s+than\b/i,
+  /\bworse\s+than\b/i,
+  /\binstead\s+of\b/i,
+  /\bunlike\b/i,
+  /\bnot\s+just\b/i,
+  /\bnot\s+another\b/i,
+  /\bmyth\b/i,
+  /\bmyths\b/i,
+  /\bcontrarian\b/i,
+  /\bpush\s+back\b/i,
+  /\bpushback\b/i,
+  /\bwrong\s+about\b/i,
+  /\boverrated\b/i,
+  /\bunderrated\b/i,
+  /\bbeats?\b/i,
+];
+
+function shouldUsePlainFactualProductMode(args: {
+  sourceText: string;
+  activeConstraints: string[];
+}): boolean {
+  const groundingLines = args.activeConstraints.filter(
+    (entry) =>
+      /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+  );
+
+  if (groundingLines.length === 0) {
+    return false;
+  }
+
+  return !EXPLICIT_CONTRAST_REQUEST_PATTERNS.some((pattern) =>
+    pattern.test(args.sourceText),
+  );
+}
+
+function buildPlainFactualProductBlock(args: {
+  sourceText: string;
+  activeConstraints: string[];
+}): string | null {
+  if (!shouldUsePlainFactualProductMode(args)) {
+    return null;
+  }
+
+  return `
+PLAIN FACTUAL PRODUCT MODE:
+- The user gave grounded product facts, not a comparison brief.
+- Default to a plain descriptive angle before reaching for a contrarian or market-level framing.
+- Do NOT open with universal claims like "every tool", "most tools", "most people", "everyone", "just another tool", or similar broad contrast unless the user explicitly asked for that angle.
+- If the grounding is simple, keep the framing simple.
+  `.trim();
+}
+
 export interface BuildPlanInstructionArgs {
   userMessage: string;
   topicSummary: string | null;
@@ -73,6 +129,10 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const formatPreference = args.options?.formatPreference || "shortform";
   const concreteSceneBlock = buildConcreteScenePlanBlock(args.userMessage);
   const hardGroundingBlock = buildHardGroundingBlock(args.activeConstraints);
+  const plainFactualProductBlock = buildPlainFactualProductBlock({
+    sourceText: args.userMessage,
+    activeConstraints: args.activeConstraints,
+  });
 
   return `
 You are shaping the strongest next post direction for an X growth coach / ghostwriter system.
@@ -105,6 +165,8 @@ ${args.activeConstraints.join(" | ") || "None"}
 
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 
+${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
+
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 
 ${isEditing ? `REQUIREMENTS:
@@ -122,6 +184,7 @@ ${isEditing ? `REQUIREMENTS:
 6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
 7. If FACTUAL GROUNDING is present, use it as the source of truth for the plan. Do NOT broaden the product into a nearby category or implied mechanic that is not explicitly in that grounding.
 8. If FACTUAL GROUNDING is present, do NOT add first-person product usage, adoption stories, or market comparisons unless the user explicitly gave them.
+8a. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 9. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
 10. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
 11. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
@@ -200,6 +263,10 @@ Do NOT widen them into adjacent product categories, event framing, or mechanics 
 Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growth hack, or any other nearby framing unless the grounding explicitly says that.
 `.trim()
       : null;
+  const plainFactualProductBlock = buildPlainFactualProductBlock({
+    sourceText: args.options?.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" "),
+    activeConstraints: args.activeConstraints,
+  });
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -248,6 +315,7 @@ ${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRIT
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
+${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
@@ -271,6 +339,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
 12b. If FACTUAL GROUNDING is present, do NOT invent first-person product usage or testing claims such as "i tried", "i use", "i let it", or "we switched to it" unless the user explicitly said that in the chat.
+12c. If PLAIN FACTUAL PRODUCT MODE is present, avoid inflated market contrast. Do NOT default to lines like "every tool...", "most tools...", "most people...", or "everyone..." unless the user explicitly asked for a comparison angle.
 13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 

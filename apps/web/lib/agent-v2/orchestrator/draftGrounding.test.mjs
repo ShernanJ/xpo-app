@@ -144,3 +144,38 @@ test("grounded product assessment flags invented adjacent mechanics", () => {
   );
   assert.equal(buildGroundedProductRetryConstraint().includes("adjacent mechanics"), true);
 });
+
+test("grounded product assessment flags inflated market contrast when the user gave plain facts", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post about xpo. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "every growth tool promises speed. xpo helps people write and grow faster on x without the mental load.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, true);
+  assert.equal(
+    result.reason,
+    "Grounded product drift: draft introduced inflated market contrast that was not in the user's grounding.",
+  );
+  assert.equal(buildGroundedProductRetryConstraint().includes("inflated market contrast"), true);
+});
+
+test("grounded product assessment allows contrast when the user explicitly asked for comparison", () => {
+  const result = assessGroundedProductDrift({
+    activeConstraints: [
+      "Topic grounding: xpo: it helps people write and grow faster on x without the mental load",
+    ],
+    sourceUserMessage:
+      "write a post comparing xpo vs other x growth tools. factual grounding: xpo: it helps people write and grow faster on x without the mental load",
+    draft:
+      "most tools add more mental load. xpo helps people write and grow faster on x without the mental load.",
+  });
+
+  assert.equal(result.shouldGuard, true);
+  assert.equal(result.hasDrift, false);
+});
