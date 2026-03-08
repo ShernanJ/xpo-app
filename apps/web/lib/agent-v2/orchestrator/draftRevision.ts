@@ -1,6 +1,7 @@
 export type DraftRevisionChangeKind =
   | "local_phrase_edit"
   | "line_level_edit"
+  | "emoji_cleanup"
   | "hook_only_edit"
   | "length_trim"
   | "tone_shift"
@@ -65,6 +66,23 @@ export function normalizeDraftRevisionInstruction(
 
   if (
     [
+      "no emojis",
+      "remove emojis",
+      "remove the emojis",
+      "drop the emojis",
+      "without emojis",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return {
+      instruction:
+        "remove all emojis from the current draft and keep the rest of the wording as intact as possible",
+      changeKind: "emoji_cleanup",
+      targetText: null,
+    };
+  }
+
+  if (
+    [
       "make it shorter",
       "shorten it",
       "trim it",
@@ -82,7 +100,7 @@ export function normalizeDraftRevisionInstruction(
   }
 
   if (
-    ["change the hook", "fix the hook", "rewrite the hook", "better hook"].some((cue) =>
+    ["change the hook", "fix the hook", "rewrite the hook", "better hook", "stronger hook"].some((cue) =>
       normalized.includes(cue),
     )
   ) {
@@ -95,9 +113,31 @@ export function normalizeDraftRevisionInstruction(
   }
 
   if (
-    ["more casual", "less hype", "less salesy", "more direct", "less polished"].some((cue) =>
-      normalized.includes(cue),
-    )
+    [
+      "more casual",
+      "less hype",
+      "less salesy",
+      "more direct",
+      "less polished",
+      "less cringe",
+      "too much",
+      "too forced",
+      "sounds forced",
+      "feels forced",
+      "feels too forced",
+      "this one feels too forced",
+      "builder-coded",
+      "builder coded",
+      "more builder-coded",
+      "more builder coded",
+      "keep the same idea but cleaner",
+      "keep the same idea",
+      "cleaner",
+      "more like me",
+      "sound like me",
+      "sounds like me",
+      "not my voice",
+    ].some((cue) => normalized.includes(cue))
   ) {
     return {
       instruction: `adjust the tone of the current draft to satisfy this note: ${trimmed}`,

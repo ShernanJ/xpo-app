@@ -486,6 +486,12 @@ interface CreatorChatSuccess {
     source: "openai" | "groq" | "deterministic";
     model: string | null;
     mode: CreatorGenerationContract["mode"];
+    surfaceMode?:
+      | "answer_directly"
+      | "ask_one_question"
+      | "revise_and_return"
+      | "offer_options"
+      | "generate_full_output";
     newThreadId?: string;
     messageId?: string;
     threadTitle?: string;
@@ -496,6 +502,11 @@ interface CreatorChatSuccess {
       topicSummary: string | null;
       concreteAnswerCount: number;
       currentDraftArtifactId: string | null;
+      activeDraftRef?: {
+        messageId: string;
+        versionId: string;
+        revisionChainId?: string | null;
+      } | null;
       rollingSummary?: string | null;
       pendingPlan?: {
         objective: string;
@@ -513,6 +524,10 @@ interface CreatorChatSuccess {
         seedTopic: string | null;
       } | null;
       assistantTurnCount?: number;
+      latestRefinementInstruction?: string | null;
+      unresolvedQuestion?: string | null;
+      clarificationQuestionsAsked?: number;
+      preferredSurfaceMode?: "natural" | "structured" | null;
       formatPreference?: "shortform" | "longform" | null;
       voiceFidelity?: "balanced";
     };
@@ -619,6 +634,7 @@ interface ChatMessage {
   source?: "openai" | "groq" | "deterministic";
   model?: string | null;
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
+  surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
 }
@@ -2299,6 +2315,21 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
   return "ignore";
 }
 
+function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
+  if (!message.quickReplies?.length) {
+    return false;
+  }
+
+  if (!message.surfaceMode) {
+    return true;
+  }
+
+  return (
+    message.surfaceMode === "ask_one_question" ||
+    message.surfaceMode === "offer_options"
+  );
+}
+
 function buildDraftRevisionTimeline(args: {
   messages: ChatMessage[];
   activeDraftSelection: DraftDrawerSelection | null;
@@ -3294,7 +3325,7 @@ function ChatPageContent() {
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
   const [expandedPriorityIndex, setExpandedPriorityIndex] = useState<number | null>(null);
-  const [conversationMemory, setConversationMemory] = useState<
+  const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
@@ -6196,7 +6227,6 @@ function ChatPageContent() {
               : {}),
             ...resolvedToneInputs,
             ...resolvedStrategyInputs,
-            ...(conversationMemory ? { memory: conversationMemory } : {}),
           }),
         });
 
@@ -6249,6 +6279,7 @@ function ChatPageContent() {
               revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
               outputShape: data.data.outputShape,
+              surfaceMode: data.data.surfaceMode,
               whyThisWorks: data.data.whyThisWorks,
               watchOutFor: data.data.watchOutFor,
               debug: data.data.debug,
@@ -6404,6 +6435,7 @@ function ChatPageContent() {
             revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
             outputShape: streamedResult.outputShape,
+            surfaceMode: streamedResult.surfaceMode,
             whyThisWorks: streamedResult.whyThisWorks,
             watchOutFor: streamedResult.watchOutFor,
             debug: streamedResult.debug,
@@ -6484,7 +6516,6 @@ function ChatPageContent() {
       activeToneInputs,
       contract,
       context,
-      conversationMemory,
       currentPreferencePayload,
       isMainChatLocked,
       messages,
@@ -7612,14 +7643,14 @@ function ChatPageContent() {
                           ) : null}
 
                           {message.role === "assistant" &&
-                            message.quickReplies?.length &&
+                            shouldShowQuickRepliesForMessage(message) &&
                             index === messages.length - 1 &&
                             !(
                               message.outputShape === "ideation_angles" &&
                               message.angles?.length
                             ) ? (
                             <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies.map((quickReply) => (
+                              {message.quickReplies?.map((quickReply) => (
                                 <button
                                   key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
                                   type="button"
@@ -7676,10 +7707,10 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             message.outputShape === "ideation_angles" &&
                             message.angles?.length &&
-                            message.quickReplies?.length &&
+                            shouldShowQuickRepliesForMessage(message) &&
                             index === messages.length - 1 ? (
                             <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies.map((quickReply) => (
+                              {message.quickReplies?.map((quickReply) => (
                                 <button
                                   key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
                                   type="button"

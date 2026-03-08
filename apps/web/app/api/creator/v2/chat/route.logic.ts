@@ -1,3 +1,5 @@
+import type { SurfaceMode } from "../../../../../lib/agent-v2/contracts/chat.ts";
+
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
 const DRAFT_HANDOFF_REPLIES = new Set([
@@ -71,13 +73,30 @@ function deterministicIndex(seed: string, modulo: number): number {
   return hash % modulo;
 }
 
-function buildDefaultDraftHandoffReply(seed: string): string {
-  const options = [
-    "drafted a version for you. what do you want to tweak?",
-    "ran with that angle and drafted this. want any tweaks before you post?",
-    "here's one take. should we tune tone, hook, or length?",
-  ];
-  return options[deterministicIndex(seed, options.length)];
+function buildDefaultDraftHandoffReply(args: {
+  seed: string;
+  surfaceMode?: SurfaceMode;
+  shouldAskFollowUp?: boolean;
+}): string {
+  const options =
+    args.shouldAskFollowUp === false
+      ? args.surfaceMode === "revise_and_return"
+        ? [
+            "updated it.",
+            "made the edit.",
+            "tightened it up.",
+          ]
+        : [
+            "here's a draft.",
+            "put together a draft for you.",
+            "ran with that angle.",
+          ]
+      : [
+          "drafted a version for you. what do you want to tweak?",
+          "ran with that angle and drafted this. want any tweaks before you post?",
+          "here's one take. should we tune tone, hook, or length?",
+        ];
+  return options[deterministicIndex(args.seed, options.length)];
 }
 
 export interface SelectedDraftContext {
@@ -132,6 +151,8 @@ export function normalizeDraftPayload(args: {
   draft: string | null;
   drafts: string[];
   outputShape: string;
+  surfaceMode?: SurfaceMode;
+  shouldAskFollowUp?: boolean;
 }): {
   reply: string;
   draft: string | null;
@@ -153,12 +174,20 @@ export function normalizeDraftPayload(args: {
     if (!draft && replyLooksLikeDraft) {
       draft = trimmedReply;
       drafts = [trimmedReply];
-      reply = buildDefaultDraftHandoffReply(trimmedReply);
+      reply = buildDefaultDraftHandoffReply({
+        seed: trimmedReply,
+        surfaceMode: args.surfaceMode,
+        shouldAskFollowUp: args.shouldAskFollowUp,
+      });
     } else if (draft) {
       drafts = drafts.length > 0 ? drafts : [draft];
 
       if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
-        reply = buildDefaultDraftHandoffReply(draft || trimmedReply || "draft");
+        reply = buildDefaultDraftHandoffReply({
+          seed: draft || trimmedReply || "draft",
+          surfaceMode: args.surfaceMode,
+          shouldAskFollowUp: args.shouldAskFollowUp,
+        });
       }
     }
   }

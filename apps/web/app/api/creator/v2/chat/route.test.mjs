@@ -47,11 +47,27 @@ test("normalizeDraftPayload preserves conversational handoff replies", () => {
     draft: "sample draft body",
     drafts: ["sample draft body"],
     outputShape: "short_form_post",
+    surfaceMode: "generate_full_output",
+    shouldAskFollowUp: true,
   });
 
   assert.equal(result.reply, handoffReply);
   assert.equal(result.draft, "sample draft body");
   assert.equal(looksLikeDraftHandoff(handoffReply), true);
+});
+
+test("normalizeDraftPayload can emit a non-question revision handoff", () => {
+  const result = normalizeDraftPayload({
+    reply: "",
+    draft: "updated draft body",
+    drafts: ["updated draft body"],
+    outputShape: "short_form_post",
+    surfaceMode: "revise_and_return",
+    shouldAskFollowUp: false,
+  });
+
+  assert.equal(result.reply.includes("?"), false);
+  assert.equal(result.reply.length > 0, true);
 });
 
 test("long_form_post remains a valid route draft kind", () => {

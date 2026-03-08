@@ -891,6 +891,22 @@ function applyMemoryPatch(
         : patch.clarificationState,
     rollingSummary:
       patch.rollingSummary === undefined ? current.rollingSummary : patch.rollingSummary,
+    activeDraftRef:
+      patch.activeDraftRef === undefined ? current.activeDraftRef : patch.activeDraftRef,
+    latestRefinementInstruction:
+      patch.latestRefinementInstruction === undefined
+        ? current.latestRefinementInstruction
+        : patch.latestRefinementInstruction,
+    unresolvedQuestion:
+      patch.unresolvedQuestion === undefined ? current.unresolvedQuestion : patch.unresolvedQuestion,
+    clarificationQuestionsAsked:
+      patch.clarificationQuestionsAsked === undefined
+        ? current.clarificationQuestionsAsked
+        : patch.clarificationQuestionsAsked,
+    preferredSurfaceMode:
+      patch.preferredSurfaceMode === undefined
+        ? current.preferredSurfaceMode
+        : patch.preferredSurfaceMode,
     formatPreference:
       patch.formatPreference === undefined
         ? current.formatPreference
@@ -1217,6 +1233,11 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      activeDraftRef: patch.activeDraftRef,
+      latestRefinementInstruction: patch.latestRefinementInstruction,
+      unresolvedQuestion: patch.unresolvedQuestion,
+      clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
+      preferredSurfaceMode: patch.preferredSurfaceMode,
       formatPreference: patch.formatPreference,
       lastIdeationAngles: patch.lastIdeationAngles,
       topicSummary: patch.topicSummary ?? memory.topicSummary,
@@ -1238,6 +1259,11 @@ User Profile Summary:
       clarificationState: patch.clarificationState,
       rollingSummary: patch.rollingSummary,
       assistantTurnCount: patch.assistantTurnCount,
+      activeDraftRef: patch.activeDraftRef,
+      latestRefinementInstruction: patch.latestRefinementInstruction,
+      unresolvedQuestion: patch.unresolvedQuestion,
+      clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
+      preferredSurfaceMode: patch.preferredSurfaceMode,
       formatPreference: patch.formatPreference,
       lastIdeationAngles: patch.lastIdeationAngles,
     });
@@ -1246,6 +1272,19 @@ User Profile Summary:
       ? createConversationMemorySnapshot(updated as unknown as Record<string, unknown>)
       : optimistic;
   };
+
+  function buildClarificationPatch(question: string) {
+    return {
+      unresolvedQuestion: question,
+      clarificationQuestionsAsked: memory.clarificationQuestionsAsked + 1,
+    } as const;
+  }
+
+  function clearClarificationPatch() {
+    return {
+      unresolvedQuestion: null,
+    } as const;
+  }
 
   const nextAssistantTurnCount = memory.assistantTurnCount + 1;
   const turnDraftPreference = inferDraftPreference(
@@ -1283,6 +1322,8 @@ User Profile Summary:
       activeConstraints: nextConstraints,
       clarificationState: null,
       conversationState: "editing",
+      latestRefinementInstruction: repairDirective.rewriteRequest,
+      ...clearClarificationPatch(),
     });
 
     mode = "edit";
@@ -1295,6 +1336,7 @@ User Profile Summary:
         memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
       clarificationState: null,
       assistantTurnCount: nextAssistantTurnCount,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -1392,6 +1434,7 @@ User Profile Summary:
           pendingPlan: null,
           clarificationState: clarification.clarificationState,
           assistantTurnCount: nextAssistantTurnCount,
+          ...buildClarificationPatch(clarification.reply),
         });
 
         return {
@@ -1423,6 +1466,8 @@ User Profile Summary:
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1497,6 +1542,8 @@ User Profile Summary:
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference:
           guardedRevisedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1531,6 +1578,7 @@ User Profile Summary:
         pendingPlan: null,
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -1552,6 +1600,7 @@ User Profile Summary:
       pendingPlan: memory.pendingPlan,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -1576,6 +1625,7 @@ User Profile Summary:
   // V3: Over-questioning guard. After 2 concrete answers from the user,
   // skip ALL clarification gates and proceed to ideation or plan generation.
   // This prevents the "keeps asking questions" problem.
+  const hasOutstandingClarification = Boolean(memory.unresolvedQuestion?.trim());
   const hasEnoughContextToAct =
     memory.concreteAnswerCount >= 2 ||
     (memory.topicSummary && memory.pendingPlan) ||
@@ -1594,6 +1644,11 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(
+          buildAmbiguousReferenceQuestion(
+            turnDraftContextSlots.ambiguousReference,
+          ),
+        ),
       });
 
       return {
@@ -1630,6 +1685,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -1658,6 +1714,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -1682,6 +1739,7 @@ User Profile Summary:
           conversationState: "needs_more_context",
           clarificationState: null,
           assistantTurnCount: nextAssistantTurnCount,
+          ...buildClarificationPatch(clarificationQuestion),
         });
 
         return {
@@ -1709,6 +1767,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarificationQuestion),
       });
 
       return {
@@ -1723,7 +1782,7 @@ User Profile Summary:
     }
   }
 
-  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && !hasOutstandingClarification && mode === "plan") {
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
@@ -1740,6 +1799,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -1760,6 +1820,7 @@ User Profile Summary:
   if (
     !explicitIntent &&
     !hasEnoughContextToAct &&
+    !hasOutstandingClarification &&
     mode === "plan" &&
     isBareDraftRequest(userMessage)
   ) {
@@ -1777,6 +1838,7 @@ User Profile Summary:
       conversationState: "needs_more_context",
       clarificationState: clarification.clarificationState,
       assistantTurnCount: nextAssistantTurnCount,
+      ...buildClarificationPatch(clarification.reply),
     });
 
     return {
@@ -1796,6 +1858,7 @@ User Profile Summary:
   if (
     !explicitIntent &&
     !hasEnoughContextToAct &&
+    !hasOutstandingClarification &&
     mode === "plan" &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
@@ -1815,6 +1878,7 @@ User Profile Summary:
       conversationState: "needs_more_context",
       clarificationState: clarification.clarificationState,
       assistantTurnCount: nextAssistantTurnCount,
+      ...buildClarificationPatch(clarification.reply),
     });
 
     return {
@@ -1831,7 +1895,7 @@ User Profile Summary:
     };
   }
 
-  if (!explicitIntent && !hasEnoughContextToAct && mode === "plan") {
+  if (!explicitIntent && !hasEnoughContextToAct && !hasOutstandingClarification && mode === "plan") {
     const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
 
     if (abstractTopicSeed) {
@@ -1847,6 +1911,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -1878,6 +1943,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1900,6 +1966,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1927,6 +1994,7 @@ User Profile Summary:
         conversationState: "ready_to_ideate",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1953,6 +2021,7 @@ User Profile Summary:
             : "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -1982,6 +2051,7 @@ User Profile Summary:
           memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
         clarificationState: null,
         assistantTurnCount: nextAssistantTurnCount,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2005,6 +2075,7 @@ User Profile Summary:
         conversationState: "needs_more_context",
         clarificationState: buildSemanticRepairState(memory.topicSummary),
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(correctionRepairQuestion),
       });
 
       return {
@@ -2032,6 +2103,8 @@ User Profile Summary:
         clarificationState: null,
         conversationState: "editing",
         assistantTurnCount: nextAssistantTurnCount,
+        latestRefinementInstruction: repairDirective.rewriteRequest,
+        ...clearClarificationPatch(),
       });
 
       mode = "edit";
@@ -2088,6 +2161,7 @@ User Profile Summary:
           unresolvedQuestion: ideas?.close || null,
         })
         : memory.rollingSummary,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2178,6 +2252,7 @@ User Profile Summary:
           clarificationState: null,
           assistantTurnCount: nextAssistantTurnCount,
           formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+          ...clearClarificationPatch(),
         });
 
         return {
@@ -2233,6 +2308,8 @@ User Profile Summary:
         assistantTurnCount: nextAssistantTurnCount,
         rollingSummary,
         formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+        latestRefinementInstruction: null,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2265,6 +2342,7 @@ User Profile Summary:
       clarificationState: null,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2319,6 +2397,10 @@ User Profile Summary:
       }
     }
 
+    const revisionActiveConstraints = isConstraintDeclaration(userMessage)
+      ? Array.from(new Set([...effectiveActiveConstraints, userMessage.trim()]))
+      : effectiveActiveConstraints;
+
     if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
       const revision = normalizeDraftRevisionInstruction(
         draftInstruction,
@@ -2329,7 +2411,7 @@ User Profile Summary:
         revision,
         styleCard,
         topicAnchors: relevantTopicAnchors,
-        activeConstraints: effectiveActiveConstraints,
+        activeConstraints: revisionActiveConstraints,
         recentHistory: effectiveContext,
         options: {
           conversationState: "editing",
@@ -2358,7 +2440,7 @@ User Profile Summary:
           whyThisWorks: "",
           watchOutFor: "",
         },
-        effectiveActiveConstraints,
+        revisionActiveConstraints,
         styleCard,
         {
           maxCharacterLimit,
@@ -2387,7 +2469,7 @@ User Profile Summary:
           currentSummary: memory.rollingSummary,
           topicSummary: memory.topicSummary,
           approvedPlan: memory.pendingPlan,
-          activeConstraints: effectiveActiveConstraints,
+          activeConstraints: revisionActiveConstraints,
           latestDraftStatus: "Draft revised",
           formatPreference: memory.formatPreference || turnFormatPreference,
         })
@@ -2405,11 +2487,14 @@ User Profile Summary:
 
       await writeMemory({
         conversationState: "editing",
+        activeConstraints: revisionActiveConstraints,
         pendingPlan: null,
         clarificationState: null,
         rollingSummary,
         assistantTurnCount: nextAssistantTurnCount,
         formatPreference: turnFormatPreference,
+        latestRefinementInstruction: draftInstruction,
+        ...clearClarificationPatch(),
       });
 
       return {
@@ -2442,7 +2527,7 @@ User Profile Summary:
     const plan = await services.generatePlan(
       draftInstruction,
       memory.topicSummary,
-      effectiveActiveConstraints,
+      revisionActiveConstraints,
       effectiveContext,
       activeDraft,
       {
@@ -2472,8 +2557,8 @@ User Profile Summary:
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
     const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
-      ? appendNoFabricationConstraint(effectiveActiveConstraints)
-      : effectiveActiveConstraints;
+      ? appendNoFabricationConstraint(revisionActiveConstraints)
+      : revisionActiveConstraints;
 
     const writerOutput = await services.generateDrafts(
       guardedPlan,
@@ -2538,6 +2623,7 @@ User Profile Summary:
         pendingPlan: null,
         clarificationState: clarification.clarificationState,
         assistantTurnCount: nextAssistantTurnCount,
+        ...buildClarificationPatch(clarification.reply),
       });
 
       return {
@@ -2574,6 +2660,8 @@ User Profile Summary:
       rollingSummary,
       assistantTurnCount: nextAssistantTurnCount,
       formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      latestRefinementInstruction: null,
+      ...clearClarificationPatch(),
     });
 
     return {
@@ -2636,6 +2724,7 @@ User Profile Summary:
                 : "needs_more_context",
           ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
           assistantTurnCount: nextAssistantTurnCount,
+          ...clearClarificationPatch(),
         });
 
         return {
@@ -2686,25 +2775,15 @@ User Profile Summary:
       concreteAnswerCount: nextConcreteAnswerCount,
       rollingSummary,
       assistantTurnCount: nextAssistantTurnCount,
+      unresolvedQuestion: coachReply?.probingQuestion || null,
+      clarificationQuestionsAsked: coachReply?.probingQuestion
+        ? memory.clarificationQuestionsAsked + 1
+        : memory.clarificationQuestionsAsked,
     });
-
-    const willHaveEnoughContext =
-      nextConcreteAnswerCount >= 2 ||
-      (nextAssistantTurnCount >= 3 &&
-        Boolean(memory.topicSummary) &&
-        nextConcreteAnswerCount >= 1);
 
     let finalResponse =
       coachReply?.response ||
       "what's on your mind? i can help you draft, ideate, or figure out what to post.";
-
-    if (
-      willHaveEnoughContext &&
-      !finalResponse.toLowerCase().includes("want me to") &&
-      !finalResponse.toLowerCase().includes("draft")
-    ) {
-      finalResponse = finalResponse.trim() + " want me to turn that into a post?";
-    }
 
     return {
       mode: "coach",

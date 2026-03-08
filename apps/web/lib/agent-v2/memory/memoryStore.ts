@@ -1,6 +1,7 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import type {
+  ActiveDraftRef,
   ClarificationState,
   ConversationState,
   DraftFormatPreference,
@@ -22,11 +23,16 @@ export interface UpdateMemoryArgs {
   activeConstraints?: string[];
   concreteAnswerCount?: number;
   lastDraftArtifactId?: string | null;
+  activeDraftRef?: ActiveDraftRef | null;
   conversationState?: ConversationState;
   pendingPlan?: StrategyPlan | null;
   clarificationState?: ClarificationState | null;
   rollingSummary?: string | null;
   assistantTurnCount?: number;
+  latestRefinementInstruction?: string | null;
+  unresolvedQuestion?: string | null;
+  clarificationQuestionsAsked?: number;
+  preferredSurfaceMode?: "natural" | "structured" | null;
   formatPreference?: DraftFormatPreference | null;
 }
 
@@ -38,6 +44,11 @@ interface StoredMemoryEnvelope {
   lastIdeationAngles: string[];
   rollingSummary: string | null;
   assistantTurnCount: number;
+  activeDraftRef: ActiveDraftRef | null;
+  latestRefinementInstruction: string | null;
+  unresolvedQuestion: string | null;
+  clarificationQuestionsAsked: number;
+  preferredSurfaceMode: "natural" | "structured" | null;
   formatPreference: DraftFormatPreference | null;
 }
 
@@ -96,6 +107,30 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     ...(record.formatPreference === "shortform" || record.formatPreference === "longform"
       ? { formatPreference: record.formatPreference }
       : {}),
+  };
+}
+
+function normalizeActiveDraftRef(value: unknown): ActiveDraftRef | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const messageId = typeof record.messageId === "string" ? record.messageId.trim() : "";
+  const versionId = typeof record.versionId === "string" ? record.versionId.trim() : "";
+  const revisionChainId =
+    typeof record.revisionChainId === "string" && record.revisionChainId.trim()
+      ? record.revisionChainId.trim()
+      : null;
+
+  if (!messageId || !versionId) {
+    return null;
+  }
+
+  return {
+    messageId,
+    versionId,
+    ...(revisionChainId ? { revisionChainId } : {}),
   };
 }
 
@@ -196,6 +231,11 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
+      activeDraftRef: null,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
       formatPreference: null,
     };
   }
@@ -209,6 +249,11 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
+      activeDraftRef: null,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
       formatPreference: null,
     };
   }
@@ -225,6 +270,22 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       typeof record.assistantTurnCount === "number" && Number.isFinite(record.assistantTurnCount)
         ? record.assistantTurnCount
         : 0,
+    activeDraftRef: normalizeActiveDraftRef(record.activeDraftRef),
+    latestRefinementInstruction:
+      typeof record.latestRefinementInstruction === "string"
+        ? record.latestRefinementInstruction
+        : null,
+    unresolvedQuestion:
+      typeof record.unresolvedQuestion === "string" ? record.unresolvedQuestion : null,
+    clarificationQuestionsAsked:
+      typeof record.clarificationQuestionsAsked === "number" &&
+      Number.isFinite(record.clarificationQuestionsAsked)
+        ? record.clarificationQuestionsAsked
+        : 0,
+    preferredSurfaceMode:
+      record.preferredSurfaceMode === "natural" || record.preferredSurfaceMode === "structured"
+        ? record.preferredSurfaceMode
+        : null,
     formatPreference:
       record.formatPreference === "shortform" || record.formatPreference === "longform"
         ? record.formatPreference
@@ -241,6 +302,11 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     lastIdeationAngles: value.lastIdeationAngles,
     rollingSummary: value.rollingSummary,
     assistantTurnCount: value.assistantTurnCount,
+    activeDraftRef: value.activeDraftRef,
+    latestRefinementInstruction: value.latestRefinementInstruction,
+    unresolvedQuestion: value.unresolvedQuestion,
+    clarificationQuestionsAsked: value.clarificationQuestionsAsked,
+    preferredSurfaceMode: value.preferredSurfaceMode,
     formatPreference: value.formatPreference,
   } as Prisma.InputJsonValue;
 }
@@ -261,11 +327,17 @@ export function createConversationMemorySnapshot(
         ? memory.concreteAnswerCount
         : 0,
     currentDraftArtifactId:
-      typeof memory?.lastDraftArtifactId === "string" ? memory.lastDraftArtifactId : null,
+      envelope.activeDraftRef?.versionId ||
+      (typeof memory?.lastDraftArtifactId === "string" ? memory.lastDraftArtifactId : null),
+    activeDraftRef: envelope.activeDraftRef,
     rollingSummary: envelope.rollingSummary,
     pendingPlan: envelope.pendingPlan,
     clarificationState: envelope.clarificationState,
     assistantTurnCount: envelope.assistantTurnCount,
+    latestRefinementInstruction: envelope.latestRefinementInstruction,
+    unresolvedQuestion: envelope.unresolvedQuestion,
+    clarificationQuestionsAsked: envelope.clarificationQuestionsAsked,
+    preferredSurfaceMode: envelope.preferredSurfaceMode,
     formatPreference: envelope.formatPreference,
     voiceFidelity: "balanced",
   };
@@ -299,6 +371,11 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
           lastIdeationAngles: [],
           rollingSummary: null,
           assistantTurnCount: 0,
+          activeDraftRef: null,
+          latestRefinementInstruction: null,
+          unresolvedQuestion: null,
+          clarificationQuestionsAsked: 0,
+          preferredSurfaceMode: null,
           formatPreference: null,
         }),
         concreteAnswerCount: 0,
@@ -343,6 +420,24 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
         args.assistantTurnCount === undefined
           ? existingSnapshot.assistantTurnCount
           : args.assistantTurnCount,
+      activeDraftRef:
+        args.activeDraftRef === undefined ? existingSnapshot.activeDraftRef : args.activeDraftRef,
+      latestRefinementInstruction:
+        args.latestRefinementInstruction === undefined
+          ? existingSnapshot.latestRefinementInstruction
+          : args.latestRefinementInstruction,
+      unresolvedQuestion:
+        args.unresolvedQuestion === undefined
+          ? existingSnapshot.unresolvedQuestion
+          : args.unresolvedQuestion,
+      clarificationQuestionsAsked:
+        args.clarificationQuestionsAsked === undefined
+          ? existingSnapshot.clarificationQuestionsAsked
+          : args.clarificationQuestionsAsked,
+      preferredSurfaceMode:
+        args.preferredSurfaceMode === undefined
+          ? existingSnapshot.preferredSurfaceMode
+          : args.preferredSurfaceMode,
       formatPreference:
         args.formatPreference === undefined
           ? existingSnapshot.formatPreference
@@ -354,7 +449,11 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
     };
     if (args.topicSummary !== undefined) dataToUpdate.topicSummary = args.topicSummary;
     if (args.concreteAnswerCount !== undefined) dataToUpdate.concreteAnswerCount = args.concreteAnswerCount;
-    if (args.lastDraftArtifactId !== undefined) dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
+    if (args.lastDraftArtifactId !== undefined) {
+      dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
+    } else if (args.activeDraftRef !== undefined) {
+      dataToUpdate.lastDraftArtifactId = args.activeDraftRef?.versionId ?? null;
+    }
 
     const memory = await prisma.conversationMemory.update({
       where: { id: existing.id },

@@ -44,6 +44,17 @@ const EDIT_INSTRUCTION_CUES = [
   "tone it down",
   "dial back",
   "dial it back",
+  "less cringe",
+  "cleaner",
+  "too much",
+  "too forced",
+  "sounds forced",
+  "feels forced",
+  "builder-coded",
+  "builder coded",
+  "stronger hook",
+  "same idea",
+  "keep the same idea",
   "make the hook",
   "fix the hook",
   "rewrite the hook",
@@ -64,6 +75,8 @@ const EDIT_INSTRUCTION_CUES = [
 const EDIT_REGEX_PATTERNS = [
   /^(?:make|change|fix|rewrite|remove|delete|cut|drop|add|swap|replace|rephrase)\b/,
   /\b(?:too harsh|too aggressive|too long|too short|too generic|too salesy|too polished)\b/,
+  /\b(?:feels|sounds)\s+too\s+\w+\b/,
+  /\bkeep the same idea\b/,
   /\bdon'?t (?:say|use|mention|include)\b/,
 ];
 
@@ -168,6 +181,7 @@ export interface PlanTurnInput {
     | "pendingPlan"
     | "currentDraftArtifactId"
     | "assistantTurnCount"
+    | "unresolvedQuestion"
   >;
   explicitIntent?: V2ChatIntent | null;
 }
@@ -273,6 +287,19 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  const answeredOutstandingQuestion =
+    Boolean(input.memory.unresolvedQuestion?.trim()) &&
+    looksLikeClarificationAnswer(normalized, trimmed);
+
+  if (!hasDraftContext && answeredOutstandingQuestion) {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "plan",
+    };
+  }
+
   // --- Rule 4: Conversational question (no generation needed) -------------
   // Short messages that are clearly about discussing, not producing content.
 
@@ -324,4 +351,28 @@ function looksLikeChatQuestion(
   }
 
   return CHAT_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeClarificationAnswer(
+  normalized: string,
+  original: string,
+): boolean {
+  if (!original || original.length > 240) {
+    return false;
+  }
+
+  if (original.includes("?")) {
+    return false;
+  }
+
+  if (looksLikeImmediateDraftCommand(normalized) || looksLikeConstraintOnly(normalized)) {
+    return false;
+  }
+
+  if (looksLikeChatQuestion(normalized, original)) {
+    return false;
+  }
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  return wordCount >= 2 || normalized.length >= 12;
 }

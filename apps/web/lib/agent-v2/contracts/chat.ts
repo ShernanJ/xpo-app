@@ -23,6 +23,27 @@ export type DraftPreference =
 
 export type DraftFormatPreference = "shortform" | "longform";
 
+export type ResponseMode =
+  | "natural_chat"
+  | "light_guidance"
+  | "structured_generation";
+
+export type SurfaceMode =
+  | "answer_directly"
+  | "ask_one_question"
+  | "revise_and_return"
+  | "offer_options"
+  | "generate_full_output";
+
+export interface ResponseShapePlan {
+  mode: ResponseMode;
+  surfaceMode: SurfaceMode;
+  shouldShowArtifacts: boolean;
+  shouldExplainReasoning: boolean;
+  shouldAskFollowUp: boolean;
+  maxFollowUps: 0 | 1;
+}
+
 export interface StrategyPlan {
   objective: string;
   angle: string;
@@ -65,6 +86,12 @@ export interface ClarificationState {
   options: CreatorChatQuickReply[];
 }
 
+export interface ActiveDraftRef {
+  messageId: string;
+  versionId: string;
+  revisionChainId?: string | null;
+}
+
 export interface V2ConversationMemory {
   conversationState: ConversationState;
   activeConstraints: string[];
@@ -72,10 +99,15 @@ export interface V2ConversationMemory {
   lastIdeationAngles: string[];
   concreteAnswerCount: number;
   currentDraftArtifactId: string | null;
+  activeDraftRef: ActiveDraftRef | null;
   rollingSummary: string | null;
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
   assistantTurnCount: number;
+  latestRefinementInstruction: string | null;
+  unresolvedQuestion: string | null;
+  clarificationQuestionsAsked: number;
+  preferredSurfaceMode: "natural" | "structured" | null;
   formatPreference: DraftFormatPreference | null;
   voiceFidelity: "balanced";
 }

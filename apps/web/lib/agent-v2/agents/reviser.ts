@@ -40,6 +40,10 @@ function cleanupEditedDraft(text: string): string {
     .trim();
 }
 
+function stripEmojiCharacters(value: string): string {
+  return value.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "");
+}
+
 function tryDeterministicPhraseRemoval(args: {
   activeDraft: string;
   targetText: string | null;
@@ -102,6 +106,27 @@ function tryDeterministicLastLineRemoval(args: {
   };
 }
 
+function tryDeterministicEmojiRemoval(args: {
+  activeDraft: string;
+  maxCharacterLimit: number;
+}): ReviserOutput | null {
+  const stripped = cleanupEditedDraft(stripEmojiCharacters(args.activeDraft));
+  if (!stripped || stripped === args.activeDraft.trim()) {
+    return null;
+  }
+
+  const nextDraft = trimToXCharacterLimit(stripped, args.maxCharacterLimit);
+  if (!nextDraft) {
+    return null;
+  }
+
+  return {
+    revisedDraft: nextDraft,
+    supportAsset: null,
+    issuesFixed: ["Removed emojis and kept the draft otherwise intact."],
+  };
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -139,6 +164,17 @@ export async function generateRevisionDraft(args: {
 
   if (args.revision.changeKind === "line_level_edit") {
     const deterministic = tryDeterministicLastLineRemoval({
+      activeDraft: args.activeDraft,
+      maxCharacterLimit,
+    });
+
+    if (deterministic) {
+      return deterministic;
+    }
+  }
+
+  if (args.revision.changeKind === "emoji_cleanup") {
+    const deterministic = tryDeterministicEmojiRemoval({
       activeDraft: args.activeDraft,
       maxCharacterLimit,
     });

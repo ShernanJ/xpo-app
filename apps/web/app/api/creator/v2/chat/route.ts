@@ -3,7 +3,11 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
-import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
+import {
+  createConversationMemory,
+  updateConversationMemory,
+} from "@/lib/agent-v2/memory/memoryStore";
+import type { SurfaceMode } from "@/lib/agent-v2/contracts/chat";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
@@ -17,6 +21,8 @@ import {
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
+import { selectResponseShapePlan } from "@/lib/agent-v2/orchestrator/surfaceModeSelector";
+import { shapeAssistantResponse } from "@/lib/agent-v2/orchestrator/responseShaper";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
@@ -197,13 +203,30 @@ function deterministicIndex(seed: string, modulo: number): number {
   return hash % modulo;
 }
 
-function buildDefaultDraftHandoffReply(seed: string): string {
-  const options = [
-    "drafted a version for you. what do you want to tweak?",
-    "ran with that angle and drafted this. want any tweaks before you post?",
-    "here's one take. should we tune tone, hook, or length?",
-  ];
-  return options[deterministicIndex(seed, options.length)];
+function buildDefaultDraftHandoffReply(args: {
+  seed: string;
+  surfaceMode?: SurfaceMode;
+  shouldAskFollowUp?: boolean;
+}): string {
+  const options =
+    args.shouldAskFollowUp === false
+      ? args.surfaceMode === "revise_and_return"
+        ? [
+            "updated it.",
+            "made the edit.",
+            "tightened it up.",
+          ]
+        : [
+            "here's a draft.",
+            "put together a draft for you.",
+            "ran with that angle.",
+          ]
+      : [
+          "drafted a version for you. what do you want to tweak?",
+          "ran with that angle and drafted this. want any tweaks before you post?",
+          "here's one take. should we tune tone, hook, or length?",
+        ];
+  return options[deterministicIndex(args.seed, options.length)];
 }
 
 function looksLikeDraftHandoff(reply: string): boolean {
@@ -248,6 +271,8 @@ export function normalizeDraftPayload(args: {
   draft: string | null;
   drafts: string[];
   outputShape: string;
+  surfaceMode?: SurfaceMode;
+  shouldAskFollowUp?: boolean;
 }): {
   reply: string;
   draft: string | null;
@@ -269,12 +294,20 @@ export function normalizeDraftPayload(args: {
     if (!draft && replyLooksLikeDraft) {
       draft = trimmedReply;
       drafts = [trimmedReply];
-      reply = buildDefaultDraftHandoffReply(trimmedReply);
+      reply = buildDefaultDraftHandoffReply({
+        seed: trimmedReply,
+        surfaceMode: args.surfaceMode,
+        shouldAskFollowUp: args.shouldAskFollowUp,
+      });
     } else if (draft) {
       drafts = drafts.length > 0 ? drafts : [draft];
 
       if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
-        reply = buildDefaultDraftHandoffReply(draft || trimmedReply || "draft");
+        reply = buildDefaultDraftHandoffReply({
+          seed: draft || trimmedReply || "draft",
+          surfaceMode: args.surfaceMode,
+          shouldAskFollowUp: args.shouldAskFollowUp,
+        });
       }
     }
   }
@@ -810,13 +843,31 @@ export async function POST(request: NextRequest) {
               : null,
         })
       : null;
+    const responseShapePlan = selectResponseShapePlan({
+      outputShape: result.outputShape,
+      response: result.response,
+      hasQuickReplies: Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
+      hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
+      hasPlan: Boolean(resultData?.plan),
+      hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
+      conversationState: result.memory.conversationState,
+      preferredSurfaceMode: result.memory.preferredSurfaceMode,
+    });
+    const shapedReply = shapeAssistantResponse({
+      response: result.response,
+      outputShape: result.outputShape,
+      plan: responseShapePlan,
+    });
     const normalizedDraftPayload = normalizeDraftPayload({
-      reply: result.response,
+      reply: shapedReply,
       draft: resultData?.draft as string || null,
       drafts: resultData?.draft
         ? [resultData.draft as string]
         : [],
       outputShape: result.outputShape,
+      surfaceMode: responseShapePlan.surfaceMode,
+      shouldAskFollowUp:
+        responseShapePlan.shouldAskFollowUp && responseShapePlan.maxFollowUps > 0,
     });
     const effectiveFormatPreference =
       plan?.formatPreference ||
@@ -849,8 +900,8 @@ export async function POST(request: NextRequest) {
     const mappedData = {
       reply: normalizedDraftPayload.reply,
       angles: resultData?.angles as unknown[] || [],
-      quickReplies: resultData?.quickReplies || [],
-      plan: resultData?.plan || null,
+      quickReplies: responseShapePlan.shouldShowArtifacts ? resultData?.quickReplies || [] : [],
+      plan: responseShapePlan.shouldShowArtifacts ? resultData?.plan || null : null,
       draft: policyDraft,
       drafts: policyDrafts,
       draftArtifacts: draftVersionPayload.draftArtifacts,
@@ -884,6 +935,7 @@ export async function POST(request: NextRequest) {
       source: "deterministic",
       model: activeModel,
       mode: "full_generation",
+      surfaceMode: responseShapePlan.surfaceMode,
       memory: result.memory,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
       billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
@@ -900,6 +952,21 @@ export async function POST(request: NextRequest) {
         }
       });
       createdAssistantMessageId = assistantMessage.id;
+
+      await updateConversationMemory({
+        threadId: storedThread.id,
+        ...(draftVersionPayload.activeDraftVersionId && createdAssistantMessageId
+          ? {
+              activeDraftRef: {
+                messageId: createdAssistantMessageId,
+                versionId: draftVersionPayload.activeDraftVersionId,
+                revisionChainId: draftVersionPayload.revisionChainId ?? null,
+              },
+            }
+          : {}),
+        preferredSurfaceMode:
+          responseShapePlan.mode === "structured_generation" ? "structured" : "natural",
+      });
 
       const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
 
