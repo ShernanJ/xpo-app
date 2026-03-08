@@ -13,6 +13,17 @@ import {
   shouldUsePendingPlanApprovalPath,
   shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic.ts";
+import {
+  appendNoFabricationConstraint,
+  buildDraftMeaningResponse,
+  hasNoFabricationPlanGuardrail,
+  isConcreteAnecdoteDraftRequest,
+  isDraftMeaningQuestion,
+  NO_FABRICATION_CONSTRAINT,
+  NO_FABRICATION_MUST_AVOID,
+  shouldForceNoFabricationPlanGuardrail,
+  withNoFabricationPlanGuardrail,
+} from "./draftGrounding.ts";
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
@@ -31,6 +42,74 @@ test("generic ideation prompts are detected deterministically", () => {
   assert.equal(isBareIdeationRequest("brainstorm with me"), true);
   assert.equal(isBareIdeationRequest("give me post ideas about onboarding"), false);
   assert.equal(isBareIdeationRequest("give me more post ideas about onboarding"), false);
+});
+
+test("concrete anecdote draft requests trigger the no-fabrication guardrail", () => {
+  assert.equal(
+    isConcreteAnecdoteDraftRequest(
+      "can you write me a post on playing league at the stan office against the ceo and losing hard?",
+    ),
+    true,
+  );
+  assert.equal(
+    isConcreteAnecdoteDraftRequest(
+      "write one about playing league at the stan office against the ceo and losing hard",
+    ),
+    true,
+  );
+  assert.equal(isConcreteAnecdoteDraftRequest("write one about growth lessons for builders"), false);
+  assert.equal(
+    shouldForceNoFabricationPlanGuardrail({
+      userMessage:
+        "write one about playing league at the stan office against the ceo and losing hard",
+      behaviorKnown: true,
+      stakesKnown: true,
+    }),
+    true,
+  );
+});
+
+test("no-fabrication guardrails are appended once to plans and constraints", () => {
+  const plan = {
+    objective: "league loss story",
+    angle: "tell the office league story plainly",
+    targetLane: "original",
+    mustInclude: [],
+    mustAvoid: [],
+    hookType: "story",
+    pitchResponse: "drafting it.",
+  };
+
+  const guardedPlan = withNoFabricationPlanGuardrail(plan);
+  assert.equal(hasNoFabricationPlanGuardrail(guardedPlan), true);
+  assert.equal(guardedPlan.mustAvoid.includes(NO_FABRICATION_MUST_AVOID), true);
+  assert.equal(
+    withNoFabricationPlanGuardrail(guardedPlan).mustAvoid.filter(
+      (entry) => entry === NO_FABRICATION_MUST_AVOID,
+    ).length,
+    1,
+  );
+
+  const nextConstraints = appendNoFabricationConstraint(["no emojis"]);
+  assert.equal(nextConstraints.includes(NO_FABRICATION_CONSTRAINT), true);
+  assert.equal(
+    appendNoFabricationConstraint(nextConstraints).filter(
+      (entry) => entry === NO_FABRICATION_CONSTRAINT,
+    ).length,
+    1,
+  );
+});
+
+test("draft meaning fallback admits muddiness instead of inventing an explanation", () => {
+  assert.equal(isDraftMeaningQuestion("what does this post even mean?"), true);
+
+  const reply = buildDraftMeaningResponse(
+    "lost a league game with the ceo on my team and then pivoted into some vague point",
+  );
+
+  assert.equal(reply.toLowerCase().includes("as written, it's muddy"), true);
+  assert.equal(reply.toLowerCase().includes("the point is"), false);
+  assert.equal(reply.includes("?"), false);
 });
 
 test("plain draft intent without an active draft upgrades to plan mode", () => {
