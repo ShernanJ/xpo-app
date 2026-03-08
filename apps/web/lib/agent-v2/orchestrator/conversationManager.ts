@@ -1385,6 +1385,11 @@ User Profile Summary:
           goal,
           draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
           formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+          sourceUserMessage: [
+            approvedPlan.objective,
+            approvedPlan.angle,
+            ...approvedPlan.mustInclude,
+          ].join(" "),
         },
       );
 
@@ -2015,6 +2020,7 @@ User Profile Summary:
           goal,
           draftPreference: turnDraftPreference,
           formatPreference: turnFormatPreference,
+          sourceUserMessage: userMessage,
         },
       );
 
@@ -2349,6 +2355,7 @@ User Profile Summary:
         goal,
         draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
         formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+        sourceUserMessage: draftInstruction,
       },
     );
 

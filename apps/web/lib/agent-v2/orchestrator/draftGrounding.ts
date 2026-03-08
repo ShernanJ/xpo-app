@@ -5,6 +5,27 @@ export const NO_FABRICATION_CONSTRAINT =
 export const NO_FABRICATION_MUST_AVOID =
   "Invented personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims that were not explicitly provided by the user.";
 
+const CONCRETE_SCENE_ANCHOR_CUES = [
+  "stan office",
+  "office",
+  "ceo",
+  "founder",
+  "league",
+  "game",
+  "match",
+  "meeting",
+  "call",
+  "team",
+  "yesterday",
+  "last night",
+  "playing",
+  "played",
+  "losing hard",
+  "losing",
+  "lost",
+  "won",
+];
+
 function normalizeMessage(message: string): string {
   return message
     .trim()
@@ -89,6 +110,55 @@ export function isConcreteAnecdoteDraftRequest(message: string): boolean {
   );
 
   return cueCount >= 2;
+}
+
+export function extractConcreteSceneAnchors(message: string): string[] {
+  const normalized = normalizeMessage(message);
+  if (!normalized) {
+    return [];
+  }
+
+  const anchors: string[] = [];
+  for (const cue of CONCRETE_SCENE_ANCHOR_CUES) {
+    if (!normalized.includes(cue) || anchors.includes(cue)) {
+      continue;
+    }
+    anchors.push(cue);
+    if (anchors.length >= 6) {
+      break;
+    }
+  }
+
+  return anchors;
+}
+
+export function buildConcreteScenePlanBlock(message: string): string | null {
+  if (!isConcreteAnecdoteDraftRequest(message)) {
+    return null;
+  }
+
+  const sceneAnchors = extractConcreteSceneAnchors(message);
+
+  return `CONCRETE SCENE MODE:
+- The user asked for a post rooted in a literal scene. Keep the plan anchored to that exact moment instead of translating it into a cleaner growth lesson.
+- Scene anchors already present in the request: ${sceneAnchors.join(" | ") || "use the exact scene from the request"}.
+- If there isn't an explicit lesson in the request, keep the angle observational or story-first instead of inventing one.
+- Do not introduce hashtags, analytics, product features, internal tools, or strategy jargon unless the user explicitly named them.`;
+}
+
+export function buildConcreteSceneDraftBlock(source: string): string | null {
+  if (!isConcreteAnecdoteDraftRequest(source) && extractConcreteSceneAnchors(source).length === 0) {
+    return null;
+  }
+
+  const sceneAnchors = extractConcreteSceneAnchors(source);
+
+  return `CONCRETE SCENE MODE:
+- This draft must stay inside the literal scene already described by the user.
+- Scene anchors to preserve when they fit naturally: ${sceneAnchors.join(" | ") || "use the exact scene from the plan/request"}.
+- Do not swap the scene for a product pitch, hashtag strategy, analytics lesson, or any other cleaner growth framing unless the user explicitly asked for that.
+- If the scene is funny, awkward, or just an observation, let it stay that. Do not force a neat moral.
+- If details are missing, write around the exact details you do have. Do not fill gaps with invented mechanics or context.`;
 }
 
 export function hasNoFabricationPlanGuardrail(
