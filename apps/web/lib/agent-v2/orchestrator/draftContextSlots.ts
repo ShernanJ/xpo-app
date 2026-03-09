@@ -207,6 +207,16 @@ function inferNamedEntity(message: string): string | null {
 
 function hasCareerCue(normalized: string): boolean {
   return [
+    "hiring",
+    "hire",
+    "candidate",
+    "candidates",
+    "applicant",
+    "applicants",
+    "pipeline",
+    "hiring pipeline",
+    "hiring playbook",
+    "playbook",
     "internship",
     "interview",
     "job hunt",
@@ -223,6 +233,19 @@ function hasCareerCue(normalized: string): boolean {
 
 function hasCareerBehaviorDetail(normalized: string): boolean {
   return [
+    "found us",
+    "finding us",
+    "candidate found us",
+    "top candidate",
+    "building in public",
+    "prove himself",
+    "proved himself",
+    "skipped the pipeline",
+    "skipped the resume",
+    "skipped the interview",
+    "cold apply",
+    "cold application",
+    "hiring pipeline",
     "requested an interview",
     "got an interview",
     "have an interview",
@@ -243,6 +266,14 @@ function hasCareerBehaviorDetail(normalized: string): boolean {
 
 function hasCareerStakeDetail(normalized: string): boolean {
   return [
+    "hiring",
+    "hire",
+    "candidate",
+    "candidates",
+    "top candidate",
+    "pipeline",
+    "hiring pipeline",
+    "cold apply",
     "requested an interview",
     "got an interview",
     "have an interview",
@@ -317,6 +348,7 @@ export function evaluateDraftContextSlots(args: {
 }): DraftContextSlots {
   const trimmed = args.userMessage.trim();
   const normalized = trimmed.toLowerCase();
+  const buildSubject = inferBuildSubject(trimmed);
   const namedEntity = inferNamedEntity(trimmed);
   const productCuePresent = ["tool", "app", "product", "extension", "plugin"].some((cue) =>
     normalized.includes(cue),
@@ -326,11 +358,15 @@ export function evaluateDraftContextSlots(args: {
     contextAnchors: args.contextAnchors,
   });
   const careerCuePresent = hasCareerCue(normalized);
+  const careerBehaviorPresent = hasCareerBehaviorDetail(normalized);
+  const careerStakePresent = hasCareerStakeDetail(normalized);
+  const strongCareerSignal =
+    careerCuePresent || careerBehaviorPresent || careerStakePresent;
   const looksLikeComparison = Boolean(inferComparisonReference(trimmed));
   const isProductLike =
     looksLikeBuildMessage(normalized) ||
     productCuePresent ||
-    Boolean(inferBuildSubject(trimmed)) ||
+    (Boolean(buildSubject) && !strongCareerSignal) ||
     (Boolean(namedEntity) && looksLikeComparison) ||
     (Boolean(namedEntity) && hasRelationshipDetail(normalized));
   const subjectKnown = Boolean((args.topicSummary || trimmed).trim());
@@ -344,7 +380,7 @@ export function evaluateDraftContextSlots(args: {
     isProductLike && Boolean(namedEntity) && !externalContextKnown;
   const domainHint: DraftContextDomainHint = isProductLike
     ? "product"
-    : careerCuePresent
+    : strongCareerSignal
       ? "career"
       : subjectKnown
         ? "creator"
@@ -352,11 +388,11 @@ export function evaluateDraftContextSlots(args: {
 
   const behaviorKnown =
     domainHint === "career"
-      ? hasCareerBehaviorDetail(normalized)
+      ? careerBehaviorPresent
       : hasFunctionalDetail(normalized);
   const stakesKnown =
     domainHint === "career"
-      ? hasCareerStakeDetail(normalized)
+      ? careerStakePresent
       : hasProblemDetail(normalized);
 
   return {

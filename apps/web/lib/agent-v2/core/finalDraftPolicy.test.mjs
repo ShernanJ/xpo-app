@@ -128,6 +128,22 @@ test("soft-signal threads preserve a natural opener when one already exists", ()
   assert.equal(result.toLowerCase().includes("here's what happened:"), false);
 });
 
+test("soft-signal thread openers expand inline bullet stacks into cleaner paragraphs", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "I built a hiring playbook that flips the cold-apply script. • Publish a live hiring board so candidates see the work. • Require a short public demo instead of a resume.",
+      "One of our best candidates found us through it.",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "soft_signal",
+  });
+
+  assert.equal(result.includes("•"), false);
+  assert.match(result, /script\.\n\nPublish a live hiring board/i);
+  assert.match(result, /\n\nRequire a short public demo/i);
+});
+
 test("numbered threads preserve numbering markers", () => {
   const result = applyFinalDraftPolicy({
     draft: [

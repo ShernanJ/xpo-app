@@ -53,17 +53,7 @@ function resolveCompression(args: {
   signalText: string;
   formatPreference?: DraftFormatPreference | null;
 }): VoiceTargetCompression {
-  if (args.formatPreference === "thread") {
-    return "tight";
-  }
-
-  if (args.formatPreference === "longform") {
-    return includesAny(args.normalizedMessage, ["tight", "compressed", "trim"])
-      ? "medium"
-      : "spacious";
-  }
-
-  if (
+  const tightSignals =
     includesAny(args.normalizedMessage, [
       "tight",
       "short",
@@ -72,8 +62,73 @@ function resolveCompression(args: {
       "punchier",
       "trim",
     ]) ||
-    includesAny(args.signalText, ["short", "punchy", "tight", "concise", "no fluff"])
-  ) {
+    includesAny(args.signalText, ["short", "punchy", "tight", "concise", "no fluff"]);
+  const roomySignals =
+    includesAny(args.normalizedMessage, [
+      "more detail",
+      "deeper",
+      "longer",
+      "expanded",
+      "let it breathe",
+      "open it up",
+      "use the room",
+    ]) ||
+    includesAny(args.signalText, [
+      "long",
+      "essay",
+      "spacious",
+      "flowing",
+      "paragraph",
+      "line break",
+      "double line break",
+    ]);
+  const storySignals =
+    includesAny(args.normalizedMessage, [
+      "story",
+      "journey",
+      "narrative",
+      "what happened",
+      "how i",
+      "how we",
+      "how my",
+      "led to",
+      "behind",
+    ]) ||
+    includesAny(args.signalText, ["story", "anecdote", "narrative", "paragraph"]);
+
+  if (args.formatPreference === "thread") {
+    if (tightSignals) {
+      return "tight";
+    }
+
+    if (storySignals || roomySignals) {
+      return "spacious";
+    }
+
+    if (
+      includesAny(args.normalizedMessage, [
+        "breakdown",
+        "framework",
+        "playbook",
+        "steps",
+        "tips",
+        "lessons",
+      ]) ||
+      includesAny(args.signalText, ["scan", "bullet"])
+    ) {
+      return "medium";
+    }
+
+    return "medium";
+  }
+
+  if (args.formatPreference === "longform") {
+    return includesAny(args.normalizedMessage, ["tight", "compressed", "trim"])
+      ? "medium"
+      : "spacious";
+  }
+
+  if (tightSignals) {
     return "tight";
   }
 
@@ -122,8 +177,22 @@ function resolveHookStyle(args: {
   }
 
   if (
-    includesAny(args.normalizedMessage, ["story", "mistake", "learned", "happened", "shipped"]) ||
-    includesAny(args.signalText, ["story", "anecdote"])
+    includesAny(args.normalizedMessage, [
+      "story",
+      "journey",
+      "narrative",
+      "mistake",
+      "learned",
+      "happened",
+      "shipped",
+      "what happened",
+      "how i",
+      "how we",
+      "how my",
+      "led to",
+      "behind the scenes",
+    ]) ||
+    includesAny(args.signalText, ["story", "anecdote", "narrative", "personal"])
   ) {
     return "story";
   }

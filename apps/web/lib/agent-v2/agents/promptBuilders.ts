@@ -150,7 +150,7 @@ ${isEditing
       ? `This turn is about revising an existing draft. Keep the core idea unless the user clearly wants a different angle.`
       : `This turn is about a new ${formatPreference === "longform" ? "longform" : formatPreference === "thread" ? "thread" : "shortform"} post.`}
 
-${buildConversationToneBlock()}
+${buildConversationToneBlock("plan")}
 ${buildGoalHydrationBlock(goal, "plan")}
 ${buildStateHydrationBlock(conversationState, "plan")}
 ${buildDraftPreferenceBlock(draftPreference, "plan")}
@@ -296,13 +296,24 @@ USER'S HISTORICAL POSTS (FOR VOICE AND THEMATIC REFERENCE):
 ${args.topicAnchors.join("\n---") || "None"}
 CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them to understand the user's voice, pacing, and recurring thematic territory only.
 `.trim();
+  const threadCadenceBlock =
+    formatPreference === "thread"
+      ? buildThreadCadenceBlock({
+          styleCard: args.styleCard,
+          topicAnchors: args.topicAnchors,
+          referenceAnchorMode: args.referenceAnchorMode,
+          sourceUserMessage: args.options?.sourceUserMessage || "",
+          voiceTarget: args.voiceTarget ?? null,
+          threadFramingStyle,
+        })
+      : null;
 
   return `
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
       : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
 
-${buildConversationToneBlock()}
+${buildConversationToneBlock("draft")}
 ${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
@@ -343,6 +354,7 @@ ${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRIT
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
+${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
@@ -399,4 +411,109 @@ function buildThreadFramingRequirement(
     default:
       return "";
   }
+}
+
+function buildThreadCadenceBlock(args: {
+  styleCard: VoiceStyleCard | null;
+  topicAnchors: string[];
+  referenceAnchorMode?: "historical_posts" | "reference_hints";
+  sourceUserMessage: string;
+  voiceTarget?: VoiceTarget | null;
+  threadFramingStyle: ThreadFramingStyle | null;
+}): string | null {
+  const styleSignals = [
+    args.styleCard?.pacing || "",
+    ...(args.styleCard?.formattingRules || []),
+    ...(args.styleCard?.customGuidelines || []),
+  ]
+    .join(" | ")
+    .toLowerCase();
+  const normalizedSource = args.sourceUserMessage.trim().toLowerCase();
+  const sampleAnchors =
+    args.referenceAnchorMode === "historical_posts"
+      ? args.topicAnchors.slice(0, 3)
+      : [];
+  const totalLines = sampleAnchors.reduce((count, anchor) => {
+    return (
+      count +
+      anchor
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean).length
+    );
+  }, 0);
+  const bulletLines = sampleAnchors.reduce((count, anchor) => {
+    return (
+      count +
+      anchor
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => /^[-*•>]/.test(line)).length
+    );
+  }, 0);
+  const blankLineAnchors = sampleAnchors.filter((anchor) => /\n\s*\n/.test(anchor)).length;
+  const multiBeatAnchors = sampleAnchors.filter((anchor) => {
+    const lines = anchor
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.length >= 4;
+  }).length;
+  const proseHeavyExamples = totalLines === 0 ? false : bulletLines / totalLines <= 0.2;
+  const storyLikeRequest =
+    args.voiceTarget?.hookStyle === "story" ||
+    /\b(story|journey|narrative|what happened|how i|how we|how my|led to|behind the scenes)\b/i.test(
+      normalizedSource,
+    );
+  const hints: string[] = [];
+
+  if (storyLikeRequest) {
+    hints.push(
+      "- Treat this as a native narrative thread. Each post should carry one lived beat or turn, not a compressed summary of the entire story.",
+    );
+  }
+
+  if (
+    args.voiceTarget?.compression === "spacious" ||
+    blankLineAnchors > 0 ||
+    multiBeatAnchors > 0 ||
+    styleSignals.includes("flowing") ||
+    styleSignals.includes("paragraph") ||
+    styleSignals.includes("line break")
+  ) {
+    hints.push(
+      "- Match the creator's thread cadence with short paragraphs and breathing room. Blank lines are good when they improve rhythm.",
+    );
+  }
+
+  if (storyLikeRequest || proseHeavyExamples) {
+    hints.push(
+      "- Keep the opener and early posts prose-first. Do not front-load them with bullet stacks, credential dumps, or mini-slide formatting.",
+    );
+  } else if (styleSignals.includes("bullet") || styleSignals.includes("scan")) {
+    hints.push(
+      "- Keep it scannable, but avoid turning every post into a bullet wall. Mix clean prose with structure.",
+    );
+  }
+
+  if (
+    sampleAnchors.some((anchor) => anchor.length > 280) ||
+    args.voiceTarget?.compression !== "tight"
+  ) {
+    hints.push(
+      "- A single thread post can hold more than one sentence or paragraph when the beat needs it. Do not artificially compress it to shortform-post length.",
+    );
+  }
+
+  if (args.threadFramingStyle !== "numbered") {
+    hints.push(
+      "- Let the first post feel like a natural opener from the creator's feed, not a table of contents or headline card.",
+    );
+  }
+
+  if (hints.length === 0) {
+    return null;
+  }
+
+  return `THREAD CADENCE:\n${hints.join("\n")}`;
 }

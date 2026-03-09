@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { buildDynamicDraftChoices } from "./orchestrator/clarificationDraftChips.ts";
 import { normalizeDraftRevisionInstruction } from "./orchestrator/draftRevision.ts";
@@ -42,6 +44,20 @@ const baseStyleCard = {
   ],
   pacing: "fast, bullet-friendly, scan-friendly",
 };
+
+test("thread voice target does not default story threads to tight compression", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./core/voiceTarget.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    source.includes('if (args.formatPreference === "thread") {\n    return "tight";'),
+    false,
+  );
+  assert.match(source, /"journey"/);
+  assert.match(source, /return "spacious";/);
+});
 
 test("verified topic clarification returns topic-aware format chips", () => {
   const result = buildDynamicDraftChoices({
@@ -109,6 +125,30 @@ test("dynamic draft chips never surface meta summary topics like 'user is...'", 
     result.some((chip) => /usual lane|recent|angle/i.test(chip.label)),
     true,
   );
+});
+
+test("story thread chips avoid forcing scan-friendly bullet framing", () => {
+  const result = buildDynamicDraftChoices({
+    mode: "topic_known",
+    seedTopic: "hiring in public",
+    styleCard: {
+      ...baseStyleCard,
+      formattingRules: [],
+      customGuidelines: [],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+    },
+    topicAnchors: ["hiring in public", "candidate found us"],
+    isVerifiedAccount: true,
+    requestedFormatPreference: "thread",
+  });
+
+  assert.equal(result[0].formatPreference, "thread");
+  assert.match(result[0].value, /short paragraphs|real beat|thread breathe/i);
+  assert.doesNotMatch(result[0].value, /scan-friendly structure/i);
 });
 
 test("planner quick replies are explicit and topic-aware", () => {
@@ -609,6 +649,8 @@ test("confusion ping detector catches short disbelief replies", () => {
   assert.equal(looksLikeConfusionPing("what"), true);
   assert.equal(looksLikeConfusionPing("what??"), true);
   assert.equal(looksLikeConfusionPing("huh"), true);
+  assert.equal(looksLikeConfusionPing("i explained it though"), true);
+  assert.equal(looksLikeConfusionPing("i already explained it"), true);
   assert.equal(looksLikeConfusionPing("what should i post"), false);
 });
 

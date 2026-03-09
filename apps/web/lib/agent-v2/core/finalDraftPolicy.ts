@@ -457,16 +457,37 @@ function stripThreadNumberingMarker(value: string): string {
 }
 
 function normalizeThreadOpeningPost(value: string): string {
-  const lines = value
+  const lines = expandInlineBulletRuns(value)
     .split("\n")
     .map((line, index) =>
       index === 0 ? line.trim() : line.replace(/^\s*[-*•>]\s+/, "").trim(),
-    )
-    .filter(Boolean);
+    );
+  const nextLines: string[] = [];
 
-  let nextValue = lines.join("\n");
+  for (const line of lines) {
+    if (!line) {
+      if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== "") {
+        nextLines.push("");
+      }
+      continue;
+    }
 
-  return nextValue;
+    nextLines.push(line);
+  }
+
+  return nextLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function expandInlineBulletRuns(value: string): string {
+  const bulletMatches = value.match(/\s+[•▪◦]\s+/g) || [];
+  if (bulletMatches.length < 2) {
+    return value;
+  }
+
+  return value
+    .replace(/\s+[•▪◦]\s+/g, "\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function applyFinalDraftPolicyWithReport(args: {

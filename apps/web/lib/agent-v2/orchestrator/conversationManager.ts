@@ -320,6 +320,16 @@ function looksLikeIdeationRetryCommand(message: string): boolean {
 
 function inferMissingSpecificQuestion(message: string): string | null {
   const normalized = message.trim().toLowerCase();
+  const slots = evaluateDraftContextSlots({
+    userMessage: message,
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  if (slots.domainHint === "career" || !slots.isProductLike) {
+    return null;
+  }
+
   const comparisonReference = inferComparisonReference(message);
   const buildSubjectMatch = message.match(
     /\b(?:building|making|creating|shipping|launching|working on|rebuilding)\s+([a-z0-9][a-z0-9\s'-]{1,30}?)(?:\s+for\b|\s+on\b|\s+with\b|[.?!,]|$)/i,
@@ -2381,6 +2391,7 @@ User Profile Summary:
     Boolean(groundedTopicDraftInput.grounding);
   const canAskPlanClarification = (): boolean =>
     !explicitIntent &&
+    turnPlan?.shouldAutoDraftFromPlan !== true &&
     !hasEnoughContextToAct &&
     mode === "plan" &&
     !hasOutstandingClarification;

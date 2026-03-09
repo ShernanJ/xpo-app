@@ -15,7 +15,33 @@ function normalizeList(values: string[], fallback: string): string {
   return filtered.length > 0 ? filtered.join(" | ") : fallback;
 }
 
-export function buildConversationToneBlock(): string {
+export function buildConversationToneBlock(
+  mode: "chat" | "plan" | "draft" | "critic" = "chat",
+): string {
+  if (mode === "draft" || mode === "critic") {
+    return [
+      "WRITING NATURALNESS:",
+      "- Write like the creator, not like the assistant.",
+      "- Keep the language concrete, plainspoken, and human.",
+      "- Avoid consultant jargon, hype, and canned AI framing.",
+      "- Do not compress every beat into a reactive one-liner when the format is thread or longform.",
+      "- Let scenes, proof beats, and transitions breathe when that matches the creator's cadence.",
+      "- Use paragraph breaks when they make the thread feel more native to X.",
+    ].join("\n");
+  }
+
+  if (mode === "plan") {
+    return [
+      "HUMAN SPEECH POLICY:",
+      "- Be concise, specific, and direct.",
+      "- Do not use canned affirmations like 'great question' or 'absolutely.'",
+      "- Do not add fluff, hype, praise, or performative friendliness.",
+      "- Avoid filler openers like 'love that', 'totally', or 'for sure' unless the user is clearly talking that way first.",
+      "- Ask at most one question unless the UI is showing explicit choice chips.",
+      "- Prefer concrete language over abstract strategy jargon.",
+    ].join("\n");
+  }
+
   return [
     "HUMAN SPEECH POLICY:",
     "- Be short, reactive, and specific.",
@@ -150,7 +176,10 @@ export function buildFormatPreferenceBlock(
       "- Build 4-6 connected posts that can stand on their own while still feeling like one chain.",
       "- Keep each post within the account's allowed weighted X character limit. Unverified accounts stay under 280; verified accounts can use long-post limits when needed.",
       "- Verified-thread posts do not need to read like legacy 280-character tweets. Use enough room for setup, proof, and transitions when that improves clarity.",
+      "- Let the thread progress across posts instead of making every post behave like a standalone 280-character mini-tweet.",
       "- A thread post can be a short paragraph or a few sentences, not just a one-line teaser.",
+      "- For story or journey threads, prefer short paragraphs and breathing room over bullet stacks, especially in the opener.",
+      "- Avoid front-loading credentials, proof bullets, or the full lesson into post 1.",
       "- When serializing the final draft string, separate posts with a line containing only --- so the thread builder can split it cleanly.",
     ].join("\n");
   }

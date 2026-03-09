@@ -240,6 +240,27 @@ test("lets do it routes to planner feedback when a plan is pending", () => {
   assert.equal(turnPlan?.userGoal, "draft");
 });
 
+test("specific thread draft requests auto-draft from the planner path", () => {
+  const turnPlan = planTurn({
+    userMessage:
+      "write me a thread on how my hiring playbook led to one of our top candidates finding us and building in public instead of going through the regular hiring pipeline",
+    recentHistory: "assistant: none",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      activeConstraints: [],
+      assistantTurnCount: 0,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
+  assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+});
+
 test("selected draft review/edit modes use the revision flow", () => {
   assert.equal(
     shouldUseRevisionDraftPath({
@@ -323,6 +344,21 @@ test("slot evaluator treats vague named build prompts as product definition gaps
   assert.equal(slots.entityNeedsDefinition, true);
   assert.equal(slots.behaviorKnown, false);
   assert.equal(slots.namedEntity, "stanley");
+});
+
+test("slot evaluator treats hiring playbook prompts as career context, not product context", () => {
+  const slots = evaluateDraftContextSlots({
+    userMessage:
+      "write me a thread on how my hiring playbook led to one of our top candidates finding us and building in public instead of going through the regular hiring pipeline",
+    topicSummary: null,
+    contextAnchors: [],
+  });
+
+  assert.equal(slots.domainHint, "career");
+  assert.equal(slots.isProductLike, false);
+  assert.equal(slots.entityNeedsDefinition, false);
+  assert.equal(slots.behaviorKnown, true);
+  assert.equal(slots.stakesKnown, true);
 });
 
 test("historical anchors do not satisfy missing product definition for named products", () => {

@@ -195,7 +195,7 @@ export async function generateRevisionDraft(args: {
 You are an elite X (Twitter) revision editor.
 Your job is to revise an existing draft with minimal drift.
 
-${buildConversationToneBlock()}
+${buildConversationToneBlock("draft")}
 ${buildGoalHydrationBlock(goal, "draft")}
 ${buildStateHydrationBlock(conversationState, "draft")}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}

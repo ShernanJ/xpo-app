@@ -315,8 +315,43 @@ function collectDraftTopicCandidates(
     .map((item) => item.value);
 }
 
-function buildPacingHint(styleCard: VoiceStyleCard | null): string {
+function buildPacingHint(
+  styleCard: VoiceStyleCard | null,
+  options?: {
+    formatPreference?: DraftFormatPreference | null;
+    threadStyle?: "story" | "breakdown";
+  },
+): string {
   const pacing = styleCard?.pacing.toLowerCase() || "";
+  const isThread = options?.formatPreference === "thread";
+
+  if (isThread && options?.threadStyle === "story") {
+    if (pacing.includes("bullet") || pacing.includes("scan")) {
+      return "keep it in my voice, but let each post breathe with short paragraphs instead of a dense bullet block.";
+    }
+
+    if (pacing.includes("long") || pacing.includes("flowing")) {
+      return "let each post breathe with short paragraphs and keep the thread native to x.";
+    }
+
+    if (pacing.includes("short") || pacing.includes("punchy")) {
+      return "keep it crisp, but let each post carry a real beat instead of a mini-tweet.";
+    }
+
+    return "keep it close to my usual voice and let the thread breathe with natural paragraph breaks.";
+  }
+
+  if (isThread && options?.threadStyle === "breakdown") {
+    if (pacing.includes("bullet") || pacing.includes("scan")) {
+      return "keep it clean and scannable, but avoid cramming the opener into a bullet block.";
+    }
+
+    if (pacing.includes("long") || pacing.includes("flowing")) {
+      return "use the extra room for clean development, but keep the thread easy to scan.";
+    }
+
+    return "keep it native to x and let each post hold one clear beat.";
+  }
 
   if (pacing.includes("bullet") || pacing.includes("scan")) {
     return "use the same scan-friendly structure i usually use.";
@@ -435,8 +470,8 @@ function buildThreadDraftChip(args: {
     : "in my usual lane";
   const value =
     args.threadStyle === "story"
-      ? `draft a story-driven x thread ${topicFragment}. make the opener clearly signal the thread, keep each post native to x, and stay close to my usual voice. ${buildPacingHint(args.styleCard)}`
-      : `draft a breakdown x thread ${topicFragment}. make it scan-friendly, concrete, native to x, and close to what i usually post about. ${buildPacingHint(args.styleCard)}`;
+      ? `draft a story-driven x thread ${topicFragment}. make the opener clearly signal the thread, keep each post native to x, and stay close to my usual voice. ${buildPacingHint(args.styleCard, { formatPreference: "thread", threadStyle: "story" })}`
+      : `draft a breakdown x thread ${topicFragment}. make it scan-friendly, concrete, native to x, and close to what i usually post about. ${buildPacingHint(args.styleCard, { formatPreference: "thread", threadStyle: "breakdown" })}`;
 
   return {
     kind: "clarification_choice",

@@ -45,6 +45,9 @@ const CONFUSION_PING_VALUES = new Set([
   "wdym?",
   "what do you mean",
   "that makes no sense",
+  "i explained it though",
+  "i already explained it",
+  "i literally explained it",
 ]);
 
 const SOURCE_TOKEN_STOPWORDS = new Set([
