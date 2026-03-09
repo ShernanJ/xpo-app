@@ -4,6 +4,7 @@ import type { WriterOutput } from "./writer";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
+import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
 // TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
 // import type { DraftScore } from "../contracts/chat";
 // The CriticOutputSchema could be extended with optional fields:
@@ -78,15 +79,18 @@ export async function critiqueDrafts(
   styleCard: VoiceStyleCard | null,
   options?: {
     maxCharacterLimit?: number;
+    threadPostMaxCharacterLimit?: number;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
     previousDraft?: string;
     revisionChangeKind?: DraftRevisionChangeKind;
     sourceUserMessage?: string;
     voiceTarget?: VoiceTarget | null;
+    threadFramingStyle?: ThreadFramingStyle | null;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
+  const threadPostMaxCharacterLimit = options?.threadPostMaxCharacterLimit ?? null;
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
   const concreteSceneBlock = buildConcreteSceneCriticBlock(options?.sourceUserMessage);
@@ -102,7 +106,7 @@ ${buildFormatPreferenceBlock(formatPreference, "critic")}
 3. If the draft uses the words "Delve", "Unlock", "Testament", or "Embark", you MUST replace them.
 4. If the draft contains obvious AI-isms (like "Here are 3 reasons why", "Let's dive in", "A story in 3 parts"), you MUST delete those phrases.
 5. If the draft fails fundamentally, set "approved" to false. Otherwise, return true.
-6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.${formatPreference === "thread" ? ` Keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, but do not force verified-account threads into legacy 280-character brevity if a fuller beat reads better.` : ""}
 7. Do NOT allow empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets a concrete payoff in return. If there is no payoff, rewrite that CTA into something natural and non-gimmicky.
 
 DRAFT TO REVIEW:
@@ -146,6 +150,7 @@ Respond ONLY with a valid JSON matching this schema:
       isVerifiedAccount: maxCharacterLimit > 280,
       styleCard,
       maxCharacterLimit,
+      threadFramingStyle: options?.threadFramingStyle,
     });
     const styleAlignedDraft = policyResult.draft;
     let nextIssues = wasTrimmed

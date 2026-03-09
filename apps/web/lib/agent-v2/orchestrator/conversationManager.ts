@@ -35,6 +35,7 @@ import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
 import {
   getXCharacterLimitForFormat,
+  getXCharacterLimitForAccount,
   inferThreadFramingStyleFromPosts,
   inferThreadFramingStyleFromPrompt,
   resolveThreadFramingStyle,
@@ -1494,6 +1495,10 @@ User Profile Summary:
     formatPreference: turnFormatPreference,
     explicitThreadFramingStyle: threadFramingStyle,
   });
+  const threadPostMaxCharacterLimit =
+    turnFormatPreference === "thread"
+      ? getXCharacterLimitForAccount(isVerifiedAccount)
+      : undefined;
   const maxCharacterLimit = getXCharacterLimitForFormat(
     isVerifiedAccount,
     turnFormatPreference,
@@ -1844,6 +1849,7 @@ User Profile Summary:
           sourceUserMessage: args.sourceUserMessage || undefined,
           voiceTarget,
           referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
+          threadPostMaxCharacterLimit,
           threadFramingStyle: args.threadFramingStyle,
         },
       );
@@ -1869,6 +1875,8 @@ User Profile Summary:
           formatPreference: args.formatPreference,
           sourceUserMessage: args.sourceUserMessage || undefined,
           voiceTarget,
+          threadPostMaxCharacterLimit,
+          threadFramingStyle: args.threadFramingStyle,
         },
       );
 
@@ -3020,6 +3028,7 @@ User Profile Summary:
           goal,
           draftPreference: turnDraftPreference,
           formatPreference: turnFormatPreference,
+          threadPostMaxCharacterLimit,
           threadFramingStyle: turnThreadFramingStyle,
         },
       });
@@ -3047,6 +3056,8 @@ User Profile Summary:
           maxCharacterLimit,
           draftPreference: turnDraftPreference,
           formatPreference: turnFormatPreference,
+          threadPostMaxCharacterLimit,
+          threadFramingStyle: turnThreadFramingStyle,
           previousDraft: effectiveActiveDraft,
           revisionChangeKind: revision.changeKind,
         },

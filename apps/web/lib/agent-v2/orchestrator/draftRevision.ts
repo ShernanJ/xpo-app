@@ -175,6 +175,23 @@ export function normalizeDraftRevisionInstruction(
     };
   }
 
+  if (
+    [
+      "turn this into a thread",
+      "make it a thread",
+      "convert this into a thread",
+      "rewrite this as a thread",
+      "turn into a thread",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return {
+      instruction:
+        "rewrite the current draft as a native x thread. preserve the core idea, but rebuild the flow across 4 to 6 connected posts with distinct beats, natural transitions, and a strong opener. do not just chop the original draft into short tweet-sized fragments.",
+      changeKind: "full_rewrite",
+      targetText: null,
+    };
+  }
+
   return {
     instruction: `apply this revision request to the current draft: ${trimmed}`,
     changeKind: "generic",

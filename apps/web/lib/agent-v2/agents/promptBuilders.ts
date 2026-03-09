@@ -232,6 +232,7 @@ export interface BuildWriterInstructionArgs {
     conversationState?: ConversationState;
     antiPatterns?: string[];
     maxCharacterLimit?: number;
+    threadPostMaxCharacterLimit?: number;
     goal?: string;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
@@ -245,6 +246,7 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
   const conversationState = args.options?.conversationState || "draft_ready";
   const antiPatterns = args.options?.antiPatterns || [];
   const maxCharacterLimit = args.options?.maxCharacterLimit ?? 280;
+  const threadPostMaxCharacterLimit = args.options?.threadPostMaxCharacterLimit ?? null;
   const goal = args.options?.goal || "audience growth";
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference =
@@ -359,7 +361,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only --- and keep every post within the account's allowed weighted X character limit.${buildThreadFramingRequirement(threadFramingStyle)}
+10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement(threadFramingStyle)}
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
@@ -391,7 +393,7 @@ function buildThreadFramingRequirement(
     case "numbered":
       return " Use numbered framing. Prefix each post with a clear marker like 1/5, 2/5, 3/5 so readers instantly know this is a thread. Even then, keep the opener readable and avoid turning the first post into a credential dump or dense bullet block.";
     case "soft_signal":
-      return " Use soft thread framing. The first post must naturally signal the thread with a lead-in such as here's the story:, here's what happened:, or here's the breakdown:. Do NOT add x/x numbering unless the user explicitly asked for it. Keep the opener in clean prose, not a dense bullet list or stacked credential block.";
+      return " Use soft thread framing. The first post should make it naturally obvious the reader is entering a thread through a clean opening sentence or short setup paragraph. Do NOT add x/x numbering unless the user explicitly asked for it. Avoid canned prefixes like here's what happened unless they genuinely fit the voice and content. Keep the opener in clean prose, not a dense bullet list or stacked credential block.";
     case "none":
       return " Keep the thread natural. Do not add x/x numbering or explicit thread labels unless the user explicitly asked for them. Avoid a list-heavy opener; start with a clean sentence or short paragraph.";
     default:

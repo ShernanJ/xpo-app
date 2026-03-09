@@ -731,6 +731,17 @@ test("draft revision normalizer treats 'clean this up' as a tone shift", () => {
   assert.match(directive.instruction, /adjust the tone of the current draft/i);
 });
 
+test("draft revision normalizer treats thread conversion as a full rewrite", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "turn this into a thread with 4 to 6 posts. keep the opener natural.",
+    "momentum feels good. progress survives pressure.",
+  );
+
+  assert.equal(directive.changeKind, "full_rewrite");
+  assert.match(directive.instruction, /native x thread/i);
+  assert.match(directive.instruction, /do not just chop/i);
+});
+
 test("anti-pattern helpers separate mechanical edits from tonal rejection", () => {
   assert.equal(looksLikeMechanicalEdit("remove commas and fix punctuation"), true);
   assert.equal(looksLikeNegativeFeedback("this sounds like linkedin"), true);

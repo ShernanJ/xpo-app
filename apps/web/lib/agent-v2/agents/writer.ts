@@ -36,6 +36,7 @@ export async function generateDrafts(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     maxCharacterLimit?: number;
+    threadPostMaxCharacterLimit?: number;
     goal?: string;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;

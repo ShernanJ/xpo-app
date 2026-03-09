@@ -438,7 +438,7 @@ function normalizeThreadDraftFormatting(
       resolvedStyle === "numbered" ? post : stripThreadNumberingMarker(post);
 
     if (index === 0 && resolvedStyle !== "numbered") {
-      nextPost = normalizeThreadOpeningPost(nextPost, resolvedStyle);
+      nextPost = normalizeThreadOpeningPost(nextPost);
     }
 
     return nextPost.trim();
@@ -456,10 +456,7 @@ function stripThreadNumberingMarker(value: string): string {
     .trim();
 }
 
-function normalizeThreadOpeningPost(
-  value: string,
-  threadFramingStyle: ThreadFramingStyle,
-): string {
+function normalizeThreadOpeningPost(value: string): string {
   const lines = value
     .split("\n")
     .map((line, index) =>
@@ -469,27 +466,7 @@ function normalizeThreadOpeningPost(
 
   let nextValue = lines.join("\n");
 
-  if (threadFramingStyle === "soft_signal" && !hasSoftThreadOpening(nextValue)) {
-    const softSignal = /\b(i|i'm|i’ve|ive|my|me|we|we're|we’ve|our)\b/i.test(nextValue)
-      ? "here's what happened:"
-      : "here's the breakdown:";
-    nextValue = `${softSignal}\n\n${nextValue}`.trim();
-  }
-
   return nextValue;
-}
-
-function hasSoftThreadOpening(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    /\b(here'?s|this is|my story|what happened|how it started|how it went|the breakdown|why i|story on|journey)\b/.test(
-      normalized,
-    ) || /:\s*$/.test(normalized.split("\n")[0] || "")
-  );
 }
 
 export function applyFinalDraftPolicyWithReport(args: {

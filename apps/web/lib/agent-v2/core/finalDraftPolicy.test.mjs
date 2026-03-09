@@ -92,7 +92,7 @@ test("returns adjustment metadata for downstream issue reporting", () => {
   assert.equal(result.adjustments.engagementAdjusted, true);
 });
 
-test("soft-signal threads strip x/x numbering and get a natural opener", () => {
+test("soft-signal threads strip x/x numbering without forcing a canned opener", () => {
   const result = applyFinalDraftPolicy({
     draft: [
       "1/6 Momentum is a myth. I’m Vitalii, founder of Stan.\n• $30M ARR, profitable\n• 10 engineers, 60k creators",
@@ -105,8 +105,27 @@ test("soft-signal threads strip x/x numbering and get a natural opener", () => {
 
   assert.equal(result.includes("1/6"), false);
   assert.equal(result.includes("2/6"), false);
-  assert.equal(result.toLowerCase().startsWith("here's what happened:"), true);
+  assert.equal(result.toLowerCase().startsWith("here's what happened:"), false);
+  assert.equal(result.startsWith("Momentum is a myth."), true);
   assert.equal(result.includes("•"), false);
+});
+
+test("soft-signal threads preserve a natural opener when one already exists", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "The boardroom buzzed as the dashboard lit up with a sudden spike in sign-ups.",
+      "Three days later the curve flattened.",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "soft_signal",
+  });
+
+  assert.equal(
+    result.startsWith("The boardroom buzzed as the dashboard lit up with a sudden spike in sign-ups."),
+    true,
+  );
+  assert.equal(result.toLowerCase().includes("here's what happened:"), false);
 });
 
 test("numbered threads preserve numbering markers", () => {
