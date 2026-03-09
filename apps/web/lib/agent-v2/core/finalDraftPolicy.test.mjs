@@ -91,3 +91,35 @@ test("returns adjustment metadata for downstream issue reporting", () => {
   assert.equal(result.adjustments.markdownAdjusted, true);
   assert.equal(result.adjustments.engagementAdjusted, true);
 });
+
+test("soft-signal threads strip x/x numbering and get a natural opener", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "1/6 Momentum is a myth. I’m Vitalii, founder of Stan.\n• $30M ARR, profitable\n• 10 engineers, 60k creators",
+      "2/6 We changed how we hired.",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "soft_signal",
+  });
+
+  assert.equal(result.includes("1/6"), false);
+  assert.equal(result.includes("2/6"), false);
+  assert.equal(result.toLowerCase().startsWith("here's what happened:"), true);
+  assert.equal(result.includes("•"), false);
+});
+
+test("numbered threads preserve numbering markers", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "1/5 first post",
+      "2/5 second post",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "numbered",
+  });
+
+  assert.equal(result.includes("1/5"), true);
+  assert.equal(result.includes("2/5"), true);
+});

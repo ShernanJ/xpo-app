@@ -43,6 +43,7 @@ interface DraftPromotionRequest extends Record<string, unknown> {
   replyPlan?: unknown;
   voiceTarget?: unknown;
   noveltyNotes?: unknown;
+  threadFramingStyle?: unknown;
 }
 
 function resolveDraftArtifactKind(
@@ -71,6 +72,7 @@ function buildDraftArtifactWithLimit(params: {
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
   noveltyNotes?: string[];
+  threadFramingStyle?: DraftArtifactDetails["threadFramingStyle"];
 }): DraftArtifactDetails {
   const artifact = buildDraftArtifact({
     id: params.id,
@@ -82,6 +84,15 @@ function buildDraftArtifactWithLimit(params: {
     ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
     ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
     ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
+    ...(params.threadFramingStyle ? { threadFramingStyle: params.threadFramingStyle } : {}),
+    ...(params.kind === "thread_seed"
+      ? {
+          threadPostMaxCharacterLimit: Math.max(
+            280,
+            Math.floor(params.maxCharacterLimit / 6),
+          ),
+        }
+      : {}),
   });
 
   if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
@@ -206,6 +217,12 @@ export async function POST(
         .map((entry) => entry.trim())
         .filter(Boolean)
     : [];
+  const threadFramingStyle =
+    body.threadFramingStyle === "none" ||
+    body.threadFramingStyle === "soft_signal" ||
+    body.threadFramingStyle === "numbered"
+      ? body.threadFramingStyle
+      : null;
   const basedOn = parseBasedOn(body.basedOn);
   const revisionChainId = buildRevisionChainId(
     typeof body.revisionChainId === "string" ? body.revisionChainId : basedOn?.revisionChainId,
@@ -249,6 +266,7 @@ export async function POST(
       ...(replyPlan.length ? { replyPlan } : {}),
       ...(voiceTarget ? { voiceTarget } : {}),
       ...(noveltyNotes.length ? { noveltyNotes } : {}),
+      ...(threadFramingStyle ? { threadFramingStyle } : {}),
     });
     const draftVersion: DraftVersionEntry = {
       id: versionId,

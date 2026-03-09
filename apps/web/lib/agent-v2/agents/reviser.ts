@@ -16,7 +16,10 @@ import {
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
 import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
-import { trimToXCharacterLimit } from "../../onboarding/draftArtifacts";
+import {
+  trimToXCharacterLimit,
+  type ThreadFramingStyle,
+} from "../../onboarding/draftArtifacts";
 
 export const ReviserOutputSchema = z.object({
   revisedDraft: z.string().describe("The revised draft text"),
@@ -141,6 +144,7 @@ export async function generateRevisionDraft(args: {
     goal?: string;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    threadFramingStyle?: ThreadFramingStyle | null;
   };
 }): Promise<ReviserOutput | null> {
   const conversationState = args.options?.conversationState || "editing";
@@ -149,6 +153,7 @@ export async function generateRevisionDraft(args: {
   const goal = args.options?.goal || "audience growth";
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference = args.options?.formatPreference || "shortform";
+  const threadFramingStyle = args.options?.threadFramingStyle || null;
 
   if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
@@ -223,7 +228,7 @@ REQUIREMENTS:
 9. Keep the draft sounding like the user. Match their casing and pacing.
 10. If the user uses list markers like "-" or ">", preserve that formatting style when the revised draft uses lists.
 11. Verification is not a professionalism signal. Do not make the revision sound more polished or corporate just because the account is verified.
-12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.${buildThreadFramingRequirement(threadFramingStyle)}
 13. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding.
 14. X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.
 15. Do NOT introduce empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something concrete in return (DM, template, checklist, link, copy, or access). If there is no real payoff, use a more natural CTA.
@@ -260,5 +265,20 @@ Respond ONLY with valid JSON:
   } catch (error) {
     console.error("Reviser validation failed", error);
     return null;
+  }
+}
+
+function buildThreadFramingRequirement(
+  threadFramingStyle: ThreadFramingStyle | null,
+): string {
+  switch (threadFramingStyle) {
+    case "numbered":
+      return " If this is a thread revision, preserve or apply numbered framing like 1/5, 2/5, 3/5 across the posts, but keep the opener readable and avoid dense bullet blocks.";
+    case "soft_signal":
+      return " If this is a thread revision, keep the opener as a natural thread signal like here's the story:, here's what happened:, or here's the breakdown:, and avoid x/x numbering unless the user explicitly asks for it. Keep the opener in clean prose instead of a dense bullet list.";
+    case "none":
+      return " If this is a thread revision, keep the framing natural and avoid x/x numbering or explicit thread labels unless the user explicitly asks for them. Avoid a list-heavy opener.";
+    default:
+      return "";
   }
 }

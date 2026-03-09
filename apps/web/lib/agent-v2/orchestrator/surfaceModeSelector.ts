@@ -33,7 +33,8 @@ export function selectResponseShapePlan(
 ): ResponseShapePlan {
   if (
     args.outputShape === "short_form_post" ||
-    args.outputShape === "long_form_post"
+    args.outputShape === "long_form_post" ||
+    args.outputShape === "thread_seed"
   ) {
     return {
       mode: "structured_generation",

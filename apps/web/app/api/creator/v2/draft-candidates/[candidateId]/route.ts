@@ -3,7 +3,10 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
-import { buildDraftArtifact, type DraftArtifactDetails } from "@/lib/onboarding/draftArtifacts";
+import {
+  buildDraftArtifact,
+  type DraftArtifactDetails,
+} from "@/lib/onboarding/draftArtifacts";
 
 interface CandidatePatchRequest extends Record<string, unknown> {
   action?: unknown;
@@ -65,6 +68,11 @@ function rebuildArtifact(args: {
   artifact: DraftArtifactDetails;
   content: string;
 }): DraftArtifactDetails {
+  const threadPostMaxCharacterLimit =
+    args.artifact.kind === "thread_seed"
+      ? args.artifact.posts?.[0]?.maxCharacterLimit ||
+        Math.max(280, Math.floor((args.artifact.maxCharacterLimit || 1_680) / 6))
+      : undefined;
   return buildDraftArtifact({
     id: args.artifact.id || args.candidateId,
     title: args.artifact.title || "Draft",
@@ -75,6 +83,10 @@ function rebuildArtifact(args: {
     replyPlan: args.artifact.replyPlan || [],
     voiceTarget: args.artifact.voiceTarget || null,
     noveltyNotes: args.artifact.noveltyNotes || [],
+    threadFramingStyle: args.artifact.threadFramingStyle || null,
+    ...(threadPostMaxCharacterLimit
+      ? { threadPostMaxCharacterLimit }
+      : {}),
   });
 }
 
@@ -306,6 +318,13 @@ export async function PATCH(
       supportAsset: nextResult.data.supportAsset || currentArtifact.supportAsset || null,
       voiceTarget: nextResult.data.voiceTarget || currentArtifact.voiceTarget || null,
       noveltyNotes: nextResult.data.noveltyNotes || currentArtifact.noveltyNotes || [],
+      ...(currentArtifact.kind === "thread_seed"
+        ? {
+            threadPostMaxCharacterLimit:
+              currentArtifact.posts?.[0]?.maxCharacterLimit ||
+              Math.max(280, Math.floor((currentArtifact.maxCharacterLimit || 1_680) / 6)),
+          }
+        : {}),
     });
 
     const updated = await prisma.draftCandidate.update({

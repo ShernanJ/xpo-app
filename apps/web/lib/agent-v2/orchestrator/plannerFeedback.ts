@@ -30,6 +30,8 @@ export async function interpretPlannerFeedback(
       "looks good",
       "sounds good",
       "this works",
+      "lets do it",
+      "let's do it",
       "this works. draft this version",
       "draft this version",
       "go ahead",

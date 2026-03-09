@@ -2342,7 +2342,8 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
               <p className="mt-4 text-xs text-zinc-500">{LANDING_FREE_CREDITS_PER_MONTH} credits/month</p>
               <div className="mt-4 space-y-2 text-sm text-zinc-300">
                 <p>• Core chat + onboarding included</p>
-                <p>• 1 workspace handle</p>
+                <p>• Draft analysis: Analyze</p>
+                <p>• Multiple X accounts on one shared credit pool</p>
                 <p>
                   • ≈ {landingFreeApproxChatTurns} chat turns or ≈ {landingFreeApproxDraftTurns} draft/review turns
                 </p>
@@ -2415,7 +2416,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
               <div className="mt-4 space-y-2 text-sm text-zinc-200">
                 <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month</p>
                 <p>• Draft analysis: Analyze + Compare</p>
-                <p>• Up to 5 workspace handles</p>
+                <p>• Multiple X accounts on one shared credit pool</p>
                 <p>• Higher throughput + priority processing</p>
                 <p>
                   • ≈ {landingProApproxChatTurns} chat turns or ≈ {landingProApproxDraftTurns} draft/review turns
@@ -2445,6 +2446,8 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
               <p className="mt-2 text-sm text-zinc-200">One-time payment. No recurring billing.</p>
               <div className="mt-4 space-y-2 text-sm text-zinc-200">
                 <p>• Includes Pro features</p>
+                <p>• Draft analysis: Analyze + Compare</p>
+                <p>• Multiple X accounts on one shared credit pool</p>
                 <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month included</p>
                 <p>• Priority founder lane</p>
               </div>

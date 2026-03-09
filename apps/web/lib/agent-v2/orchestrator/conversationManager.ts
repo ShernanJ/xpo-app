@@ -33,7 +33,13 @@ import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
-import { getXCharacterLimitForFormat } from "../../onboarding/draftArtifacts";
+import {
+  getXCharacterLimitForFormat,
+  inferThreadFramingStyleFromPosts,
+  inferThreadFramingStyleFromPrompt,
+  resolveThreadFramingStyle,
+  type ThreadFramingStyle,
+} from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
@@ -128,6 +134,7 @@ export interface OrchestratorInput {
   explicitIntent?: V2ChatIntent | null;
   activeDraft?: string;
   formatPreference?: DraftFormatPreference | null;
+  threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
 }
 
@@ -140,6 +147,7 @@ export interface OrchestratorData {
   quickReplies?: CreatorChatQuickReply[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  threadFramingStyle?: ThreadFramingStyle | null;
 }
 
 export type OrchestratorResponse = {
@@ -535,6 +543,11 @@ function inferAbstractTopicSeed(
       "made up",
       "invented",
       "hallucinated",
+      "lets do it",
+      "let's do it",
+      "do it",
+      "go ahead",
+      "sounds good",
     ].some((cue) => normalized.includes(cue))
   ) {
     return null;
@@ -588,11 +601,18 @@ function inferBroadTopicDraftRequest(message: string): string | null {
   const isDraftRequest = [
     "write me a post",
     "write a post",
+    "write me a thread",
+    "write a thread",
     "draft a post",
     "draft me a post",
+    "draft a thread",
+    "draft me a thread",
     "make a post",
     "make me a post",
+    "make a thread",
+    "make me a thread",
     "give me a post",
+    "give me a thread",
   ].some((cue) => normalized.includes(cue));
 
   if (!isDraftRequest) {
@@ -881,6 +901,38 @@ function inferDraftFormatPreference(
   return fallback;
 }
 
+function resolveRequestedThreadFramingStyle(args: {
+  userMessage: string;
+  activeDraft?: string;
+  formatPreference: DraftFormatPreference;
+  explicitThreadFramingStyle?: ThreadFramingStyle | null;
+}): ThreadFramingStyle | null {
+  if (args.formatPreference !== "thread") {
+    return null;
+  }
+
+  const explicitStyle = resolveThreadFramingStyle(args.explicitThreadFramingStyle);
+  if (explicitStyle) {
+    return explicitStyle;
+  }
+
+  const requestedStyle = inferThreadFramingStyleFromPrompt(args.userMessage);
+  if (requestedStyle) {
+    return requestedStyle;
+  }
+
+  if (args.activeDraft) {
+    return inferThreadFramingStyleFromPosts(
+      args.activeDraft
+        .split(/\n\s*---\s*\n/g)
+        .map((post) => post.trim())
+        .filter(Boolean),
+    );
+  }
+
+  return "soft_signal";
+}
+
 function withPlanPreferences(
   plan: StrategyPlan,
   draftPreference: DraftPreference,
@@ -1145,6 +1197,7 @@ export async function manageConversationTurn(
     explicitIntent,
     activeDraft,
     formatPreference,
+    threadFramingStyle,
   } = input;
   const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
   const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
@@ -1435,6 +1488,12 @@ User Profile Summary:
       : isVerifiedAccount
         ? requestedFormatPreference
         : "shortform";
+  const turnThreadFramingStyle = resolveRequestedThreadFramingStyle({
+    userMessage,
+    activeDraft,
+    formatPreference: turnFormatPreference,
+    explicitThreadFramingStyle: threadFramingStyle,
+  });
   const maxCharacterLimit = getXCharacterLimitForFormat(
     isVerifiedAccount,
     turnFormatPreference,
@@ -1533,6 +1592,7 @@ User Profile Summary:
     branchKey: Parameters<typeof buildClarificationTree>[0]["branchKey"];
     seedTopic: string | null;
     isVerifiedAccount?: boolean;
+    requestedFormatPreference?: DraftFormatPreference | null;
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
     replyOverride?: string;
@@ -1542,6 +1602,7 @@ User Profile Summary:
       seedTopic: args.seedTopic,
       styleCard,
       topicAnchors: relevantTopicAnchors,
+      requestedFormatPreference: args.requestedFormatPreference ?? turnFormatPreference,
       ...(args.isVerifiedAccount !== undefined
         ? { isVerifiedAccount: args.isVerifiedAccount }
         : {}),
@@ -1722,17 +1783,19 @@ User Profile Summary:
     sourceUserMessage?: string | null;
     draftPreference: DraftPreference;
     formatPreference: DraftFormatPreference;
+    threadFramingStyle?: ThreadFramingStyle | null;
     fallbackToWriterWhenCriticRejected: boolean;
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
   }): Promise<
     | {
         kind: "success";
-      writerOutput: WriterOutput;
-      criticOutput: CriticOutput;
-      draftToDeliver: string;
-      voiceTarget: VoiceTarget;
-      retrievalReasons: string[];
+        writerOutput: WriterOutput;
+        criticOutput: CriticOutput;
+        draftToDeliver: string;
+        voiceTarget: VoiceTarget;
+        retrievalReasons: string[];
+        threadFramingStyle: ThreadFramingStyle | null;
     }
     | {
       kind: "response";
@@ -1747,6 +1810,7 @@ User Profile Summary:
       draftToDeliver: string | null;
       voiceTarget: VoiceTarget;
       retrievalReasons: string[];
+      threadFramingStyle: ThreadFramingStyle | null;
     }> => {
       const attemptConstraints = Array.from(
         new Set([...args.activeConstraints, ...extraConstraints]),
@@ -1780,6 +1844,7 @@ User Profile Summary:
           sourceUserMessage: args.sourceUserMessage || undefined,
           voiceTarget,
           referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
+          threadFramingStyle: args.threadFramingStyle,
         },
       );
 
@@ -1790,6 +1855,7 @@ User Profile Summary:
           draftToDeliver: null,
           voiceTarget,
           retrievalReasons: requestConditionedAnchors.retrievalReasons,
+          threadFramingStyle: args.threadFramingStyle ?? null,
         };
       }
 
@@ -1813,6 +1879,7 @@ User Profile Summary:
           draftToDeliver: null,
           voiceTarget,
           retrievalReasons: requestConditionedAnchors.retrievalReasons,
+          threadFramingStyle: args.threadFramingStyle ?? null,
         };
       }
 
@@ -1827,6 +1894,7 @@ User Profile Summary:
         draftToDeliver,
         voiceTarget,
         retrievalReasons: requestConditionedAnchors.retrievalReasons,
+        threadFramingStyle: args.threadFramingStyle ?? null,
       };
     };
 
@@ -1873,6 +1941,7 @@ User Profile Summary:
         draftToDeliver: firstAttempt.draftToDeliver,
         voiceTarget: firstAttempt.voiceTarget,
         retrievalReasons: firstAttempt.retrievalReasons,
+        threadFramingStyle: firstAttempt.threadFramingStyle,
       };
     }
 
@@ -1958,6 +2027,7 @@ User Profile Summary:
       draftToDeliver: secondAttempt.draftToDeliver,
       voiceTarget: secondAttempt.voiceTarget,
       retrievalReasons: secondAttempt.retrievalReasons,
+      threadFramingStyle: secondAttempt.threadFramingStyle,
     };
   }
 
@@ -2101,6 +2171,7 @@ User Profile Summary:
         sourceUserMessage: buildPlanSourceMessage(approvedPlan),
         draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
         formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+        threadFramingStyle: turnThreadFramingStyle,
         fallbackToWriterWhenCriticRejected: false,
         topicSummary: approvedPlan.objective,
         pendingPlan: approvedPlan,
@@ -2116,6 +2187,7 @@ User Profile Summary:
         draftToDeliver,
         voiceTarget,
         retrievalReasons,
+        threadFramingStyle,
       } = draftResult;
 
       const noveltyCheck = services.checkDeterministicNovelty(
@@ -2177,6 +2249,7 @@ User Profile Summary:
             noveltyCheck,
             retrievalReasons,
           }),
+          threadFramingStyle,
         },
         memory,
       };
@@ -2750,6 +2823,7 @@ User Profile Summary:
         sourceUserMessage: planInput.planMessage,
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
+        threadFramingStyle: turnThreadFramingStyle,
         fallbackToWriterWhenCriticRejected: true,
         topicSummary: guardedPlan.objective,
       });
@@ -2796,6 +2870,7 @@ User Profile Summary:
         draftToDeliver: finalDraft,
         voiceTarget,
         retrievalReasons,
+        threadFramingStyle,
       } = draftResult;
       const historicalTexts = await services.getHistoricalPosts({
         userId,
@@ -2853,6 +2928,7 @@ User Profile Summary:
             noveltyCheck,
             retrievalReasons,
           }),
+          threadFramingStyle,
         },
         memory,
       };
@@ -2944,6 +3020,7 @@ User Profile Summary:
           goal,
           draftPreference: turnDraftPreference,
           formatPreference: turnFormatPreference,
+          threadFramingStyle: turnThreadFramingStyle,
         },
       });
 
@@ -3046,6 +3123,7 @@ User Profile Summary:
           issuesFixed,
           voiceTarget: revisionVoiceTarget,
           noveltyNotes: buildNoveltyNotes({}),
+          threadFramingStyle: turnThreadFramingStyle,
         },
         memory,
       };
@@ -3100,6 +3178,7 @@ User Profile Summary:
       sourceUserMessage: draftInstruction,
       draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
       formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+      threadFramingStyle: turnThreadFramingStyle,
       fallbackToWriterWhenCriticRejected: false,
       topicSummary: guardedPlan.objective,
     });
@@ -3114,6 +3193,7 @@ User Profile Summary:
       draftToDeliver,
       voiceTarget,
       retrievalReasons,
+      threadFramingStyle,
     } = draftResult;
 
     const noveltyCheck = services.checkDeterministicNovelty(
@@ -3179,6 +3259,7 @@ User Profile Summary:
           noveltyCheck,
           retrievalReasons,
         }),
+        threadFramingStyle,
       },
       memory,
     };

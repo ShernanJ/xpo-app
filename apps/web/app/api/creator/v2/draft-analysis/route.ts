@@ -6,6 +6,10 @@ import { prisma } from "@/lib/db";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import {
+  canAccessDraftAnalysis,
+  getDraftAnalysisUpgradeMessage,
+} from "@/lib/billing/rules";
+import {
   ensureBillingEntitlement,
   getBillingStateForUser,
 } from "@/lib/billing/entitlements";
@@ -71,7 +75,7 @@ export async function POST(request: NextRequest) {
   }
 
   const entitlement = await ensureBillingEntitlement(session.user.id);
-  if (entitlement.plan === "free") {
+  if (!canAccessDraftAnalysis(entitlement.plan, mode)) {
     const billingState = await getBillingStateForUser(session.user.id);
     return NextResponse.json(
       {
@@ -80,7 +84,7 @@ export async function POST(request: NextRequest) {
         errors: [
           {
             field: "billing",
-            message: "Draft analysis is available on Pro and Lifetime.",
+            message: getDraftAnalysisUpgradeMessage(mode),
           },
         ],
         data: { billing: billingState.billing },

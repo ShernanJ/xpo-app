@@ -5,6 +5,10 @@ import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
 import {
+  buildDirectionChoiceReply,
+  buildLooseDirectionReply,
+} from "./assistantReplyStyle.ts";
+import {
   isBareIdeationRequest,
   isBareDraftRequest,
   resolveConversationMode,
@@ -25,13 +29,17 @@ import {
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding.ts";
 import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
+import { planTurn } from "./turnPlanner.ts";
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
   assert.equal(isBareDraftRequest("write me a post"), true);
+  assert.equal(isBareDraftRequest("write a thread i would use"), true);
+  assert.equal(isBareDraftRequest("write me a thread"), true);
   assert.equal(isBareDraftRequest("give me a random post I would use"), true);
   assert.equal(isBareDraftRequest("give me random post i'd use"), true);
   assert.equal(isBareDraftRequest("write me a post about internship hunt"), false);
+  assert.equal(isBareDraftRequest("write me a thread about internship hunt"), false);
 });
 
 test("generic ideation prompts are detected deterministically", () => {
@@ -43,6 +51,26 @@ test("generic ideation prompts are detected deterministically", () => {
   assert.equal(isBareIdeationRequest("brainstorm with me"), true);
   assert.equal(isBareIdeationRequest("give me post ideas about onboarding"), false);
   assert.equal(isBareIdeationRequest("give me more post ideas about onboarding"), false);
+});
+
+test("thread direction reply avoids post-length framing", () => {
+  const reply = buildDirectionChoiceReply({
+    verified: true,
+    requestedFormatPreference: "thread",
+  });
+
+  assert.equal(reply.toLowerCase().includes("thread"), true);
+  assert.equal(/shortform|longform/i.test(reply), false);
+});
+
+test("thread loose-direction reply stays thread-native", () => {
+  const reply = buildLooseDirectionReply({
+    almostReady: true,
+    requestedFormatPreference: "thread",
+  });
+
+  assert.equal(reply.toLowerCase().includes("thread"), true);
+  assert.equal(/concrete direction/i.test(reply), false);
 });
 
 test("concrete anecdote draft requests trigger the no-fabrication guardrail", () => {
@@ -133,6 +161,16 @@ test("bare draft requests force plan mode even when classifier misses", () => {
   assert.equal(mode, "plan");
 });
 
+test("bare thread requests force plan mode even when classifier misses", () => {
+  const mode = resolveConversationMode({
+    explicitIntent: null,
+    userMessage: "write a thread i would use",
+    classifiedIntent: "coach",
+  });
+
+  assert.equal(mode, "plan");
+});
+
 test("bare ideation requests force ideate mode when classifier is noisy", () => {
   const mode = resolveConversationMode({
     explicitIntent: null,
@@ -171,6 +209,35 @@ test("planner feedback only reuses pending plan when approval state is active", 
     }),
     false,
   );
+});
+
+test("lets do it routes to planner feedback when a plan is pending", () => {
+  const turnPlan = planTurn({
+    userMessage: "Lets do it",
+    recentHistory: "assistant: start with a punchy hook and then land the CTA.",
+    memory: {
+      conversationState: "plan_pending_approval",
+      concreteAnswerCount: 1,
+      topicSummary: "momentum vs progress",
+      pendingPlan: {
+        objective: "momentum vs progress",
+        angle: "flip the belief that momentum equals traction",
+        targetLane: "original",
+        mustInclude: [],
+        mustAvoid: [],
+        hookType: "contrarian",
+        pitchResponse: "drafting it.",
+        formatPreference: "thread",
+      },
+      currentDraftArtifactId: null,
+      activeConstraints: [],
+      assistantTurnCount: 2,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(turnPlan?.overrideClassifiedIntent, "planner_feedback");
+  assert.equal(turnPlan?.userGoal, "draft");
 });
 
 test("selected draft review/edit modes use the revision flow", () => {

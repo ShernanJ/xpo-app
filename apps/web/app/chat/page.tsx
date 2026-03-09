@@ -23,6 +23,8 @@ import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
+  inferThreadFramingStyleFromPosts,
+  type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import {
@@ -2076,10 +2078,12 @@ function buildDraftArtifactWithLimit(params: {
   content: string;
   supportAsset: string | null;
   maxCharacterLimit: number;
+  threadPostMaxCharacterLimit?: number;
   posts?: string[];
   replyPlan?: string[];
   voiceTarget?: DraftArtifact["voiceTarget"];
   noveltyNotes?: string[];
+  threadFramingStyle?: DraftArtifact["threadFramingStyle"];
 }): DraftArtifact {
   const artifact = buildDraftArtifact({
     id: params.id,
@@ -2087,10 +2091,16 @@ function buildDraftArtifactWithLimit(params: {
     kind: params.kind,
     content: params.content,
     supportAsset: params.supportAsset,
+    ...(params.threadPostMaxCharacterLimit
+      ? { threadPostMaxCharacterLimit: params.threadPostMaxCharacterLimit }
+      : {}),
     ...(params.posts?.length ? { posts: params.posts } : {}),
     ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
     ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
     ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
+    ...(params.threadFramingStyle
+      ? { threadFramingStyle: params.threadFramingStyle }
+      : {}),
   });
 
   if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
@@ -2102,6 +2112,54 @@ function buildDraftArtifactWithLimit(params: {
     maxCharacterLimit: params.maxCharacterLimit,
     isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
   };
+}
+
+function getThreadPostCharacterLimit(
+  artifact: DraftArtifact | null | undefined,
+  fallbackCharacterLimit: number,
+): number {
+  return artifact?.posts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
+}
+
+function getThreadFramingStyle(
+  artifact: DraftArtifact | null | undefined,
+  fallbackContent?: string,
+): ThreadFramingStyle {
+  if (artifact?.threadFramingStyle) {
+    return artifact.threadFramingStyle;
+  }
+
+  const posts = artifact
+    ? getArtifactPosts(artifact)
+    : fallbackContent
+      ? splitThreadContent(fallbackContent)
+      : [];
+
+  return inferThreadFramingStyleFromPosts(posts);
+}
+
+function buildThreadFramingRevisionPrompt(style: ThreadFramingStyle): string {
+  switch (style) {
+    case "numbered":
+      return "keep the same thread but make the framing explicitly numbered with x/x in each post.";
+    case "soft_signal":
+      return "keep the same thread but make the opener clearly signal the thread in a natural way without x/x numbering.";
+    case "none":
+    default:
+      return "keep the same thread but remove thread numbering and make the flow feel natural without explicit thread labels.";
+  }
+}
+
+function getThreadFramingStyleLabel(style: ThreadFramingStyle | null | undefined): string {
+  switch (style) {
+    case "numbered":
+      return "Numbered";
+    case "soft_signal":
+      return "Soft Intro";
+    case "none":
+    default:
+      return "Natural";
+  }
 }
 
 function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] {
@@ -3147,6 +3205,10 @@ function ChatPageContent() {
   const [isDraftQueueGenerating, setIsDraftQueueGenerating] = useState(false);
   const [draftQueueActionById, setDraftQueueActionById] = useState<Record<string, string>>({});
   const [draftQueueError, setDraftQueueError] = useState<string | null>(null);
+  const [expandedInlineThreadPreviewId, setExpandedInlineThreadPreviewId] = useState<string | null>(null);
+  const [selectedThreadPostByMessageId, setSelectedThreadPostByMessageId] = useState<
+    Record<string, number>
+  >({});
   const [editingDraftCandidateId, setEditingDraftCandidateId] = useState<string | null>(null);
   const [editingDraftCandidateText, setEditingDraftCandidateText] = useState("");
 
@@ -5719,6 +5781,51 @@ function ChatPageContent() {
   const isSelectedDraftThread =
     selectedDraftArtifact?.kind === "thread_seed" ||
     selectedDraftMessage?.outputShape === "thread_seed";
+  const selectedDraftThreadFramingStyle = useMemo(
+    () =>
+      isSelectedDraftThread
+        ? getThreadFramingStyle(
+            selectedDraftArtifact,
+            selectedDraftVersion?.content ?? selectedDraftMessage?.draft ?? undefined,
+          )
+        : null,
+    [
+      isSelectedDraftThread,
+      selectedDraftArtifact,
+      selectedDraftMessage?.draft,
+      selectedDraftVersion?.content,
+    ],
+  );
+  const selectedDraftThreadPostCount = useMemo(() => {
+    if (!isSelectedDraftThread) {
+      return 0;
+    }
+
+    return ensureEditableThreadPosts(
+      editorDraftPosts.length > 0
+        ? editorDraftPosts
+        : buildEditableThreadPosts(selectedDraftArtifact, selectedDraftVersion?.content ?? ""),
+    ).length;
+  }, [
+    editorDraftPosts,
+    isSelectedDraftThread,
+    selectedDraftArtifact,
+    selectedDraftVersion?.content,
+  ]);
+  const selectedDraftThreadPostIndex = useMemo(() => {
+    const activeMessageId = activeDraftEditor?.messageId;
+    if (!activeMessageId || !isSelectedDraftThread || selectedDraftThreadPostCount === 0) {
+      return 0;
+    }
+
+    const rawIndex = selectedThreadPostByMessageId[activeMessageId] ?? 0;
+    return Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+  }, [
+    activeDraftEditor?.messageId,
+    isSelectedDraftThread,
+    selectedDraftThreadPostCount,
+    selectedThreadPostByMessageId,
+  ]);
   const draftEditorSerializedContent = useMemo(
     () =>
       isSelectedDraftThread
@@ -5839,6 +5946,31 @@ function ChatPageContent() {
     selectedDraftVersionId,
   ]);
 
+  useEffect(() => {
+    const activeMessageId = activeDraftEditor?.messageId;
+    if (!activeMessageId || !isSelectedDraftThread || selectedDraftThreadPostCount <= 0) {
+      return;
+    }
+
+    setSelectedThreadPostByMessageId((current) => {
+      const rawIndex = current[activeMessageId] ?? 0;
+      const clampedIndex = Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+
+      if (rawIndex === clampedIndex) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [activeMessageId]: clampedIndex,
+      };
+    });
+  }, [
+    activeDraftEditor?.messageId,
+    isSelectedDraftThread,
+    selectedDraftThreadPostCount,
+  ]);
+
   const navigateDraftTimeline = useCallback(
     (direction: "back" | "forward") => {
       if (selectedDraftTimelineIndex < 0) {
@@ -5880,7 +6012,11 @@ function ChatPageContent() {
     [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
   );
 
-  const openDraftEditor = useCallback((messageId: string, versionId?: string) => {
+  const openDraftEditor = useCallback((
+    messageId: string,
+    versionId?: string,
+    threadPostIndex?: number,
+  ) => {
     const message = messages.find((item) => item.id === messageId);
     if (!message) {
       return;
@@ -5889,6 +6025,22 @@ function ChatPageContent() {
     const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
     if (!bundle) {
       return;
+    }
+
+    const selectedArtifact =
+      bundle.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
+    const isThreadDraft =
+      selectedArtifact?.kind === "thread_seed" || message.outputShape === "thread_seed";
+
+    if (isThreadDraft) {
+      setExpandedInlineThreadPreviewId(messageId);
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]:
+          typeof threadPostIndex === "number" && Number.isFinite(threadPostIndex)
+            ? Math.max(0, threadPostIndex)
+            : 0,
+      }));
     }
 
     setActiveDraftEditor({
@@ -5908,8 +6060,9 @@ function ChatPageContent() {
   }, []);
 
   const moveThreadDraftPost = useCallback((index: number, direction: "up" | "down") => {
+    const messageId = activeDraftEditor?.messageId;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
     setEditorDraftPosts((current) => {
-      const targetIndex = direction === "up" ? index - 1 : index + 1;
       if (index < 0 || index >= current.length || targetIndex < 0 || targetIndex >= current.length) {
         return current;
       }
@@ -5919,9 +6072,16 @@ function ChatPageContent() {
       next.splice(targetIndex, 0, movedPost);
       return next;
     });
-  }, []);
+    if (messageId && targetIndex >= 0) {
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]: targetIndex,
+      }));
+    }
+  }, [activeDraftEditor?.messageId]);
 
   const splitThreadDraftPost = useCallback((index: number) => {
+    const messageId = activeDraftEditor?.messageId;
     setEditorDraftPosts((current) => {
       const target = current[index] ?? "";
       const split = splitThreadPostAtBoundary(target);
@@ -5933,9 +6093,16 @@ function ChatPageContent() {
       next.splice(index, 1, split[0], split[1]);
       return next;
     });
-  }, []);
+    if (messageId) {
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]: index,
+      }));
+    }
+  }, [activeDraftEditor?.messageId]);
 
   const mergeThreadDraftPostDown = useCallback((index: number) => {
+    const messageId = activeDraftEditor?.messageId;
     setEditorDraftPosts((current) => {
       if (index < 0 || index >= current.length - 1) {
         return current;
@@ -5948,9 +6115,16 @@ function ChatPageContent() {
       next.splice(index, 2, merged);
       return ensureEditableThreadPosts(next);
     });
-  }, []);
+    if (messageId) {
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]: index,
+      }));
+    }
+  }, [activeDraftEditor?.messageId]);
 
   const addThreadDraftPost = useCallback((index?: number) => {
+    const messageId = activeDraftEditor?.messageId;
     setEditorDraftPosts((current) => {
       const next = [...current];
       const insertionIndex =
@@ -5960,9 +6134,20 @@ function ChatPageContent() {
       next.splice(insertionIndex, 0, "");
       return ensureEditableThreadPosts(next);
     });
-  }, []);
+    if (messageId) {
+      const insertionIndex =
+        typeof index === "number" && Number.isFinite(index)
+          ? Math.max(0, index)
+          : editorDraftPosts.length;
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]: insertionIndex,
+      }));
+    }
+  }, [activeDraftEditor?.messageId, editorDraftPosts.length]);
 
   const removeThreadDraftPost = useCallback((index: number) => {
+    const messageId = activeDraftEditor?.messageId;
     setEditorDraftPosts((current) => {
       if (current.length <= 1) {
         return [""];
@@ -5970,7 +6155,13 @@ function ChatPageContent() {
 
       return ensureEditableThreadPosts(current.filter((_, postIndex) => postIndex !== index));
     });
-  }, []);
+    if (messageId) {
+      setSelectedThreadPostByMessageId((current) => ({
+        ...current,
+        [messageId]: Math.max(0, index - 1),
+      }));
+    }
+  }, [activeDraftEditor?.messageId]);
 
   const submitAssistantMessageFeedback = useCallback(
     async (messageId: string, value: MessageFeedbackValue) => {
@@ -6172,6 +6363,9 @@ function ChatPageContent() {
             ...(selectedDraftArtifact?.noveltyNotes?.length
               ? { noveltyNotes: selectedDraftArtifact.noveltyNotes }
               : {}),
+            ...(selectedDraftArtifact?.threadFramingStyle
+              ? { threadFramingStyle: selectedDraftArtifact.threadFramingStyle }
+              : {}),
             revisionChainId,
             basedOn: {
               messageId: selectedDraftMessage.id,
@@ -6266,6 +6460,10 @@ function ChatPageContent() {
       isSelectedDraftThread || sourceArtifact?.kind === "thread_seed"
         ? buildEditableThreadPosts(sourceArtifact, nextContent)
         : [];
+    const threadPostMaxCharacterLimit = getThreadPostCharacterLimit(
+      sourceArtifact,
+      getXCharacterLimitForAccount(isVerifiedAccount),
+    );
     const activeDraftArtifact = buildDraftArtifactWithLimit({
       id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
       title: sourceArtifact?.title ?? "Draft",
@@ -6273,10 +6471,16 @@ function ChatPageContent() {
       content: nextContent,
       supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      ...(sourceArtifact?.kind === "thread_seed" || isSelectedDraftThread
+        ? { threadPostMaxCharacterLimit }
+        : {}),
       ...(restoredPosts.length ? { posts: restoredPosts } : {}),
       ...(sourceArtifact?.replyPlan?.length ? { replyPlan: sourceArtifact.replyPlan } : {}),
       ...(sourceArtifact?.voiceTarget ? { voiceTarget: sourceArtifact.voiceTarget } : {}),
       ...(sourceArtifact?.noveltyNotes?.length ? { noveltyNotes: sourceArtifact.noveltyNotes } : {}),
+      ...(sourceArtifact?.threadFramingStyle
+        ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
+        : {}),
     });
 
     setMessages((current) =>
@@ -6554,6 +6758,7 @@ function ChatPageContent() {
       selectedAngle?: string | null;
       intent?: ChatIntent;
       formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
+      threadFramingStyleOverride?: ThreadFramingStyle | null;
       selectedDraftContextOverride?: DraftVersionSnapshot | null;
       historySeed?: ChatMessage[];
       strategyInputOverride?: ChatStrategyInputs;
@@ -6647,6 +6852,9 @@ function ChatPageContent() {
             intent: effectiveIntent,
             ...(options.formatPreferenceOverride
               ? { formatPreference: options.formatPreferenceOverride }
+              : {}),
+            ...(options.threadFramingStyleOverride
+              ? { threadFramingStyle: options.threadFramingStyleOverride }
               : {}),
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
             selectedAngle: options.selectedAngle ?? null,
@@ -6952,7 +7160,11 @@ function ChatPageContent() {
   );
 
   const requestDraftCardRevision = useCallback(
-    async (messageId: string, prompt: string) => {
+    async (
+      messageId: string,
+      prompt: string,
+      threadFramingStyleOverride?: ThreadFramingStyle | null,
+    ) => {
       const message = messages.find((item) => item.id === messageId);
       if (!message) {
         return;
@@ -6964,6 +7176,14 @@ function ChatPageContent() {
       }
 
       const selectedVersion = bundle.activeVersion;
+      const currentThreadFramingStyle =
+        bundle.activeVersion.artifact?.kind === "thread_seed" ||
+        message.outputShape === "thread_seed"
+          ? getThreadFramingStyle(
+              bundle.activeVersion.artifact ?? message.draftArtifacts?.[0],
+              bundle.activeVersion.content,
+            )
+          : null;
       const revisionChainId =
         message.revisionChainId ??
         message.previousVersionSnapshot?.revisionChainId ??
@@ -6979,6 +7199,12 @@ function ChatPageContent() {
         prompt,
         appendUserMessage: true,
         intent: "edit",
+        ...(threadFramingStyleOverride || currentThreadFramingStyle
+          ? {
+              threadFramingStyleOverride:
+                threadFramingStyleOverride ?? currentThreadFramingStyle,
+            }
+          : {}),
         selectedDraftContextOverride: {
           messageId,
           versionId: selectedVersion.id,
@@ -6991,6 +7217,52 @@ function ChatPageContent() {
       });
     },
     [composerCharacterLimit, messages, requestAssistantReply],
+  );
+
+  const requestSelectedThreadFramingChange = useCallback(
+    async (style: ThreadFramingStyle) => {
+      if (
+        !selectedDraftMessage ||
+        !selectedDraftVersion ||
+        !selectedDraftThreadFramingStyle ||
+        selectedDraftThreadFramingStyle === style
+      ) {
+        return;
+      }
+
+      const revisionChainId =
+        selectedDraftMessage.revisionChainId ??
+        selectedDraftMessage.previousVersionSnapshot?.revisionChainId ??
+        `revision-chain-${selectedDraftMessage.id}`;
+
+      setActiveDraftEditor({
+        messageId: selectedDraftMessage.id,
+        versionId: selectedDraftVersion.id,
+        revisionChainId,
+      });
+
+      await requestAssistantReply({
+        prompt: buildThreadFramingRevisionPrompt(style),
+        appendUserMessage: true,
+        intent: "edit",
+        threadFramingStyleOverride: style,
+        selectedDraftContextOverride: {
+          messageId: selectedDraftMessage.id,
+          versionId: selectedDraftVersion.id,
+          content: selectedDraftVersion.content,
+          source: selectedDraftVersion.source,
+          createdAt: selectedDraftVersion.createdAt,
+          maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+          revisionChainId,
+        },
+      });
+    },
+    [
+      requestAssistantReply,
+      selectedDraftMessage,
+      selectedDraftThreadFramingStyle,
+      selectedDraftVersion,
+    ],
   );
 
   useEffect(() => {
@@ -7348,10 +7620,7 @@ function ChatPageContent() {
   const showBillingWarningBanner =
     billingWarningLevel !== "none" &&
     dismissedBillingWarningLevel !== billingWarningLevel;
-  const canAddAccount =
-    !activeBillingSnapshot ||
-    activeBillingSnapshot.plan !== "free" ||
-    availableHandles.length < 1;
+  const canAddAccount = true;
   const renderAccountMenuPanel = (className: string) =>
     accountMenuVisible ? (
       <div
@@ -7492,6 +7761,16 @@ function ChatPageContent() {
     const threadPosts = isSelectedDraftThread
       ? ensureEditableThreadPosts(editorDraftPosts)
       : [];
+    const selectedThreadPost = isSelectedDraftThread
+      ? threadPosts[selectedDraftThreadPostIndex] ?? ""
+      : "";
+    const threadPostCharacterLimit = getThreadPostCharacterLimit(
+      selectedDraftArtifact,
+      getXCharacterLimitForAccount(isVerifiedAccount),
+    );
+    const selectedThreadPostWeightedCount = computeXWeightedCharacterCount(selectedThreadPost);
+    const isSelectedThreadPostOverLimit =
+      selectedThreadPostWeightedCount > threadPostCharacterLimit;
     const serializedThreadContent = isSelectedDraftThread
       ? draftEditorSerializedContent
       : editorDraftText;
@@ -7601,90 +7880,156 @@ function ChatPageContent() {
         <div className={`min-h-0 flex-1 ${panelPaddingClassName}`}>
           {isSelectedDraftThread ? (
             <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-              {threadPosts.map((post, index) => {
-                const weightedCount = computeXWeightedCharacterCount(post);
-                const isOverPostLimit = weightedCount > 280;
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Thread Framing
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Control how the thread announces itself.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    { value: "none", label: "Natural" },
+                    { value: "soft_signal", label: "Soft Intro" },
+                    { value: "numbered", label: "Numbered" },
+                  ].map((option) => {
+                    const isActive = selectedDraftThreadFramingStyle === option.value;
 
-                return (
-                  <div
-                    key={`draft-thread-post-${index}`}
-                    className="rounded-2xl border border-white/10 bg-black/20 p-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                          Post {index + 1}
-                        </span>
-                        <span className={`text-[11px] ${isOverPostLimit ? "text-red-400" : "text-zinc-500"}`}>
-                          {weightedCount}/280
-                        </span>
-                      </div>
-                      {!isViewingHistoricalDraftVersion ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => moveThreadDraftPost(index, "up")}
-                            disabled={index === 0}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                          >
-                            Up
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveThreadDraftPost(index, "down")}
-                            disabled={index === threadPosts.length - 1}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                          >
-                            Down
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => splitThreadDraftPost(index)}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                          >
-                            Split
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => mergeThreadDraftPostDown(index)}
-                            disabled={index === threadPosts.length - 1}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                          >
-                            Merge
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => addThreadDraftPost(index + 1)}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                          >
-                            Add Below
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeThreadDraftPost(index)}
-                            className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          void requestSelectedThreadFramingChange(
+                            option.value as ThreadFramingStyle,
+                          );
+                        }}
+                        disabled={
+                          isActive || isMainChatLocked || isViewingHistoricalDraftVersion
+                        }
+                        className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
+                          isActive
+                            ? "bg-white text-black"
+                            : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                        } disabled:cursor-not-allowed disabled:opacity-45`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {threadPosts.map((_, index) => {
+                  const isActive = selectedDraftThreadPostIndex === index;
 
-                    {isViewingHistoricalDraftVersion ? (
-                      <div className={`mt-3 whitespace-pre-wrap text-white ${bodyTextClassName}`}>
-                        {post}
-                      </div>
-                    ) : (
-                      <textarea
-                        value={post}
-                        onChange={(event) => updateThreadDraftPost(index, event.target.value)}
-                        className={`mt-3 min-h-[120px] w-full resize-none overflow-y-auto rounded-2xl border ${isOverPostLimit ? "border-red-500/30" : "border-white/10"} bg-transparent px-3 py-3 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-                        placeholder={`Thread post ${index + 1}`}
-                      />
-                    )}
+                  return (
+                    <button
+                      key={`thread-post-chip-${index}`}
+                      type="button"
+                      onClick={() => {
+                        if (!selectedDraftMessageId) {
+                          return;
+                        }
+
+                        setSelectedThreadPostByMessageId((current) => ({
+                          ...current,
+                          [selectedDraftMessageId]: index,
+                        }));
+                      }}
+                      className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
+                        isActive
+                          ? "bg-white text-black"
+                          : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                      }`}
+                    >
+                      Post {index + 1}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                      Post {selectedDraftThreadPostIndex + 1}
+                    </span>
+                    <span className={`text-[11px] ${isSelectedThreadPostOverLimit ? "text-red-400" : "text-zinc-500"}`}>
+                      {selectedThreadPostWeightedCount}/{threadPostCharacterLimit.toLocaleString()}
+                    </span>
                   </div>
-                );
-              })}
+                  {!isViewingHistoricalDraftVersion ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moveThreadDraftPost(selectedDraftThreadPostIndex, "up")}
+                        disabled={selectedDraftThreadPostIndex === 0}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveThreadDraftPost(selectedDraftThreadPostIndex, "down")}
+                        disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        Down
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => splitThreadDraftPost(selectedDraftThreadPostIndex)}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Split
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => mergeThreadDraftPostDown(selectedDraftThreadPostIndex)}
+                        disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        Merge
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addThreadDraftPost(selectedDraftThreadPostIndex + 1)}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Add Below
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeThreadDraftPost(selectedDraftThreadPostIndex)}
+                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {isViewingHistoricalDraftVersion ? (
+                  <div className={`mt-3 whitespace-pre-wrap text-white ${bodyTextClassName}`}>
+                    {selectedThreadPost}
+                  </div>
+                ) : (
+                  <textarea
+                    value={selectedThreadPost}
+                    onChange={(event) =>
+                      updateThreadDraftPost(
+                        selectedDraftThreadPostIndex,
+                        event.target.value,
+                      )
+                    }
+                    className={`mt-3 min-h-[220px] w-full resize-none overflow-y-auto rounded-2xl border ${isSelectedThreadPostOverLimit ? "border-red-500/30" : "border-white/10"} bg-transparent px-3 py-3 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+                    placeholder={`Thread post ${selectedDraftThreadPostIndex + 1}`}
+                  />
+                )}
+              </div>
 
               {!isViewingHistoricalDraftVersion ? (
                 <button
@@ -7986,24 +8331,31 @@ function ChatPageContent() {
                           </div>
                         ) : isThreadCandidate ? (
                           <div className="space-y-3">
-                            {candidatePosts.map((post, index) => (
-                              <div
-                                key={`${candidate.id}-post-${index}`}
-                                className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                    Post {index + 1}
-                                  </span>
-                                  <span className={`text-[11px] ${computeXWeightedCharacterCount(post) > 280 ? "text-red-400" : "text-zinc-500"}`}>
-                                    {computeXWeightedCharacterCount(post)}/280
-                                  </span>
+                            {candidatePosts.map((post, index) => {
+                              const postCharacterLimit =
+                                candidate.artifact.posts[index]?.maxCharacterLimit ??
+                                getXCharacterLimitForAccount(isVerifiedAccount);
+                              const weightedPostCount = computeXWeightedCharacterCount(post);
+
+                              return (
+                                <div
+                                  key={`${candidate.id}-post-${index}`}
+                                  className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                      Post {index + 1}
+                                    </span>
+                                    <span className={`text-[11px] ${weightedPostCount > postCharacterLimit ? "text-red-400" : "text-zinc-500"}`}>
+                                      {weightedPostCount}/{postCharacterLimit.toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-100">
+                                    {post}
+                                  </p>
                                 </div>
-                                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-100">
-                                  {post}
-                                </p>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-100">
@@ -8811,7 +9163,9 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
-                            message.draft ? (() => {
+                            (message.draft ||
+                              message.draftArtifacts?.length ||
+                              message.draftVersions?.length) ? (() => {
                               const username = context?.creatorProfile?.identity?.username || "user";
                               const displayName = context?.creatorProfile?.identity?.displayName || username;
                               const avatarUrl = context?.avatarUrl || null;
@@ -8822,7 +9176,10 @@ function ChatPageContent() {
                               const previewArtifact =
                                 draftBundle?.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
                               const previewDraft =
-                                draftBundle?.activeVersion.content ?? message.draft ?? "";
+                                draftBundle?.activeVersion.content ??
+                                message.draftArtifacts?.[0]?.content ??
+                                message.draft ??
+                                "";
                               const previewPosts = previewArtifact
                                 ? getArtifactPosts(previewArtifact)
                                 : splitThreadContent(previewDraft);
@@ -8830,6 +9187,49 @@ function ChatPageContent() {
                                 previewArtifact?.kind === "thread_seed" ||
                                 message.outputShape === "thread_seed" ||
                                 previewPosts.length > 1;
+                              const threadFramingStyle = isThreadPreview
+                                ? getThreadFramingStyle(previewArtifact, previewDraft)
+                                : null;
+                              const selectedThreadPreviewPostIndex = isThreadPreview
+                                ? Math.max(
+                                    0,
+                                    Math.min(
+                                      previewPosts.length - 1,
+                                      selectedThreadPostByMessageId[message.id] ?? 0,
+                                    ),
+                                  )
+                                : 0;
+                              const threadPostCharacterLimit = getThreadPostCharacterLimit(
+                                previewArtifact,
+                                getXCharacterLimitForAccount(isVerifiedAccount),
+                              );
+                              const orderedThreadPreviewPosts = isThreadPreview
+                                ? [
+                                    ...previewPosts
+                                      .slice(selectedThreadPreviewPostIndex)
+                                      .map((post, index) => ({
+                                        content: post,
+                                        originalIndex:
+                                          selectedThreadPreviewPostIndex + index,
+                                      })),
+                                    ...previewPosts
+                                      .slice(0, selectedThreadPreviewPostIndex)
+                                      .map((post, index) => ({
+                                        content: post,
+                                        originalIndex: index,
+                                      })),
+                                  ]
+                                : [];
+                              const threadDeckPosts = isThreadPreview
+                                ? orderedThreadPreviewPosts.slice(0, 4)
+                                : [];
+                              const hiddenThreadPostCount = Math.max(
+                                0,
+                                previewPosts.length - threadDeckPosts.length,
+                              );
+                              const threadDeckHeight = 220 + Math.max(0, threadDeckPosts.length - 1) * 28;
+                              const isExpandedThreadPreview =
+                                isThreadPreview && expandedInlineThreadPreviewId === message.id;
                               const draftCounter = getXCharacterCounterMeta(
                                 previewDraft,
                                 getDisplayedDraftCharacterLimit(
@@ -8847,7 +9247,7 @@ function ChatPageContent() {
                                 ? "turn this into a shortform post under 280 characters"
                                 : "turn this into a longform post with more detail";
                               const convertToThreadPrompt =
-                                "turn this into a thread with 4 to 6 posts. keep every post under 280 characters and make the flow feel native to x.";
+                                `turn this into a thread with 4 to 6 posts. keep every post under ${threadPostCharacterLimit.toLocaleString()} characters, make the opener clearly signal the thread, and keep the flow native to x.`;
                               const isFocusedDraftPreview =
                                 selectedDraftMessageId === message.id;
                               return (
@@ -8917,24 +9317,207 @@ function ChatPageContent() {
                                     <div className="mt-3">
                                       {isThreadPreview ? (
                                         <div className="space-y-3">
-                                          {previewPosts.map((post, index) => (
-                                            <div
-                                              key={`${message.id}-preview-post-${index}`}
-                                              className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3"
-                                            >
-                                              <div className="flex items-center justify-between gap-2">
-                                                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                                  Post {index + 1}
-                                                </span>
-                                                <span className={`text-[11px] ${computeXWeightedCharacterCount(post) > 280 ? "text-red-400" : "text-zinc-500"}`}>
-                                                  {computeXWeightedCharacterCount(post)}/280
-                                                </span>
+                                          {isExpandedThreadPreview ? (
+                                            <div className="rounded-2xl border border-white/[0.08] bg-[#050505] px-4 py-3">
+                                              <div className="space-y-1">
+                                                {previewPosts.map((post, postIndex) => {
+                                                  const postCharacterLimit =
+                                                    previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
+                                                    threadPostCharacterLimit;
+                                                  const weightedPostCount =
+                                                    computeXWeightedCharacterCount(post);
+                                                  const isLastPost =
+                                                    postIndex === previewPosts.length - 1;
+
+                                                  return (
+                                                    <div
+                                                      key={`${message.id}-expanded-thread-post-${postIndex}`}
+                                                      className={`relative pl-14 ${isLastPost ? "" : "pb-4"}`}
+                                                    >
+                                                      {!isLastPost ? (
+                                                        <span className="absolute left-[19px] top-11 bottom-0 w-px bg-white/[0.14]" />
+                                                      ) : null}
+                                                      <div className="absolute left-0 top-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold uppercase text-white">
+                                                        {avatarUrl ? (
+                                                          <div
+                                                            className="h-full w-full bg-cover bg-center"
+                                                            style={{ backgroundImage: `url(${avatarUrl})` }}
+                                                            role="img"
+                                                            aria-label={`${displayName} profile photo`}
+                                                          />
+                                                        ) : (
+                                                          displayName.charAt(0)
+                                                        )}
+                                                      </div>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                          event.stopPropagation();
+                                                          openDraftEditor(
+                                                            message.id,
+                                                            undefined,
+                                                            postIndex,
+                                                          );
+                                                        }}
+                                                        className={`w-full rounded-2xl border bg-[#000000] px-4 py-3 text-left transition ${
+                                                          selectedThreadPreviewPostIndex === postIndex
+                                                            ? "border-white/[0.18] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+                                                            : "border-white/[0.06] hover:border-white/[0.12]"
+                                                        }`}
+                                                      >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                          <div className="min-w-0 flex-1">
+                                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                              <span className="truncate text-[15px] font-bold text-white">
+                                                                {displayName}
+                                                              </span>
+                                                              {isVerifiedAccount ? (
+                                                                <Image
+                                                                  src="/x-verified.svg"
+                                                                  alt="Verified account"
+                                                                  width={16}
+                                                                  height={16}
+                                                                  className="h-4 w-4 shrink-0"
+                                                                />
+                                                              ) : null}
+                                                              <span className="text-[13px] text-zinc-500">
+                                                                @{username}
+                                                              </span>
+                                                            </div>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+                                                              <span>Post {postIndex + 1}</span>
+                                                              <span>·</span>
+                                                              <span>Just now</span>
+                                                            </div>
+                                                          </div>
+                                                          <span
+                                                            className={`text-[11px] ${
+                                                              weightedPostCount > postCharacterLimit
+                                                                ? "text-red-400"
+                                                                : "text-zinc-500"
+                                                            }`}
+                                                          >
+                                                            {weightedPostCount}/{postCharacterLimit.toLocaleString()}
+                                                          </span>
+                                                        </div>
+                                                        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+                                                          {post}
+                                                        </p>
+                                                      </button>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
-                                              <p className="mt-2 whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                                {post}
-                                              </p>
                                             </div>
-                                          ))}
+                                          ) : (
+                                            <div
+                                              className="relative"
+                                              style={{ height: `${threadDeckHeight}px` }}
+                                            >
+                                              {[...threadDeckPosts].reverse().map((postEntry, reversedIndex) => {
+                                                const originalIndex =
+                                                  threadDeckPosts.length - reversedIndex - 1;
+                                                const depthOffset = originalIndex * 16;
+                                                const lateralOffset = originalIndex * 8;
+                                                const isFrontCard = originalIndex === 0;
+                                                const isBackCard =
+                                                  originalIndex === threadDeckPosts.length - 1;
+                                                const post = postEntry.content;
+                                                const postIndex = postEntry.originalIndex;
+
+                                                return (
+                                                  <div
+                                                    key={`${message.id}-preview-post-${postIndex}`}
+                                                    className={`absolute overflow-hidden rounded-2xl border bg-[#000000] p-4 transition-all ${isFrontCard
+                                                      ? "border-white/[0.12] shadow-[0_24px_70px_rgba(0,0,0,0.42)]"
+                                                      : "border-white/[0.08] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
+                                                      }`}
+                                                    style={{
+                                                      top: `${depthOffset}px`,
+                                                      left: `${lateralOffset}px`,
+                                                      right: `${Math.max(0, 12 - lateralOffset / 2)}px`,
+                                                      zIndex: threadDeckPosts.length - originalIndex,
+                                                    }}
+                                                  >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                                          {avatarUrl ? (
+                                                            <div
+                                                              className="h-full w-full bg-cover bg-center"
+                                                              style={{ backgroundImage: `url(${avatarUrl})` }}
+                                                              role="img"
+                                                              aria-label={`${displayName} profile photo`}
+                                                            />
+                                                          ) : (
+                                                            displayName.charAt(0)
+                                                          )}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                          <div className="flex items-center gap-1">
+                                                            <span className="truncate text-sm font-bold text-white">
+                                                              {displayName}
+                                                            </span>
+                                                            {isVerifiedAccount ? (
+                                                              <Image
+                                                                src="/x-verified.svg"
+                                                                alt="Verified account"
+                                                                width={16}
+                                                                height={16}
+                                                                className="h-4 w-4 shrink-0"
+                                                              />
+                                                            ) : null}
+                                                          </div>
+                                                          <span className="text-xs text-zinc-500">
+                                                            @{username}
+                                                          </span>
+                                                        </div>
+                                                      </div>
+                                                      <div className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                                          Post {postIndex + 1}
+                                                        </span>
+                                                        {(() => {
+                                                          const postCharacterLimit =
+                                                            previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
+                                                            threadPostCharacterLimit;
+                                                          const weightedPostCount =
+                                                            computeXWeightedCharacterCount(post);
+
+                                                          return (
+                                                            <span
+                                                              className={`text-[11px] ${weightedPostCount > postCharacterLimit ? "text-red-400" : "text-zinc-500"}`}
+                                                            >
+                                                              {weightedPostCount}/{postCharacterLimit.toLocaleString()}
+                                                            </span>
+                                                          );
+                                                        })()}
+                                                      </div>
+                                                    </div>
+                                                    <p
+                                                      className={`mt-3 whitespace-pre-wrap text-zinc-100 ${isFrontCard
+                                                        ? "line-clamp-5 text-[15px] leading-6"
+                                                        : "line-clamp-3 text-[14px] leading-5"
+                                                        }`}
+                                                    >
+                                                      {post}
+                                                    </p>
+                                                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
+                                                      <span>Just now</span>
+                                                      <span>·</span>
+                                                      <span>Post {postIndex + 1}</span>
+                                                      {hiddenThreadPostCount > 0 && isBackCard ? (
+                                                        <>
+                                                          <span>·</span>
+                                                          <span>+{hiddenThreadPostCount} more</span>
+                                                        </>
+                                                      ) : null}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       ) : (
                                         <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
@@ -8950,6 +9533,10 @@ function ChatPageContent() {
                                       {isThreadPreview ? (
                                         <>
                                           <span>{previewPosts.length} posts</span>
+                                          <span>·</span>
+                                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                            {getThreadFramingStyleLabel(threadFramingStyle)}
+                                          </span>
                                           <span>·</span>
                                         </>
                                       ) : null}
@@ -9064,6 +9651,20 @@ function ChatPageContent() {
                                               : "Turn into Longform"}
                                           </button>
                                         ) : null}
+                                        {isThreadPreview ? (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setExpandedInlineThreadPreviewId((current) =>
+                                                current === message.id ? null : message.id,
+                                              );
+                                            }}
+                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                          >
+                                            {isExpandedThreadPreview ? "Collapse" : "Expand"}
+                                          </button>
+                                        ) : null}
                                         {!isThreadPreview ? (
                                           <button
                                             type="button"
@@ -9073,6 +9674,7 @@ function ChatPageContent() {
                                               void requestDraftCardRevision(
                                                 message.id,
                                                 convertToThreadPrompt,
+                                                "soft_signal",
                                               );
                                             }}
                                             className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
@@ -9456,7 +10058,8 @@ function ChatPageContent() {
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-300">
                     <p>• Core chat + onboarding</p>
-                    <p>• 1 workspace handle</p>
+                    <p>• Draft analysis: Analyze</p>
+                    <p>• Multiple X accounts on one shared credit pool</p>
                     <p>
                       • ≈ {MODAL_FREE_APPROX_CHAT_TURNS} chat turns or ≈{" "}
                       {MODAL_FREE_APPROX_DRAFT_TURNS} draft/review turns
@@ -9514,8 +10117,8 @@ function ChatPageContent() {
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
                     <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month</p>
-                    <p>• Draft analysis + compare</p>
-                    <p>• Up to 5 workspace handles</p>
+                    <p>• Draft analysis: Analyze + Compare</p>
+                    <p>• Multiple X accounts on one shared credit pool</p>
                     <p>
                       • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}
                       {MODAL_PRO_APPROX_DRAFT_TURNS} draft/review turns
@@ -9572,6 +10175,8 @@ function ChatPageContent() {
                       : "Limited founder passes"}
                   </p>
                   <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
+                    <p>• Draft analysis: Analyze + Compare</p>
+                    <p>• Multiple X accounts on one shared credit pool</p>
                     <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month (same limits as Pro)</p>
                     <p>
                       • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}

@@ -1,6 +1,8 @@
 import type { CreatorGenerationOutputShape } from "./generationContract";
 import type { VoiceTarget } from "../agent-v2/core/voiceTarget";
 
+export type ThreadFramingStyle = "none" | "soft_signal" | "numbered";
+
 export interface DraftArtifactPost {
   id: string;
   content: string;
@@ -24,6 +26,7 @@ export interface DraftArtifactDetails {
   replyPlan: string[];
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  threadFramingStyle: ThreadFramingStyle | null;
 }
 
 export interface DraftArtifactInput {
@@ -32,10 +35,13 @@ export interface DraftArtifactInput {
   kind: CreatorGenerationOutputShape;
   content: string;
   supportAsset: string | null;
+  maxCharacterLimit?: number;
   posts?: string[];
   replyPlan?: string[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  threadPostMaxCharacterLimit?: number;
+  threadFramingStyle?: ThreadFramingStyle | null;
 }
 
 export const SHORT_FORM_X_LIMIT = 280;
@@ -45,8 +51,12 @@ export const THREAD_DEFAULT_POST_COUNT = 6;
 export const THREAD_TOTAL_X_LIMIT = THREAD_POST_X_LIMIT * THREAD_DEFAULT_POST_COUNT;
 export type DraftLengthMode = "shortform" | "longform" | "thread";
 
-function getThreadPostLimit(): number {
-  return THREAD_POST_X_LIMIT;
+export function getThreadPostLimit(threadPostMaxCharacterLimit?: number): number {
+  return threadPostMaxCharacterLimit ?? THREAD_POST_X_LIMIT;
+}
+
+export function getThreadTotalXLimit(threadPostMaxCharacterLimit?: number): number {
+  return getThreadPostLimit(threadPostMaxCharacterLimit) * THREAD_DEFAULT_POST_COUNT;
 }
 
 export function getXCharacterLimitForShape(
@@ -57,7 +67,7 @@ export function getXCharacterLimitForShape(
   }
 
   if (outputShape === "thread_seed") {
-    return THREAD_TOTAL_X_LIMIT;
+    return getThreadTotalXLimit();
   }
 
   return SHORT_FORM_X_LIMIT;
@@ -72,7 +82,7 @@ export function getXCharacterLimitForFormat(
   formatPreference: DraftLengthMode,
 ): number {
   if (formatPreference === "thread") {
-    return THREAD_TOTAL_X_LIMIT;
+    return getThreadTotalXLimit(isVerified ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT);
   }
 
   if (formatPreference === "longform" && isVerified) {
@@ -88,6 +98,8 @@ export function buildDraftArtifacts(params: {
   supportAsset: string | null;
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  threadPostMaxCharacterLimit?: number;
+  threadFramingStyle?: ThreadFramingStyle | null;
 }): DraftArtifactDetails[] {
   if (params.outputShape === "ideation_angles") {
     return [];
@@ -104,21 +116,32 @@ export function buildDraftArtifacts(params: {
       supportAsset: params.supportAsset,
       voiceTarget: params.voiceTarget ?? null,
       noveltyNotes: params.noveltyNotes || [],
+      ...(params.threadPostMaxCharacterLimit
+        ? { threadPostMaxCharacterLimit: params.threadPostMaxCharacterLimit }
+        : {}),
+      ...(params.threadFramingStyle
+        ? { threadFramingStyle: params.threadFramingStyle }
+        : {}),
     }),
   );
 }
 
 export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDetails {
+  const threadPostMaxCharacterLimit = getThreadPostLimit(
+    params.threadPostMaxCharacterLimit,
+  );
   const rawPosts =
     params.posts && params.posts.length > 0
       ? params.posts
       : params.kind === "thread_seed"
-        ? splitDraftIntoThreadPosts(params.content)
+        ? splitDraftIntoThreadPosts(params.content, threadPostMaxCharacterLimit)
         : [params.content.trim()];
   const posts = rawPosts
     .map((post) => post.trim())
     .filter(Boolean)
-    .map((post, index) => buildArtifactPost(post, params.kind, index));
+    .map((post, index) =>
+      buildArtifactPost(post, params.kind, index, threadPostMaxCharacterLimit),
+    );
   const content =
     params.kind === "thread_seed"
       ? posts.map((post) => post.content).join("\n\n---\n\n")
@@ -128,9 +151,15 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     0,
   );
   const maxCharacterLimit =
+    params.maxCharacterLimit ??
+    (params.kind === "thread_seed"
+      ? getThreadTotalXLimit(threadPostMaxCharacterLimit)
+      : getXCharacterLimitForShape(params.kind));
+  const threadFramingStyle =
     params.kind === "thread_seed"
-      ? THREAD_TOTAL_X_LIMIT
-      : getXCharacterLimitForShape(params.kind);
+      ? resolveThreadFramingStyle(params.threadFramingStyle) ??
+        inferThreadFramingStyleFromPosts(posts.map((post) => post.content))
+      : null;
   const isWithinXLimit =
     posts.every((post) => post.isWithinXLimit) &&
     weightedCharacterCount <= maxCharacterLimit;
@@ -153,16 +182,81 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
         : buildReplyPlan(posts, params.kind),
     voiceTarget: params.voiceTarget ?? null,
     noveltyNotes: (params.noveltyNotes || []).slice(0, 3),
+    threadFramingStyle,
   };
+}
+
+export function resolveThreadFramingStyle(value: unknown): ThreadFramingStyle | null {
+  switch (value) {
+    case "none":
+    case "soft_signal":
+    case "numbered":
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function inferThreadFramingStyleFromPosts(posts: string[]): ThreadFramingStyle {
+  if (posts.length === 0) {
+    return "soft_signal";
+  }
+
+  const numberedCount = posts.filter((post) => isNumberedThreadPost(post)).length;
+  if (numberedCount >= Math.max(1, Math.ceil(posts.length / 2))) {
+    return "numbered";
+  }
+
+  if (hasSoftSignal(posts[0])) {
+    return "soft_signal";
+  }
+
+  return "none";
+}
+
+export function inferThreadFramingStyleFromPrompt(prompt: string): ThreadFramingStyle | null {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    /\b(no numbering|without numbering|no x\/x|without x\/x|no thread markers|no labels)\b/.test(
+      normalized,
+    )
+  ) {
+    return "none";
+  }
+
+  if (
+    /\b(numbered|x\/x|1\/\d|part\s+1\b|post\s+1\s+of\b|label each post)\b/.test(
+      normalized,
+    )
+  ) {
+    return "numbered";
+  }
+
+  if (
+    /\b(story|journey|what happened|case study|breakdown|behind the scenes|walk through|my experience|comeback|hiring in public|build in public|playbook|framework|checklist|lessons|mistakes|ways|reasons|steps|step-by-step)\b/.test(
+      normalized,
+    )
+  ) {
+    return "soft_signal";
+  }
+
+  return null;
 }
 
 function buildArtifactPost(
   content: string,
   kind: CreatorGenerationOutputShape,
   index: number,
+  threadPostMaxCharacterLimit?: number,
 ): DraftArtifactPost {
   const maxCharacterLimit =
-    kind === "thread_seed" ? getThreadPostLimit() : getXCharacterLimitForShape(kind);
+    kind === "thread_seed"
+      ? getThreadPostLimit(threadPostMaxCharacterLimit)
+      : getXCharacterLimitForShape(kind);
   const weightedCharacterCount = computeXWeightedCharacterCount(content);
 
   return {
@@ -296,7 +390,10 @@ function isWideCharacter(char: string): boolean {
   );
 }
 
-function splitDraftIntoThreadPosts(value: string): string[] {
+function splitDraftIntoThreadPosts(
+  value: string,
+  threadPostMaxCharacterLimit: number = THREAD_POST_X_LIMIT,
+): string[] {
   const normalized = value.trim();
   if (!normalized) {
     return [];
@@ -307,12 +404,16 @@ function splitDraftIntoThreadPosts(value: string): string[] {
     .map((part) => part.trim())
     .filter(Boolean);
   if (explicitSplit.length > 1) {
-    return explicitSplit.map((part) => trimToXCharacterLimit(part, THREAD_POST_X_LIMIT));
+    return explicitSplit.map((part) =>
+      trimToXCharacterLimit(part, threadPostMaxCharacterLimit),
+    );
   }
 
   const chunks = normalized
     .split(/\n{2,}/)
-    .flatMap((paragraph) => splitChunkToThreadUnits(paragraph.trim()))
+    .flatMap((paragraph) =>
+      splitChunkToThreadUnits(paragraph.trim(), threadPostMaxCharacterLimit),
+    )
     .filter(Boolean);
 
   const posts: string[] = [];
@@ -320,7 +421,7 @@ function splitDraftIntoThreadPosts(value: string): string[] {
 
   for (const chunk of chunks) {
     const candidate = current ? `${current}\n\n${chunk}` : chunk;
-    if (computeXWeightedCharacterCount(candidate) <= THREAD_POST_X_LIMIT) {
+    if (computeXWeightedCharacterCount(candidate) <= threadPostMaxCharacterLimit) {
       current = candidate;
       continue;
     }
@@ -336,16 +437,19 @@ function splitDraftIntoThreadPosts(value: string): string[] {
   }
 
   return posts.slice(0, THREAD_DEFAULT_POST_COUNT).map((post) =>
-    trimToXCharacterLimit(post, THREAD_POST_X_LIMIT),
+    trimToXCharacterLimit(post, threadPostMaxCharacterLimit),
   );
 }
 
-function splitChunkToThreadUnits(chunk: string): string[] {
+function splitChunkToThreadUnits(
+  chunk: string,
+  threadPostMaxCharacterLimit: number,
+): string[] {
   if (!chunk) {
     return [];
   }
 
-  if (computeXWeightedCharacterCount(chunk) <= THREAD_POST_X_LIMIT) {
+  if (computeXWeightedCharacterCount(chunk) <= threadPostMaxCharacterLimit) {
     return [chunk];
   }
 
@@ -355,20 +459,25 @@ function splitChunkToThreadUnits(chunk: string): string[] {
     .filter(Boolean);
 
   if (sentenceParts.length > 1) {
-    return sentenceParts.flatMap((part) => splitChunkToThreadUnits(part));
+    return sentenceParts.flatMap((part) =>
+      splitChunkToThreadUnits(part, threadPostMaxCharacterLimit),
+    );
   }
 
-  return splitLongChunkByWords(chunk);
+  return splitLongChunkByWords(chunk, threadPostMaxCharacterLimit);
 }
 
-function splitLongChunkByWords(chunk: string): string[] {
+function splitLongChunkByWords(
+  chunk: string,
+  threadPostMaxCharacterLimit: number,
+): string[] {
   const words = chunk.split(/\s+/).filter(Boolean);
   const units: string[] = [];
   let current = "";
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (computeXWeightedCharacterCount(candidate) <= THREAD_POST_X_LIMIT) {
+    if (computeXWeightedCharacterCount(candidate) <= threadPostMaxCharacterLimit) {
       current = candidate;
       continue;
     }
@@ -376,7 +485,7 @@ function splitLongChunkByWords(chunk: string): string[] {
     if (current) {
       units.push(current);
     }
-    current = trimToXCharacterLimit(word, THREAD_POST_X_LIMIT);
+    current = trimToXCharacterLimit(word, threadPostMaxCharacterLimit);
   }
 
   if (current) {
@@ -459,4 +568,32 @@ function cleanReplySeed(value: string): string {
     .replace(/[.?!:;,]+$/g, "")
     .trim()
     .slice(0, 180);
+}
+
+function isNumberedThreadPost(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return /^(?:\d{1,2}\/\d{1,2}\s+|(?:part|post)\s+\d{1,2}\s*(?:\/|of)\s*\d{1,2}\s+)/.test(
+    normalized,
+  );
+}
+
+function hasSoftSignal(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    /\b(here'?s|this is|my story|what happened|how it started|how it went|the breakdown|why i|3 things|5 things|lessons|mistakes|story on|journey)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return /:\s*$/.test(normalized);
 }

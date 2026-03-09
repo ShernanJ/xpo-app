@@ -231,11 +231,13 @@ const IMMEDIATE_DRAFT_CUES = [
   "looks good",
   "sounds good",
   "this works",
+  "lets do it",
+  "let's do it",
   "write this",
 ];
 
 const DIRECT_DRAFT_REQUEST_PATTERNS = [
-  /^(?:can you\s+)?(?:write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?(?:post|tweet)\s+(?:about|on)\s+(.+)$/,
+  /^(?:can you\s+)?(?:write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?(?:(?:post|tweet|thread)|(?:x|tweet)\s+thread)\s+(?:about|on)\s+(.+)$/,
   /^(?:can you\s+)?(?:write|draft|make|do)\s+(?:me\s+)?(?:one|something)\s+(?:about|on)\s+(.+)$/,
   /^(?:can you\s+)?(?:write|draft|make|create|generate)\s+(?:me\s+)?something\s+about\s+(.+)$/,
 ];
@@ -256,6 +258,9 @@ const DIRECT_DRAFT_STOPWORDS = new Set([
   "something",
   "post",
   "tweet",
+  "thread",
+  "threads",
+  "x",
 ]);
 
 const VAGUE_PRODUCT_DRAFT_CUES = ["tool", "app", "product", "extension", "plugin"];
@@ -402,12 +407,13 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     ?.toLowerCase() || "";
   const assistantOfferedDraft =
     lastAssistantMessage.includes("want me to turn that into a post") ||
+    lastAssistantMessage.includes("want me to turn that into a thread") ||
     lastAssistantMessage.includes("want me to draft") ||
     lastAssistantMessage.includes("want to draft") ||
     lastAssistantMessage.includes("want me to write");
   const isAffirmationAfterOffer =
     assistantOfferedDraft &&
-    /^(yes|yeah|yep|sure|ok|okay|do it|sounds good|go for it|please do)[.?!]*$/.test(
+    /^(yes|yeah|yep|sure|ok|okay|do it|lets do it|let's do it|sounds good|go for it|please do)[.?!]*$/.test(
       normalized,
     );
 

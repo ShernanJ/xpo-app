@@ -6,7 +6,12 @@ export function buildPlanRejectReply(): string {
 
 export function buildDirectionChoiceReply(args: {
   verified: boolean;
+  requestedFormatPreference?: "shortform" | "longform" | "thread" | null;
 }): string {
+  if (args.requestedFormatPreference === "thread") {
+    return "want this as a story thread, a breakdown thread, or should i give you a few thread angles first?";
+  }
+
   if (args.verified) {
     return "do you want this as a shortform post, a longform post, or do you want to sharpen the angle first?";
   }
@@ -28,7 +33,14 @@ export function buildCareerDirectionReply(): string {
 
 export function buildLooseDirectionReply(args: {
   almostReady: boolean;
+  requestedFormatPreference?: "shortform" | "longform" | "thread" | null;
 }): string {
+  if (args.requestedFormatPreference === "thread") {
+    return args.almostReady
+      ? "pick one thread direction and i'll build from there."
+      : "pick one thread lane and i'll run with it.";
+  }
+
   return args.almostReady
     ? "pick one concrete direction and i'll build from there."
     : "pick one lane and i'll run with it.";

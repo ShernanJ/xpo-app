@@ -1,5 +1,8 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { CreatorChatQuickReply } from "../contracts/chat";
+import type {
+  CreatorChatQuickReply,
+  DraftFormatPreference,
+} from "../contracts/chat";
 
 const JUNK_TOPIC_VALUES = new Set([
   "this",
@@ -412,12 +415,100 @@ function buildAngleChip(
   };
 }
 
+function buildThreadDraftChip(args: {
+  topic: string | null;
+  styleCard: VoiceStyleCard | null;
+  threadStyle: "story" | "breakdown";
+  voice: QuickReplyVoiceProfile;
+}): CreatorChatQuickReply {
+  const topicLabel = args.topic ? compactTopicLabel(args.topic) : "my usual lane";
+  const label =
+    args.threadStyle === "story"
+      ? args.topic
+        ? `${topicLabel} story`
+        : "story thread"
+      : args.topic
+        ? `${topicLabel} breakdown`
+        : "breakdown thread";
+  const topicFragment = args.topic
+    ? `about ${args.topic}`
+    : "in my usual lane";
+  const value =
+    args.threadStyle === "story"
+      ? `draft a story-driven x thread ${topicFragment}. make the opener clearly signal the thread, keep each post native to x, and stay close to my usual voice. ${buildPacingHint(args.styleCard)}`
+      : `draft a breakdown x thread ${topicFragment}. make it scan-friendly, concrete, native to x, and close to what i usually post about. ${buildPacingHint(args.styleCard)}`;
+
+  return {
+    kind: "clarification_choice",
+    value: applyQuickReplyVoiceCase(value, args.voice),
+    label: normalizeQuickReplyLabel(label, args.voice),
+    explicitIntent: "plan",
+    formatPreference: "thread",
+  };
+}
+
+function buildThreadAngleChip(
+  primaryTopic: string | null,
+  voice: QuickReplyVoiceProfile,
+): CreatorChatQuickReply {
+  const topicLabel = primaryTopic ? compactTopicLabel(primaryTopic) : null;
+  const label = topicLabel
+    ? voice.concise
+      ? `thread angles ${topicLabel}`
+      : `thread angles on ${topicLabel}`
+    : voice.concise
+      ? "thread angles"
+      : "give me thread angles";
+  const value = primaryTopic
+    ? `give me 3 grounded thread angles for ${primaryTopic}. each should fit a 4 to 6 post x thread, feel native to x, and stay close to what i usually post about.`
+    : "give me 3 grounded thread angles in my usual lane. each should fit a 4 to 6 post x thread, feel native to x, and stay close to what i usually post about.";
+
+  return {
+    kind: "clarification_choice",
+    value: applyQuickReplyVoiceCase(value, voice),
+    label: normalizeQuickReplyLabel(label, voice),
+    explicitIntent: "ideate",
+    formatPreference: "thread",
+  };
+}
+
+function buildThreadDirectionChoices(args: {
+  primaryTopic: string | null;
+  styleCard: VoiceStyleCard | null;
+  voice: QuickReplyVoiceProfile;
+}): CreatorChatQuickReply[] {
+  return [
+    buildThreadDraftChip({
+      topic: args.primaryTopic,
+      styleCard: args.styleCard,
+      threadStyle: "story",
+      voice: args.voice,
+    }),
+    buildThreadDraftChip({
+      topic: args.primaryTopic,
+      styleCard: args.styleCard,
+      threadStyle: "breakdown",
+      voice: args.voice,
+    }),
+    buildThreadAngleChip(args.primaryTopic, args.voice),
+  ];
+}
+
 function buildLooseFallbackChoices(args: {
   primaryTopic: string | null;
   styleCard: VoiceStyleCard | null;
   isVerifiedAccount: boolean;
+  requestedFormatPreference?: DraftFormatPreference | null;
   voice: QuickReplyVoiceProfile;
 }): CreatorChatQuickReply[] {
+  if (args.requestedFormatPreference === "thread") {
+    return buildThreadDirectionChoices({
+      primaryTopic: args.primaryTopic,
+      styleCard: args.styleCard,
+      voice: args.voice,
+    });
+  }
+
   if (args.isVerifiedAccount) {
     return [
       buildFormatAwareDraftChip({
@@ -478,6 +569,7 @@ export function buildDynamicDraftChoices(args: {
   topicAnchors: string[];
   seedTopic: string | null;
   isVerifiedAccount: boolean;
+  requestedFormatPreference?: DraftFormatPreference | null;
   mode: "topic_known" | "loose";
 }): CreatorChatQuickReply[] {
   const voice = resolveQuickReplyVoiceProfile(args.styleCard);
@@ -500,6 +592,14 @@ export function buildDynamicDraftChoices(args: {
     return args.mode === "topic_known" ? score >= 4 : score >= 5;
   });
   const primaryTopic = topicalChoices[0] || null;
+
+  if (args.requestedFormatPreference === "thread") {
+    return buildThreadDirectionChoices({
+      primaryTopic,
+      styleCard: args.styleCard,
+      voice,
+    });
+  }
 
   if (args.mode === "topic_known" && args.isVerifiedAccount) {
     return [
@@ -531,6 +631,7 @@ export function buildDynamicDraftChoices(args: {
     primaryTopic,
     styleCard: args.styleCard,
     isVerifiedAccount: args.isVerifiedAccount,
+    requestedFormatPreference: args.requestedFormatPreference,
     voice,
   });
 }

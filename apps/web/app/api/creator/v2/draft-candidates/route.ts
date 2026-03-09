@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { getXCharacterLimitForAccount } from "@/lib/onboarding/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";
 import { buildInitialDraftVersionPayload } from "../chat/route.logic";
@@ -236,6 +237,9 @@ export async function POST(request: NextRequest) {
     runId: storedRun.runId,
     onboarding: storedRun.result as Parameters<typeof buildCreatorAgentContext>[0]["onboarding"],
   });
+  const threadPostMaxCharacterLimit = getXCharacterLimitForAccount(
+    Boolean(context.creatorProfile.identity.isVerified),
+  );
 
   const briefs = buildDraftQueueBriefs({ context, count });
   const scratchMemoryRecord = buildScratchMemoryRecord({
@@ -280,6 +284,8 @@ export async function POST(request: NextRequest) {
       selectedDraftContext: null,
       voiceTarget: result.data.voiceTarget ?? null,
       noveltyNotes: result.data.noveltyNotes ?? [],
+      threadPostMaxCharacterLimit,
+      threadFramingStyle: result.data.threadFramingStyle ?? null,
     });
     const artifact = payload.draftArtifacts[0] || null;
     if (!artifact) {

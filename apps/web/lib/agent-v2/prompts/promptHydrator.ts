@@ -148,7 +148,7 @@ export function buildFormatPreferenceBlock(
       `FORMAT BIAS (${mode}):`,
       "- Treat this as an X thread, not a single standalone post.",
       "- Build 4-6 tight posts that can stand on their own while still feeling like one chain.",
-      "- Each post must fit within 280 weighted X characters.",
+      "- Keep each post within the account's allowed weighted X character limit. Unverified accounts stay under 280; verified accounts can use long-post limits when needed.",
       "- When serializing the final draft string, separate posts with a line containing only --- so the thread builder can split it cleanly.",
     ].join("\n");
   }

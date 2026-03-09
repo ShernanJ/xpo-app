@@ -49,7 +49,7 @@ export async function validateHandleLimit(args: {
   | {
       ok: true;
       plan: "free" | "pro" | "lifetime";
-      limit: number;
+      limit: number | null;
       knownHandles: string[];
     }
   | {
@@ -57,7 +57,7 @@ export async function validateHandleLimit(args: {
       code: "PLAN_REQUIRED";
       message: string;
       plan: "free" | "pro" | "lifetime";
-      limit: number;
+      limit: number | null;
       knownHandles: string[];
     }
 > {
@@ -84,14 +84,11 @@ export async function validateHandleLimit(args: {
     };
   }
 
-  if (knownHandles.length >= limit) {
+  if (typeof limit === "number" && knownHandles.length >= limit) {
     return {
       ok: false,
       code: "PLAN_REQUIRED",
-      message:
-        entitlement.plan === "free"
-          ? "Free includes 1 workspace handle. Upgrade to Pro to add more accounts."
-          : "Plan handle limit reached.",
+      message: "Plan handle limit reached.",
       plan: entitlement.plan,
       limit,
       knownHandles,

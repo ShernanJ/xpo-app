@@ -1,9 +1,15 @@
 import type { DraftFormatPreference } from "../contracts/chat";
 import type { UserPreferences, VoiceStyleCard } from "./styleProfile";
+import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
 
 const SHORT_FORM_X_LIMIT = 280;
 const LONG_FORM_X_LIMIT = 25_000;
 const THREAD_TOTAL_X_LIMIT = 1_680;
+const THREAD_DEFAULT_POST_COUNT = 6;
+
+function getThreadTotalXLimit(isVerified: boolean): number {
+  return (isVerified ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT) * THREAD_DEFAULT_POST_COUNT;
+}
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
@@ -160,7 +166,7 @@ function getXCharacterLimitForFormat(
   formatPreference: "shortform" | "longform" | "thread",
 ): number {
   if (formatPreference === "thread") {
-    return THREAD_TOTAL_X_LIMIT;
+    return getThreadTotalXLimit(isVerified);
   }
 
   if (formatPreference === "longform" && isVerified) {
@@ -413,6 +419,79 @@ function normalizeUserPreferences(
   };
 }
 
+function normalizeThreadDraftFormatting(
+  draft: string,
+  threadFramingStyle: ThreadFramingStyle | null | undefined,
+): string {
+  const posts = draft
+    .split(/\n\s*---\s*\n/g)
+    .map((post) => post.trim())
+    .filter(Boolean);
+
+  if (posts.length <= 1) {
+    return draft.trim();
+  }
+
+  const resolvedStyle = threadFramingStyle ?? "soft_signal";
+  const normalizedPosts = posts.map((post, index) => {
+    let nextPost =
+      resolvedStyle === "numbered" ? post : stripThreadNumberingMarker(post);
+
+    if (index === 0 && resolvedStyle !== "numbered") {
+      nextPost = normalizeThreadOpeningPost(nextPost, resolvedStyle);
+    }
+
+    return nextPost.trim();
+  });
+
+  return normalizedPosts.join("\n\n---\n\n");
+}
+
+function stripThreadNumberingMarker(value: string): string {
+  return value
+    .replace(
+      /^(?:\d{1,2}\/\d{1,2}|(?:part|post)\s+\d{1,2}\s*(?:\/|of)\s*\d{1,2})\s*(?:\n+|\s+)/i,
+      "",
+    )
+    .trim();
+}
+
+function normalizeThreadOpeningPost(
+  value: string,
+  threadFramingStyle: ThreadFramingStyle,
+): string {
+  const lines = value
+    .split("\n")
+    .map((line, index) =>
+      index === 0 ? line.trim() : line.replace(/^\s*[-*•>]\s+/, "").trim(),
+    )
+    .filter(Boolean);
+
+  let nextValue = lines.join("\n");
+
+  if (threadFramingStyle === "soft_signal" && !hasSoftThreadOpening(nextValue)) {
+    const softSignal = /\b(i|i'm|i’ve|ive|my|me|we|we're|we’ve|our)\b/i.test(nextValue)
+      ? "here's what happened:"
+      : "here's the breakdown:";
+    nextValue = `${softSignal}\n\n${nextValue}`.trim();
+  }
+
+  return nextValue;
+}
+
+function hasSoftThreadOpening(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /\b(here'?s|this is|my story|what happened|how it started|how it went|the breakdown|why i|story on|journey)\b/.test(
+      normalized,
+    ) || /:\s*$/.test(normalized.split("\n")[0] || "")
+  );
+}
+
 export function applyFinalDraftPolicyWithReport(args: {
   draft: string;
   formatPreference?: DraftFormatPreference | null;
@@ -420,6 +499,7 @@ export function applyFinalDraftPolicyWithReport(args: {
   userPreferences?: Partial<UserPreferences> | null;
   styleCard?: VoiceStyleCard | null;
   maxCharacterLimit?: number | null;
+  threadFramingStyle?: ThreadFramingStyle | null;
 }): {
   draft: string;
   adjustments: {
@@ -454,15 +534,19 @@ export function applyFinalDraftPolicyWithReport(args: {
   const withBullets = normalizeBulletStyle(withBlacklistsApplied, normalizedPreferences.bulletStyle);
   const withCasing = applyCasing(withBullets, normalizedPreferences.casing);
   const withStyle = applyStyleCardVoice(withCasing, args.styleCard ?? null);
-  const finalDraft = trimToXCharacterLimit(withStyle, shortformFirstLimit);
+  const withThreadFormatting =
+    formatPreference === "thread"
+      ? normalizeThreadDraftFormatting(withStyle, args.threadFramingStyle)
+      : withStyle;
+  const finalDraft = trimToXCharacterLimit(withThreadFormatting, shortformFirstLimit);
 
   return {
     draft: finalDraft,
     adjustments: {
       markdownAdjusted: withNoMarkdown !== args.draft.trim(),
       engagementAdjusted: withBetterCta !== withNoMarkdown,
-      styleAdjusted: withStyle !== withCasing,
-      trimmed: finalDraft !== withStyle,
+      styleAdjusted: withThreadFormatting !== withCasing,
+      trimmed: finalDraft !== withThreadFormatting,
     },
   };
 }
@@ -474,6 +558,7 @@ export function applyFinalDraftPolicy(args: {
   userPreferences?: Partial<UserPreferences> | null;
   styleCard?: VoiceStyleCard | null;
   maxCharacterLimit?: number | null;
+  threadFramingStyle?: ThreadFramingStyle | null;
 }): string {
   return applyFinalDraftPolicyWithReport(args).draft;
 }

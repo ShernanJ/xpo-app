@@ -92,3 +92,25 @@ test("surface mode selector keeps structured generations structured", () => {
     maxFollowUps: 1,
   });
 });
+
+test("surface mode selector treats thread drafts as full generated output", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "thread_seed",
+    response: "drafted a version. tune tone, hook, or length?",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: true,
+    conversationState: "draft_ready",
+    preferredSurfaceMode: "natural",
+  });
+
+  assert.deepEqual(plan, {
+    mode: "structured_generation",
+    surfaceMode: "generate_full_output",
+    shouldShowArtifacts: true,
+    shouldExplainReasoning: false,
+    shouldAskFollowUp: false,
+    maxFollowUps: 0,
+  });
+});

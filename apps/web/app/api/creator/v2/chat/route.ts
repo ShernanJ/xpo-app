@@ -11,6 +11,10 @@ import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/style
 import type { VoiceTarget } from "@/lib/agent-v2/core/voiceTarget";
 import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
+  getXCharacterLimitForAccount,
+  resolveThreadFramingStyle,
+} from "@/lib/onboarding/draftArtifacts";
+import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
   normalizeUserPreferences,
@@ -38,6 +42,7 @@ interface CreatorChatRequest extends Record<string, unknown> {
   contentFocus?: unknown;
   selectedDraftContext?: unknown;
   formatPreference?: unknown;
+  threadFramingStyle?: unknown;
   preferenceConstraints?: unknown;
   preferenceSettings?: unknown;
 }
@@ -186,6 +191,7 @@ export async function POST(request: NextRequest) {
     body.formatPreference === "thread"
       ? body.formatPreference
       : null;
+  const threadFramingStyle = resolveThreadFramingStyle(body.threadFramingStyle);
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
   const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
   const selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
@@ -407,6 +413,7 @@ export async function POST(request: NextRequest) {
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
       formatPreference,
+      threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
     });
 
@@ -474,6 +481,12 @@ export async function POST(request: NextRequest) {
         : result.outputShape === "long_form_post"
           ? "longform"
           : "shortform");
+    const responseThreadFramingStyle =
+      resultData && typeof resultData === "object" && "threadFramingStyle" in resultData
+        ? resolveThreadFramingStyle(
+            (resultData as Record<string, unknown>).threadFramingStyle,
+          )
+        : null;
     const policyDraft =
       normalizedDraftPayload.draft && (
         result.outputShape === "short_form_post" ||
@@ -489,6 +502,7 @@ export async function POST(request: NextRequest) {
               parsedPersistedStyleCard?.success
                 ? parsedPersistedStyleCard.data
                 : null,
+            threadFramingStyle: responseThreadFramingStyle,
           })
         : normalizedDraftPayload.draft;
     const responseVoiceTarget =
@@ -509,6 +523,8 @@ export async function POST(request: NextRequest) {
       selectedDraftContext,
       voiceTarget: responseVoiceTarget,
       noveltyNotes: responseNoveltyNotes,
+      threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
+      threadFramingStyle: responseThreadFramingStyle,
     });
     const mappedData = {
       reply: normalizedDraftPayload.reply,

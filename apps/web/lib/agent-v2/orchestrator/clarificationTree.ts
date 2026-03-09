@@ -3,6 +3,7 @@ import type {
   ClarificationBranchKey,
   ClarificationState,
   CreatorChatQuickReply,
+  DraftFormatPreference,
 } from "../contracts/chat";
 import {
   buildCareerDirectionReply,
@@ -21,6 +22,7 @@ interface ClarificationTreeArgs {
   styleCard: VoiceStyleCard | null;
   topicAnchors: string[];
   isVerifiedAccount?: boolean;
+  requestedFormatPreference?: DraftFormatPreference | null;
 }
 
 interface ClarificationTreeResult {
@@ -144,15 +146,24 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
       topicAnchors: args.topicAnchors,
       seedTopic: args.seedTopic,
       isVerifiedAccount: Boolean(args.isVerifiedAccount),
+      requestedFormatPreference: args.requestedFormatPreference,
       mode: "topic_known",
     });
 
     return {
-      reply: buildDirectionChoiceReply({ verified: Boolean(args.isVerifiedAccount) }),
+      reply: buildDirectionChoiceReply({
+        verified: Boolean(args.isVerifiedAccount),
+        requestedFormatPreference: args.requestedFormatPreference,
+      }),
       quickReplies,
       clarificationState: {
         branchKey: args.branchKey,
-        stepKey: args.isVerifiedAccount ? "pick_length" : "pick_direction",
+        stepKey:
+          args.requestedFormatPreference === "thread"
+            ? "pick_thread_direction"
+            : args.isVerifiedAccount
+              ? "pick_length"
+              : "pick_direction",
         seedTopic: args.seedTopic,
         options: quickReplies,
       },
@@ -279,13 +290,20 @@ export function buildClarificationTree(args: ClarificationTreeArgs): Clarificati
     topicAnchors: args.topicAnchors,
     seedTopic: args.seedTopic,
     isVerifiedAccount: Boolean(args.isVerifiedAccount),
+    requestedFormatPreference: args.requestedFormatPreference,
     mode: "loose",
   });
 
   const reply =
     args.branchKey === "lazy_request"
-      ? buildLooseDirectionReply({ almostReady: false })
-      : buildLooseDirectionReply({ almostReady: true });
+      ? buildLooseDirectionReply({
+        almostReady: false,
+        requestedFormatPreference: args.requestedFormatPreference,
+      })
+      : buildLooseDirectionReply({
+        almostReady: true,
+        requestedFormatPreference: args.requestedFormatPreference,
+      });
 
   return {
     reply,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { PlannerOutput } from "./planner";
+import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
 import type {
   ConversationState,
   DraftFormatPreference,
@@ -41,6 +42,7 @@ export async function generateDrafts(
     sourceUserMessage?: string;
     voiceTarget?: VoiceTarget | null;
     referenceAnchorMode?: "historical_posts" | "reference_hints";
+    threadFramingStyle?: ThreadFramingStyle | null;
   },
 ): Promise<WriterOutput | null> {
   const instruction = buildWriterInstruction({

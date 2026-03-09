@@ -8,10 +8,10 @@ export const BILLING_CREDIT_LIMITS: Record<BillingPlan, number> = {
   lifetime: 500,
 };
 
-export const BILLING_HANDLE_LIMITS: Record<BillingPlan, number> = {
-  free: 1,
-  pro: 5,
-  lifetime: 5,
+export const BILLING_HANDLE_LIMITS: Record<BillingPlan, number | null> = {
+  free: null,
+  pro: null,
+  lifetime: null,
 };
 
 export const LIFETIME_SLOT_LIMIT = 10;

@@ -8,11 +8,20 @@ export function isBareDraftRequest(message: string): boolean {
     "write me a post",
     "write a post for me",
     "write me a post for me",
+    "write me a thread",
+    "write a thread",
+    "write a thread for me",
+    "write me a thread for me",
     "draft a post",
     "draft a post for me",
     "draft me a post",
+    "draft a thread",
+    "draft a thread for me",
+    "draft me a thread",
     "make a post",
     "make me a post",
+    "make a thread",
+    "make me a thread",
     "give me a post",
     "give me a post to use",
     "give me a random post",
@@ -20,11 +29,23 @@ export function isBareDraftRequest(message: string): boolean {
     "give me a random post i would use",
     "give me random post i would use",
     "give me a post i would use",
+    "give me a thread",
+    "give me a thread to use",
+    "give me a random thread",
+    "give me random thread",
+    "give me a random thread i would use",
+    "give me random thread i would use",
+    "give me a thread i would use",
+    "write a thread i would use",
+    "write me a thread i would use",
+    "draft a thread i would use",
   ].includes(normalized)) {
     return true;
   }
 
   return /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?random\s+post(?:\s+i(?:\s+would|\s*'d)\s+use)?$/.test(
+    normalized,
+  ) || /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?random\s+thread(?:\s+i(?:\s+would|\s*'d)\s+use)?$/.test(
     normalized,
   );
 }

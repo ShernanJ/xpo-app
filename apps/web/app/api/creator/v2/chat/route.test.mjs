@@ -126,12 +126,17 @@ test("thread payloads build structured thread artifacts with posts", () => {
     supportAsset: "pair with a screenshot of the workflow",
     selectedDraftContext: null,
     noveltyNotes: ["avoid mirroring last week's thread hook"],
+    threadPostMaxCharacterLimit: 25_000,
+    threadFramingStyle: "numbered",
   });
 
   assert.equal(payload.draftArtifacts.length, 1);
   assert.equal(payload.draftArtifacts[0]?.kind, "thread_seed");
   assert.equal(payload.draftArtifacts[0]?.posts.length, 3);
   assert.equal(payload.draftArtifacts[0]?.posts[1]?.content, "proof");
+  assert.equal(payload.draftArtifacts[0]?.posts[0]?.maxCharacterLimit, 25_000);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 150_000);
+  assert.equal(payload.draftArtifacts[0]?.threadFramingStyle, "numbered");
   assert.equal(payload.draftVersions?.[0]?.artifact?.posts.length, 3);
   assert.equal(payload.draftVersions?.[0]?.artifact?.supportAsset, "pair with a screenshot of the workflow");
   assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");

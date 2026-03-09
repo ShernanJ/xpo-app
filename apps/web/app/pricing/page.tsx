@@ -298,7 +298,8 @@ export default function PricingPage() {
             <p className="mt-4 text-xs text-zinc-500">{FREE_CREDITS_PER_MONTH} credits/month</p>
             <div className="mt-4 space-y-2 text-sm text-zinc-300">
               <p>• Core chat + onboarding included</p>
-              <p>• 1 workspace handle</p>
+              <p>• Draft analysis: Analyze</p>
+              <p>• Multiple X accounts on one shared credit pool</p>
               <p>• ≈ {freeApproxChatTurns} chat turns or ≈ {freeApproxDraftTurns} draft/review turns</p>
               <p>• Upgrade anytime without losing workspace history</p>
             </div>
@@ -377,7 +378,7 @@ export default function PricingPage() {
             <div className="mt-4 space-y-2 text-sm text-zinc-200">
               <p>• {PRO_CREDITS_PER_MONTH} credits/month</p>
               <p>• Draft analysis: Analyze + Compare</p>
-              <p>• Up to 5 workspace handles</p>
+              <p>• Multiple X accounts on one shared credit pool</p>
               <p>• Higher throughput + priority processing</p>
               <p>• ≈ {proApproxChatTurns} chat turns or ≈ {proApproxDraftTurns} draft/review turns</p>
               <p>• Early pricing lock while your subscription stays active</p>
@@ -441,6 +442,8 @@ export default function PricingPage() {
             <p className="mt-2 text-xs text-amber-100/80">{lifetimeSlotsLabel}</p>
             <div className="mt-4 space-y-2 text-sm text-zinc-200">
               <p>• Includes Pro features + Pro monthly credits</p>
+              <p>• Draft analysis: Analyze + Compare</p>
+              <p>• Multiple X accounts on one shared credit pool</p>
               <p>• {PRO_CREDITS_PER_MONTH} credits/month (same limits as Pro)</p>
               <p>• No recurring subscription</p>
               <p>• ≈ {proApproxChatTurns} chat turns or ≈ {proApproxDraftTurns} draft/review turns</p>

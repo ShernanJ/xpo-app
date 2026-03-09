@@ -445,6 +445,8 @@ export function buildInitialDraftVersionPayload(args: {
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
   noveltyNotes?: string[];
+  threadPostMaxCharacterLimit?: number;
+  threadFramingStyle?: DraftArtifactDetails["threadFramingStyle"];
 }): {
   draftArtifacts: DraftArtifactDetails[];
   draftVersions?: DraftVersionEntry[];
@@ -481,6 +483,12 @@ export function buildInitialDraftVersionPayload(args: {
     ...(args.replyPlan?.length ? { replyPlan: args.replyPlan } : {}),
     ...(args.voiceTarget ? { voiceTarget: args.voiceTarget } : {}),
     ...(args.noveltyNotes?.length ? { noveltyNotes: args.noveltyNotes } : {}),
+    ...(args.threadPostMaxCharacterLimit
+      ? { threadPostMaxCharacterLimit: args.threadPostMaxCharacterLimit }
+      : {}),
+    ...(args.threadFramingStyle
+      ? { threadFramingStyle: args.threadFramingStyle }
+      : {}),
   });
   const maxCharacterLimit =
     args.selectedDraftContext?.maxCharacterLimit ?? primaryArtifact.maxCharacterLimit;
