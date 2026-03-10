@@ -186,7 +186,11 @@ export interface OrchestratorData {
   groundingSources?: GroundingPacketSourceMaterial[];
   autoSavedSourceMaterials?: {
     count: number;
-    titles: string[];
+    assets: Array<{
+      id: string;
+      title: string;
+      deletable: boolean;
+    }>;
   };
 }
 
@@ -1466,7 +1470,11 @@ export async function manageConversationTurn(
   let autoSavedSourceMaterials:
     | {
         count: number;
-        titles: string[];
+        assets: Array<{
+          id: string;
+          title: string;
+          deletable: boolean;
+        }>;
       }
     | undefined;
 
@@ -1646,7 +1654,11 @@ export async function manageConversationTurn(
     ];
     autoSavedSourceMaterials = {
       count: newAutoSourceMaterialInputs.length,
-      titles: newAutoSourceMaterialInputs.map((asset) => asset.title).slice(0, 2),
+      assets: autoSourceMaterialRecords.map((asset) => ({
+        id: asset.id,
+        title: asset.title,
+        deletable: !asset.id.startsWith("auto-source-"),
+      })),
     };
   }
 

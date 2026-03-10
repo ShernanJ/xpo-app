@@ -511,7 +511,11 @@ interface CreatorChatSuccess {
     groundingSources?: DraftArtifact["groundingSources"];
     autoSavedSourceMaterials?: {
       count: number;
-      titles: string[];
+      assets: Array<{
+        id: string;
+        title: string;
+        deletable: boolean;
+      }>;
     } | null;
     outputShape:
     | "coach_question"
@@ -668,7 +672,11 @@ interface ChatMessage {
   groundingSources?: DraftArtifact["groundingSources"];
   autoSavedSourceMaterials?: {
     count: number;
-    titles: string[];
+    assets: Array<{
+      id: string;
+      title: string;
+      deletable: boolean;
+    }>;
   } | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
@@ -3330,6 +3338,10 @@ function ChatPageContent() {
   const [messageFeedbackPendingById, setMessageFeedbackPendingById] = useState<
     Record<string, boolean>
   >({});
+  const [autoSavedSourceUndoPendingByMessageId, setAutoSavedSourceUndoPendingByMessageId] =
+    useState<Record<string, boolean>>({});
+  const [dismissedAutoSavedSourceByMessageId, setDismissedAutoSavedSourceByMessageId] =
+    useState<Record<string, boolean>>({});
   const [draftInput, setDraftInput] = useState("");
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
@@ -4564,6 +4576,73 @@ function ChatPageContent() {
       setIsSourceMaterialsSaving(false);
     }
   }, [sourceMaterialDraft.id, sourceMaterialDraft.title]);
+  const undoAutoSavedSourceMaterials = useCallback(
+    async (
+      messageId: string,
+      autoSavedSourceMaterials: NonNullable<ChatMessage["autoSavedSourceMaterials"]>,
+    ) => {
+      const deletableAssets = autoSavedSourceMaterials.assets.filter((asset) => asset.deletable);
+      if (deletableAssets.length === 0) {
+        return;
+      }
+
+      setAutoSavedSourceUndoPendingByMessageId((current) => ({
+        ...current,
+        [messageId]: true,
+      }));
+      setErrorMessage(null);
+
+      try {
+        const deletedIds: string[] = [];
+
+        for (const asset of deletableAssets) {
+          const response = await fetch(`/api/creator/v2/source-materials/${asset.id}`, {
+            method: "DELETE",
+          });
+          const result: SourceMaterialsResponse = await response.json();
+          if (!response.ok || !result.ok) {
+            const fallbackMessage = result.ok
+              ? "Failed to remove saved source material."
+              : result.errors[0]?.message;
+            throw new Error(fallbackMessage || "Failed to remove saved source material.");
+          }
+          if (!("deletedId" in result.data) || !result.data.deletedId) {
+            throw new Error("Failed to remove saved source material.");
+          }
+
+          deletedIds.push(result.data.deletedId);
+        }
+
+        setSourceMaterials((current) => {
+          const nextAssets = current.filter((asset) => !deletedIds.includes(asset.id));
+          setSourceMaterialDraft((draft) => {
+            if (!draft.id || !deletedIds.includes(draft.id)) {
+              return draft;
+            }
+
+            return nextAssets[0]
+              ? buildSourceMaterialDraftFromAsset(nextAssets[0])
+              : buildEmptySourceMaterialDraft();
+          });
+          return nextAssets;
+        });
+        setDismissedAutoSavedSourceByMessageId((current) => ({
+          ...current,
+          [messageId]: true,
+        }));
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Failed to remove saved source material.",
+        );
+      } finally {
+        setAutoSavedSourceUndoPendingByMessageId((current) => ({
+          ...current,
+          [messageId]: false,
+        }));
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (!sourceMaterialsOpen) {
       return;
@@ -9389,13 +9468,45 @@ function ChatPageContent() {
 
                           {message.role === "assistant" &&
                             message.autoSavedSourceMaterials?.count ? (
-                            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-1 text-[11px] text-emerald-200/90">
+                            <div
+                              className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] ${
+                                dismissedAutoSavedSourceByMessageId[message.id]
+                                  ? "border-zinc-700 bg-zinc-900/70 text-zinc-400"
+                                  : "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200/90"
+                              }`}
+                            >
                               <Lightbulb className="h-3.5 w-3.5" />
                               <span>
-                                Saved for later{message.autoSavedSourceMaterials.titles[0]
-                                  ? `: ${message.autoSavedSourceMaterials.titles[0]}`
-                                  : "."}
+                                {dismissedAutoSavedSourceByMessageId[message.id]
+                                  ? "Won't reuse that source."
+                                  : `Saved for later${
+                                      message.autoSavedSourceMaterials.assets[0]?.title
+                                        ? `: ${message.autoSavedSourceMaterials.assets[0].title}`
+                                        : "."
+                                    }`}
                               </span>
+                              {!dismissedAutoSavedSourceByMessageId[message.id] &&
+                              message.autoSavedSourceMaterials.assets.some(
+                                (asset) => asset.deletable,
+                              ) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void undoAutoSavedSourceMaterials(
+                                      message.id,
+                                      message.autoSavedSourceMaterials!,
+                                    );
+                                  }}
+                                  disabled={Boolean(
+                                    autoSavedSourceUndoPendingByMessageId[message.id],
+                                  )}
+                                  className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {autoSavedSourceUndoPendingByMessageId[message.id]
+                                    ? "Removing..."
+                                    : "Undo"}
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
 

@@ -570,7 +570,14 @@ export async function POST(request: NextRequest) {
         typeof resultData === "object" &&
         resultData.autoSavedSourceMaterials &&
         typeof resultData.autoSavedSourceMaterials === "object"
-          ? (resultData.autoSavedSourceMaterials as { count: number; titles: string[] })
+          ? (resultData.autoSavedSourceMaterials as {
+              count: number;
+              assets: Array<{
+                id: string;
+                title: string;
+                deletable: boolean;
+              }>;
+            })
           : null,
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
