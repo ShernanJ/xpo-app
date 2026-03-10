@@ -4476,6 +4476,39 @@ function ChatPageContent() {
       setIsSourceMaterialsSaving(false);
     }
   }, [sourceMaterialDraft]);
+  const seedSourceMaterials = useCallback(async () => {
+    setIsSourceMaterialsSaving(true);
+    setSourceMaterialsNotice(null);
+
+    try {
+      const response = await fetch("/api/creator/v2/source-materials/seed", {
+        method: "POST",
+      });
+      const result: SourceMaterialsResponse = await response.json();
+      if (!response.ok || !result.ok) {
+        const fallbackMessage = result.ok
+          ? "Failed to import source materials."
+          : result.errors[0]?.message;
+        throw new Error(fallbackMessage || "Failed to import source materials.");
+      }
+      if (!("assets" in result.data)) {
+        throw new Error("Failed to import source materials.");
+      }
+
+      await loadSourceMaterials();
+      setSourceMaterialsNotice(
+        result.data.assets.length > 0
+          ? `Imported ${result.data.assets.length} source material${result.data.assets.length === 1 ? "" : "s"} from onboarding and grounded drafts.`
+          : "No new source materials were found to import.",
+      );
+    } catch (error) {
+      setSourceMaterialsNotice(
+        error instanceof Error ? error.message : "Failed to import source materials.",
+      );
+    } finally {
+      setIsSourceMaterialsSaving(false);
+    }
+  }, [loadSourceMaterials]);
   const deleteSourceMaterial = useCallback(async () => {
     if (!sourceMaterialDraft.id) {
       return;
@@ -11182,6 +11215,14 @@ function ChatPageContent() {
                   </button>
                   <button
                     type="button"
+                    onClick={seedSourceMaterials}
+                    disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:border-white/5 disabled:text-zinc-500"
+                  >
+                    Seed
+                  </button>
+                  <button
+                    type="button"
                     onClick={saveSourceMaterial}
                     disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
                     className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
@@ -11212,6 +11253,9 @@ function ChatPageContent() {
                         <p className="text-sm font-semibold text-white">Saved assets</p>
                         <p className="mt-1 text-xs text-zinc-500">
                           Verified assets can authorize first-person claims.
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-600">
+                          Seed imports from onboarding anchors and grounded draft history.
                         </p>
                       </div>
                       <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">

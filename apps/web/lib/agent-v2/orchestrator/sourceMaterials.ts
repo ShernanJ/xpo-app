@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import type { GroundingPacket } from "./groundingPacket.ts";
+import type { DraftGroundingSource } from "../../onboarding/draftArtifacts.ts";
+import type {
+  CreatorRepresentativeExamples,
+  CreatorRepresentativePost,
+} from "../../onboarding/types.ts";
 
 export const SourceMaterialTypeSchema = z.enum([
   "story",
@@ -120,6 +125,193 @@ function tokenize(value: string): string[] {
 
 function looksAutobiographical(value: string): boolean {
   return /\b(?:i|we|my|our|me|us)\b/i.test(value);
+}
+
+function stripSeedLinePrefix(value: string): string {
+  return normalizeLine(
+    value
+      .replace(/^\s*[-*>•]\s+/, "")
+      .replace(/^\s*\d+(?:[.)/-])\s+/, ""),
+  );
+}
+
+function extractSeedClaimsFromText(text: string): string[] {
+  const lines = text
+    .split(/\r?\n+/)
+    .map(stripSeedLinePrefix)
+    .filter((line) => line.length >= 16 && !/^https?:\/\//i.test(line));
+
+  if (lines.length > 0) {
+    return dedupeList(lines).slice(0, 3);
+  }
+
+  return dedupeList(
+    text
+      .split(/(?<=[.!?])\s+/)
+      .map(stripSeedLinePrefix)
+      .filter((line) => line.length >= 16),
+  ).slice(0, 3);
+}
+
+function extractSeedSnippetsFromText(text: string): string[] {
+  const normalizedText = text.trim();
+  const claims = extractSeedClaimsFromText(text);
+  const snippets = dedupeList([
+    ...claims,
+    normalizeLine(normalizedText).slice(0, 280),
+  ]).filter((line) => line.length >= 16);
+
+  return snippets.slice(0, 3);
+}
+
+function inferSourceMaterialTypeFromText(text: string): SourceMaterialType {
+  const normalized = text.toLowerCase();
+
+  if (/\b(playbook|checklist|workflow|operating system|runbook)\b/.test(normalized)) {
+    return "playbook";
+  }
+
+  if (/\b(framework|template|formula|pattern|system|mental model)\b/.test(normalized)) {
+    return "framework";
+  }
+
+  if (/\b(case study|breakdown|teardown|postmortem)\b/.test(normalized)) {
+    return "case_study";
+  }
+
+  return "story";
+}
+
+function truncateTitle(value: string, max = 120): string {
+  const normalized = normalizeLine(value);
+  if (normalized.length <= max) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function buildRepresentativePostSeedAsset(params: {
+  post: CreatorRepresentativePost;
+  label: string;
+}): SourceMaterialAssetInput | null {
+  const claims = extractSeedClaimsFromText(params.post.text);
+  if (claims.length === 0) {
+    return null;
+  }
+
+  const titleSeed = claims[0] || params.post.text;
+  return normalizeSourceMaterialInput({
+    type: inferSourceMaterialTypeFromText(params.post.text),
+    title: truncateTitle(`${params.label}: ${titleSeed}`),
+    tags: dedupeList([
+      params.post.lane,
+      params.post.contentType,
+      params.post.hookPattern,
+      ...tokenize(`${params.post.selectionReason} ${titleSeed}`).slice(0, 3),
+    ]),
+    verified: true,
+    claims,
+    snippets: extractSeedSnippetsFromText(params.post.text),
+    doNotClaim: [],
+  });
+}
+
+function buildGroundingSourceSeedAsset(params: {
+  source: DraftGroundingSource;
+  candidateTitle: string;
+  sourcePlaybook?: string | null;
+}): SourceMaterialAssetInput | null {
+  const claims = dedupeList(params.source.claims || []).slice(0, 3);
+  const snippets = dedupeList(params.source.snippets || []).slice(0, 3);
+  if (claims.length === 0 && snippets.length === 0) {
+    return null;
+  }
+
+  return normalizeSourceMaterialInput({
+    type: params.source.type,
+    title: truncateTitle(params.source.title || params.candidateTitle),
+    tags: dedupeList([
+      params.source.type,
+      params.sourcePlaybook || "",
+      ...tokenize(`${params.candidateTitle} ${params.source.title}`).slice(0, 3),
+    ]),
+    verified: true,
+    claims,
+    snippets,
+    doNotClaim: [],
+  });
+}
+
+function dedupeSeedAssets(assets: SourceMaterialAssetInput[]): SourceMaterialAssetInput[] {
+  const seen = new Set<string>();
+  const next: SourceMaterialAssetInput[] = [];
+
+  for (const asset of assets) {
+    const key = [
+      asset.type,
+      asset.title.toLowerCase(),
+      (asset.claims[0] || asset.snippets[0] || "").toLowerCase(),
+    ].join("::");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    next.push(asset);
+  }
+
+  return next;
+}
+
+export function buildSeedSourceMaterialInputs(args: {
+  examples: Pick<CreatorRepresentativeExamples, "bestPerforming" | "voiceAnchors">;
+  draftCandidates?: Array<{
+    title: string;
+    sourcePlaybook?: string | null;
+    artifact?: {
+      groundingSources?: DraftGroundingSource[];
+    } | null;
+  }>;
+  limit?: number;
+}): SourceMaterialAssetInput[] {
+  const seeds: SourceMaterialAssetInput[] = [];
+
+  for (const post of args.examples.bestPerforming.slice(0, 2)) {
+    const asset = buildRepresentativePostSeedAsset({
+      post,
+      label: "Best post",
+    });
+    if (asset) {
+      seeds.push(asset);
+    }
+  }
+
+  for (const post of args.examples.voiceAnchors.slice(0, 2)) {
+    const asset = buildRepresentativePostSeedAsset({
+      post,
+      label: "Voice anchor",
+    });
+    if (asset) {
+      seeds.push(asset);
+    }
+  }
+
+  for (const candidate of args.draftCandidates || []) {
+    for (const source of candidate.artifact?.groundingSources || []) {
+      const asset = buildGroundingSourceSeedAsset({
+        source,
+        candidateTitle: candidate.title,
+        sourcePlaybook: candidate.sourcePlaybook,
+      });
+      if (asset) {
+        seeds.push(asset);
+      }
+    }
+  }
+
+  return dedupeSeedAssets(seeds).slice(0, Math.max(1, args.limit ?? 8));
 }
 
 export function normalizeSourceMaterialInput(

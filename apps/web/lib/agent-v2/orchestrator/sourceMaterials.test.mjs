@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   SourceMaterialAssetPatchSchema,
+  buildSeedSourceMaterialInputs,
   mergeSourceMaterialsIntoGroundingPacket,
   normalizeSourceMaterialInput,
   normalizeSourceMaterialPatch,
@@ -136,4 +137,117 @@ test("source material retrieval adds verified claims to the grounding packet", (
   assert.equal(packet.allowedFirstPersonClaims.includes("I launched Xpo in public"), true);
   assert.equal(packet.forbiddenClaims.includes("Do not claim I had 50k users"), true);
   assert.equal(packet.sourceMaterials[0]?.title, "Launch story");
+});
+
+test("seed builder imports onboarding anchors and grounded draft sources without duplicates", () => {
+  const seeds = buildSeedSourceMaterialInputs({
+    examples: {
+      bestPerforming: [
+        {
+          id: "post_1",
+          lane: "original",
+          text: "I turned our onboarding from a tour into one clear action.\nActivation jumped because setup stopped fighting the user.",
+          createdAt: "2026-03-01T00:00:00.000Z",
+          engagementTotal: 120,
+          deltaVsBaselinePercent: 42,
+          goalFitScore: 88,
+          contentType: "insight",
+          hookPattern: "bold_statement",
+          features: {
+            characterCount: 120,
+            lineCount: 2,
+            wordCount: 20,
+            hashtagCount: 0,
+            mentionCount: 0,
+            urlCount: 0,
+            mediaCount: 0,
+            emojiCount: 0,
+            questionMarkCount: 0,
+            exclamationCount: 0,
+            bulletLineCount: 0,
+            hasNumberedList: false,
+            uppercaseWordCount: 0,
+            lowercaseStart: false,
+            avgWordLength: 4.5,
+            sentenceCount: 2,
+            ctaType: "none",
+            readabilityBand: "standard",
+            tense: "present",
+            sentimentBand: "neutral",
+            isReply: false,
+            entityCandidates: ["onboarding", "activation"],
+          },
+          selectionReason: "Strong product lesson",
+        },
+      ],
+      voiceAnchors: [
+        {
+          id: "post_2",
+          lane: "original",
+          text: "Hiring playbook:\nPublish the work. Ask for a demo. Skip resume theater.",
+          createdAt: "2026-03-02T00:00:00.000Z",
+          engagementTotal: 75,
+          deltaVsBaselinePercent: 20,
+          goalFitScore: 81,
+          contentType: "framework",
+          hookPattern: "label_then_payoff",
+          features: {
+            characterCount: 85,
+            lineCount: 3,
+            wordCount: 13,
+            hashtagCount: 0,
+            mentionCount: 0,
+            urlCount: 0,
+            mediaCount: 0,
+            emojiCount: 0,
+            questionMarkCount: 0,
+            exclamationCount: 0,
+            bulletLineCount: 0,
+            hasNumberedList: false,
+            uppercaseWordCount: 0,
+            lowercaseStart: false,
+            avgWordLength: 4.8,
+            sentenceCount: 3,
+            ctaType: "none",
+            readabilityBand: "standard",
+            tense: "present",
+            sentimentBand: "neutral",
+            isReply: false,
+            entityCandidates: ["hiring", "demo"],
+          },
+          selectionReason: "Clear repeated operating belief",
+        },
+      ],
+    },
+    draftCandidates: [
+      {
+        title: "Onboarding thread",
+        sourcePlaybook: "thread_playbook",
+        artifact: {
+          groundingSources: [
+            {
+              type: "story",
+              title: "Launch story",
+              claims: ["I launched Xpo in public"],
+              snippets: ["We kept the rollout small at first."],
+            },
+            {
+              type: "story",
+              title: "Launch story",
+              claims: ["I launched Xpo in public"],
+              snippets: ["We kept the rollout small at first."],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(seeds.length, 3);
+  assert.equal(seeds[0]?.verified, true);
+  assert.equal(seeds.some((asset) => asset.title === "Launch story"), true);
+  assert.equal(
+    seeds.some((asset) => asset.type === "playbook" || asset.type === "framework"),
+    true,
+  );
 });
