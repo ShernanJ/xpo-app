@@ -151,6 +151,31 @@ test("story thread chips avoid forcing scan-friendly bullet framing", () => {
   assert.doesNotMatch(result[0].value, /scan-friendly structure/i);
 });
 
+test("complaint and meta-analysis phrases do not become clarification topic chips", () => {
+  const result = buildDynamicDraftChoices({
+    mode: "loose",
+    seedTopic: "this is way too formal",
+    styleCard: {
+      ...baseStyleCard,
+      formattingRules: [],
+      customGuidelines: [],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+      contextAnchors: ["what is my best post"],
+    },
+    topicAnchors: ["what is my best post"],
+    isVerifiedAccount: false,
+  });
+
+  const labels = result.map((chip) => chip.label.toLowerCase());
+  assert.equal(labels.some((label) => label.includes("too formal")), false);
+  assert.equal(labels.some((label) => label.includes("best post")), false);
+  assert.equal(labels.includes("usual lane"), true);
+});
+
 test("planner quick replies are explicit and topic-aware", () => {
   const quickReplies = buildPlannerQuickReplies({
     plan: {
@@ -787,6 +812,7 @@ test("draft revision normalizer treats thread conversion as a full rewrite", () 
 test("anti-pattern helpers separate mechanical edits from tonal rejection", () => {
   assert.equal(looksLikeMechanicalEdit("remove commas and fix punctuation"), true);
   assert.equal(looksLikeNegativeFeedback("this sounds like linkedin"), true);
+  assert.equal(looksLikeNegativeFeedback("this is way too formal"), true);
   assert.equal(looksLikeMechanicalEdit("this sounds like linkedin"), false);
 });
 

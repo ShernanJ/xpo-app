@@ -31,10 +31,14 @@ export function looksLikeMechanicalEdit(message: string): boolean {
 export function looksLikeNegativeFeedback(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   return [
+    "too formal",
     "too polished",
     "too generic",
     "too long",
     "too robotic",
+    "too corporate",
+    "too salesy",
+    "too stiff",
     "sounds cringe",
     "sounds like linkedin",
     "don't like this",

@@ -114,6 +114,30 @@ function isMetaSummaryTopic(value: string): boolean {
   );
 }
 
+function isComplaintOrMetaTopic(value: string): boolean {
+  const normalized = cleanTopicValue(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\btoo formal\b/,
+    /\btoo polished\b/,
+    /\btoo generic\b/,
+    /\btoo long\b/,
+    /\btoo robotic\b/,
+    /\btoo corporate\b/,
+    /\btoo salesy\b/,
+    /\btoo stiff\b/,
+    /\bsounds cringe\b/,
+    /\bsounds like linkedin\b/,
+    /\bdon't like this\b/,
+    /\bthis is bad\b/,
+    /^(?:what(?:'s| is)|which)\s+.*\b(?:best|top)\s+post\b/,
+    /\b(?:best|top)\s+post\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function compactTopicLabel(value: string): string {
   const cleaned = cleanTopicValue(value);
 
@@ -167,7 +191,7 @@ function isUsableTopicCandidate(value: string | null): value is string {
     return false;
   }
 
-  if (isMetaSummaryTopic(cleaned)) {
+  if (isMetaSummaryTopic(cleaned) || isComplaintOrMetaTopic(cleaned)) {
     return false;
   }
 
@@ -243,6 +267,10 @@ function isHumanSafeTopicLabel(value: string): boolean {
   const label = compactTopicLabel(value).toLowerCase();
 
   if (!label || label === "your usual lane" || JUNK_TOPIC_VALUES.has(label)) {
+    return false;
+  }
+
+  if (isComplaintOrMetaTopic(label)) {
     return false;
   }
 

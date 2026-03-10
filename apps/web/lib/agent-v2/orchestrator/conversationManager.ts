@@ -543,6 +543,10 @@ function inferAbstractTopicSeed(
     return null;
   }
 
+  if (looksLikeUnsafeClarificationSeed(trimmed)) {
+    return null;
+  }
+
   if (
     [
       "that was a question",
@@ -605,6 +609,46 @@ function inferAbstractTopicSeed(
   }
 
   return trimmed.replace(/[.?!,]+$/, "") || memory.topicSummary || "this";
+}
+
+function looksLikeUnsafeClarificationSeed(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (looksLikeNegativeFeedback(message)) {
+    return true;
+  }
+
+  return [
+    /^(?:this|that|it)\s+is\s+(?:way\s+too\s+|too\s+)?(?:formal|polished|generic|long|robotic|corporate|salesy|stiff)\b/,
+    /^(?:what(?:'s| is)|which)\s+.*\b(?:best|top)\s+post\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function inferLooseClarificationSeed(
+  message: string,
+  fallback: string | null,
+): string | null {
+  const trimmed = message.trim().replace(/[.?!,]+$/, "");
+  if (!trimmed) {
+    return fallback;
+  }
+
+  if (looksLikeUnsafeClarificationSeed(trimmed)) {
+    return fallback;
+  }
+
+  if (
+    trimmed.length > 48 ||
+    trimmed.split(/\s+/).length > 5 ||
+    !/^[a-z0-9\s/&'’-]+$/i.test(trimmed)
+  ) {
+    return fallback;
+  }
+
+  return trimmed;
 }
 
 function inferBroadTopicDraftRequest(message: string): string | null {
@@ -2502,7 +2546,7 @@ User Profile Summary:
       : "vague_draft_request";
     return returnClarificationTree({
       branchKey,
-      seedTopic: userMessage || memory.topicSummary,
+      seedTopic: inferLooseClarificationSeed(userMessage, memory.topicSummary),
     });
   }
 
