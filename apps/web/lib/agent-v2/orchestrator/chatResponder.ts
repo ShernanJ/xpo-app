@@ -1,6 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
-// @ts-expect-error TS5097 - orchestrator utilities are executed directly in node strip-types tests.
 import { generateCoachReply } from "../agents/coach.ts";
 import { getDeterministicChatReply } from "./chatResponderDeterministic";
 

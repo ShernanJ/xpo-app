@@ -13,6 +13,13 @@ const bluntStyleCard: VoiceStyleCard = {
     "the user wants help growing on x",
     "the assistant should write in a natural, blunt style",
   ],
+  factLedger: {
+    durableFacts: [],
+    allowedFirstPersonClaims: [],
+    allowedNumbers: [],
+    forbiddenClaims: [],
+    sourceMaterials: [],
+  },
   antiExamples: [],
 };
 

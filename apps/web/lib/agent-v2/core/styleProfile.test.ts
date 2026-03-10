@@ -18,6 +18,13 @@ async function runTest() {
     formattingRules: ["no uppercase at start of sentence"],
     customGuidelines: [],
     contextAnchors: [],
+    factLedger: {
+      durableFacts: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      sourceMaterials: [],
+    },
     antiExamples: [],
   };
 

@@ -23,6 +23,13 @@ async function run() {
     formattingRules: ["all lowercase always", "no punctuation"],
     customGuidelines: [],
     contextAnchors: [],
+    factLedger: {
+      durableFacts: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      sourceMaterials: [],
+    },
     antiExamples: [],
   };
 

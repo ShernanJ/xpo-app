@@ -1,5 +1,4 @@
 import type { SurfaceMode } from "../../../../../lib/agent-v2/contracts/chat.ts";
-// @ts-expect-error TS5097 - route logic is executed directly in node strip-types tests.
 import { buildDraftArtifact, buildDraftArtifactTitle, computeXWeightedCharacterCount, type DraftArtifactDetails } from "../../../../../lib/onboarding/draftArtifacts.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";

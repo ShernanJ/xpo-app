@@ -1,4 +1,3 @@
-// @ts-expect-error TS5097 - helper is imported directly in node strip-types tests.
 import { isConcreteAnecdoteDraftRequest } from "../orchestrator/draftGrounding.ts";
 
 function hasNoFabricationGuardrail(entries: string[]): boolean {

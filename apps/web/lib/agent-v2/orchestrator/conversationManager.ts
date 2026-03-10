@@ -91,7 +91,10 @@ import {
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
 } from "./assistantReplyStyle";
-import { isMissingDraftCandidateTableError } from "./prismaGuards";
+import {
+  isMissingDraftCandidateTableError,
+  isMissingSourceMaterialAssetTableError,
+} from "./prismaGuards";
 import {
   isBareDraftRequest,
   isBareIdeationRequest,
@@ -129,6 +132,12 @@ import {
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
+import {
+  mergeSourceMaterialsIntoGroundingPacket,
+  selectRelevantSourceMaterials,
+  serializeSourceMaterialAsset,
+  type SourceMaterialAssetRecord,
+} from "./sourceMaterials";
 import { selectResponseShapePlan } from "./surfaceModeSelector";
 import { shapeAssistantResponse } from "./responseShaper";
 import type {
@@ -208,6 +217,11 @@ export interface ConversationServices {
     userId: string;
     xHandle?: string | null;
   }) => Promise<string[]>;
+  getSourceMaterialAssets: (args: {
+    userId: string;
+    xHandle?: string | null;
+  }) => Promise<SourceMaterialAssetRecord[]>;
+  markSourceMaterialAssetsUsed: (assetIds: string[]) => Promise<void>;
 }
 
 function normalizeHandleForContext(value: string | null | undefined): string | null {
@@ -291,6 +305,50 @@ export function createDefaultConversationServices(): ConversationServices {
         .filter((value): value is string => Boolean(value));
 
       return [...posts.map((post) => post.text), ...queuedDrafts];
+    },
+    async getSourceMaterialAssets(args: { userId: string; xHandle?: string | null }) {
+      const normalizedHandle = normalizeHandleForContext(args.xHandle);
+
+      try {
+        const assets = await prisma.sourceMaterialAsset.findMany({
+          where: {
+            userId: args.userId,
+            ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+          },
+          orderBy: [
+            { verified: "desc" },
+            { lastUsedAt: "desc" },
+            { updatedAt: "desc" },
+          ],
+          take: 40,
+        });
+
+        return assets.map(serializeSourceMaterialAsset);
+      } catch (error) {
+        if (isMissingSourceMaterialAssetTableError(error)) {
+          return [];
+        }
+
+        throw error;
+      }
+    },
+    async markSourceMaterialAssetsUsed(assetIds: string[]) {
+      if (assetIds.length === 0) {
+        return;
+      }
+
+      try {
+        await prisma.sourceMaterialAsset.updateMany({
+          where: { id: { in: assetIds } },
+          data: { lastUsedAt: new Date() },
+        });
+      } catch (error) {
+        if (isMissingSourceMaterialAssetTableError(error)) {
+          return;
+        }
+
+        throw error;
+      }
     },
   };
 }
@@ -1384,7 +1442,7 @@ export async function manageConversationTurn(
     mode = "ideate";
   }
 
-  let [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
+  let [styleCard, anchors, extractedRules, extractedFacts, sourceMaterialAssets] = await Promise.all([
     services.generateStyleProfile(userId, effectiveXHandle, 20),
     services.retrieveAnchors(
       userId,
@@ -1397,6 +1455,12 @@ export async function manageConversationTurn(
     userId !== "anonymous"
       ? services.extractCoreFacts(userMessage, recentHistory)
       : Promise.resolve(null),
+    userId !== "anonymous"
+      ? services.getSourceMaterialAssets({
+          userId,
+          xHandle: effectiveXHandle,
+        })
+      : Promise.resolve([]),
   ]);
 
   let rememberedStyleRuleCount = 0;
@@ -1456,6 +1520,21 @@ export async function manageConversationTurn(
     activeConstraints: effectiveActiveConstraints,
     extractedFacts,
   });
+  const selectedSourceMaterials = selectRelevantSourceMaterials({
+    assets: sourceMaterialAssets,
+    userMessage,
+    topicSummary: memory.topicSummary,
+    limit: 2,
+  });
+  groundingPacket = mergeSourceMaterialsIntoGroundingPacket({
+    groundingPacket,
+    sourceMaterials: selectedSourceMaterials,
+  });
+  if (selectedSourceMaterials.length > 0) {
+    services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error) =>
+      console.error("Failed to update source material last-used timestamps:", error),
+    );
+  }
   const turnDraftContextSlots = evaluateDraftContextSlots({
     userMessage,
     topicSummary: memory.topicSummary,

@@ -1,4 +1,3 @@
-// @ts-expect-error TS5097 - helper is imported directly in node strip-types tests.
 import { extractTopicGrounding } from "./correctionRepair.ts";
 import type { TurnPlan, V2ChatIntent, V2ConversationMemory } from "../contracts/chat";
 

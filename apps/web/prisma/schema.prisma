@@ -61,6 +61,13 @@ enum DraftCandidateStatus {
   observed
 }
 
+enum SourceMaterialType {
+  story
+  playbook
+  framework
+  case_study
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -80,6 +87,7 @@ model User {
   draftCandidates          DraftCandidate[]
   chatMessageFeedbacks     ChatMessageFeedback[]
   feedbackSubmissions      FeedbackSubmission[]
+  sourceMaterialAssets     SourceMaterialAsset[]
   billingEntitlement       BillingEntitlement?
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
@@ -202,6 +210,27 @@ model VoiceProfile {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SourceMaterialAsset {
+  id         String             @id @default(cuid())
+  userId     String
+  xHandle    String?
+  type       SourceMaterialType
+  title      String
+  tags       Json
+  verified   Boolean            @default(false)
+  claims     Json
+  snippets   Json
+  doNotClaim Json
+  lastUsedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, xHandle, verified, updatedAt])
+  @@index([userId, xHandle, lastUsedAt])
 }
 
 model DraftCandidate {

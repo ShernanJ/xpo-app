@@ -280,13 +280,13 @@ export async function POST(request: NextRequest) {
   const creatorProfileHints =
     storedRun?.id && storedRun?.result
       ? (() => {
-          try {
-            return buildCreatorProfileHintsFromOnboarding({
-              runId: storedRun.id,
-              onboarding: storedRun.result as Parameters<
-                typeof buildCreatorProfileHintsFromOnboarding
-              >[0]["onboarding"],
-            });
+              try {
+                return buildCreatorProfileHintsFromOnboarding({
+                  runId: storedRun.id,
+                  onboarding: storedRun.result as unknown as Parameters<
+                    typeof buildCreatorProfileHintsFromOnboarding
+                  >[0]["onboarding"],
+                });
           } catch {
             return null;
           }

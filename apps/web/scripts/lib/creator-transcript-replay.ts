@@ -364,6 +364,13 @@ function buildDefaultStyleCard(): VoiceStyleCard {
     formattingRules: ["prefer lowercase when it feels natural", "keep the copy blunt"],
     customGuidelines: ["keep it direct", "no fluff"],
     contextAnchors: [],
+    factLedger: {
+      durableFacts: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      sourceMaterials: [],
+    },
     antiExamples: [],
   };
 }
