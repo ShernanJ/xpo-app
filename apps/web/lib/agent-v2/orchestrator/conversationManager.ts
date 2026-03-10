@@ -137,6 +137,7 @@ import {
 } from "./creatorHintPolicy";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
 import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
+import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
 import {
   buildSourceMaterialIdentityKey,
   extractAutoSourceMaterialInputs,
@@ -1874,6 +1875,11 @@ User Profile Summary:
       : isVerifiedAccount
         ? requestedFormatPreference
         : "shortform";
+  const sourceMaterialDraftConstraints = buildSourceMaterialDraftConstraints({
+    sourceMaterials: selectedSourceMaterials,
+    formatPreference: turnFormatPreference,
+    hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
+  });
   const turnThreadFramingStyle = resolveRequestedThreadFramingStyle({
     userMessage,
     activeDraft,
@@ -2243,6 +2249,7 @@ User Profile Summary:
         new Set([
           ...args.activeConstraints,
           ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+          ...sourceMaterialDraftConstraints,
           ...extraConstraints,
         ]),
       );

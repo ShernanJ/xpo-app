@@ -9,6 +9,7 @@ import {
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy.ts";
 import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy.ts";
+import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy.ts";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
@@ -683,6 +684,54 @@ test("source material bias keeps story plans from inventing extra first-person b
   assert.equal(plan.hookType, "story");
   assert.equal(
     plan.mustAvoid.some((entry) => /do not invent extra first-person beats/i.test(entry)),
+    true,
+  );
+});
+
+test("source material draft constraints keep playbooks structured", () => {
+  const constraints = buildSourceMaterialDraftConstraints({
+    sourceMaterials: [
+      {
+        type: "playbook",
+        title: "Hiring playbook",
+        claims: ["We ask candidates to ship a small demo before interviews."],
+        snippets: [],
+      },
+    ],
+    formatPreference: "thread",
+    hasAutobiographicalGrounding: true,
+  });
+
+  assert.equal(
+    constraints.some((entry) => /frame this as a usable playbook/i.test(entry)),
+    true,
+  );
+  assert.equal(
+    constraints.some((entry) => /each post carry one step, rule, or decision/i.test(entry)),
+    true,
+  );
+});
+
+test("source material draft constraints keep saved stories literal", () => {
+  const constraints = buildSourceMaterialDraftConstraints({
+    sourceMaterials: [
+      {
+        type: "story",
+        title: "Onboarding lesson",
+        claims: ["We cut the tour and more people finished setup."],
+        snippets: [],
+      },
+    ],
+    formatPreference: "shortform",
+    hasAutobiographicalGrounding: false,
+  });
+
+  assert.equal(
+    constraints.some((entry) => /anchored to the saved story beats/i.test(entry)),
+    true,
+  );
+  assert.equal(
+    constraints.some((entry) => /do not add extra first-person scenes/i.test(entry)),
     true,
   );
 });
