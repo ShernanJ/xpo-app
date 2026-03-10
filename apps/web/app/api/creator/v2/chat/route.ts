@@ -14,6 +14,7 @@ import {
   getXCharacterLimitForAccount,
   resolveThreadFramingStyle,
 } from "@/lib/onboarding/draftArtifacts";
+import { buildCreatorProfileHintsFromOnboarding } from "@/lib/agent-v2/orchestrator/creatorProfileHints";
 import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
@@ -276,6 +277,21 @@ export async function POST(request: NextRequest) {
         };
       }
     | null;
+  const creatorProfileHints =
+    storedRun?.id && storedRun?.result
+      ? (() => {
+          try {
+            return buildCreatorProfileHintsFromOnboarding({
+              runId: storedRun.id,
+              onboarding: storedRun.result as Parameters<
+                typeof buildCreatorProfileHintsFromOnboarding
+              >[0]["onboarding"],
+            });
+          } catch {
+            return null;
+          }
+        })()
+      : null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
   const activeHandleRaw = storedThread?.xHandle || session.user.activeXHandle || null;
   const activeHandle =
@@ -415,6 +431,7 @@ export async function POST(request: NextRequest) {
       formatPreference,
       threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
+      creatorProfileHints,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);

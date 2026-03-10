@@ -9,6 +9,10 @@ import type {
   DraftFormatPreference,
   DraftPreference,
 } from "../contracts/chat";
+import type {
+  CreatorProfileHints,
+  GroundingPacket,
+} from "../orchestrator/groundingPacket";
 import { buildWriterInstruction } from "./promptBuilders";
 
 export const WriterOutputSchema = z.object({
@@ -44,6 +48,8 @@ export async function generateDrafts(
     voiceTarget?: VoiceTarget | null;
     referenceAnchorMode?: "historical_posts" | "reference_hints";
     threadFramingStyle?: ThreadFramingStyle | null;
+    groundingPacket?: GroundingPacket | null;
+    creatorProfileHints?: CreatorProfileHints | null;
   },
 ): Promise<WriterOutput | null> {
   const instruction = buildWriterInstruction({
@@ -55,13 +61,20 @@ export async function generateDrafts(
     recentHistory,
     activeDraft,
     voiceTarget: options?.voiceTarget,
+    groundingPacket: options?.groundingPacket,
+    creatorProfileHints: options?.creatorProfileHints,
     options,
   });
+
+  const shouldUseStrictFactualTemperature =
+    Boolean(options?.groundingPacket) &&
+    (options?.groundingPacket?.unknowns.length || 0) > 0 &&
+    (options?.groundingPacket?.allowedFirstPersonClaims.length || 0) === 0;
 
   const data = await fetchJsonFromGroq<unknown>({
     model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     reasoning_effort: "medium",
-    temperature: 0.45,
+    temperature: shouldUseStrictFactualTemperature ? 0.2 : 0.45,
     max_tokens: 4096,
     messages: [
       { role: "system", content: instruction },

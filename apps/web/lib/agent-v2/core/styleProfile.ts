@@ -2,6 +2,24 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { z } from "zod";
 
+export const FactLedgerSourceMaterialSchema = z.object({
+  type: z.enum(["story", "playbook", "framework", "case_study"]).default("story"),
+  title: z.string(),
+  tags: z.array(z.string()).default([]),
+  verified: z.boolean().default(false),
+  claims: z.array(z.string()).default([]),
+  snippets: z.array(z.string()).default([]),
+  doNotClaim: z.array(z.string()).default([]),
+});
+
+export const FactLedgerSchema = z.object({
+  durableFacts: z.array(z.string()).default([]),
+  allowedFirstPersonClaims: z.array(z.string()).default([]),
+  allowedNumbers: z.array(z.string()).default([]),
+  forbiddenClaims: z.array(z.string()).default([]),
+  sourceMaterials: z.array(FactLedgerSourceMaterialSchema).default([]),
+});
+
 export const UserPreferencesSchema = z.object({
   casing: z.enum(["auto", "normal", "lowercase", "uppercase"]).default("auto"),
   bulletStyle: z.enum(["auto", "dash", "angle"]).default("auto"),
@@ -76,6 +94,13 @@ export const StyleCardSchema = z.object({
   formattingRules: z.array(z.string()).describe("Rules around capitalization, punctuation, line breaks, and list markers (e.g. 'never uses capitalization', 'double line breaks between sentences', 'uses - for bullets', 'uses > for bullets')"),
   customGuidelines: z.array(z.string()).default([]).describe("Explicit stylistic feedback or rules the user dictates (e.g. 'Never use emojis', 'Make it less cringe')"),
   contextAnchors: z.array(z.string()).default([]).describe("Explicit facts the user has told the bot about themselves or their project"),
+  factLedger: FactLedgerSchema.default({
+    durableFacts: [],
+    allowedFirstPersonClaims: [],
+    allowedNumbers: [],
+    forbiddenClaims: [],
+    sourceMaterials: [],
+  }).describe("Authoritative durable grounding used for factual claims in drafts"),
   antiExamples: z
     .array(
       z.object({
@@ -95,11 +120,94 @@ export const StyleCardSchema = z.object({
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
+export type FactLedger = z.infer<typeof FactLedgerSchema>;
+export type FactLedgerSourceMaterial = z.infer<typeof FactLedgerSourceMaterialSchema>;
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 export type FeedbackCategory = z.infer<typeof FeedbackCategorySchema>;
 export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
 export type FeedbackSubmissionStatus = z.infer<typeof FeedbackSubmissionStatusSchema>;
 export type FeedbackSubmission = z.infer<typeof FeedbackSubmissionSchema>;
+
+function normalizeMemoryLine(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function dedupeStringList(values: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeMemoryLine(value);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    next.push(normalized);
+  }
+
+  return next;
+}
+
+function buildNormalizedFactLedger(card: Pick<VoiceStyleCard, "contextAnchors" | "factLedger">): FactLedger {
+  const factLedger = FactLedgerSchema.parse(card.factLedger || {});
+
+  return {
+    ...factLedger,
+    durableFacts: dedupeStringList([
+      ...(factLedger.durableFacts || []),
+      ...(card.contextAnchors || []),
+    ]),
+    allowedFirstPersonClaims: dedupeStringList(factLedger.allowedFirstPersonClaims || []),
+    allowedNumbers: dedupeStringList(factLedger.allowedNumbers || []),
+    forbiddenClaims: dedupeStringList(factLedger.forbiddenClaims || []),
+    sourceMaterials: (factLedger.sourceMaterials || []).map((entry) => ({
+      ...entry,
+      title: normalizeMemoryLine(entry.title),
+      tags: dedupeStringList(entry.tags || []),
+      claims: dedupeStringList(entry.claims || []),
+      snippets: dedupeStringList(entry.snippets || []),
+      doNotClaim: dedupeStringList(entry.doNotClaim || []),
+    })),
+  };
+}
+
+export function getDurableFactsFromStyleCard(styleCard: VoiceStyleCard | null | undefined): string[] {
+  if (!styleCard) {
+    return [];
+  }
+
+  return buildNormalizedFactLedger(styleCard).durableFacts;
+}
+
+export function rememberFactsOnStyleCard(
+  styleCard: VoiceStyleCard,
+  facts: string[],
+): VoiceStyleCard {
+  const normalizedFacts = dedupeStringList(facts);
+  if (normalizedFacts.length === 0) {
+    return {
+      ...styleCard,
+      factLedger: buildNormalizedFactLedger(styleCard),
+    };
+  }
+
+  const nextFactLedger = buildNormalizedFactLedger(styleCard);
+  nextFactLedger.durableFacts = dedupeStringList([
+    ...nextFactLedger.durableFacts,
+    ...normalizedFacts,
+  ]);
+
+  return {
+    ...styleCard,
+    contextAnchors: dedupeStringList([
+      ...(styleCard.contextAnchors || []),
+      ...normalizedFacts,
+    ]),
+    factLedger: nextFactLedger,
+  };
+}
 
 export async function generateStyleProfile(
   userId: string,
@@ -179,6 +287,13 @@ Respond ONLY with a valid JSON object matching this schema:
   "formattingRules": ["..."],
   "customGuidelines": [],
   "contextAnchors": [],
+  "factLedger": {
+    "durableFacts": [],
+    "allowedFirstPersonClaims": [],
+    "allowedNumbers": [],
+    "forbiddenClaims": [],
+    "sourceMaterials": []
+  },
   "antiExamples": []
 }
 `;
@@ -220,26 +335,56 @@ Respond ONLY with a valid JSON object matching this schema:
 
     const parsedJson = JSON.parse(content);
     const validatedCard = StyleCardSchema.parse(parsedJson);
+    const mergedFactLedger = buildNormalizedFactLedger({
+      contextAnchors: dedupeStringList([
+        ...(existingParsed?.contextAnchors || []),
+        ...(validatedCard.contextAnchors || []),
+      ]),
+      factLedger: {
+        ...(existingParsed?.factLedger || {}),
+        ...(validatedCard.factLedger || {}),
+        durableFacts: dedupeStringList([
+          ...(existingParsed?.factLedger?.durableFacts || []),
+          ...(validatedCard.factLedger?.durableFacts || []),
+          ...(existingParsed?.contextAnchors || []),
+          ...(validatedCard.contextAnchors || []),
+        ]),
+        allowedFirstPersonClaims: dedupeStringList([
+          ...(existingParsed?.factLedger?.allowedFirstPersonClaims || []),
+          ...(validatedCard.factLedger?.allowedFirstPersonClaims || []),
+        ]),
+        allowedNumbers: dedupeStringList([
+          ...(existingParsed?.factLedger?.allowedNumbers || []),
+          ...(validatedCard.factLedger?.allowedNumbers || []),
+        ]),
+        forbiddenClaims: dedupeStringList([
+          ...(existingParsed?.factLedger?.forbiddenClaims || []),
+          ...(validatedCard.factLedger?.forbiddenClaims || []),
+        ]),
+        sourceMaterials: [
+          ...(existingParsed?.factLedger?.sourceMaterials || []),
+          ...(validatedCard.factLedger?.sourceMaterials || []),
+        ],
+      },
+    });
     const mergedCard: VoiceStyleCard = existingParsed
       ? {
           ...validatedCard,
-          customGuidelines: Array.from(
-            new Set([
-              ...(existingParsed.customGuidelines || []),
-              ...(validatedCard.customGuidelines || []),
-            ]),
-          ),
-          contextAnchors: Array.from(
-            new Set([
-              ...(existingParsed.contextAnchors || []),
-              ...(validatedCard.contextAnchors || []),
-            ]),
-          ),
+          customGuidelines: dedupeStringList([
+            ...(existingParsed.customGuidelines || []),
+            ...(validatedCard.customGuidelines || []),
+          ]),
+          contextAnchors: mergedFactLedger.durableFacts,
+          factLedger: mergedFactLedger,
           antiExamples: (existingParsed.antiExamples || []).slice(-5),
           userPreferences: existingParsed.userPreferences,
           feedbackSubmissions: existingParsed.feedbackSubmissions,
         }
-      : validatedCard;
+      : {
+          ...validatedCard,
+          contextAnchors: mergedFactLedger.durableFacts,
+          factLedger: mergedFactLedger,
+        };
 
     // Save or update the profile in the DB
     await saveStyleProfile(userId, normalizedHandle, mergedCard);
@@ -254,6 +399,11 @@ Respond ONLY with a valid JSON object matching this schema:
 // Safer database upsert wrapper specifically for the schema structure
 export async function saveStyleProfile(userId: string, xHandle: string, styleCard: VoiceStyleCard) {
   const normalizedHandle = xHandle.trim().replace(/^@+/, "").toLowerCase();
+  const normalizedStyleCard: VoiceStyleCard = {
+    ...styleCard,
+    contextAnchors: getDurableFactsFromStyleCard(styleCard),
+    factLedger: buildNormalizedFactLedger(styleCard),
+  };
   const existing = await prisma.voiceProfile.findFirst({
     where: { userId, xHandle: normalizedHandle }
   });
@@ -261,7 +411,7 @@ export async function saveStyleProfile(userId: string, xHandle: string, styleCar
   if (existing) {
     return prisma.voiceProfile.update({
       where: { id: existing.id },
-      data: { styleCard: styleCard as unknown as Prisma.InputJsonObject }
+      data: { styleCard: normalizedStyleCard as unknown as Prisma.InputJsonObject }
     });
   }
 
@@ -269,7 +419,7 @@ export async function saveStyleProfile(userId: string, xHandle: string, styleCar
     data: {
       userId,
       xHandle: normalizedHandle,
-      styleCard: styleCard as unknown as Prisma.InputJsonObject
+      styleCard: normalizedStyleCard as unknown as Prisma.InputJsonObject
     }
   });
 }

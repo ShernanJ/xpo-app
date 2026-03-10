@@ -3,6 +3,7 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { buildCreatorProfileHintsFromCreatorProfile } from "@/lib/agent-v2/orchestrator/creatorProfileHints";
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
@@ -240,6 +241,15 @@ export async function POST(request: NextRequest) {
   const threadPostMaxCharacterLimit = getXCharacterLimitForAccount(
     Boolean(context.creatorProfile.identity.isVerified),
   );
+  const creatorProfileHints = buildCreatorProfileHintsFromCreatorProfile({
+    creatorProfile: context.creatorProfile,
+    preferredOutputShape:
+      context.creatorProfile.playbook.cadence.threadBias === "high"
+        ? "thread_seed"
+        : context.creatorProfile.voice.averageLengthBand === "long"
+          ? "long_form_post"
+          : "short_form_post",
+  });
 
   const briefs = buildDraftQueueBriefs({ context, count });
   const scratchMemoryRecord = buildScratchMemoryRecord({
@@ -259,6 +269,7 @@ export async function POST(request: NextRequest) {
         recentHistory: `user: ${brief.prompt}`,
         explicitIntent: "draft",
         formatPreference: brief.formatPreference,
+        creatorProfileHints,
       },
       {
         async getConversationMemory() {

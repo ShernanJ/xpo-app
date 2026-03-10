@@ -5,6 +5,16 @@ import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
 import {
+  applyCreatorProfileHintsToPlan,
+  mapPreferredOutputShapeToFormatPreference,
+} from "./creatorHintPolicy.ts";
+import {
+  addGroundingUnknowns,
+  buildGroundingPacket,
+  buildSafeFrameworkConstraint,
+  hasAutobiographicalGrounding,
+} from "./groundingPacket.ts";
+import {
   buildDirectionChoiceReply,
   buildLooseDirectionReply,
 } from "./assistantReplyStyle.ts";
@@ -30,6 +40,7 @@ import {
 } from "./draftGrounding.ts";
 import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
+import { checkDraftClaimsAgainstGrounding } from "./claimChecker.ts";
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
@@ -423,4 +434,119 @@ test("slot evaluator skips ampm clarification when context already disambiguates
 
   assert.equal(slots.ambiguousReferenceNeedsClarification, false);
   assert.equal(slots.ambiguousReference, "ampm");
+});
+
+test("grounding packet normalizes legacy durable facts and flags missing product detail", () => {
+  const packet = addGroundingUnknowns(
+    buildGroundingPacket({
+      styleCard: {
+        sentenceOpenings: [],
+        sentenceClosers: [],
+        pacing: "direct",
+        emojiPatterns: [],
+        slangAndVocabulary: [],
+        formattingRules: [],
+        customGuidelines: [],
+        contextAnchors: ["xpo helps people write and grow faster on x"],
+        factLedger: {
+          durableFacts: ["User is building xpo"],
+          allowedFirstPersonClaims: [],
+          allowedNumbers: [],
+          forbiddenClaims: [],
+          sourceMaterials: [],
+        },
+        antiExamples: [],
+      },
+      activeConstraints: [],
+      extractedFacts: ["User is shipping xpo in public"],
+    }),
+    evaluateDraftContextSlots({
+      userMessage: "write me a post about xpo",
+      topicSummary: null,
+      contextAnchors: ["User is building xpo"],
+    }),
+  );
+
+  assert.equal(packet.durableFacts.includes("User is building xpo"), true);
+  assert.equal(
+    packet.durableFacts.includes("xpo helps people write and grow faster on x"),
+    true,
+  );
+  assert.equal(packet.turnGrounding.includes("User is shipping xpo in public"), true);
+  assert.equal(packet.unknowns.some((entry) => /missing product behavior/i.test(entry)), true);
+  assert.equal(hasAutobiographicalGrounding(packet), true);
+});
+
+test("safe framework constraint forbids autobiographical invention when facts are thin", () => {
+  const packet = {
+    durableFacts: ["xpo helps people write better on x"],
+    turnGrounding: [],
+    allowedFirstPersonClaims: [],
+    allowedNumbers: [],
+    forbiddenClaims: [],
+    unknowns: ["missing product behavior detail"],
+    sourceMaterials: [],
+  };
+
+  const constraint = buildSafeFrameworkConstraint(packet);
+  assert.match(constraint, /framework, opinion, or principle-first post/i);
+  assert.match(constraint, /do not write first-person anecdotes/i);
+});
+
+test("claim checker removes unsupported autobiographical specifics but preserves grounded replacements", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: [
+      "yesterday i closed 3 launches with xpo in toronto.",
+      "xpo helps people write and grow faster on x without the mental load.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: [
+        "xpo helps people write and grow faster on x without the mental load",
+      ],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: ["missing product behavior detail"],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.doesNotMatch(result.draft, /yesterday|3 launches|toronto/i);
+  assert.match(
+    result.draft,
+    /xpo helps people write and grow faster on x without the mental load/i,
+  );
+});
+
+test("creator profile hints bias default format preference toward thread-first accounts", () => {
+  assert.equal(mapPreferredOutputShapeToFormatPreference("thread_seed"), "thread");
+  assert.equal(mapPreferredOutputShapeToFormatPreference("long_form_post"), "longform");
+  assert.equal(mapPreferredOutputShapeToFormatPreference("reply_candidate"), "shortform");
+});
+
+test("creator profile hints can override generic hook types with preferred hook patterns", () => {
+  const plan = applyCreatorProfileHintsToPlan(
+    {
+      objective: "xpo positioning",
+      angle: "keep it factual",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: [],
+      hookType: "direct",
+      pitchResponse: "draft it",
+      formatPreference: "shortform",
+    },
+    {
+      preferredOutputShape: "thread_seed",
+      threadBias: "high",
+      preferredHookPatterns: ["question_open", "story_open"],
+      toneGuidelines: ["keep it conversational"],
+      ctaPolicy: "Ask for a specific reply, not passive engagement.",
+      topExampleSnippets: ["what changed when i stopped forcing polished hooks"],
+    },
+  );
+
+  assert.equal(plan.hookType, "question open");
 });

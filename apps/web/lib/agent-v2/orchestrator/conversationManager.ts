@@ -30,7 +30,12 @@ import {
   shouldRefreshRollingSummary,
 } from "../memory/summaryManager";
 import { retrieveAnchors } from "../core/retrieval";
-import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
+import {
+  generateStyleProfile,
+  saveStyleProfile,
+  getDurableFactsFromStyleCard,
+  rememberFactsOnStyleCard,
+} from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
 import {
@@ -111,6 +116,19 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
+import {
+  addGroundingUnknowns,
+  buildGroundingPacket,
+  buildSafeFrameworkConstraint,
+  hasAutobiographicalGrounding,
+  type CreatorProfileHints,
+} from "./groundingPacket";
+import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
+import {
+  applyCreatorProfileHintsToPlan,
+  mapPreferredOutputShapeToFormatPreference,
+} from "./creatorHintPolicy";
+import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
 import { selectResponseShapePlan } from "./surfaceModeSelector";
 import { shapeAssistantResponse } from "./responseShaper";
 import type {
@@ -137,6 +155,7 @@ export interface OrchestratorInput {
   formatPreference?: DraftFormatPreference | null;
   threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
+  creatorProfileHints?: CreatorProfileHints | null;
 }
 
 export interface OrchestratorData {
@@ -1003,7 +1022,6 @@ function withPlanPreferences(
 
   return nextPlan;
 }
-
 function deterministicIndex(seed: string, modulo: number): number {
   if (modulo <= 1) {
     return 0;
@@ -1253,6 +1271,7 @@ export async function manageConversationTurn(
     activeDraft,
     formatPreference,
     threadFramingStyle,
+    creatorProfileHints: inputCreatorProfileHints,
   } = input;
   const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
   const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
@@ -1262,6 +1281,23 @@ export async function manageConversationTurn(
     normalizeHandleForContext(xHandle) ??
     normalizeHandleForContext(runInputHandle) ??
     "default";
+  const creatorProfileHints =
+    inputCreatorProfileHints ||
+    (() => {
+      const onboarding = preloadedRun?.result;
+      if (!runId || !onboarding) {
+        return null;
+      }
+
+      try {
+        return buildCreatorProfileHintsFromOnboarding({
+          runId,
+          onboarding: onboarding as Parameters<typeof buildCreatorProfileHintsFromOnboarding>[0]["onboarding"],
+        });
+      } catch {
+        return null;
+      }
+    })();
 
   let memoryRecord = await services.getConversationMemory({ runId, threadId });
   if (!memoryRecord) {
@@ -1348,7 +1384,7 @@ export async function manageConversationTurn(
     mode = "ideate";
   }
 
-  const [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
+  let [styleCard, anchors, extractedRules, extractedFacts] = await Promise.all([
     services.generateStyleProfile(userId, effectiveXHandle, 20),
     services.retrieveAnchors(
       userId,
@@ -1379,12 +1415,11 @@ export async function manageConversationTurn(
 
   let rememberedFactCount = 0;
   if (styleCard && extractedFacts && extractedFacts.length > 0) {
+    const previousDurableFacts = getDurableFactsFromStyleCard(styleCard);
+    styleCard = rememberFactsOnStyleCard(styleCard, extractedFacts);
     rememberedFactCount = countNewMemoryEntries(
-      styleCard.contextAnchors || [],
-      extractedFacts,
-    );
-    styleCard.contextAnchors = Array.from(
-      new Set([...(styleCard.contextAnchors || []), ...extractedFacts]),
+      previousDurableFacts,
+      getDurableFactsFromStyleCard(styleCard),
     );
     services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
       console.error("Failed to save style profile:", error),
@@ -1416,24 +1451,35 @@ export async function manageConversationTurn(
     suppress: suppressFeedbackMemoryNotice,
   });
 
+  let groundingPacket = buildGroundingPacket({
+    styleCard,
+    activeConstraints: effectiveActiveConstraints,
+    extractedFacts,
+  });
+  const turnDraftContextSlots = evaluateDraftContextSlots({
+    userMessage,
+    topicSummary: memory.topicSummary,
+    contextAnchors: groundingPacket.durableFacts,
+  });
+  groundingPacket = addGroundingUnknowns(groundingPacket, turnDraftContextSlots);
   const relevantTopicAnchors = retrieveRelevantContext({
     userMessage,
     topicSummary: memory.topicSummary,
     rollingSummary: memory.rollingSummary,
     topicAnchors: anchors.topicAnchors,
-    contextAnchors: styleCard?.contextAnchors || [],
+    contextAnchors: groundingPacket.durableFacts,
     activeConstraints: effectiveActiveConstraints,
-  });
-  const turnDraftContextSlots = evaluateDraftContextSlots({
-    userMessage,
-    topicSummary: memory.topicSummary,
-    contextAnchors: styleCard?.contextAnchors || [],
   });
   const shouldForceNoFabricationGuardrailForTurn = shouldForceNoFabricationPlanGuardrail({
     userMessage,
     behaviorKnown: turnDraftContextSlots.behaviorKnown,
     stakesKnown: turnDraftContextSlots.stakesKnown,
   });
+  const missingAutobiographicalGroundingForTurn =
+    (turnDraftContextSlots.domainHint === "product" ||
+      turnDraftContextSlots.domainHint === "career") &&
+    groundingPacket.unknowns.length > 0 &&
+    !hasAutobiographicalGrounding(groundingPacket);
 
   const storedRun = preloadedRun;
   const onboardingResult = storedRun?.result as Record<string, unknown> | undefined;
@@ -1445,8 +1491,8 @@ export async function manageConversationTurn(
   const strategyState = onboardingResult?.strategyState as Record<string, unknown> | undefined;
   const goal = typeof strategyState?.goal === "string" ? strategyState.goal : "Audience growth";
   const contextAnchorsStr =
-    styleCard && styleCard.contextAnchors?.length > 0
-      ? `\n- Known Facts: ${styleCard.contextAnchors.join(" | ")}`
+    groundingPacket.durableFacts.length > 0
+      ? `\n- Known Facts: ${groundingPacket.durableFacts.join(" | ")}`
       : "";
 
   const userContextString = `
@@ -1532,9 +1578,16 @@ User Profile Summary:
     userMessage,
     memory.pendingPlan?.deliveryPreference || "balanced",
   );
+  const hintedFormatFallback =
+    memory.pendingPlan?.formatPreference ||
+    memory.formatPreference ||
+    mapPreferredOutputShapeToFormatPreference(
+      creatorProfileHints?.preferredOutputShape,
+    ) ||
+    "shortform";
   const requestedFormatPreference = inferDraftFormatPreference(
     userMessage,
-    memory.pendingPlan?.formatPreference || memory.formatPreference || "shortform",
+    hintedFormatFallback,
     formatPreference,
   );
   const turnFormatPreference =
@@ -1557,6 +1610,17 @@ User Profile Summary:
     isVerifiedAccount,
     turnFormatPreference,
   );
+  const forceSafeFrameworkModeForTurn =
+    missingAutobiographicalGroundingForTurn &&
+    (mode === "draft" ||
+      mode === "edit" ||
+      mode === "review" ||
+      turnPlan?.shouldAutoDraftFromPlan === true ||
+      Boolean(memory.pendingPlan) ||
+      Boolean(activeDraft));
+  const safeFrameworkConstraint = forceSafeFrameworkModeForTurn
+    ? buildSafeFrameworkConstraint(groundingPacket)
+    : null;
   const baseVoiceTarget = resolveVoiceTarget({
     styleCard,
     userMessage,
@@ -1583,13 +1647,14 @@ User Profile Summary:
     const sourceSlots = evaluateDraftContextSlots({
       userMessage: args.sourceText,
       topicSummary: memory.topicSummary,
-      contextAnchors: styleCard?.contextAnchors || [],
+      contextAnchors: groundingPacket.durableFacts,
     });
 
     return sourceSlots.isProductLike;
   };
   const useFactSafeReferenceHintsForTurn =
     shouldForceNoFabricationGuardrailForTurn ||
+    missingAutobiographicalGroundingForTurn ||
     shouldUseFactSafeReferenceHints({
       sourceText: userMessage,
       activeConstraints: effectiveActiveConstraints,
@@ -1604,7 +1669,7 @@ User Profile Summary:
     recentHistory,
     rollingSummary: memory.rollingSummary,
     relevantTopicAnchors: modelReferenceAnchors,
-    contextAnchors: styleCard?.contextAnchors || [],
+    contextAnchors: groundingPacket.durableFacts,
     activeConstraints: effectiveActiveConstraints,
     ...(useFactSafeReferenceHintsForTurn
       ? { referenceLabel: "REFERENCE HINTS" }
@@ -1807,7 +1872,7 @@ User Profile Summary:
             topicSummary: memory.topicSummary,
             rollingSummary: memory.rollingSummary,
             topicAnchors: mergedAnchors,
-            contextAnchors: styleCard?.contextAnchors || [],
+            contextAnchors: groundingPacket.durableFacts,
             activeConstraints: args.activeConstraints,
           }),
       retrievalReasons: retrieval.rankedAnchors
@@ -1861,6 +1926,31 @@ User Profile Summary:
         response: RawOrchestratorResponse;
       }
   > {
+    const applyClaimCheck = (attempt: {
+      writerOutput: WriterOutput;
+      criticOutput: CriticOutput;
+      draftToDeliver: string;
+      voiceTarget: VoiceTarget;
+      retrievalReasons: string[];
+      threadFramingStyle: ThreadFramingStyle | null;
+    }) => {
+      const claimCheck = checkDraftClaimsAgainstGrounding({
+        draft: attempt.draftToDeliver,
+        groundingPacket,
+      });
+
+      return {
+        ...attempt,
+        criticOutput: {
+          ...attempt.criticOutput,
+          finalDraft: claimCheck.draft || attempt.criticOutput.finalDraft,
+          issues: Array.from(new Set([...attempt.criticOutput.issues, ...claimCheck.issues])),
+        },
+        draftToDeliver: claimCheck.draft || attempt.draftToDeliver,
+        claimNeedsClarification: claimCheck.needsClarification,
+      };
+    };
+
     const runAttempt = async (
       extraConstraints: string[] = [],
     ): Promise<{
@@ -1872,7 +1962,11 @@ User Profile Summary:
       threadFramingStyle: ThreadFramingStyle | null;
     }> => {
       const attemptConstraints = Array.from(
-        new Set([...args.activeConstraints, ...extraConstraints]),
+        new Set([
+          ...args.activeConstraints,
+          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+          ...extraConstraints,
+        ]),
       );
       const voiceTarget = resolveVoiceTarget({
         styleCard,
@@ -1905,6 +1999,8 @@ User Profile Summary:
           referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
           threadPostMaxCharacterLimit,
           threadFramingStyle: args.threadFramingStyle,
+          groundingPacket,
+          creatorProfileHints,
         },
       );
 
@@ -1931,6 +2027,7 @@ User Profile Summary:
           voiceTarget,
           threadPostMaxCharacterLimit,
           threadFramingStyle: args.threadFramingStyle,
+          groundingPacket,
         },
       );
 
@@ -1985,25 +2082,50 @@ User Profile Summary:
       };
     }
 
+    const firstAttemptWithClaimCheck = applyClaimCheck({
+      writerOutput: firstAttempt.writerOutput,
+      criticOutput: firstAttempt.criticOutput,
+      draftToDeliver: firstAttempt.draftToDeliver,
+      voiceTarget: firstAttempt.voiceTarget,
+      retrievalReasons: firstAttempt.retrievalReasons,
+      threadFramingStyle: firstAttempt.threadFramingStyle,
+    });
+    if (firstAttemptWithClaimCheck.claimNeedsClarification) {
+      return {
+        kind: "response",
+        response: await returnClarificationQuestion({
+          question: buildGroundedProductClarificationQuestion(
+            args.sourceUserMessage || args.plan.objective,
+          ),
+          ...(args.topicSummary !== undefined
+            ? { topicSummary: args.topicSummary }
+            : {}),
+          ...(args.pendingPlan !== undefined
+            ? { pendingPlan: args.pendingPlan }
+            : {}),
+        }),
+      };
+    }
+
     const firstAssessment = assessConcreteSceneDrift({
       sourceUserMessage: args.sourceUserMessage,
-      draft: firstAttempt.draftToDeliver,
+      draft: firstAttemptWithClaimCheck.draftToDeliver,
     });
     const firstProductAssessment = assessGroundedProductDrift({
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
-      draft: firstAttempt.draftToDeliver,
+      draft: firstAttemptWithClaimCheck.draftToDeliver,
     });
 
     if (!firstAssessment.hasDrift && !firstProductAssessment.hasDrift) {
       return {
         kind: "success",
-        writerOutput: firstAttempt.writerOutput,
-        criticOutput: firstAttempt.criticOutput,
-        draftToDeliver: firstAttempt.draftToDeliver,
-        voiceTarget: firstAttempt.voiceTarget,
-        retrievalReasons: firstAttempt.retrievalReasons,
-        threadFramingStyle: firstAttempt.threadFramingStyle,
+        writerOutput: firstAttemptWithClaimCheck.writerOutput,
+        criticOutput: firstAttemptWithClaimCheck.criticOutput,
+        draftToDeliver: firstAttemptWithClaimCheck.draftToDeliver,
+        voiceTarget: firstAttemptWithClaimCheck.voiceTarget,
+        retrievalReasons: firstAttemptWithClaimCheck.retrievalReasons,
+        threadFramingStyle: firstAttemptWithClaimCheck.threadFramingStyle,
       };
     }
 
@@ -2043,14 +2165,39 @@ User Profile Summary:
       };
     }
 
+    const secondAttemptWithClaimCheck = applyClaimCheck({
+      writerOutput: secondAttempt.writerOutput,
+      criticOutput: secondAttempt.criticOutput,
+      draftToDeliver: secondAttempt.draftToDeliver,
+      voiceTarget: secondAttempt.voiceTarget,
+      retrievalReasons: secondAttempt.retrievalReasons,
+      threadFramingStyle: secondAttempt.threadFramingStyle,
+    });
+    if (secondAttemptWithClaimCheck.claimNeedsClarification) {
+      return {
+        kind: "response",
+        response: await returnClarificationQuestion({
+          question: buildGroundedProductClarificationQuestion(
+            args.sourceUserMessage || args.plan.objective,
+          ),
+          ...(args.topicSummary !== undefined
+            ? { topicSummary: args.topicSummary }
+            : {}),
+          ...(args.pendingPlan !== undefined
+            ? { pendingPlan: args.pendingPlan }
+            : {}),
+        }),
+      };
+    }
+
     const secondAssessment = assessConcreteSceneDrift({
       sourceUserMessage: args.sourceUserMessage,
-      draft: secondAttempt.draftToDeliver,
+      draft: secondAttemptWithClaimCheck.draftToDeliver,
     });
     const secondProductAssessment = assessGroundedProductDrift({
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
-      draft: secondAttempt.draftToDeliver,
+      draft: secondAttemptWithClaimCheck.draftToDeliver,
     });
 
     if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
@@ -2084,12 +2231,12 @@ User Profile Summary:
 
     return {
       kind: "success",
-      writerOutput: secondAttempt.writerOutput,
-      criticOutput: secondAttempt.criticOutput,
-      draftToDeliver: secondAttempt.draftToDeliver,
-      voiceTarget: secondAttempt.voiceTarget,
-      retrievalReasons: secondAttempt.retrievalReasons,
-      threadFramingStyle: secondAttempt.threadFramingStyle,
+      writerOutput: secondAttemptWithClaimCheck.writerOutput,
+      criticOutput: secondAttemptWithClaimCheck.criticOutput,
+      draftToDeliver: secondAttemptWithClaimCheck.draftToDeliver,
+      voiceTarget: secondAttemptWithClaimCheck.voiceTarget,
+      retrievalReasons: secondAttemptWithClaimCheck.retrievalReasons,
+      threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,
     };
   }
 
@@ -2214,9 +2361,15 @@ User Profile Summary:
     memory.pendingPlan
   ) {
     const pendingPlanHasNoFabrication = hasNoFabricationPlanGuardrail(memory.pendingPlan);
+    const baseDraftActiveConstraints = Array.from(
+      new Set([
+        ...effectiveActiveConstraints,
+        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+      ]),
+    );
     const draftActiveConstraints = pendingPlanHasNoFabrication
-      ? appendNoFabricationConstraint(effectiveActiveConstraints)
-      : effectiveActiveConstraints;
+      ? appendNoFabricationConstraint(baseDraftActiveConstraints)
+      : baseDraftActiveConstraints;
     const decision = await interpretPlannerFeedback(userMessage, memory.pendingPlan);
 
     if (decision === "approve") {
@@ -2337,6 +2490,8 @@ User Profile Summary:
         draftPreference: turnDraftPreference,
         formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
         voiceTarget: baseVoiceTarget,
+        groundingPacket,
+        creatorProfileHints,
       },
     );
 
@@ -2349,10 +2504,13 @@ User Profile Summary:
         };
       }
 
-      const revisedPlanWithPreference = withPlanPreferences(
-        revisedPlan,
-        turnDraftPreference,
-        memory.pendingPlan.formatPreference || turnFormatPreference,
+      const revisedPlanWithPreference = applyCreatorProfileHintsToPlan(
+        withPlanPreferences(
+          revisedPlan,
+          turnDraftPreference,
+          memory.pendingPlan.formatPreference || turnFormatPreference,
+        ),
+        creatorProfileHints,
       );
       const guardedRevisedPlan = pendingPlanHasNoFabrication
         ? withNoFabricationPlanGuardrail(revisedPlanWithPreference)
@@ -2458,7 +2616,8 @@ User Profile Summary:
         domainHint: turnDraftContextSlots.domainHint,
         behaviorKnown: turnDraftContextSlots.behaviorKnown,
         stakesKnown: turnDraftContextSlots.stakesKnown,
-      })
+      }) &&
+      missingAutobiographicalGroundingForTurn
     ) {
       return returnClarificationTree({
         branchKey: "career_context_missing",
@@ -2469,7 +2628,8 @@ User Profile Summary:
 
     if (
       turnDraftContextSlots.isProductLike &&
-      (!turnDraftContextSlots.behaviorKnown || !turnDraftContextSlots.stakesKnown)
+      (!turnDraftContextSlots.behaviorKnown || !turnDraftContextSlots.stakesKnown) &&
+      missingAutobiographicalGroundingForTurn
     ) {
       const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
 
@@ -2492,7 +2652,7 @@ User Profile Summary:
   if (canAskPlanClarification()) {
     const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
 
-    if (clarificationQuestion) {
+    if (clarificationQuestion && missingAutobiographicalGroundingForTurn) {
       return returnClarificationQuestion({
         question: clarificationQuestion,
       });
@@ -2568,7 +2728,7 @@ User Profile Summary:
       activeDraft: null,
       referenceText: memory.lastIdeationAngles.join(" "),
       recentHistory,
-      contextAnchors: styleCard?.contextAnchors || [],
+      contextAnchors: groundingPacket.durableFacts,
     });
 
     if (sourceTransparencyReply) {
@@ -2675,7 +2835,7 @@ User Profile Summary:
       activeDraft,
       referenceText: memory.lastIdeationAngles.join(" "),
       recentHistory,
-      contextAnchors: styleCard?.contextAnchors || [],
+      contextAnchors: groundingPacket.durableFacts,
     });
 
     if (sourceTransparencyReply) {
@@ -2840,7 +3000,12 @@ User Profile Summary:
     const plan = await services.generatePlan(
       planInput.planMessage,
       memory.topicSummary,
-      planInput.activeConstraints,
+      Array.from(
+        new Set([
+          ...planInput.activeConstraints,
+          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+        ]),
+      ),
       effectiveContext,
       activeDraft,
       {
@@ -2850,6 +3015,8 @@ User Profile Summary:
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
         voiceTarget: baseVoiceTarget,
+        groundingPacket,
+        creatorProfileHints,
       },
     );
 
@@ -2862,15 +3029,23 @@ User Profile Summary:
       };
     }
 
-    const planWithPreference = withPlanPreferences(
-      plan,
-      turnDraftPreference,
-      turnFormatPreference,
+    const planWithPreference = applyCreatorProfileHintsToPlan(
+      withPlanPreferences(
+        plan,
+        turnDraftPreference,
+        turnFormatPreference,
+      ),
+      creatorProfileHints,
     );
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
-    const planActiveConstraints = planInput.activeConstraints;
+    const planActiveConstraints = Array.from(
+      new Set([
+        ...planInput.activeConstraints,
+        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+      ]),
+    );
 
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
@@ -3060,9 +3235,14 @@ User Profile Summary:
       }
     }
 
-    const revisionActiveConstraints = isConstraintDeclaration(userMessage)
-      ? Array.from(new Set([...effectiveActiveConstraints, userMessage.trim()]))
-      : effectiveActiveConstraints;
+    const revisionActiveConstraints = Array.from(
+      new Set([
+        ...(isConstraintDeclaration(userMessage)
+          ? [...effectiveActiveConstraints, userMessage.trim()]
+          : effectiveActiveConstraints),
+        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+      ]),
+    );
 
     if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
       const revision = normalizeDraftRevisionInstruction(
@@ -3115,6 +3295,7 @@ User Profile Summary:
           threadFramingStyle: turnThreadFramingStyle,
           previousDraft: effectiveActiveDraft,
           revisionChangeKind: revision.changeKind,
+          groundingPacket,
         },
       );
 
@@ -3127,10 +3308,22 @@ User Profile Summary:
         };
       }
 
+      const claimCheck = checkDraftClaimsAgainstGrounding({
+        draft: criticOutput.finalDraft,
+        groundingPacket,
+      });
+      if (claimCheck.needsClarification) {
+        return returnClarificationQuestion({
+          question: buildGroundedProductClarificationQuestion(
+            effectiveActiveDraft || memory.topicSummary || userMessage,
+          ),
+        });
+      }
+
       const revisionWasRejectedByCritic = !criticOutput.approved;
       const finalizedRevisionDraft = revisionWasRejectedByCritic
         ? reviserOutput.revisedDraft
-        : criticOutput.finalDraft;
+        : claimCheck.draft || criticOutput.finalDraft;
       const revisionVoiceTarget = resolveVoiceTarget({
         styleCard,
         userMessage,
@@ -3152,6 +3345,7 @@ User Profile Summary:
         new Set([
           ...(reviserOutput.issuesFixed || []),
           ...criticOutput.issues,
+          ...claimCheck.issues,
           ...(revisionWasRejectedByCritic
             ? ["Kept the revision closer to the original edit scope."]
             : []),
@@ -3203,7 +3397,12 @@ User Profile Summary:
     const plan = await services.generatePlan(
       draftInstruction,
       memory.topicSummary,
-      revisionActiveConstraints,
+      Array.from(
+        new Set([
+          ...revisionActiveConstraints,
+          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+        ]),
+      ),
       effectiveContext,
       activeDraft,
       {
@@ -3213,6 +3412,8 @@ User Profile Summary:
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
         voiceTarget: baseVoiceTarget,
+        groundingPacket,
+        creatorProfileHints,
       },
     );
 
@@ -3225,10 +3426,13 @@ User Profile Summary:
       };
     }
 
-    const planWithPreference = withPlanPreferences(
-      plan,
-      turnDraftPreference,
-      turnFormatPreference,
+    const planWithPreference = applyCreatorProfileHintsToPlan(
+      withPlanPreferences(
+        plan,
+        turnDraftPreference,
+        turnFormatPreference,
+      ),
+      creatorProfileHints,
     );
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)

@@ -180,6 +180,20 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
+  assert.equal(promptBuildersSource.includes("CREATOR PROFILE HINTS:"), true);
+  assert.equal(
+    promptBuildersSource.includes(
+      "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference",
+    ),
+    true,
+  );
   assert.equal(
     promptBuildersSource.includes(
       "treat the correction / grounding as the source of truth and ignore the older assistant wording.",

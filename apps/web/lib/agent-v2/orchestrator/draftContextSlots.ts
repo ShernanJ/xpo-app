@@ -196,12 +196,16 @@ function inferNamedEntity(message: string): string | null {
   const genericMatch = message.match(
     /\b(?:for|with|using)\s+([a-z0-9][a-z0-9\s'-]{1,30})/i,
   );
+  const topicalMatch = message.match(
+    /\b(?:about|on)\s+([a-z0-9][a-z0-9\s'-]{1,30})$/i,
+  );
 
   return (
     cleanCandidate(inferBuildSubject(message) || undefined) ||
     cleanCandidate(productLinkedMatch?.[1]) ||
     cleanCandidate(comparisonMatch?.[1]) ||
-    cleanCandidate(genericMatch?.[1])
+    cleanCandidate(genericMatch?.[1]) ||
+    cleanCandidate(topicalMatch?.[1])
   );
 }
 
@@ -357,20 +361,35 @@ export function evaluateDraftContextSlots(args: {
     normalizedMessage: normalized,
     contextAnchors: args.contextAnchors,
   });
+  const normalizedContextAnchors = args.contextAnchors.map((entry) => entry.toLowerCase());
   const careerCuePresent = hasCareerCue(normalized);
   const careerBehaviorPresent = hasCareerBehaviorDetail(normalized);
   const careerStakePresent = hasCareerStakeDetail(normalized);
   const strongCareerSignal =
     careerCuePresent || careerBehaviorPresent || careerStakePresent;
   const looksLikeComparison = Boolean(inferComparisonReference(trimmed));
+  const contextSuggestsNamedEntityIsProduct =
+    Boolean(namedEntity) &&
+    normalizedContextAnchors.some((entry) => {
+      const normalizedEntity = namedEntity!.toLowerCase();
+      return (
+        entry.includes(normalizedEntity) &&
+        (hasFunctionalDetail(entry) ||
+          hasRelationshipDetail(entry) ||
+          /\b(?:building|built|making|created|shipping|launched|launching|working on|app|product|tool|extension|plugin)\b/.test(
+            entry,
+          ))
+      );
+    });
   const isProductLike =
     looksLikeBuildMessage(normalized) ||
     productCuePresent ||
     (Boolean(buildSubject) && !strongCareerSignal) ||
     (Boolean(namedEntity) && looksLikeComparison) ||
-    (Boolean(namedEntity) && hasRelationshipDetail(normalized));
+    (Boolean(namedEntity) && hasRelationshipDetail(normalized)) ||
+    contextSuggestsNamedEntityIsProduct;
   const subjectKnown = Boolean((args.topicSummary || trimmed).trim());
-  const localContext = `${normalized} ${(args.topicSummary || "").toLowerCase()}`.trim();
+  const localContext = `${normalized} ${(args.topicSummary || "").toLowerCase()} ${normalizedContextAnchors.join(" ")}`.trim();
   const externalContextKnown =
     !namedEntity ||
     localContext.includes(`${namedEntity.toLowerCase()} is`) ||

@@ -7,6 +7,10 @@ import type {
   StrategyPlan,
 } from "../contracts/chat";
 import type { VoiceTarget } from "../core/voiceTarget";
+import type {
+  CreatorProfileHints,
+  GroundingPacket,
+} from "../orchestrator/groundingPacket";
 import { buildPlanInstruction } from "./promptBuilders";
 
 export const PlannerOutputSchema = z.object({
@@ -38,6 +42,8 @@ export async function generatePlan(
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
     voiceTarget?: VoiceTarget | null;
+    groundingPacket?: GroundingPacket | null;
+    creatorProfileHints?: CreatorProfileHints | null;
   },
 ): Promise<PlannerOutput | null> {
   const instruction = buildPlanInstruction({
@@ -47,6 +53,8 @@ export async function generatePlan(
     recentHistory,
     activeDraft,
     voiceTarget: options?.voiceTarget,
+    groundingPacket: options?.groundingPacket,
+    creatorProfileHints: options?.creatorProfileHints,
     options,
   });
 

@@ -20,6 +20,10 @@ import {
   buildConcreteSceneDraftBlock,
   buildConcreteScenePlanBlock,
 } from "../orchestrator/draftGrounding";
+import type {
+  CreatorProfileHints,
+  GroundingPacket,
+} from "../orchestrator/groundingPacket";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
 function buildHardGroundingBlock(activeConstraints: string[]): string | null {
@@ -112,6 +116,49 @@ PLAIN FACTUAL PRODUCT MODE:
   `.trim();
 }
 
+function buildGroundingPacketBlock(
+  groundingPacket: GroundingPacket | null | undefined,
+): string | null {
+  if (!groundingPacket) {
+    return null;
+  }
+
+  return `
+GROUNDING PACKET:
+- Durable facts: ${groundingPacket.durableFacts.join(" | ") || "None"}
+- Turn grounding: ${groundingPacket.turnGrounding.join(" | ") || "None"}
+- Allowed first-person claims: ${groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}
+- Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
+- Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
+- Source materials: ${groundingPacket.sourceMaterials.map((item) => `${item.type}: ${item.title}`).join(" | ") || "None"}
+
+Use this packet as the authority for autobiographical, numeric, and factual specificity.
+If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.
+If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.
+  `.trim();
+}
+
+function buildCreatorProfileHintsBlock(
+  creatorProfileHints: CreatorProfileHints | null | undefined,
+): string | null {
+  if (!creatorProfileHints) {
+    return null;
+  }
+
+  return `
+CREATOR PROFILE HINTS:
+- Preferred output shape: ${creatorProfileHints.preferredOutputShape}
+- Thread bias: ${creatorProfileHints.threadBias}
+- Preferred hook patterns: ${creatorProfileHints.preferredHookPatterns.join(" | ") || "None"}
+- Tone guidelines: ${creatorProfileHints.toneGuidelines.join(" | ") || "None"}
+- CTA policy: ${creatorProfileHints.ctaPolicy || "None"}
+- Top example snippets: ${creatorProfileHints.topExampleSnippets.join(" | ") || "None"}
+
+Use these hints to bias format, hook shape, pacing, and CTA choices before you improvise.
+They should shape the structure of the draft without turning into copied wording.
+  `.trim();
+}
+
 export interface BuildPlanInstructionArgs {
   userMessage: string;
   topicSummary: string | null;
@@ -119,6 +166,8 @@ export interface BuildPlanInstructionArgs {
   recentHistory: string;
   activeDraft?: string;
   voiceTarget?: VoiceTarget | null;
+  groundingPacket?: GroundingPacket | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   options?: {
     goal?: string;
     conversationState?: ConversationState;
@@ -141,6 +190,8 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
     sourceText: args.userMessage,
     activeConstraints: args.activeConstraints,
   });
+  const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
 
   return `
 You are shaping the strongest next post direction for an X growth coach / ghostwriter system.
@@ -174,6 +225,10 @@ ${args.activeConstraints.join(" | ") || "None"}
 
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 
+${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
+
+${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
+
 ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
@@ -195,9 +250,11 @@ ${isEditing ? `REQUIREMENTS:
 8. If FACTUAL GROUNDING is present, do NOT add first-person product usage, adoption stories, or market comparisons unless the user explicitly gave them.
 8a. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 8b. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction / grounding as the source of truth and ignore the older assistant wording.
-9. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
-10. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-11. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+9. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT pick a story-led autobiographical angle. Pick a framework, opinion, or plain factual angle instead.
+10. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
+11. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
+12. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
+13. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
 
 STYLE:
 - No internal workflow language.
@@ -228,6 +285,8 @@ export interface BuildWriterInstructionArgs {
   recentHistory: string;
   activeDraft?: string;
   voiceTarget?: VoiceTarget | null;
+  groundingPacket?: GroundingPacket | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   options?: {
     conversationState?: ConversationState;
     antiPatterns?: string[];
@@ -283,6 +342,8 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     sourceText: args.options?.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" "),
     activeConstraints: args.activeConstraints,
   });
+  const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
   const referenceAnchorBlock =
     args.referenceAnchorMode === "reference_hints"
       ? `
@@ -353,6 +414,8 @@ ${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRIT
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
+${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
+${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
 ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 ${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
 
@@ -384,8 +447,10 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12f. If PLAIN FACTUAL PRODUCT MODE is present, do NOT prepend an invented pain-point or before-state setup unless the user explicitly gave it.
 12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
 12h. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
-13. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
-14. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
+13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
+14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
+15. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
+16. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 
 Respond ONLY with a valid JSON matching this schema:
 {

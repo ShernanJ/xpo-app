@@ -1,0 +1,199 @@
+import type { GroundingPacket } from "./groundingPacket.ts";
+
+export interface ClaimCheckResult {
+  draft: string;
+  issues: string[];
+  hasUnsupportedClaims: boolean;
+  needsClarification: boolean;
+}
+
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "for",
+  "from",
+  "i",
+  "im",
+  "i'm",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "of",
+  "on",
+  "our",
+  "that",
+  "the",
+  "their",
+  "them",
+  "they",
+  "this",
+  "to",
+  "us",
+  "user",
+  "was",
+  "we",
+  "with",
+]);
+
+const FIRST_PERSON_ACTION_PATTERN =
+  /\b(?:i|we)\s+(?:am|was|were|built|build|made|make|shipped|ship|launched|launch|use|used|tried|try|saw|see|learned|learn|realized|found|quit|joined|worked|hired|met|tested|switched|grow|grew|hit|closed|won|lost|started|start|went|talked|spent|wrote)\b/i;
+const TEMPORAL_PATTERN =
+  /\b(?:yesterday|today|tonight|last night|this morning|last week|last month|last year)\b/i;
+const CAUSAL_PATTERN =
+  /\b(?:because|which is why|that['’]s why|so that|led to|resulted in|caused)\b/i;
+const PRODUCT_BEHAVIOR_PATTERN =
+  /\b(?:it|this|[a-z0-9][a-z0-9_-]{1,30})\s+(?:helps|lets|turns|rewrites|automates|handles|scans|finds|tracks|posts|schedules|pulls|writes)\b/i;
+const METRIC_CONTEXT_PATTERN =
+  /\b(?:followers|revenue|arr|mrr|users|customers|teammates|launches|years|months|days|people|attendees|percent|%)\b/i;
+
+function normalizeWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function collectTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s%]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !STOPWORDS.has(token));
+}
+
+function computeSupportScore(candidate: string, sources: string[]): number {
+  const candidateTokens = Array.from(new Set(collectTokens(candidate)));
+  if (candidateTokens.length === 0) {
+    return 0;
+  }
+
+  return sources.reduce((best, source) => {
+    const sourceTokens = new Set(collectTokens(source));
+    if (sourceTokens.size === 0) {
+      return best;
+    }
+
+    const matched = candidateTokens.filter((token) => sourceTokens.has(token)).length;
+    return Math.max(best, matched / candidateTokens.length);
+  }, 0);
+}
+
+function findBestGroundedReplacement(line: string, packet: GroundingPacket): string | null {
+  const ranked = [...packet.turnGrounding, ...packet.durableFacts]
+    .map((entry) => ({
+      entry,
+      score: computeSupportScore(line, [entry]),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const best = ranked[0];
+  if (!best || best.score < 0.45) {
+    return null;
+  }
+
+  return normalizeWhitespace(best.entry);
+}
+
+function cleanupDraft(value: string): string {
+  return value
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n\s*---\s*\n/g, "\n---\n")
+    .trim();
+}
+
+function sanitizeLine(line: string, packet: GroundingPacket): {
+  nextLine: string;
+  issue: string | null;
+} {
+  const trimmed = normalizeWhitespace(line);
+  if (!trimmed || trimmed === "---") {
+    return { nextLine: line.trim(), issue: null };
+  }
+
+  const allSources = [
+    ...packet.allowedFirstPersonClaims,
+    ...packet.turnGrounding,
+    ...packet.durableFacts,
+  ];
+  const supportScore = computeSupportScore(trimmed, allSources);
+  const hasNumbers = /\b\d[\d,./%]*\b/.test(trimmed);
+  const hasUnsupportedNumber =
+    hasNumbers &&
+    !packet.allowedNumbers.some((token) => trimmed.includes(token)) &&
+    METRIC_CONTEXT_PATTERN.test(trimmed);
+  const riskyAutobiography = FIRST_PERSON_ACTION_PATTERN.test(trimmed);
+  const riskyTemporal = TEMPORAL_PATTERN.test(trimmed);
+  const riskyCausal = CAUSAL_PATTERN.test(trimmed) && riskyAutobiography;
+  const riskyProductBehavior = PRODUCT_BEHAVIOR_PATTERN.test(trimmed);
+  const isUnsupported =
+    supportScore < 0.45 &&
+    (riskyAutobiography || riskyTemporal || riskyCausal || riskyProductBehavior || hasUnsupportedNumber);
+
+  if (!isUnsupported) {
+    return { nextLine: trimmed, issue: null };
+  }
+
+  const replacement = findBestGroundedReplacement(trimmed, packet);
+  if (replacement && replacement.toLowerCase() !== trimmed.toLowerCase()) {
+    return {
+      nextLine: replacement,
+      issue: "Replaced an unsupported claim with grounded wording.",
+    };
+  }
+
+  return {
+    nextLine: "",
+    issue: "Removed an unsupported autobiographical or factual claim.",
+  };
+}
+
+export function checkDraftClaimsAgainstGrounding(args: {
+  draft: string;
+  groundingPacket: GroundingPacket;
+}): ClaimCheckResult {
+  const lines = args.draft.split("\n");
+  const issues: string[] = [];
+  let removedOrChanged = 0;
+
+  const nextLines = lines
+    .map((line) => {
+      const result = sanitizeLine(line, args.groundingPacket);
+      if (result.issue) {
+        removedOrChanged += 1;
+        issues.push(result.issue);
+      }
+      return result.nextLine;
+    })
+    .filter((line, index, all) => {
+      if (line === "---") {
+        return true;
+      }
+
+      if (line) {
+        return true;
+      }
+
+      const previous = all[index - 1];
+      const next = all[index + 1];
+      return previous === "---" || next === "---";
+    });
+
+  const sanitizedDraft = cleanupDraft(nextLines.join("\n"));
+  const needsClarification =
+    removedOrChanged > 0 &&
+    (sanitizedDraft.length < 48 ||
+      sanitizedDraft.length < Math.max(32, Math.floor(args.draft.length * 0.45)));
+
+  return {
+    draft: sanitizedDraft,
+    issues: Array.from(new Set(issues)),
+    hasUnsupportedClaims: removedOrChanged > 0,
+    needsClarification,
+  };
+}
