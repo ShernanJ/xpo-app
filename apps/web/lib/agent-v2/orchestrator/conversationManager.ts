@@ -125,6 +125,7 @@ import {
   buildSafeFrameworkConstraint,
   hasAutobiographicalGrounding,
   type CreatorProfileHints,
+  type GroundingPacketSourceMaterial,
 } from "./groundingPacket";
 import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
 import {
@@ -177,6 +178,7 @@ export interface OrchestratorData {
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
   threadFramingStyle?: ThreadFramingStyle | null;
+  groundingSources?: GroundingPacketSourceMaterial[];
 }
 
 export type OrchestratorResponse = {
@@ -1530,6 +1532,7 @@ export async function manageConversationTurn(
     groundingPacket,
     sourceMaterials: selectedSourceMaterials,
   });
+  const groundingSourcesForTurn = groundingPacket.sourceMaterials.slice(0, 2);
   if (selectedSourceMaterials.length > 0) {
     services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error) =>
       console.error("Failed to update source material last-used timestamps:", error),
@@ -2544,6 +2547,7 @@ User Profile Summary:
             retrievalReasons,
           }),
           threadFramingStyle,
+          groundingSources: groundingSourcesForTurn,
         },
         memory,
       };
@@ -3246,6 +3250,7 @@ User Profile Summary:
             retrievalReasons,
           }),
           threadFramingStyle,
+          groundingSources: groundingSourcesForTurn,
         },
         memory,
       };
@@ -3463,6 +3468,7 @@ User Profile Summary:
           voiceTarget: revisionVoiceTarget,
           noveltyNotes: buildNoveltyNotes({}),
           threadFramingStyle: turnThreadFramingStyle,
+          groundingSources: groundingSourcesForTurn,
         },
         memory,
       };
@@ -3609,6 +3615,7 @@ User Profile Summary:
           retrievalReasons,
         }),
         threadFramingStyle,
+        groundingSources: groundingSourcesForTurn,
       },
       memory,
     };

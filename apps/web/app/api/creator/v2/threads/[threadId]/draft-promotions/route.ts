@@ -43,6 +43,7 @@ interface DraftPromotionRequest extends Record<string, unknown> {
   replyPlan?: unknown;
   voiceTarget?: unknown;
   noveltyNotes?: unknown;
+  groundingSources?: unknown;
   threadFramingStyle?: unknown;
 }
 
@@ -68,6 +69,7 @@ function buildDraftArtifactWithLimit(params: {
   content: string;
   supportAsset: string | null;
   maxCharacterLimit: number;
+  groundingSources?: DraftArtifactDetails["groundingSources"];
   posts?: string[];
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
@@ -80,6 +82,7 @@ function buildDraftArtifactWithLimit(params: {
     kind: params.kind,
     content: params.content,
     supportAsset: params.supportAsset,
+    ...(params.groundingSources?.length ? { groundingSources: params.groundingSources } : {}),
     ...(params.posts?.length ? { posts: params.posts } : {}),
     ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
     ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
@@ -217,6 +220,22 @@ export async function POST(
         .map((entry) => entry.trim())
         .filter(Boolean)
     : [];
+  const groundingSources = Array.isArray(body.groundingSources)
+    ? body.groundingSources
+        .filter((entry): entry is DraftArtifactDetails["groundingSources"][number] =>
+          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
+        )
+        .map((entry) => ({
+          type: entry.type,
+          title: entry.title,
+          claims: Array.isArray(entry.claims)
+            ? entry.claims.filter((claim): claim is string => typeof claim === "string").slice(0, 2)
+            : [],
+          snippets: Array.isArray(entry.snippets)
+            ? entry.snippets.filter((snippet): snippet is string => typeof snippet === "string").slice(0, 2)
+            : [],
+        }))
+    : [];
   const threadFramingStyle =
     body.threadFramingStyle === "none" ||
     body.threadFramingStyle === "soft_signal" ||
@@ -262,6 +281,7 @@ export async function POST(
       content,
       supportAsset,
       maxCharacterLimit,
+      ...(groundingSources.length ? { groundingSources } : {}),
       ...(posts.length ? { posts } : {}),
       ...(replyPlan.length ? { replyPlan } : {}),
       ...(voiceTarget ? { voiceTarget } : {}),

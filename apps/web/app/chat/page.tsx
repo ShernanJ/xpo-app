@@ -257,6 +257,7 @@ interface DraftPromotionSuccess {
       previousVersionSnapshot: DraftVersionSnapshot | null;
       revisionChainId?: string;
       supportAsset: string | null;
+      groundingSources?: DraftArtifact["groundingSources"];
       outputShape: CreatorChatSuccess["data"]["outputShape"];
       source: "deterministic";
       model: string | null;
@@ -453,6 +454,7 @@ interface CreatorChatSuccess {
     previousVersionSnapshot?: DraftVersionSnapshot | null;
     revisionChainId?: string;
     supportAsset: string | null;
+    groundingSources?: DraftArtifact["groundingSources"];
     outputShape:
     | "coach_question"
     | "ideation_angles"
@@ -605,6 +607,7 @@ interface ChatMessage {
   previousVersionSnapshot?: DraftVersionSnapshot | null;
   revisionChainId?: string;
   supportAsset?: string | null;
+  groundingSources?: DraftArtifact["groundingSources"];
   whyThisWorks?: string[];
   watchOutFor?: string[];
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
@@ -2083,6 +2086,7 @@ function buildDraftArtifactWithLimit(params: {
   replyPlan?: string[];
   voiceTarget?: DraftArtifact["voiceTarget"];
   noveltyNotes?: string[];
+  groundingSources?: DraftArtifact["groundingSources"];
   threadFramingStyle?: DraftArtifact["threadFramingStyle"];
 }): DraftArtifact {
   const artifact = buildDraftArtifact({
@@ -2098,6 +2102,7 @@ function buildDraftArtifactWithLimit(params: {
     ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
     ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
     ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
+    ...(params.groundingSources?.length ? { groundingSources: params.groundingSources } : {}),
     ...(params.threadFramingStyle
       ? { threadFramingStyle: params.threadFramingStyle }
       : {}),
@@ -2302,6 +2307,12 @@ function summarizeVoiceTarget(
   ].filter(Boolean) as string[];
 
   return parts.length > 0 ? parts.slice(0, 3).join(" • ") : null;
+}
+
+function summarizeGroundingSource(
+  source: DraftArtifact["groundingSources"][number],
+): string | null {
+  return source.claims[0] || source.snippets[0] || null;
 }
 
 function normalizeDraftVersionBundle(
@@ -6363,6 +6374,9 @@ function ChatPageContent() {
             ...(selectedDraftArtifact?.noveltyNotes?.length
               ? { noveltyNotes: selectedDraftArtifact.noveltyNotes }
               : {}),
+            ...(selectedDraftArtifact?.groundingSources?.length
+              ? { groundingSources: selectedDraftArtifact.groundingSources }
+              : {}),
             ...(selectedDraftArtifact?.threadFramingStyle
               ? { threadFramingStyle: selectedDraftArtifact.threadFramingStyle }
               : {}),
@@ -6478,6 +6492,9 @@ function ChatPageContent() {
       ...(sourceArtifact?.replyPlan?.length ? { replyPlan: sourceArtifact.replyPlan } : {}),
       ...(sourceArtifact?.voiceTarget ? { voiceTarget: sourceArtifact.voiceTarget } : {}),
       ...(sourceArtifact?.noveltyNotes?.length ? { noveltyNotes: sourceArtifact.noveltyNotes } : {}),
+      ...(sourceArtifact?.groundingSources?.length
+        ? { groundingSources: sourceArtifact.groundingSources }
+        : {}),
       ...(sourceArtifact?.threadFramingStyle
         ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
         : {}),
@@ -8374,6 +8391,24 @@ function ChatPageContent() {
                           </div>
                         ) : null}
 
+                        {candidate.artifact.groundingSources?.length ? (
+                          <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
+                              Grounded from
+                            </p>
+                            <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-200">
+                              {candidate.artifact.groundingSources.slice(0, 2).map((source, index) => (
+                                <li key={`${candidate.id}-grounding-${index}`}>
+                                  <span className="font-semibold text-emerald-200">
+                                    {source.title}
+                                  </span>
+                                  {summarizeGroundingSource(source) ? ` · ${summarizeGroundingSource(source)}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
                         {candidate.noveltyNotes?.length ? (
                           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -9154,6 +9189,25 @@ function ChatPageContent() {
                                     <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
                                       {artifact.content}
                                     </p>
+                                    {artifact.groundingSources?.length ? (
+                                      <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-3">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
+                                          Grounded from
+                                        </p>
+                                        <ul className="mt-2 space-y-1.5 text-xs leading-6 text-zinc-200">
+                                          {artifact.groundingSources.slice(0, 2).map((source, sourceIndex) => (
+                                            <li key={`${artifact.id}-grounding-${sourceIndex}`}>
+                                              <span className="font-semibold text-emerald-200">
+                                                {source.title}
+                                              </span>
+                                              {summarizeGroundingSource(source)
+                                                ? ` · ${summarizeGroundingSource(source)}`
+                                                : ""}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               })}

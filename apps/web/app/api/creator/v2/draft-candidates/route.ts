@@ -293,6 +293,7 @@ export async function POST(request: NextRequest) {
       outputShape: result.outputShape,
       supportAsset: result.data.supportAsset || null,
       selectedDraftContext: null,
+      groundingSources: result.data.groundingSources ?? [],
       voiceTarget: result.data.voiceTarget ?? null,
       noveltyNotes: result.data.noveltyNotes ?? [],
       threadPostMaxCharacterLimit,

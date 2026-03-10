@@ -125,6 +125,14 @@ test("thread payloads build structured thread artifacts with posts", () => {
     outputShape: "thread_seed",
     supportAsset: "pair with a screenshot of the workflow",
     selectedDraftContext: null,
+    groundingSources: [
+      {
+        type: "story",
+        title: "Launch story",
+        claims: ["I launched Xpo in public"],
+        snippets: ["We kept the rollout small at first."],
+      },
+    ],
     noveltyNotes: ["avoid mirroring last week's thread hook"],
     threadPostMaxCharacterLimit: 25_000,
     threadFramingStyle: "numbered",
@@ -139,6 +147,7 @@ test("thread payloads build structured thread artifacts with posts", () => {
   assert.equal(payload.draftArtifacts[0]?.threadFramingStyle, "numbered");
   assert.equal(payload.draftVersions?.[0]?.artifact?.posts.length, 3);
   assert.equal(payload.draftVersions?.[0]?.artifact?.supportAsset, "pair with a screenshot of the workflow");
+  assert.equal(payload.draftArtifacts[0]?.groundingSources[0]?.title, "Launch story");
   assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");
 });
 

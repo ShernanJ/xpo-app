@@ -9,6 +9,7 @@ import {
 } from "@/lib/agent-v2/memory/memoryStore";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import type { VoiceTarget } from "@/lib/agent-v2/core/voiceTarget";
+import type { GroundingPacketSourceMaterial } from "@/lib/agent-v2/orchestrator/groundingPacket";
 import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
   getXCharacterLimitForAccount,
@@ -532,12 +533,19 @@ export async function POST(request: NextRequest) {
       Array.isArray((resultData as Record<string, unknown>).noveltyNotes)
         ? ((resultData as Record<string, unknown>).noveltyNotes as string[])
         : [];
+    const responseGroundingSources =
+      resultData &&
+      typeof resultData === "object" &&
+      Array.isArray((resultData as Record<string, unknown>).groundingSources)
+        ? ((resultData as Record<string, unknown>).groundingSources as GroundingPacketSourceMaterial[])
+        : [];
     const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
     const draftVersionPayload = buildInitialDraftVersionPayload({
       draft: policyDraft,
       outputShape: result.outputShape,
       supportAsset: (resultData?.supportAsset as string) || null,
       selectedDraftContext,
+      groundingSources: responseGroundingSources,
       voiceTarget: responseVoiceTarget,
       noveltyNotes: responseNoveltyNotes,
       threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
@@ -556,6 +564,7 @@ export async function POST(request: NextRequest) {
       previousVersionSnapshot: draftVersionPayload.previousVersionSnapshot,
       revisionChainId: draftVersionPayload.revisionChainId,
       supportAsset: resultData?.supportAsset as string || null,
+      groundingSources: responseGroundingSources,
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
       memory: result.memory,

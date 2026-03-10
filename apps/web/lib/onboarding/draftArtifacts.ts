@@ -3,6 +3,13 @@ import type { VoiceTarget } from "../agent-v2/core/voiceTarget";
 
 export type ThreadFramingStyle = "none" | "soft_signal" | "numbered";
 
+export interface DraftGroundingSource {
+  type: "story" | "playbook" | "framework" | "case_study";
+  title: string;
+  claims: string[];
+  snippets: string[];
+}
+
 export interface DraftArtifactPost {
   id: string;
   content: string;
@@ -22,6 +29,7 @@ export interface DraftArtifactDetails {
   maxCharacterLimit: number;
   isWithinXLimit: boolean;
   supportAsset: string | null;
+  groundingSources: DraftGroundingSource[];
   betterClosers: string[];
   replyPlan: string[];
   voiceTarget: VoiceTarget | null;
@@ -35,6 +43,7 @@ export interface DraftArtifactInput {
   kind: CreatorGenerationOutputShape;
   content: string;
   supportAsset: string | null;
+  groundingSources?: DraftGroundingSource[];
   maxCharacterLimit?: number;
   posts?: string[];
   replyPlan?: string[];
@@ -96,6 +105,7 @@ export function buildDraftArtifacts(params: {
   drafts: string[];
   outputShape: CreatorGenerationOutputShape | "ideation_angles";
   supportAsset: string | null;
+  groundingSources?: DraftGroundingSource[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
   threadPostMaxCharacterLimit?: number;
@@ -114,6 +124,7 @@ export function buildDraftArtifacts(params: {
       kind: artifactKind,
       content: draft,
       supportAsset: params.supportAsset,
+      groundingSources: params.groundingSources || [],
       voiceTarget: params.voiceTarget ?? null,
       noveltyNotes: params.noveltyNotes || [],
       ...(params.threadPostMaxCharacterLimit
@@ -175,6 +186,7 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     maxCharacterLimit,
     isWithinXLimit,
     supportAsset: params.supportAsset,
+    groundingSources: (params.groundingSources || []).slice(0, 2),
     betterClosers: buildBetterClosers(content, params.kind),
     replyPlan:
       params.replyPlan && params.replyPlan.length > 0
