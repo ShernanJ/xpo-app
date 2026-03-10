@@ -614,7 +614,7 @@ export function inferCorrectionRepairQuestion(
   return `got you. what's the exact point about ${topic} i should lock onto before i rewrite it?`;
 }
 
-function normalizeRepairDetail(message: string): string {
+export function normalizeRepairDetail(message: string): string {
   return message
     .trim()
     .replace(/^(?:but|and|ok|okay|nah|no)\s+/i, "")

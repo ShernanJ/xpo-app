@@ -209,6 +209,94 @@ export function rememberFactsOnStyleCard(
   };
 }
 
+function invertCorrectionDetail(detail: string): string | null {
+  const normalized = normalizeMemoryLine(detail);
+  if (!normalized) {
+    return null;
+  }
+
+  const doesNotMatch = normalized.match(/^(.*)\bdoes(?: not|n't|nt)\s+([a-z]+)(.*)$/i);
+  if (doesNotMatch) {
+    const [, subject, verb, rest] = doesNotMatch;
+    const nextVerb = verb.endsWith("s") ? verb : `${verb}s`;
+    const inverted = normalizeMemoryLine(`${subject.trim()} ${nextVerb}${rest}`);
+    return inverted && inverted.toLowerCase() !== normalized.toLowerCase() ? inverted : null;
+  }
+
+  const replacements: Array<[RegExp, string]> = [
+    [/\bdoes not\b/gi, ""],
+    [/\bdoesn't\b/gi, ""],
+    [/\bdoesnt\b/gi, ""],
+    [/\bdo not\b/gi, ""],
+    [/\bdon't\b/gi, ""],
+    [/\bdont\b/gi, ""],
+    [/\bdid not\b/gi, ""],
+    [/\bdidn't\b/gi, ""],
+    [/\bdidnt\b/gi, ""],
+    [/\bis not\b/gi, "is"],
+    [/\bisn't\b/gi, "is"],
+    [/\bisnt\b/gi, "is"],
+    [/\bare not\b/gi, "are"],
+    [/\baren't\b/gi, "are"],
+    [/\barent\b/gi, "are"],
+    [/\bwas not\b/gi, "was"],
+    [/\bwasn't\b/gi, "was"],
+    [/\bwasnt\b/gi, "was"],
+    [/\bwere not\b/gi, "were"],
+    [/\bweren't\b/gi, "were"],
+    [/\bwerent\b/gi, "were"],
+    [/\bcannot\b/gi, "can"],
+    [/\bcan't\b/gi, "can"],
+    [/\bcant\b/gi, "can"],
+    [/\bwill not\b/gi, "will"],
+    [/\bwon't\b/gi, "will"],
+    [/\bwont\b/gi, "will"],
+    [/\bnot a\b/gi, "a"],
+    [/\bnot an\b/gi, "an"],
+    [/\bnot the\b/gi, "the"],
+    [/\bnot\b/gi, ""],
+    [/\bno\b/gi, ""],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    if (!pattern.test(normalized)) {
+      continue;
+    }
+
+    const inverted = normalizeMemoryLine(normalized.replace(pattern, replacement));
+    return inverted && inverted.toLowerCase() !== normalized.toLowerCase() ? inverted : null;
+  }
+
+  return null;
+}
+
+export function rememberSemanticCorrectionOnStyleCard(
+  styleCard: VoiceStyleCard,
+  correctionDetail: string,
+): VoiceStyleCard {
+  const normalizedDetail = normalizeMemoryLine(correctionDetail);
+  if (!normalizedDetail) {
+    return {
+      ...styleCard,
+      factLedger: buildNormalizedFactLedger(styleCard),
+    };
+  }
+
+  const nextStyleCard = rememberFactsOnStyleCard(styleCard, [normalizedDetail]);
+  const nextFactLedger = buildNormalizedFactLedger(nextStyleCard);
+  const invertedClaim = invertCorrectionDetail(normalizedDetail);
+
+  nextFactLedger.forbiddenClaims = dedupeStringList([
+    ...nextFactLedger.forbiddenClaims,
+    ...(invertedClaim ? [`Do not claim ${invertedClaim}.`] : []),
+  ]);
+
+  return {
+    ...nextStyleCard,
+    factLedger: nextFactLedger,
+  };
+}
+
 export async function generateStyleProfile(
   userId: string,
   xHandle: string,

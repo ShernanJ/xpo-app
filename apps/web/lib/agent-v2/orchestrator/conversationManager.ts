@@ -35,6 +35,7 @@ import {
   saveStyleProfile,
   getDurableFactsFromStyleCard,
   rememberFactsOnStyleCard,
+  rememberSemanticCorrectionOnStyleCard,
 } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
@@ -64,6 +65,7 @@ import {
   looksLikePostReferenceRequest,
   looksLikeSourceTransparencyRequest,
   looksLikeSemanticCorrection,
+  normalizeRepairDetail,
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
@@ -1579,6 +1581,29 @@ export async function manageConversationTurn(
     services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
       console.error("Failed to save style profile:", error),
     );
+  }
+
+  if (
+    styleCard &&
+    userId !== "anonymous" &&
+    looksLikeSemanticCorrection(userMessage) &&
+    hasConcreteCorrectionDetail(userMessage)
+  ) {
+    const correctionDetail = normalizeRepairDetail(userMessage);
+    const previousDurableFacts = getDurableFactsFromStyleCard(styleCard);
+    const previousForbiddenClaims = styleCard.factLedger?.forbiddenClaims || [];
+    styleCard = rememberSemanticCorrectionOnStyleCard(styleCard, correctionDetail);
+    const nextDurableFacts = getDurableFactsFromStyleCard(styleCard);
+    const nextForbiddenClaims = styleCard.factLedger?.forbiddenClaims || [];
+    const correctionExpandedMemory =
+      countNewMemoryEntries(previousDurableFacts, nextDurableFacts) > 0 ||
+      countNewMemoryEntries(previousForbiddenClaims, nextForbiddenClaims) > 0;
+
+    if (correctionExpandedMemory) {
+      services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+        console.error("Failed to save semantic correction to style profile:", error),
+      );
+    }
   }
 
   const autoSourceMaterialInputs =
