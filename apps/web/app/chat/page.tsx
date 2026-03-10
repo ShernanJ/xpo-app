@@ -339,6 +339,60 @@ interface PreferencesFailure {
 
 type PreferencesResponse = PreferencesSuccess | PreferencesFailure;
 
+type SourceMaterialType = "story" | "playbook" | "framework" | "case_study";
+
+interface SourceMaterialAsset {
+  id: string;
+  userId: string;
+  xHandle: string | null;
+  type: SourceMaterialType;
+  title: string;
+  tags: string[];
+  verified: boolean;
+  claims: string[];
+  snippets: string[];
+  doNotClaim: string[];
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SourceMaterialDraftState {
+  id: string | null;
+  title: string;
+  type: SourceMaterialType;
+  verified: boolean;
+  tagsInput: string;
+  claimsInput: string;
+  snippetsInput: string;
+  doNotClaimInput: string;
+}
+
+interface SourceMaterialsSuccess {
+  ok: true;
+  data: {
+    assets: SourceMaterialAsset[];
+  };
+}
+
+interface SourceMaterialMutationSuccess {
+  ok: true;
+  data: {
+    asset?: SourceMaterialAsset;
+    deletedId?: string;
+  };
+}
+
+interface SourceMaterialsFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type SourceMaterialsResponse =
+  | SourceMaterialsSuccess
+  | SourceMaterialMutationSuccess
+  | SourceMaterialsFailure;
+
 type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
 type FeedbackReportStatus = "open" | "resolved" | "cancelled";
 type FeedbackReportFilter = "all" | FeedbackReportStatus;
@@ -904,6 +958,83 @@ function buildDefaultFeedbackTitles(): Record<FeedbackCategory, string> {
       bug_report: "",
     } as Record<FeedbackCategory, string>,
   );
+}
+
+function buildEmptySourceMaterialDraft(): SourceMaterialDraftState {
+  return {
+    id: null,
+    title: "",
+    type: "story",
+    verified: false,
+    tagsInput: "",
+    claimsInput: "",
+    snippetsInput: "",
+    doNotClaimInput: "",
+  };
+}
+
+function buildSourceMaterialDraftFromAsset(
+  asset: SourceMaterialAsset,
+): SourceMaterialDraftState {
+  return {
+    id: asset.id,
+    title: asset.title,
+    type: asset.type,
+    verified: asset.verified,
+    tagsInput: asset.tags.join(", "),
+    claimsInput: asset.claims.join("\n"),
+    snippetsInput: asset.snippets.join("\n"),
+    doNotClaimInput: asset.doNotClaim.join("\n"),
+  };
+}
+
+function isEmptySourceMaterialDraft(draft: SourceMaterialDraftState): boolean {
+  return (
+    draft.id === null &&
+    draft.title.trim().length === 0 &&
+    draft.tagsInput.trim().length === 0 &&
+    draft.claimsInput.trim().length === 0 &&
+    draft.snippetsInput.trim().length === 0 &&
+    draft.doNotClaimInput.trim().length === 0
+  );
+}
+
+function parseCommaSeparatedList(value: string): string[] {
+  return dedupePreserveOrder(
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function parseLineSeparatedList(value: string): string[] {
+  return dedupePreserveOrder(
+    value
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function formatSourceMaterialTypeLabel(type: SourceMaterialType): string {
+  return formatEnumLabel(type);
+}
+
+function sortSourceMaterials(assets: SourceMaterialAsset[]): SourceMaterialAsset[] {
+  return [...assets].sort((left, right) => {
+    if (left.verified !== right.verified) {
+      return left.verified ? -1 : 1;
+    }
+
+    const leftLastUsed = left.lastUsedAt ? Date.parse(left.lastUsedAt) : 0;
+    const rightLastUsed = right.lastUsedAt ? Date.parse(right.lastUsedAt) : 0;
+    if (leftLastUsed !== rightLastUsed) {
+      return rightLastUsed - leftLastUsed;
+    }
+
+    return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+  });
 }
 
 function formatFileSize(sizeBytes: number): string {
@@ -3608,6 +3739,14 @@ function ChatPageContent() {
   const dailyScrapeTriggerRef = useRef<string | null>(null);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
+  const [sourceMaterialsOpen, setSourceMaterialsOpen] = useState(false);
+  const [sourceMaterials, setSourceMaterials] = useState<SourceMaterialAsset[]>([]);
+  const [isSourceMaterialsLoading, setIsSourceMaterialsLoading] = useState(false);
+  const [isSourceMaterialsSaving, setIsSourceMaterialsSaving] = useState(false);
+  const [sourceMaterialsNotice, setSourceMaterialsNotice] = useState<string | null>(null);
+  const [sourceMaterialDraft, setSourceMaterialDraft] = useState<SourceMaterialDraftState>(
+    () => buildEmptySourceMaterialDraft(),
+  );
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
     useState<FeedbackCategory>("feedback");
@@ -4221,6 +4360,176 @@ function ChatPageContent() {
       resetFeedbackDrafts,
     ],
   );
+  const resetSourceMaterialDraft = useCallback(() => {
+    setSourceMaterialDraft(buildEmptySourceMaterialDraft());
+  }, []);
+  const selectSourceMaterial = useCallback((asset: SourceMaterialAsset) => {
+    setSourceMaterialDraft(buildSourceMaterialDraftFromAsset(asset));
+    setSourceMaterialsNotice(null);
+  }, []);
+  const loadSourceMaterials = useCallback(async () => {
+    setIsSourceMaterialsLoading(true);
+
+    try {
+      const response = await fetch("/api/creator/v2/source-materials");
+      const result: SourceMaterialsResponse = await response.json();
+      if (!response.ok || !result.ok) {
+        const fallbackMessage = result.ok
+          ? "Failed to load source materials."
+          : result.errors[0]?.message;
+        throw new Error(fallbackMessage || "Failed to load source materials.");
+      }
+      if (!("assets" in result.data)) {
+        throw new Error("Failed to load source materials.");
+      }
+
+      const nextAssets = sortSourceMaterials(result.data.assets);
+      setSourceMaterials(nextAssets);
+      setSourceMaterialDraft((current) => {
+        if (current.id) {
+          const activeAsset = nextAssets.find((asset) => asset.id === current.id);
+          if (activeAsset) {
+            return buildSourceMaterialDraftFromAsset(activeAsset);
+          }
+
+          return nextAssets[0]
+            ? buildSourceMaterialDraftFromAsset(nextAssets[0])
+            : buildEmptySourceMaterialDraft();
+        }
+
+        if (isEmptySourceMaterialDraft(current) && nextAssets[0]) {
+          return buildSourceMaterialDraftFromAsset(nextAssets[0]);
+        }
+
+        return current;
+      });
+    } catch (error) {
+      setSourceMaterials([]);
+      setSourceMaterialsNotice(
+        error instanceof Error ? error.message : "Failed to load source materials.",
+      );
+    } finally {
+      setIsSourceMaterialsLoading(false);
+    }
+  }, []);
+  const saveSourceMaterial = useCallback(async () => {
+    const title = sourceMaterialDraft.title.trim();
+    if (title.length < 3) {
+      setSourceMaterialsNotice("Add a source title with at least 3 characters.");
+      return;
+    }
+
+    setIsSourceMaterialsSaving(true);
+    setSourceMaterialsNotice(null);
+
+    try {
+      const payload = {
+        asset: {
+          type: sourceMaterialDraft.type,
+          title,
+          verified: sourceMaterialDraft.verified,
+          tags: parseCommaSeparatedList(sourceMaterialDraft.tagsInput),
+          claims: parseLineSeparatedList(sourceMaterialDraft.claimsInput),
+          snippets: parseLineSeparatedList(sourceMaterialDraft.snippetsInput),
+          doNotClaim: parseLineSeparatedList(sourceMaterialDraft.doNotClaimInput),
+        },
+      };
+      const isEditing = Boolean(sourceMaterialDraft.id);
+      const endpoint = isEditing
+        ? `/api/creator/v2/source-materials/${sourceMaterialDraft.id}`
+        : "/api/creator/v2/source-materials";
+      const method = isEditing ? "PATCH" : "POST";
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const result: SourceMaterialsResponse = await response.json();
+      if (!response.ok || !result.ok) {
+        const fallbackMessage = result.ok
+          ? "Failed to save source material."
+          : result.errors[0]?.message;
+        throw new Error(fallbackMessage || "Failed to save source material.");
+      }
+      if (!("asset" in result.data) || !result.data.asset) {
+        throw new Error("Failed to save source material.");
+      }
+
+      const savedAsset = result.data.asset;
+      setSourceMaterials((current) =>
+        sortSourceMaterials([
+          savedAsset,
+          ...current.filter((asset) => asset.id !== savedAsset.id),
+        ]),
+      );
+      setSourceMaterialDraft(buildSourceMaterialDraftFromAsset(savedAsset));
+      setSourceMaterialsNotice(
+        isEditing ? "Source material updated." : "Source material saved.",
+      );
+    } catch (error) {
+      setSourceMaterialsNotice(
+        error instanceof Error ? error.message : "Failed to save source material.",
+      );
+    } finally {
+      setIsSourceMaterialsSaving(false);
+    }
+  }, [sourceMaterialDraft]);
+  const deleteSourceMaterial = useCallback(async () => {
+    if (!sourceMaterialDraft.id) {
+      return;
+    }
+
+    const draftId = sourceMaterialDraft.id;
+    const draftTitle = sourceMaterialDraft.title.trim() || "this source";
+    if (!window.confirm(`Delete "${draftTitle}" from the source vault?`)) {
+      return;
+    }
+
+    setIsSourceMaterialsSaving(true);
+    setSourceMaterialsNotice(null);
+
+    try {
+      const response = await fetch(`/api/creator/v2/source-materials/${draftId}`, {
+        method: "DELETE",
+      });
+      const result: SourceMaterialsResponse = await response.json();
+      if (!response.ok || !result.ok) {
+        const fallbackMessage = result.ok
+          ? "Failed to delete source material."
+          : result.errors[0]?.message;
+        throw new Error(fallbackMessage || "Failed to delete source material.");
+      }
+      if (!("deletedId" in result.data)) {
+        throw new Error("Failed to delete source material.");
+      }
+
+      setSourceMaterials((current) => {
+        const nextAssets = current.filter((asset) => asset.id !== draftId);
+        setSourceMaterialDraft(
+          nextAssets[0]
+            ? buildSourceMaterialDraftFromAsset(nextAssets[0])
+            : buildEmptySourceMaterialDraft(),
+        );
+        return nextAssets;
+      });
+      setSourceMaterialsNotice("Source material deleted.");
+    } catch (error) {
+      setSourceMaterialsNotice(
+        error instanceof Error ? error.message : "Failed to delete source material.",
+      );
+    } finally {
+      setIsSourceMaterialsSaving(false);
+    }
+  }, [sourceMaterialDraft.id, sourceMaterialDraft.title]);
+  useEffect(() => {
+    if (!sourceMaterialsOpen) {
+      return;
+    }
+
+    void loadSourceMaterials();
+  }, [loadSourceMaterials, sourceMaterialsOpen]);
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
@@ -8550,6 +8859,17 @@ function ChatPageContent() {
                   <button
                     type="button"
                     onClick={() => {
+                      setSourceMaterialsNotice(null);
+                      setSourceMaterialsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
+                  >
+                    <Lightbulb className="h-4 w-4 shrink-0" />
+                    <span>Source Vault</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setDraftQueueError(null);
                       setDraftQueueOpen(true);
                     }}
@@ -10820,6 +11140,332 @@ function ChatPageContent() {
                 <span className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-zinc-300">
                   Coming soon!
                 </span>
+              </div>
+            </div>
+          </div>
+        ) : null
+      }
+
+      {
+        sourceMaterialsOpen ? (
+          <div
+            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setSourceMaterialsOpen(false);
+              }
+            }}
+          >
+            <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Source Vault
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Save reusable grounded source material
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                    Add verified stories, playbooks, frameworks, and case studies that Xpo can safely reuse for first-person drafts.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetSourceMaterialDraft();
+                      setSourceMaterialsNotice(null);
+                    }}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    New
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveSourceMaterial}
+                    disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
+                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                  >
+                    {isSourceMaterialsSaving ? "Saving" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSourceMaterialsOpen(false)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto px-6 py-6">
+                {sourceMaterialsNotice ? (
+                  <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200">
+                    {sourceMaterialsNotice}
+                  </div>
+                ) : null}
+
+                <div className="grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
+                  <div className="min-h-0 rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">Saved assets</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Verified assets can authorize first-person claims.
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                        {sourceMaterials.length} total
+                      </span>
+                    </div>
+
+                    <div className="mt-5 space-y-2">
+                      {isSourceMaterialsLoading ? (
+                        <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-zinc-400">
+                          Loading source materials...
+                        </div>
+                      ) : sourceMaterials.length > 0 ? (
+                        sourceMaterials.map((asset) => {
+                          const isSelected = sourceMaterialDraft.id === asset.id;
+
+                          return (
+                            <button
+                              key={asset.id}
+                              type="button"
+                              onClick={() => selectSourceMaterial(asset)}
+                              className={`w-full rounded-2xl border px-4 py-4 text-left transition ${isSelected
+                                ? "border-white/20 bg-white/[0.08] text-white"
+                                : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/[0.04]"
+                                }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-white">
+                                    {asset.title}
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                      {formatSourceMaterialTypeLabel(asset.type)}
+                                    </span>
+                                    {asset.verified ? (
+                                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
+                                        Verified
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
+                              </div>
+
+                              {asset.tags.length > 0 ? (
+                                <p className="mt-3 text-xs leading-6 text-zinc-400">
+                                  {asset.tags.slice(0, 4).join(" · ")}
+                                </p>
+                              ) : null}
+
+                              <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-zinc-600">
+                                Updated {new Date(asset.updatedAt).toLocaleString()}
+                              </p>
+                              {asset.lastUsedAt ? (
+                                <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-zinc-600">
+                                  Last used {new Date(asset.lastUsedAt).toLocaleString()}
+                                </p>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-6 text-sm leading-7 text-zinc-400">
+                          No source materials yet. Add a verified story, framework, or playbook so Xpo has reusable facts instead of guessing.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-5 rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          {sourceMaterialDraft.id ? "Edit asset" : "New asset"}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Keep facts explicit. Keep unsupported details in do-not-claim.
+                        </p>
+                      </div>
+                      {sourceMaterialDraft.id ? (
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                          Existing
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                          Draft
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Title</label>
+                      <input
+                        type="text"
+                        value={sourceMaterialDraft.title}
+                        onChange={(event) =>
+                          setSourceMaterialDraft((current) => ({
+                            ...current,
+                            title: event.target.value,
+                          }))
+                        }
+                        placeholder="Customer onboarding story"
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-zinc-300">Type</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(["story", "playbook", "framework", "case_study"] as SourceMaterialType[]).map((type) => (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() =>
+                              setSourceMaterialDraft((current) => ({
+                                ...current,
+                                type,
+                              }))
+                            }
+                            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${sourceMaterialDraft.type === type
+                              ? "bg-white text-black"
+                              : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                          >
+                            {formatSourceMaterialTypeLabel(type)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSourceMaterialDraft((current) => ({
+                          ...current,
+                          verified: !current.verified,
+                        }))
+                      }
+                      className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${sourceMaterialDraft.verified
+                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        : "border-white/10 bg-black/20"
+                        }`}
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-zinc-200">Verified for first-person use</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Turn this on only when the claims are safe to reuse as direct autobiographical facts.
+                        </p>
+                      </div>
+                      <span
+                        className={`relative flex h-6 w-11 items-center rounded-full px-1 transition ${sourceMaterialDraft.verified ? "bg-emerald-500/70" : "bg-zinc-800"
+                          }`}
+                      >
+                        <span
+                          className={`h-4 w-4 rounded-full bg-white transition-transform ${sourceMaterialDraft.verified ? "translate-x-5" : "translate-x-0"
+                            }`}
+                        />
+                      </span>
+                    </button>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Tags</label>
+                      <input
+                        type="text"
+                        value={sourceMaterialDraft.tagsInput}
+                        onChange={(event) =>
+                          setSourceMaterialDraft((current) => ({
+                            ...current,
+                            tagsInput: event.target.value,
+                          }))
+                        }
+                        placeholder="onboarding, activation, growth"
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
+                      />
+                      <p className="text-xs text-zinc-500">Comma-separated. Used for retrieval, not direct claims.</p>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-zinc-300">Claims</label>
+                        <textarea
+                          value={sourceMaterialDraft.claimsInput}
+                          onChange={(event) =>
+                            setSourceMaterialDraft((current) => ({
+                              ...current,
+                              claimsInput: event.target.value,
+                            }))
+                          }
+                          rows={8}
+                          placeholder={"One claim per line\nI interviewed 30 users before shipping v1"}
+                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
+                        />
+                        <p className="text-xs text-zinc-500">These are the strongest reusable facts.</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-zinc-300">Source snippets</label>
+                        <textarea
+                          value={sourceMaterialDraft.snippetsInput}
+                          onChange={(event) =>
+                            setSourceMaterialDraft((current) => ({
+                              ...current,
+                              snippetsInput: event.target.value,
+                            }))
+                          }
+                          rows={8}
+                          placeholder={"One snippet per line\nWe cut setup friction by simplifying the first-run path"}
+                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
+                        />
+                        <p className="text-xs text-zinc-500">Useful raw lines or supporting evidence.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300">Do not claim</label>
+                      <textarea
+                        value={sourceMaterialDraft.doNotClaimInput}
+                        onChange={(event) =>
+                          setSourceMaterialDraft((current) => ({
+                            ...current,
+                            doNotClaimInput: event.target.value,
+                          }))
+                        }
+                        rows={5}
+                        placeholder={"One warning per line\nDo not claim exact revenue numbers\nDo not mention customer names"}
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
+                      />
+                      <p className="text-xs text-zinc-500">
+                        Use this for private details, unsupported numbers, or wording that should never appear in a draft.
+                      </p>
+                    </div>
+
+                    {sourceMaterialDraft.id ? (
+                      <div className="flex items-center justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/[0.05] px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-red-100">Delete this asset</p>
+                          <p className="mt-1 text-xs text-red-200/70">
+                            This removes it from future grounding retrieval.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={deleteSourceMaterial}
+                          disabled={isSourceMaterialsSaving}
+                          className="inline-flex items-center gap-2 rounded-full border border-red-500/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-red-200 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

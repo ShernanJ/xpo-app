@@ -4,23 +4,12 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
 import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
 import {
-  SourceMaterialAssetInputSchema,
-  normalizeSourceMaterialInput,
   serializeSourceMaterialAsset,
 } from "@/lib/agent-v2/orchestrator/sourceMaterials";
-
-function getActiveHandle(session: {
-  user?: {
-    activeXHandle?: string | null;
-  };
-} | null): string | null {
-  if (!session?.user?.activeXHandle || typeof session.user.activeXHandle !== "string") {
-    return null;
-  }
-
-  const normalized = session.user.activeXHandle.trim().replace(/^@+/, "").toLowerCase();
-  return normalized || null;
-}
+import {
+  getActiveHandle,
+  parseCreateSourceMaterialBody,
+} from "./route.logic";
 
 export async function GET() {
   const session = await getServerSession();
@@ -97,15 +86,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsed = SourceMaterialAssetInputSchema.safeParse(body.asset);
-  if (!parsed.success) {
+  const parsed = parseCreateSourceMaterialBody(body);
+  if (!parsed.ok) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "asset", message: "Invalid source material payload." }] },
       { status: 400 },
     );
   }
 
-  const asset = normalizeSourceMaterialInput(parsed.data);
+  const asset = parsed.asset;
 
   let created;
   try {
