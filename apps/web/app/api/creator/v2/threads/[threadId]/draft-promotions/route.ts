@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
+import {
+  buildPromotedDraftSourceMaterialInputs,
+  buildSourceMaterialIdentityKey,
+  serializeSourceMaterialAsset,
+} from "@/lib/agent-v2/orchestrator/sourceMaterials";
 import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
+import { getActiveHandle } from "@/app/api/creator/v2/source-materials/route.logic";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -366,6 +373,73 @@ export async function POST(
       },
     });
 
+    const promotedSourceMaterialAssets = await (async () => {
+      const xHandle = getActiveHandle(session);
+      if (!xHandle || groundingSources.length === 0) {
+        return [];
+      }
+
+      const inputs = buildPromotedDraftSourceMaterialInputs({
+        title: artifact.title,
+        content,
+        groundingSources,
+      });
+      if (inputs.length === 0) {
+        return [];
+      }
+
+      try {
+        const existing = await prisma.sourceMaterialAsset.findMany({
+          where: {
+            userId: session.user.id,
+            xHandle,
+          },
+        });
+        const existingKeys = new Set(
+          existing.map((asset) =>
+            buildSourceMaterialIdentityKey({
+              type: asset.type,
+              title: asset.title,
+              claims: Array.isArray(asset.claims) ? (asset.claims as string[]) : [],
+              snippets: Array.isArray(asset.snippets) ? (asset.snippets as string[]) : [],
+            }),
+          ),
+        );
+        const created = [];
+
+        for (const input of inputs) {
+          const key = buildSourceMaterialIdentityKey(input);
+          if (existingKeys.has(key)) {
+            continue;
+          }
+
+          existingKeys.add(key);
+          const record = await prisma.sourceMaterialAsset.create({
+            data: {
+              userId: session.user.id,
+              xHandle,
+              type: input.type,
+              title: input.title,
+              tags: input.tags as unknown as Prisma.InputJsonValue,
+              verified: true,
+              claims: input.claims as unknown as Prisma.InputJsonValue,
+              snippets: input.snippets as unknown as Prisma.InputJsonValue,
+              doNotClaim: input.doNotClaim as unknown as Prisma.InputJsonValue,
+            },
+          });
+          created.push(serializeSourceMaterialAsset(record));
+        }
+
+        return created;
+      } catch (error) {
+        if (isMissingSourceMaterialAssetTableError(error)) {
+          return [];
+        }
+
+        throw error;
+      }
+    })();
+
     return NextResponse.json({
       ok: true,
       data: {
@@ -391,6 +465,10 @@ export async function POST(
           outputShape: draftKind,
           source: "deterministic" as const,
           model: "manual-draft-promotion",
+        },
+        promotedSourceMaterials: {
+          count: promotedSourceMaterialAssets.length,
+          assets: promotedSourceMaterialAssets,
         },
       },
     });

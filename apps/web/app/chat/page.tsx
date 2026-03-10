@@ -262,6 +262,10 @@ interface DraftPromotionSuccess {
       source: "deterministic";
       model: string | null;
     };
+    promotedSourceMaterials?: {
+      count: number;
+      assets: SourceMaterialAsset[];
+    };
   };
 }
 
@@ -6858,6 +6862,19 @@ function ChatPageContent() {
           feedbackValue: null,
         },
       ]);
+      if (data.data.promotedSourceMaterials?.assets?.length) {
+        setSourceMaterials((current) =>
+          sortSourceMaterials([
+            ...data.data.promotedSourceMaterials!.assets,
+            ...current.filter(
+              (asset) =>
+                !data.data.promotedSourceMaterials!.assets.some(
+                  (promoted) => promoted.id === asset.id,
+                ),
+            ),
+          ]),
+        );
+      }
       setActiveDraftEditor({
         messageId: data.data.assistantMessage.id,
         versionId: data.data.assistantMessage.activeDraftVersionId,

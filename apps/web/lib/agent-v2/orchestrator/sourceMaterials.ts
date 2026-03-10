@@ -291,9 +291,13 @@ function buildGroundingSourceSeedAsset(params: {
   source: DraftGroundingSource;
   candidateTitle: string;
   sourcePlaybook?: string | null;
+  approvedDraftText?: string | null;
 }): SourceMaterialAssetInput | null {
   const claims = dedupeList(params.source.claims || []).slice(0, 3);
-  const snippets = dedupeList(params.source.snippets || []).slice(0, 3);
+  const snippets = dedupeList([
+    ...(params.source.snippets || []),
+    ...extractSeedSnippetsFromText(params.approvedDraftText || ""),
+  ]).slice(0, 3);
   if (claims.length === 0 && snippets.length === 0) {
     return null;
   }
@@ -419,6 +423,31 @@ export function buildSeedSourceMaterialInputs(args: {
   }
 
   return dedupeSeedAssets(seeds).slice(0, Math.max(1, args.limit ?? 8));
+}
+
+export function buildPromotedDraftSourceMaterialInputs(args: {
+  title: string;
+  content: string;
+  groundingSources: DraftGroundingSource[];
+  limit?: number;
+}): SourceMaterialAssetInput[] {
+  const candidateTitle = normalizeLine(args.title) || "Approved draft";
+  const approvedDraftText = args.content.trim();
+  if (!approvedDraftText || args.groundingSources.length === 0) {
+    return [];
+  }
+
+  const seeds = args.groundingSources
+    .map((source) =>
+      buildGroundingSourceSeedAsset({
+        source,
+        candidateTitle,
+        approvedDraftText,
+      }),
+    )
+    .filter((asset): asset is SourceMaterialAssetInput => Boolean(asset));
+
+  return dedupeSeedAssets(seeds).slice(0, Math.max(1, Math.min(args.limit ?? 2, 2)));
 }
 
 export function extractAutoSourceMaterialInputs(args: {

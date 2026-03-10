@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   SourceMaterialAssetPatchSchema,
+  buildPromotedDraftSourceMaterialInputs,
   buildSeedSourceMaterialInputs,
   extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
@@ -312,4 +313,38 @@ test("filterNewSourceMaterialInputs removes duplicates against existing assets",
 
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0]?.title, "Onboarding framework");
+});
+
+test("approved draft promotion builds verified source assets from grounding sources", () => {
+  const promoted = buildPromotedDraftSourceMaterialInputs({
+    title: "Draft",
+    content:
+      "we cut the onboarding tour and more people finished setup.\n\nthat changed how i think about default product education.",
+    groundingSources: [
+      {
+        type: "story",
+        title: "Onboarding lesson",
+        claims: ["We cut the onboarding tour and more people finished setup."],
+        snippets: ["Shorter onboarding increased completion."],
+      },
+    ],
+  });
+
+  assert.equal(promoted.length, 1);
+  assert.equal(promoted[0]?.verified, true);
+  assert.equal(promoted[0]?.title, "Onboarding lesson");
+  assert.equal(
+    promoted[0]?.snippets.some((entry) => /default product education/i.test(entry)),
+    true,
+  );
+});
+
+test("approved draft promotion skips when there are no grounding sources", () => {
+  const promoted = buildPromotedDraftSourceMaterialInputs({
+    title: "Draft",
+    content: "generic approved draft with no grounding",
+    groundingSources: [],
+  });
+
+  assert.deepEqual(promoted, []);
 });
