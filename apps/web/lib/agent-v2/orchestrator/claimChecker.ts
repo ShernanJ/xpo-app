@@ -45,13 +45,20 @@ const STOPWORDS = new Set([
 const FIRST_PERSON_ACTION_PATTERN =
   /\b(?:i|we)\s+(?:am|was|were|built|build|made|make|shipped|ship|launched|launch|use|used|tried|try|saw|see|learned|learn|realized|found|quit|joined|worked|hired|met|tested|switched|grow|grew|hit|closed|won|lost|started|start|went|talked|spent|wrote)\b/i;
 const TEMPORAL_PATTERN =
-  /\b(?:yesterday|today|tonight|last night|this morning|last week|last month|last year)\b/i;
+  /\b(?:yesterday|today|tonight|last night|this morning|last week|last month|last year|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|q[1-4])\b/i;
 const CAUSAL_PATTERN =
   /\b(?:because|which is why|that['’]s why|so that|led to|resulted in|caused)\b/i;
 const PRODUCT_BEHAVIOR_PATTERN =
-  /\b(?:it|this|[a-z0-9][a-z0-9_-]{1,30})\s+(?:helps|lets|turns|rewrites|automates|handles|scans|finds|tracks|posts|schedules|pulls|writes)\b/i;
+  /\b(?:it|this|[a-z0-9][a-z0-9_-]{1,30})\s+(?:helps|lets|turns|rewrites|automates|handles|scans|finds|tracks|posts|schedules|pulls|writes|cuts|reduces|eliminates|prevents|improves|boosts|grows|converts|qualifies|prioritizes)\b/i;
 const METRIC_CONTEXT_PATTERN =
-  /\b(?:followers|revenue|arr|mrr|users|customers|teammates|launches|years|months|days|people|attendees|percent|%)\b/i;
+  /\b(?:followers|revenue|arr|mrr|gmv|pipeline|users|customers|teams|teammates|installs|signups|conversions|launches|years|months|days|people|attendees|percent|churn|retention|open rate|click rate|ctr|nps|%)\b/i;
+const DATE_NUMBER_PATTERN = /\b(?:\d{4}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/;
+const METRIC_SCALE_PATTERN =
+  /\b(?:\d[\d,.]*\s*(?:k|m|b|million|billion|%)?|\d{1,3}(?:,\d{3})+)\b/i;
+const NAMED_DETAIL_PATTERN =
+  /\b(?:in|at|from|with|for|near|around|inside)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}|[A-Z]{2,})\b/;
+const TITLE_CASE_ENTITY_PATTERN =
+  /\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+|[A-Z]{2,})\b/;
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -83,8 +90,79 @@ function computeSupportScore(candidate: string, sources: string[]): number {
   }, 0);
 }
 
+function getGroundingSources(packet: GroundingPacket): string[] {
+  return [
+    ...packet.allowedFirstPersonClaims,
+    ...packet.turnGrounding,
+    ...packet.durableFacts,
+    ...packet.sourceMaterials.flatMap((asset) => [...asset.claims, ...asset.snippets]),
+  ];
+}
+
+function normalizeComparable(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\s%]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function includesAnyComparable(candidate: string, values: string[]): boolean {
+  const normalizedCandidate = normalizeComparable(candidate);
+  if (!normalizedCandidate) {
+    return false;
+  }
+
+  return values.some((value) => {
+    const normalizedValue = normalizeComparable(value);
+    return (
+      normalizedValue.length > 0 &&
+      (normalizedCandidate.includes(normalizedValue) ||
+        normalizedValue.includes(normalizedCandidate))
+    );
+  });
+}
+
+function conflictsWithForbiddenClaim(candidate: string, forbiddenClaims: string[]): boolean {
+  if (includesAnyComparable(candidate, forbiddenClaims)) {
+    return true;
+  }
+
+  const candidateNumbers = candidate.match(/\b\d[\d,./%a-z]*\b/gi) || [];
+
+  return forbiddenClaims.some((entry) => {
+    const score = computeSupportScore(candidate, [entry]);
+    if (score >= 0.3) {
+      return true;
+    }
+
+    const forbiddenNumbers = entry.match(/\b\d[\d,./%a-z]*\b/gi) || [];
+    if (candidateNumbers.length === 0 || forbiddenNumbers.length === 0) {
+      return false;
+    }
+
+    return candidateNumbers.some((value) =>
+      forbiddenNumbers.some((forbidden) => value.toLowerCase() === forbidden.toLowerCase()),
+    );
+  });
+}
+
+function extractNamedDetails(value: string): string[] {
+  return Array.from(
+    new Set([
+      ...(value.match(TITLE_CASE_ENTITY_PATTERN) || []),
+      ...(value.match(NAMED_DETAIL_PATTERN) || []),
+    ]),
+  );
+}
+
+function hasUnsupportedNamedDetail(line: string, sources: string[]): boolean {
+  const namedDetails = extractNamedDetails(line);
+  if (namedDetails.length === 0) {
+    return false;
+  }
+
+  return namedDetails.some((detail) => computeSupportScore(detail, sources) < 0.8);
+}
+
 function findBestGroundedReplacement(line: string, packet: GroundingPacket): string | null {
-  const ranked = [...packet.turnGrounding, ...packet.durableFacts]
+  const ranked = getGroundingSources(packet)
     .map((entry) => ({
       entry,
       score: computeSupportScore(line, [entry]),
@@ -116,24 +194,28 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
     return { nextLine: line.trim(), issue: null };
   }
 
-  const allSources = [
-    ...packet.allowedFirstPersonClaims,
-    ...packet.turnGrounding,
-    ...packet.durableFacts,
-  ];
+  const allSources = getGroundingSources(packet);
   const supportScore = computeSupportScore(trimmed, allSources);
   const hasNumbers = /\b\d[\d,./%]*\b/.test(trimmed);
   const hasUnsupportedNumber =
     hasNumbers &&
     !packet.allowedNumbers.some((token) => trimmed.includes(token)) &&
-    METRIC_CONTEXT_PATTERN.test(trimmed);
+    (METRIC_CONTEXT_PATTERN.test(trimmed) || METRIC_SCALE_PATTERN.test(trimmed));
   const riskyAutobiography = FIRST_PERSON_ACTION_PATTERN.test(trimmed);
-  const riskyTemporal = TEMPORAL_PATTERN.test(trimmed);
+  const riskyTemporal = TEMPORAL_PATTERN.test(trimmed) || DATE_NUMBER_PATTERN.test(trimmed);
   const riskyCausal = CAUSAL_PATTERN.test(trimmed) && riskyAutobiography;
   const riskyProductBehavior = PRODUCT_BEHAVIOR_PATTERN.test(trimmed);
+  const riskyNamedDetail = hasUnsupportedNamedDetail(trimmed, allSources);
+  const forbiddenClaim = conflictsWithForbiddenClaim(trimmed, packet.forbiddenClaims);
   const isUnsupported =
-    supportScore < 0.45 &&
-    (riskyAutobiography || riskyTemporal || riskyCausal || riskyProductBehavior || hasUnsupportedNumber);
+    forbiddenClaim ||
+    (supportScore < 0.45 &&
+      (riskyAutobiography ||
+        riskyTemporal ||
+        riskyCausal ||
+        riskyProductBehavior ||
+        hasUnsupportedNumber ||
+        riskyNamedDetail));
 
   if (!isUnsupported) {
     return { nextLine: trimmed, issue: null };
@@ -143,13 +225,17 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
   if (replacement && replacement.toLowerCase() !== trimmed.toLowerCase()) {
     return {
       nextLine: replacement,
-      issue: "Replaced an unsupported claim with grounded wording.",
+      issue: forbiddenClaim
+        ? "Removed a claim that conflicts with grounded facts."
+        : "Replaced an unsupported claim with grounded wording.",
     };
   }
 
   return {
     nextLine: "",
-    issue: "Removed an unsupported autobiographical or factual claim.",
+    issue: forbiddenClaim
+      ? "Removed a claim that conflicts with grounded facts."
+      : "Removed an unsupported autobiographical or factual claim.",
   };
 }
 

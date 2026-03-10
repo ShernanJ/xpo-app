@@ -520,6 +520,73 @@ test("claim checker removes unsupported autobiographical specifics but preserves
   );
 });
 
+test("claim checker removes unsupported named entities dates and scale claims", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: [
+      "In January 2025 we grew xpo to 12,000 users after a Toronto meetup.",
+      "It boosted conversion by 38% for Shopify teams.",
+      "Write from grounded product facts only.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: ["xpo helps people write and grow faster on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: ["missing product behavior detail"],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.doesNotMatch(result.draft, /January 2025|12,000 users|Toronto|38%|Shopify/i);
+  assert.match(result.draft, /Write from grounded product facts only/i);
+});
+
+test("claim checker allows grounded source-material details", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: "At Shopify, we used xpo to reduce the mental load of writing on x.",
+    groundingPacket: {
+      durableFacts: [],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: [],
+      sourceMaterials: [
+        {
+          type: "case_study",
+          title: "Shopify team workflow",
+          claims: ["At Shopify, we used xpo to reduce the mental load of writing on x."],
+          snippets: [],
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, false);
+  assert.match(result.draft, /At Shopify, we used xpo/i);
+});
+
+test("claim checker removes claims that conflict with forbidden grounding", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: "We grew xpo to 50k users last year.",
+    groundingPacket: {
+      durableFacts: ["xpo helps people write and grow faster on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: ["Do not claim we had 50k users."],
+      unknowns: [],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.doesNotMatch(result.draft, /50k users/i);
+  assert.match(result.issues.join(" "), /conflicts with grounded facts/i);
+});
+
 test("creator profile hints bias default format preference toward thread-first accounts", () => {
   assert.equal(mapPreferredOutputShapeToFormatPreference("thread_seed"), "thread");
   assert.equal(mapPreferredOutputShapeToFormatPreference("long_form_post"), "longform");
