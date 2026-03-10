@@ -682,6 +682,10 @@ interface ChatMessage {
       deletable: boolean;
     }>;
   } | null;
+  promotedSourceMaterials?: {
+    count: number;
+    assets: SourceMaterialAsset[];
+  } | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
@@ -6858,6 +6862,7 @@ function ChatPageContent() {
           previousVersionSnapshot: data.data.assistantMessage.previousVersionSnapshot,
           revisionChainId: data.data.assistantMessage.revisionChainId,
           supportAsset: data.data.assistantMessage.supportAsset,
+          promotedSourceMaterials: data.data.promotedSourceMaterials ?? null,
           outputShape: data.data.assistantMessage.outputShape,
           feedbackValue: null,
         },
@@ -9524,6 +9529,19 @@ function ChatPageContent() {
                                     : "Undo"}
                                 </button>
                               ) : null}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            message.promotedSourceMaterials?.count ? (
+                            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/[0.06] px-3 py-1 text-[11px] text-sky-200/90">
+                              <BookOpen className="h-3.5 w-3.5" />
+                              <span>
+                                Added to reusable sources
+                                {message.promotedSourceMaterials.assets[0]?.title
+                                  ? `: ${message.promotedSourceMaterials.assets[0].title}`
+                                  : "."}
+                              </span>
                             </div>
                           ) : null}
 
