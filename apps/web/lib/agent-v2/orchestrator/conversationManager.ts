@@ -134,6 +134,7 @@ import {
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
+import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
 import {
   buildSourceMaterialIdentityKey,
   extractAutoSourceMaterialInputs,
@@ -2757,13 +2758,19 @@ User Profile Summary:
         };
       }
 
-      const revisedPlanWithPreference = applyCreatorProfileHintsToPlan(
-        withPlanPreferences(
-          revisedPlan,
-          turnDraftPreference,
-          memory.pendingPlan.formatPreference || turnFormatPreference,
+      const revisedPlanWithPreference = applySourceMaterialBiasToPlan(
+        applyCreatorProfileHintsToPlan(
+          withPlanPreferences(
+            revisedPlan,
+            turnDraftPreference,
+            memory.pendingPlan.formatPreference || turnFormatPreference,
+          ),
+          creatorProfileHints,
         ),
-        creatorProfileHints,
+        selectedSourceMaterials,
+        {
+          hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
+        },
       );
       const guardedRevisedPlan = pendingPlanHasNoFabrication
         ? withNoFabricationPlanGuardrail(revisedPlanWithPreference)
@@ -3282,13 +3289,19 @@ User Profile Summary:
       };
     }
 
-    const planWithPreference = applyCreatorProfileHintsToPlan(
-      withPlanPreferences(
-        plan,
-        turnDraftPreference,
-        turnFormatPreference,
+    const planWithPreference = applySourceMaterialBiasToPlan(
+      applyCreatorProfileHintsToPlan(
+        withPlanPreferences(
+          plan,
+          turnDraftPreference,
+          turnFormatPreference,
+        ),
+        creatorProfileHints,
       ),
-      creatorProfileHints,
+      selectedSourceMaterials,
+      {
+        hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
+      },
     );
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)
@@ -3681,13 +3694,19 @@ User Profile Summary:
       };
     }
 
-    const planWithPreference = applyCreatorProfileHintsToPlan(
-      withPlanPreferences(
-        plan,
-        turnDraftPreference,
-        turnFormatPreference,
+    const planWithPreference = applySourceMaterialBiasToPlan(
+      applyCreatorProfileHintsToPlan(
+        withPlanPreferences(
+          plan,
+          turnDraftPreference,
+          turnFormatPreference,
+        ),
+        creatorProfileHints,
       ),
-      creatorProfileHints,
+      selectedSourceMaterials,
+      {
+        hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
+      },
     );
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)

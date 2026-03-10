@@ -8,6 +8,7 @@ import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy.ts";
+import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy.ts";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
@@ -616,4 +617,72 @@ test("creator profile hints can override generic hook types with preferred hook 
   );
 
   assert.equal(plan.hookType, "question open");
+});
+
+test("source material bias anchors framework plans to saved playbooks", () => {
+  const plan = applySourceMaterialBiasToPlan(
+    {
+      objective: "hiring lessons",
+      angle: "make it useful",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: [],
+      hookType: "direct",
+      pitchResponse: "draft it",
+      formatPreference: "shortform",
+    },
+    [
+      {
+        type: "playbook",
+        title: "Hiring playbook",
+        claims: ["We ask candidates to ship a small demo instead of sending resumes."],
+        snippets: ["Ship the work, then talk."],
+      },
+    ],
+    {
+      hasAutobiographicalGrounding: true,
+    },
+  );
+
+  assert.equal(plan.hookType, "playbook");
+  assert.equal(
+    plan.mustInclude.some((entry) => /saved playbook: Hiring playbook/i.test(entry)),
+    true,
+  );
+  assert.equal(
+    plan.mustAvoid.some((entry) => /generic advice or a vague founder story/i.test(entry)),
+    true,
+  );
+});
+
+test("source material bias keeps story plans from inventing extra first-person beats", () => {
+  const plan = applySourceMaterialBiasToPlan(
+    {
+      objective: "customer story",
+      angle: "tell the lesson",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: [],
+      hookType: "direct",
+      pitchResponse: "draft it",
+      formatPreference: "thread",
+    },
+    [
+      {
+        type: "story",
+        title: "Onboarding lesson",
+        claims: ["A shorter onboarding flow got more people to finish setup."],
+        snippets: ["We cut the tour and more people finished setup."],
+      },
+    ],
+    {
+      hasAutobiographicalGrounding: false,
+    },
+  );
+
+  assert.equal(plan.hookType, "story");
+  assert.equal(
+    plan.mustAvoid.some((entry) => /do not invent extra first-person beats/i.test(entry)),
+    true,
+  );
 });

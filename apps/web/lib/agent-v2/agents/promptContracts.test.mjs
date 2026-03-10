@@ -181,6 +181,13 @@ test("planner and writer prompts surface hard factual grounding for product asks
     true,
   );
   assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
+  assert.equal(promptBuildersSource.includes("Source material details:"), true);
+  assert.equal(
+    promptBuildersSource.includes(
+      "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
+    ),
+    true,
+  );
   assert.equal(promptBuildersSource.includes("CREATOR PROFILE HINTS:"), true);
   assert.equal(
     promptBuildersSource.includes(

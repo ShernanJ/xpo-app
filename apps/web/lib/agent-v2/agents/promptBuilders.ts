@@ -123,6 +123,14 @@ function buildGroundingPacketBlock(
     return null;
   }
 
+  const sourceMaterialDetailLines = groundingPacket.sourceMaterials
+    .slice(0, 2)
+    .map((item) => {
+      const claimSeed = item.claims[0] ? ` | claim seed: ${item.claims[0]}` : "";
+      const snippetSeed = item.snippets[0] ? ` | snippet seed: ${item.snippets[0]}` : "";
+      return `- [${item.type}] ${item.title}${claimSeed}${snippetSeed}`;
+    });
+
   return `
 GROUNDING PACKET:
 - Durable facts: ${groundingPacket.durableFacts.join(" | ") || "None"}
@@ -131,8 +139,10 @@ GROUNDING PACKET:
 - Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
 - Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
 - Source materials: ${groundingPacket.sourceMaterials.map((item) => `${item.type}: ${item.title}`).join(" | ") || "None"}
+${sourceMaterialDetailLines.length > 0 ? `- Source material details:\n${sourceMaterialDetailLines.join("\n")}` : ""}
 
 Use this packet as the authority for autobiographical, numeric, and factual specificity.
+If source material details are present, prefer their saved claim/snippet seeds over invented framing.
 If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.
 If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.
   `.trim();
