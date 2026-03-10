@@ -565,6 +565,13 @@ export async function POST(request: NextRequest) {
       revisionChainId: draftVersionPayload.revisionChainId,
       supportAsset: resultData?.supportAsset as string || null,
       groundingSources: responseGroundingSources,
+      autoSavedSourceMaterials:
+        resultData &&
+        typeof resultData === "object" &&
+        resultData.autoSavedSourceMaterials &&
+        typeof resultData.autoSavedSourceMaterials === "object"
+          ? (resultData.autoSavedSourceMaterials as { count: number; titles: string[] })
+          : null,
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
       memory: result.memory,

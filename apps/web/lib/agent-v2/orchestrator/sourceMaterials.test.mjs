@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   SourceMaterialAssetPatchSchema,
   buildSeedSourceMaterialInputs,
+  extractAutoSourceMaterialInputs,
+  filterNewSourceMaterialInputs,
   mergeSourceMaterialsIntoGroundingPacket,
   normalizeSourceMaterialInput,
   normalizeSourceMaterialPatch,
@@ -250,4 +252,64 @@ test("seed builder imports onboarding anchors and grounded draft sources without
     seeds.some((asset) => asset.type === "playbook" || asset.type === "framework"),
     true,
   );
+});
+
+test("auto source extractor captures explicit framework messages from chat", () => {
+  const extracted = extractAutoSourceMaterialInputs({
+    userMessage:
+      "Hiring playbook:\nPublish the work.\nAsk for a demo.\nSkip resume theater.",
+    recentHistory: "user: Hiring playbook...",
+    extractedFacts: null,
+  });
+
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0]?.type, "playbook");
+  assert.equal(extracted[0]?.verified, true);
+  assert.equal(extracted[0]?.claims.includes("Publish the work."), true);
+});
+
+test("auto source extractor ignores draft commands", () => {
+  const extracted = extractAutoSourceMaterialInputs({
+    userMessage: "write me a post about onboarding",
+    recentHistory: "",
+    extractedFacts: ["User is building Xpo"],
+  });
+
+  assert.deepEqual(extracted, []);
+});
+
+test("filterNewSourceMaterialInputs removes duplicates against existing assets", () => {
+  const filtered = filterNewSourceMaterialInputs({
+    existing: [
+      {
+        type: "story",
+        title: "Launch story",
+        claims: ["I launched Xpo in public"],
+        snippets: ["We kept the rollout small."],
+      },
+    ],
+    incoming: [
+      {
+        type: "story",
+        title: "Launch story",
+        tags: ["launch"],
+        verified: true,
+        claims: ["I launched Xpo in public"],
+        snippets: ["We kept the rollout small."],
+        doNotClaim: [],
+      },
+      {
+        type: "framework",
+        title: "Onboarding framework",
+        tags: ["onboarding"],
+        verified: true,
+        claims: ["Reduce setup friction first."],
+        snippets: ["Start with one clear action."],
+        doNotClaim: [],
+      },
+    ],
+  });
+
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]?.title, "Onboarding framework");
 });

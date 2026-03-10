@@ -509,6 +509,10 @@ interface CreatorChatSuccess {
     revisionChainId?: string;
     supportAsset: string | null;
     groundingSources?: DraftArtifact["groundingSources"];
+    autoSavedSourceMaterials?: {
+      count: number;
+      titles: string[];
+    } | null;
     outputShape:
     | "coach_question"
     | "ideation_angles"
@@ -662,6 +666,10 @@ interface ChatMessage {
   revisionChainId?: string;
   supportAsset?: string | null;
   groundingSources?: DraftArtifact["groundingSources"];
+  autoSavedSourceMaterials?: {
+    count: number;
+    titles: string[];
+  } | null;
   whyThisWorks?: string[];
   watchOutFor?: string[];
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
@@ -7277,6 +7285,7 @@ function ChatPageContent() {
               previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
               revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
+              autoSavedSourceMaterials: data.data.autoSavedSourceMaterials ?? null,
               outputShape: data.data.outputShape,
               surfaceMode: data.data.surfaceMode,
               feedbackValue: null,
@@ -7428,6 +7437,7 @@ function ChatPageContent() {
             previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
             revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
+            autoSavedSourceMaterials: streamedResult.autoSavedSourceMaterials ?? null,
             outputShape: streamedResult.outputShape,
             surfaceMode: streamedResult.surfaceMode,
             feedbackValue: null,
@@ -9376,6 +9386,18 @@ function ChatPageContent() {
                               )}
                             </p>
                           )}
+
+                          {message.role === "assistant" &&
+                            message.autoSavedSourceMaterials?.count ? (
+                            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-1 text-[11px] text-emerald-200/90">
+                              <Lightbulb className="h-3.5 w-3.5" />
+                              <span>
+                                Saved for later{message.autoSavedSourceMaterials.titles[0]
+                                  ? `: ${message.autoSavedSourceMaterials.titles[0]}`
+                                  : "."}
+                              </span>
+                            </div>
+                          ) : null}
 
                           {message.role === "assistant" && !message.isStreaming ? (
                             <div className="mt-2 flex items-center gap-1.5">

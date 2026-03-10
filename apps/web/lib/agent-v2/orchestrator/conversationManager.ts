@@ -47,6 +47,7 @@ import {
   type ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
+import { Prisma } from "../../generated/prisma/client";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
@@ -134,9 +135,13 @@ import {
 } from "./creatorHintPolicy";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
 import {
+  buildSourceMaterialIdentityKey,
+  extractAutoSourceMaterialInputs,
+  filterNewSourceMaterialInputs,
   mergeSourceMaterialsIntoGroundingPacket,
   selectRelevantSourceMaterials,
   serializeSourceMaterialAsset,
+  type SourceMaterialAssetInput,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
 import { selectResponseShapePlan } from "./surfaceModeSelector";
@@ -179,6 +184,10 @@ export interface OrchestratorData {
   noveltyNotes?: string[];
   threadFramingStyle?: ThreadFramingStyle | null;
   groundingSources?: GroundingPacketSourceMaterial[];
+  autoSavedSourceMaterials?: {
+    count: number;
+    titles: string[];
+  };
 }
 
 export type OrchestratorResponse = {
@@ -224,6 +233,11 @@ export interface ConversationServices {
     xHandle?: string | null;
   }) => Promise<SourceMaterialAssetRecord[]>;
   markSourceMaterialAssetsUsed: (assetIds: string[]) => Promise<void>;
+  saveSourceMaterialAssets: (args: {
+    userId: string;
+    xHandle?: string | null;
+    assets: SourceMaterialAssetInput[];
+  }) => Promise<SourceMaterialAssetRecord[]>;
 }
 
 function normalizeHandleForContext(value: string | null | undefined): string | null {
@@ -347,6 +361,67 @@ export function createDefaultConversationServices(): ConversationServices {
       } catch (error) {
         if (isMissingSourceMaterialAssetTableError(error)) {
           return;
+        }
+
+        throw error;
+      }
+    },
+    async saveSourceMaterialAssets(args: {
+      userId: string;
+      xHandle?: string | null;
+      assets: SourceMaterialAssetInput[];
+    }) {
+      const normalizedHandle = normalizeHandleForContext(args.xHandle);
+      if (args.assets.length === 0) {
+        return [];
+      }
+
+      try {
+        const existing = await prisma.sourceMaterialAsset.findMany({
+          where: {
+            userId: args.userId,
+            ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+          },
+        });
+        const existingKeys = new Set(
+          existing.map((asset) =>
+            buildSourceMaterialIdentityKey({
+              type: asset.type,
+              title: asset.title,
+              claims: Array.isArray(asset.claims) ? (asset.claims as string[]) : [],
+              snippets: Array.isArray(asset.snippets) ? (asset.snippets as string[]) : [],
+            }),
+          ),
+        );
+        const created: SourceMaterialAssetRecord[] = [];
+
+        for (const asset of args.assets) {
+          const key = buildSourceMaterialIdentityKey(asset);
+          if (existingKeys.has(key)) {
+            continue;
+          }
+
+          existingKeys.add(key);
+          const record = await prisma.sourceMaterialAsset.create({
+            data: {
+              userId: args.userId,
+              ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
+              type: asset.type,
+              title: asset.title,
+              tags: asset.tags as unknown as Prisma.JsonArray,
+              verified: asset.verified,
+              claims: asset.claims as unknown as Prisma.JsonArray,
+              snippets: asset.snippets as unknown as Prisma.JsonArray,
+              doNotClaim: asset.doNotClaim as unknown as Prisma.JsonArray,
+            },
+          });
+          created.push(serializeSourceMaterialAsset(record));
+        }
+
+        return created;
+      } catch (error) {
+        if (isMissingSourceMaterialAssetTableError(error)) {
+          return [];
         }
 
         throw error;
@@ -1388,6 +1463,12 @@ export async function manageConversationTurn(
     memory,
     explicitIntent,
   });
+  let autoSavedSourceMaterials:
+    | {
+        count: number;
+        titles: string[];
+      }
+    | undefined;
 
   const rawResponse = await (async (): Promise<RawOrchestratorResponse> => {
   let classification;
@@ -1464,7 +1545,6 @@ export async function manageConversationTurn(
         })
       : Promise.resolve([]),
   ]);
-
   let rememberedStyleRuleCount = 0;
   if (styleCard && extractedRules && extractedRules.length > 0) {
     rememberedStyleRuleCount = countNewMemoryEntries(
@@ -1490,6 +1570,84 @@ export async function manageConversationTurn(
     services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
       console.error("Failed to save style profile:", error),
     );
+  }
+
+  const autoSourceMaterialInputs =
+    userId !== "anonymous"
+      ? extractAutoSourceMaterialInputs({
+          userMessage,
+          recentHistory,
+          extractedFacts,
+        })
+      : [];
+  const newAutoSourceMaterialInputs =
+    autoSourceMaterialInputs.length > 0
+      ? filterNewSourceMaterialInputs({
+          existing: [
+            ...(sourceMaterialAssets || []),
+            ...((styleCard?.factLedger?.sourceMaterials || []).map((asset) => ({
+              type: asset.type,
+              title: asset.title,
+              claims: asset.claims,
+              snippets: asset.snippets,
+            })) || []),
+          ],
+          incoming: autoSourceMaterialInputs,
+        })
+      : [];
+
+  if (newAutoSourceMaterialInputs.length > 0) {
+    if (styleCard) {
+      styleCard = {
+        ...styleCard,
+        factLedger: {
+          ...styleCard.factLedger,
+          sourceMaterials: [
+            ...(styleCard.factLedger?.sourceMaterials || []),
+            ...newAutoSourceMaterialInputs,
+          ],
+        },
+      };
+
+      services.saveStyleProfile(userId, effectiveXHandle, styleCard).catch((error) =>
+        console.error("Failed to save auto-captured source materials to style profile:", error),
+      );
+    }
+
+    const persistedAutoSourceMaterials = await services.saveSourceMaterialAssets({
+      userId,
+      xHandle: effectiveXHandle,
+      assets: newAutoSourceMaterialInputs,
+    });
+
+    const fallbackCreatedAt = new Date().toISOString();
+    const autoSourceMaterialRecords =
+      persistedAutoSourceMaterials.length > 0
+        ? persistedAutoSourceMaterials
+        : newAutoSourceMaterialInputs.map((asset, index) => ({
+            id: `auto-source-${index}-${fallbackCreatedAt}`,
+            userId,
+            xHandle: effectiveXHandle || null,
+            type: asset.type,
+            title: asset.title,
+            tags: asset.tags,
+            verified: asset.verified,
+            claims: asset.claims,
+            snippets: asset.snippets,
+            doNotClaim: asset.doNotClaim,
+            lastUsedAt: null,
+            createdAt: fallbackCreatedAt,
+            updatedAt: fallbackCreatedAt,
+          }));
+
+    sourceMaterialAssets = [
+      ...autoSourceMaterialRecords,
+      ...sourceMaterialAssets,
+    ];
+    autoSavedSourceMaterials = {
+      count: newAutoSourceMaterialInputs.length,
+      titles: newAutoSourceMaterialInputs.map((asset) => asset.title).slice(0, 2),
+    };
   }
 
   const antiPatternResult = await maybeCaptureAntiPattern(
@@ -3746,5 +3904,16 @@ User Profile Summary:
   }
   })();
 
-  return finalizeOrchestratorResponse(rawResponse);
+  const responseWithAutoSavedSources =
+    autoSavedSourceMaterials
+      ? {
+          ...rawResponse,
+          data: {
+            ...(rawResponse.data || {}),
+            autoSavedSourceMaterials,
+          },
+        }
+      : rawResponse;
+
+  return finalizeOrchestratorResponse(responseWithAutoSavedSources);
 }

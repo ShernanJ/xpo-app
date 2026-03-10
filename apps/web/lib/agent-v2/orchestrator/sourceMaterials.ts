@@ -127,6 +127,21 @@ function looksAutobiographical(value: string): boolean {
   return /\b(?:i|we|my|our|me|us)\b/i.test(value);
 }
 
+function looksLikeCommandOrQuestion(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized.endsWith("?")) {
+    return true;
+  }
+
+  return /^(?:write|draft|make|give|help|can you|could you|turn|edit|rewrite|fix|shorten|improve|generate)\b/.test(
+    normalized,
+  );
+}
+
 function stripSeedLinePrefix(value: string): string {
   return normalizeLine(
     value
@@ -189,6 +204,61 @@ function truncateTitle(value: string, max = 120): string {
   }
 
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function inferSourceMaterialTypeFromMessage(value: string): SourceMaterialType | null {
+  const normalized = value.toLowerCase();
+
+  if (/\b(case study|breakdown|teardown|postmortem)\b/.test(normalized)) {
+    return "case_study";
+  }
+
+  if (/\b(playbook|checklist|process|workflow|runbook|operating system)\b/.test(normalized)) {
+    return "playbook";
+  }
+
+  if (/\b(framework|template|formula|pattern|mental model|system)\b/.test(normalized)) {
+    return "framework";
+  }
+
+  if (
+    looksAutobiographical(value) &&
+    /\b(when|after|before|learned|realized|shipped|launched|built|hired|closed|lost|grew|cut|changed)\b/i.test(
+      normalized,
+    )
+  ) {
+    return "story";
+  }
+
+  return null;
+}
+
+function inferSourceMaterialTitle(args: {
+  userMessage: string;
+  type: SourceMaterialType;
+  claims: string[];
+}): string {
+  const firstLine = args.userMessage
+    .split(/\r?\n/)
+    .map((line) => normalizeLine(line))
+    .find(Boolean);
+
+  const colonTitle = firstLine?.match(/^([^:]{3,60}):\s+/)?.[1]?.trim();
+  if (colonTitle) {
+    return truncateTitle(colonTitle);
+  }
+
+  const prefix =
+    args.type === "playbook"
+      ? "Playbook"
+      : args.type === "framework"
+        ? "Framework"
+        : args.type === "case_study"
+          ? "Case study"
+          : "Story";
+
+  const seed = args.claims[0] || firstLine || args.userMessage;
+  return truncateTitle(`${prefix}: ${seed}`);
 }
 
 function buildRepresentativePostSeedAsset(params: {
@@ -265,6 +335,43 @@ function dedupeSeedAssets(assets: SourceMaterialAssetInput[]): SourceMaterialAss
   return next;
 }
 
+export function buildSourceMaterialIdentityKey(
+  asset: Pick<SourceMaterialAssetInput, "type" | "title" | "claims" | "snippets">,
+): string {
+  const normalized = normalizeSourceMaterialInput({
+    type: asset.type,
+    title: asset.title,
+    tags: [],
+    verified: true,
+    claims: asset.claims,
+    snippets: asset.snippets,
+    doNotClaim: [],
+  });
+
+  return [
+    normalized.type,
+    normalized.title.toLowerCase(),
+    (normalized.claims[0] || normalized.snippets[0] || "").toLowerCase(),
+  ].join("::");
+}
+
+export function filterNewSourceMaterialInputs(args: {
+  existing: Array<Pick<SourceMaterialAssetInput, "type" | "title" | "claims" | "snippets">>;
+  incoming: SourceMaterialAssetInput[];
+}): SourceMaterialAssetInput[] {
+  const seen = new Set(args.existing.map((asset) => buildSourceMaterialIdentityKey(asset)));
+
+  return args.incoming.filter((asset) => {
+    const key = buildSourceMaterialIdentityKey(asset);
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export function buildSeedSourceMaterialInputs(args: {
   examples: Pick<CreatorRepresentativeExamples, "bestPerforming" | "voiceAnchors">;
   draftCandidates?: Array<{
@@ -312,6 +419,64 @@ export function buildSeedSourceMaterialInputs(args: {
   }
 
   return dedupeSeedAssets(seeds).slice(0, Math.max(1, args.limit ?? 8));
+}
+
+export function extractAutoSourceMaterialInputs(args: {
+  userMessage: string;
+  recentHistory: string;
+  extractedFacts?: string[] | null;
+}): SourceMaterialAssetInput[] {
+  const trimmed = args.userMessage.trim();
+  if (
+    trimmed.length < 48 ||
+    looksLikeCommandOrQuestion(trimmed) ||
+    /^assistant:/i.test(trimmed)
+  ) {
+    return [];
+  }
+
+  const type = inferSourceMaterialTypeFromMessage(trimmed);
+  if (!type) {
+    return [];
+  }
+
+  const extractedClaims = dedupeList(args.extractedFacts || []);
+  const claims = dedupeList([
+    ...extractedClaims,
+    ...extractSeedClaimsFromText(trimmed),
+  ]).slice(0, 4);
+  const snippets = extractSeedSnippetsFromText(trimmed);
+
+  if (claims.length === 0 && snippets.length === 0) {
+    return [];
+  }
+
+  if (
+    type === "story" &&
+    !claims.some(looksAutobiographical) &&
+    !snippets.some(looksAutobiographical)
+  ) {
+    return [];
+  }
+
+  const input = normalizeSourceMaterialInput({
+    type,
+    title: inferSourceMaterialTitle({
+      userMessage: trimmed,
+      type,
+      claims,
+    }),
+    tags: dedupeList([
+      type,
+      ...tokenize(trimmed).slice(0, 4),
+    ]),
+    verified: true,
+    claims,
+    snippets,
+    doNotClaim: [],
+  });
+
+  return input.claims.length === 0 && input.snippets.length === 0 ? [] : [input];
 }
 
 export function normalizeSourceMaterialInput(
