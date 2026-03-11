@@ -88,6 +88,7 @@ model User {
   chatMessageFeedbacks     ChatMessageFeedback[]
   feedbackSubmissions      FeedbackSubmission[]
   sourceMaterialAssets     SourceMaterialAsset[]
+  productEvents            ProductEvent[]
   billingEntitlement       BillingEntitlement?
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
@@ -263,6 +264,24 @@ model DraftCandidate {
   @@index([userId, xHandle, status, createdAt])
   @@index([threadId, createdAt])
   @@index([runId, createdAt])
+}
+
+model ProductEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  xHandle    String?
+  threadId   String?
+  messageId  String?
+  candidateId String?
+  eventType  String
+  properties Json
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, eventType, createdAt])
+  @@index([threadId, createdAt])
 }
 
 model FeedbackSubmission {

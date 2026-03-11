@@ -4658,6 +4658,34 @@ function ChatPageContent() {
       setIsSourceMaterialsSaving(false);
     }
   }, [sourceMaterialDraft.id, sourceMaterialDraft.title]);
+  const trackProductEvent = useCallback(
+    async (params: {
+      eventType: string;
+      messageId?: string;
+      candidateId?: string;
+      properties?: Record<string, unknown>;
+    }) => {
+      try {
+        await fetch("/api/creator/v2/product-events", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          keepalive: true,
+          body: JSON.stringify({
+            eventType: params.eventType,
+            threadId: activeThreadId ?? null,
+            ...(params.messageId ? { messageId: params.messageId } : {}),
+            ...(params.candidateId ? { candidateId: params.candidateId } : {}),
+            properties: params.properties || {},
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to record product event:", error);
+      }
+    },
+    [activeThreadId],
+  );
   const undoAutoSavedSourceMaterials = useCallback(
     async (
       messageId: string,
@@ -4712,6 +4740,14 @@ function ChatPageContent() {
           ...current,
           [messageId]: true,
         }));
+        await trackProductEvent({
+          eventType: "source_auto_save_undone",
+          messageId,
+          properties: {
+            deletedCount: deletedIds.length,
+            deletedTitles: deletableAssets.map((asset) => asset.title).slice(0, 3),
+          },
+        });
       } catch (error) {
         setErrorMessage(
           error instanceof Error ? error.message : "Failed to remove saved source material.",
@@ -4723,7 +4759,7 @@ function ChatPageContent() {
         }));
       }
     },
-    [],
+    [trackProductEvent],
   );
   useEffect(() => {
     if (!sourceMaterialsOpen) {

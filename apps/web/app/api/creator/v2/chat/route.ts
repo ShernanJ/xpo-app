@@ -25,6 +25,7 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
+import { recordProductEvent } from "@/lib/productEvents";
 import {
   buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
@@ -643,6 +644,58 @@ export async function POST(request: NextRequest) {
       });
 
       mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
+    }
+
+    const primaryDraftArtifact = draftVersionPayload.draftArtifacts[0] ?? null;
+    const primaryGroundingMode = primaryDraftArtifact?.groundingMode ?? null;
+    const primaryGroundingSourceCount = primaryDraftArtifact?.groundingSources?.length ?? 0;
+    const autoSavedSourceMaterialCount = mappedData.autoSavedSourceMaterials?.count ?? 0;
+
+    if (
+      (mappedData.outputShape === "short_form_post" ||
+        mappedData.outputShape === "long_form_post" ||
+        mappedData.outputShape === "thread_seed") &&
+      mappedData.draft
+    ) {
+      void recordProductEvent({
+        userId: session.user.id,
+        xHandle: activeHandle,
+        threadId: storedThread?.id ?? null,
+        messageId: createdAssistantMessageId ?? null,
+        eventType: "draft_generated",
+        properties: {
+          outputShape: mappedData.outputShape,
+          surfaceMode: mappedData.surfaceMode ?? null,
+          groundingMode: primaryGroundingMode,
+          groundingSourceCount: primaryGroundingSourceCount,
+          usedSavedSources:
+            primaryGroundingMode === "saved_sources" || primaryGroundingMode === "mixed",
+          usedSafeFramework: primaryGroundingMode === "safe_framework",
+          clarificationQuestionsAsked: mappedData.memory?.clarificationQuestionsAsked ?? 0,
+          autoSavedSourceMaterialCount,
+        },
+      }).catch((error) => console.error("Failed to record draft_generated event:", error));
+    }
+
+    if (
+      mappedData.outputShape === "coach_question" &&
+      mappedData.surfaceMode === "ask_one_question"
+    ) {
+      void recordProductEvent({
+        userId: session.user.id,
+        xHandle: activeHandle,
+        threadId: storedThread?.id ?? null,
+        messageId: createdAssistantMessageId ?? null,
+        eventType: "clarification_prompted",
+        properties: {
+          conversationState: mappedData.memory?.conversationState ?? null,
+          clarificationQuestionsAsked: mappedData.memory?.clarificationQuestionsAsked ?? 0,
+          hasTopicSummary: Boolean(mappedData.memory?.topicSummary),
+          explicitIntent: effectiveExplicitIntent || "auto",
+        },
+      }).catch((error) =>
+        console.error("Failed to record clarification_prompted event:", error),
+      );
     }
 
     mappedData.billing = await getBillingStateForUser(effectiveUserId);

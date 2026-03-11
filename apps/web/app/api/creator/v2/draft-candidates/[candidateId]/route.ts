@@ -3,6 +3,7 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { recordProductEvent } from "@/lib/productEvents";
 import {
   buildDraftArtifact,
   type DraftArtifactDetails,
@@ -196,6 +197,19 @@ export async function PATCH(
       },
     });
 
+    void recordProductEvent({
+      userId: session.user.id,
+      xHandle: candidate.xHandle,
+      threadId: candidate.threadId,
+      candidateId: candidate.id,
+      eventType: "draft_candidate_approved",
+      properties: {
+        outputShape: candidate.outputShape,
+        groundingMode: currentArtifact.groundingMode || null,
+        groundingSourceCount: currentArtifact.groundingSources?.length || 0,
+      },
+    }).catch((error) => console.error("Failed to record draft_candidate_approved event:", error));
+
     return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
   }
 
@@ -244,6 +258,19 @@ export async function PATCH(
         postedAt: now,
       },
     });
+
+    void recordProductEvent({
+      userId: session.user.id,
+      xHandle: candidate.xHandle,
+      threadId: candidate.threadId,
+      candidateId: candidate.id,
+      eventType: "draft_candidate_posted",
+      properties: {
+        outputShape: candidate.outputShape,
+        groundingMode: currentArtifact.groundingMode || null,
+        groundingSourceCount: currentArtifact.groundingSources?.length || 0,
+      },
+    }).catch((error) => console.error("Failed to record draft_candidate_posted event:", error));
 
     return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
   }
@@ -350,6 +377,19 @@ export async function PATCH(
         rejectionReason: null,
       },
     });
+
+    void recordProductEvent({
+      userId: session.user.id,
+      xHandle: candidate.xHandle,
+      threadId: candidate.threadId,
+      candidateId: candidate.id,
+      eventType: "draft_candidate_regenerated",
+      properties: {
+        outputShape: updated.outputShape,
+        groundingMode: regeneratedArtifact.groundingMode || null,
+        groundingSourceCount: regeneratedArtifact.groundingSources?.length || 0,
+      },
+    }).catch((error) => console.error("Failed to record draft_candidate_regenerated event:", error));
 
     return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
   }

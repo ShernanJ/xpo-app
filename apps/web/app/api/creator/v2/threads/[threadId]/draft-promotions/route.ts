@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { recordProductEvent } from "@/lib/productEvents";
 import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
 import {
   buildPromotedDraftSourceMaterialInputs,
@@ -458,6 +459,20 @@ export async function POST(
         throw error;
       }
     })();
+
+    void recordProductEvent({
+      userId: session.user.id,
+      xHandle: getActiveHandle(session),
+      threadId: thread.id,
+      messageId: assistantMessage.id,
+      eventType: "draft_promoted",
+      properties: {
+        outputShape: draftKind,
+        groundingMode: artifact.groundingMode || null,
+        groundingSourceCount: artifact.groundingSources?.length || 0,
+        promotedSourceMaterialCount: promotedSourceMaterialAssets.length,
+      },
+    }).catch((eventError) => console.error("Failed to record draft_promoted event:", eventError));
 
     return NextResponse.json({
       ok: true,
