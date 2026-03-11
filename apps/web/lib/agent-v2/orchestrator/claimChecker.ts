@@ -69,7 +69,14 @@ function collectTokens(value: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\s%]/g, " ")
     .split(/\s+/)
-    .map((token) => token.trim())
+    .map((token) => {
+      const normalized = token.trim();
+      if (normalized.length > 4 && normalized.endsWith("s")) {
+        return normalized.slice(0, -1);
+      }
+
+      return normalized;
+    })
     .filter((token) => token.length > 1 && !STOPWORDS.has(token));
 }
 
@@ -124,11 +131,18 @@ function conflictsWithForbiddenClaim(candidate: string, forbiddenClaims: string[
     return true;
   }
 
+  const candidateTokenSet = new Set(collectTokens(candidate));
   const candidateNumbers = candidate.match(/\b\d[\d,./%a-z]*\b/gi) || [];
 
   return forbiddenClaims.some((entry) => {
     const score = computeSupportScore(candidate, [entry]);
     if (score >= 0.3) {
+      return true;
+    }
+
+    const entryTokenSet = new Set(collectTokens(entry));
+    const overlap = Array.from(candidateTokenSet).filter((token) => entryTokenSet.has(token)).length;
+    if (overlap >= 3 && score >= 0.4) {
       return true;
     }
 

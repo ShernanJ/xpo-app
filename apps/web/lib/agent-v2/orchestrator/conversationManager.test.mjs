@@ -617,6 +617,58 @@ test("claim checker allows grounded source-material details", () => {
   assert.match(result.draft, /At Shopify, we used xpo/i);
 });
 
+test("claim checker preserves grounded dates entities places and scale claims", () => {
+  const groundedLine =
+    "In January 2025, Shopify's growth team used Xpo in Toronto with 12,000 users in the pilot.";
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: groundedLine,
+    groundingPacket: {
+      durableFacts: [],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: ["12,000"],
+      forbiddenClaims: [],
+      unknowns: [],
+      sourceMaterials: [
+        {
+          type: "case_study",
+          title: "Shopify pilot",
+          claims: [groundedLine],
+          snippets: [],
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, false);
+  assert.match(result.draft, /January 2025/i);
+  assert.match(result.draft, /Shopify/i);
+  assert.match(result.draft, /Toronto/i);
+  assert.match(result.draft, /12,000 users/i);
+});
+
+test("claim checker strips unsupported product behavior drift even when the product is grounded", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: [
+      "xpo helps people write and grow faster on x.",
+      "xpo schedules posts automatically for every account.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: ["xpo helps people write and grow faster on x."],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: [],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.match(result.draft, /helps people write and grow faster on x/i);
+  assert.doesNotMatch(result.draft, /schedules posts automatically/i);
+});
+
 test("claim checker removes claims that conflict with forbidden grounding", () => {
   const result = checkDraftClaimsAgainstGrounding({
     draft: "We grew xpo to 50k users last year.",
@@ -633,6 +685,25 @@ test("claim checker removes claims that conflict with forbidden grounding", () =
 
   assert.equal(result.hasUnsupportedClaims, true);
   assert.doesNotMatch(result.draft, /50k users/i);
+  assert.match(result.issues.join(" "), /conflicts with grounded facts/i);
+});
+
+test("claim checker catches forbidden claims even when wording drifts", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: "Xpo will auto-generate hashtags for every post.",
+    groundingPacket: {
+      durableFacts: ["xpo helps people write and grow faster on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: ["Do not claim xpo generates hashtags automatically."],
+      unknowns: [],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.doesNotMatch(result.draft, /hashtags/i);
   assert.match(result.issues.join(" "), /conflicts with grounded facts/i);
 });
 
