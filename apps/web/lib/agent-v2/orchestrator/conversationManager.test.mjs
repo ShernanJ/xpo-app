@@ -6,6 +6,7 @@ import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
 import { shouldFastStartGroundedDraft } from "./draftFastStart.ts";
+import { resolveConversationRouterState } from "./conversationRouterMachine.ts";
 import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
@@ -285,6 +286,64 @@ test("planner feedback only reuses pending plan when approval state is active", 
       hasPendingPlan: true,
     }),
     false,
+  );
+});
+
+test("conversation router machine prioritizes pending plan approval", () => {
+  assert.equal(
+    resolveConversationRouterState({
+      explicitIntent: null,
+      mode: "planner_feedback",
+      conversationState: "plan_pending_approval",
+      hasPendingPlan: true,
+      hasOutstandingClarification: false,
+      shouldAutoDraftFromPlan: false,
+      hasEnoughContextToAct: false,
+      clarificationBranchKey: null,
+    }),
+    "approve_pending_plan",
+  );
+});
+
+test("conversation router machine opens the clarification gate only when plan context is thin", () => {
+  assert.equal(
+    resolveConversationRouterState({
+      explicitIntent: null,
+      mode: "plan",
+      conversationState: "needs_more_context",
+      hasPendingPlan: false,
+      hasOutstandingClarification: false,
+      shouldAutoDraftFromPlan: false,
+      hasEnoughContextToAct: false,
+      clarificationBranchKey: null,
+    }),
+    "clarify_before_generation",
+  );
+  assert.equal(
+    resolveConversationRouterState({
+      explicitIntent: null,
+      mode: "plan",
+      conversationState: "needs_more_context",
+      hasPendingPlan: false,
+      hasOutstandingClarification: true,
+      shouldAutoDraftFromPlan: false,
+      hasEnoughContextToAct: false,
+      clarificationBranchKey: null,
+    }),
+    "continue",
+  );
+  assert.equal(
+    resolveConversationRouterState({
+      explicitIntent: null,
+      mode: "plan",
+      conversationState: "needs_more_context",
+      hasPendingPlan: false,
+      hasOutstandingClarification: false,
+      shouldAutoDraftFromPlan: true,
+      hasEnoughContextToAct: false,
+      clarificationBranchKey: null,
+    }),
+    "continue",
   );
 });
 

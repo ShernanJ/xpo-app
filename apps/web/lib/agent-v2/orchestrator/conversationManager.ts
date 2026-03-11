@@ -106,13 +106,13 @@ import {
   resolveConversationMode,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
-  shouldUsePendingPlanApprovalPath,
   shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic";
 import {
   inferBroadTopicDraftRequest,
   shouldFastStartGroundedDraft,
 } from "./draftFastStart.ts";
+import { resolveConversationRouterState } from "./conversationRouterMachine";
 import {
   evaluateDraftContextSlots,
   hasFunctionalDetail,
@@ -2604,11 +2604,16 @@ User Profile Summary:
   }
 
   if (
-    shouldUsePendingPlanApprovalPath({
+    resolveConversationRouterState({
+      explicitIntent,
       mode,
       conversationState: memory.conversationState,
       hasPendingPlan: Boolean(memory.pendingPlan),
-    }) &&
+      hasOutstandingClarification: false,
+      shouldAutoDraftFromPlan: false,
+      hasEnoughContextToAct: false,
+      clarificationBranchKey: memory.clarificationState?.branchKey ?? null,
+    }) === "approve_pending_plan" &&
     memory.pendingPlan
   ) {
     const pendingPlanHasNoFabrication = hasNoFabricationPlanGuardrail(memory.pendingPlan);
@@ -2863,16 +2868,26 @@ User Profile Summary:
   });
   const hasEnoughContextToAct =
     memory.concreteAnswerCount >= 2 ||
-    (memory.topicSummary && memory.pendingPlan) ||
-    (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3) ||
+    Boolean(memory.topicSummary && memory.pendingPlan) ||
+    Boolean(
+      memory.topicSummary &&
+      memory.concreteAnswerCount >= 1 &&
+      memory.assistantTurnCount >= 3,
+    ) ||
     Boolean(groundedTopicDraftInput.grounding) ||
     shouldFastStartFromGroundedContext;
+  const routerState = resolveConversationRouterState({
+    explicitIntent,
+    mode,
+    conversationState: memory.conversationState,
+    hasPendingPlan: Boolean(memory.pendingPlan),
+    hasOutstandingClarification,
+    shouldAutoDraftFromPlan: turnPlan?.shouldAutoDraftFromPlan === true,
+    hasEnoughContextToAct,
+    clarificationBranchKey: memory.clarificationState?.branchKey ?? null,
+  });
   const canAskPlanClarification = (): boolean =>
-    !explicitIntent &&
-    turnPlan?.shouldAutoDraftFromPlan !== true &&
-    !hasEnoughContextToAct &&
-    mode === "plan" &&
-    !hasOutstandingClarification;
+    routerState === "clarify_before_generation";
 
   if (canAskPlanClarification()) {
     if (
