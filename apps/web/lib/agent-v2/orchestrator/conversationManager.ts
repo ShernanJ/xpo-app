@@ -109,6 +109,10 @@ import {
   shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic";
 import {
+  inferBroadTopicDraftRequest,
+  shouldFastStartGroundedDraft,
+} from "./draftFastStart.ts";
+import {
   evaluateDraftContextSlots,
   hasFunctionalDetail,
   hasProblemDetail,
@@ -859,102 +863,6 @@ function inferLooseClarificationSeed(
   }
 
   return trimmed;
-}
-
-function inferBroadTopicDraftRequest(message: string): string | null {
-  const normalized = message.trim().toLowerCase();
-  const isDraftRequest = [
-    "write me a post",
-    "write a post",
-    "write me a thread",
-    "write a thread",
-    "draft a post",
-    "draft me a post",
-    "draft a thread",
-    "draft me a thread",
-    "make a post",
-    "make me a post",
-    "make a thread",
-    "make me a thread",
-    "give me a post",
-    "give me a thread",
-  ].some((cue) => normalized.includes(cue));
-
-  if (!isDraftRequest) {
-    return null;
-  }
-
-  const hasDirectionCue = [
-    "in my voice",
-    "my voice",
-    "random",
-    "whatever",
-    "optimized for growth",
-    "optimize it for growth",
-    "optimize for growth",
-    "for reach",
-    "for engagement",
-    "to grow",
-    "viral",
-    "hook",
-    "hot take",
-    "story",
-    "lesson",
-    "mistake",
-    "opinion",
-    "personal",
-    "thread",
-    "announcement",
-    "launch",
-    "tips",
-    "how to",
-    "why ",
-    "vs ",
-    "versus",
-    "counter-",
-    "contrarian",
-  ].some((cue) => normalized.includes(cue));
-
-  if (hasDirectionCue) {
-    return null;
-  }
-
-  const topicMatch = message.match(/\b(?:about|on)\s+([a-z0-9][a-z0-9\s/&'’-]{1,80})$/i);
-  const topic = topicMatch?.[1]?.trim().replace(/[.?!,]+$/, "").replace(/\s+/g, " ") || "";
-
-  if (!topic) {
-    return null;
-  }
-
-  const normalizedTopic = topic.toLowerCase();
-  if (
-    ["it", "this", "that", "something", "anything", "stuff"].includes(normalizedTopic) ||
-    topic.split(/\s+/).length > 5
-  ) {
-    return null;
-  }
-
-  if (
-    [
-      "why ",
-      "how ",
-      "when ",
-      "mistake",
-      "lesson",
-      "story",
-      "hot take",
-      "opinion",
-      "tips",
-      "launch",
-      "announcement",
-      "review",
-      "breakdown",
-    ].some((cue) => normalizedTopic.includes(cue))
-  ) {
-    return null;
-  }
-
-  return topic;
 }
 
 function hasConstraintDefinedEntity(
@@ -2933,11 +2841,27 @@ User Profile Summary:
   // skip ALL clarification gates and proceed to ideation or plan generation.
   // This prevents the "keeps asking questions" problem.
   const hasOutstandingClarification = Boolean(memory.unresolvedQuestion?.trim());
+  const shouldFastStartFromGroundedContext = shouldFastStartGroundedDraft({
+    userMessage,
+    mode,
+    explicitIntent,
+    hasActiveDraft: Boolean(activeDraft),
+    memoryTopicSummary: memory.topicSummary,
+    hasTopicGrounding: Boolean(groundedTopicDraftInput.grounding),
+    groundingSourceCount: groundingSourcesForTurn.length,
+    turnGroundingCount: groundingPacket.turnGrounding.length,
+    creatorHintsAvailable: Boolean(
+      creatorProfileHints?.topExampleSnippets.length ||
+        creatorProfileHints?.preferredHookPatterns.length ||
+        creatorProfileHints?.toneGuidelines.length,
+    ),
+  });
   const hasEnoughContextToAct =
     memory.concreteAnswerCount >= 2 ||
     (memory.topicSummary && memory.pendingPlan) ||
     (memory.topicSummary && memory.concreteAnswerCount >= 1 && memory.assistantTurnCount >= 3) ||
-    Boolean(groundedTopicDraftInput.grounding);
+    Boolean(groundedTopicDraftInput.grounding) ||
+    shouldFastStartFromGroundedContext;
   const canAskPlanClarification = (): boolean =>
     !explicitIntent &&
     turnPlan?.shouldAutoDraftFromPlan !== true &&
@@ -3404,8 +3328,9 @@ User Profile Summary:
     // "just write it" / "go ahead"), auto-approve the plan and proceed
     // directly to drafting instead of waiting for explicit approval.
     if (
-      turnPlan?.userGoal === "draft" &&
-      (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)
+      ((turnPlan?.userGoal === "draft" &&
+        (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
+        shouldFastStartFromGroundedContext)
     ) {
       const draftResult = await generateDraftWithGroundingRetry({
         plan: guardedPlan,

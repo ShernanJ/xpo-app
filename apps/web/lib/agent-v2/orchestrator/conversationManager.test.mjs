@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
+import { shouldFastStartGroundedDraft } from "./draftFastStart.ts";
 import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
@@ -272,6 +273,57 @@ test("specific thread draft requests auto-draft from the planner path", () => {
 
   assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
   assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+});
+
+test("fast-start draft path triggers for bare requests with saved grounded sources", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write me a post",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: null,
+      hasTopicGrounding: false,
+      groundingSourceCount: 2,
+      turnGroundingCount: 0,
+      creatorHintsAvailable: true,
+    }),
+    true,
+  );
+});
+
+test("fast-start draft path triggers for topical requests with recent grounded facts", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write me a post about xpo onboarding",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: null,
+      hasTopicGrounding: true,
+      groundingSourceCount: 0,
+      turnGroundingCount: 1,
+      creatorHintsAvailable: false,
+    }),
+    true,
+  );
+});
+
+test("fast-start draft path does not trigger without grounding", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write me a post",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: null,
+      hasTopicGrounding: false,
+      groundingSourceCount: 0,
+      turnGroundingCount: 0,
+      creatorHintsAvailable: true,
+    }),
+    false,
+  );
 });
 
 test("selected draft review/edit modes use the revision flow", () => {
