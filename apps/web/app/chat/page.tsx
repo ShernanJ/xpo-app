@@ -9009,7 +9009,7 @@ function ChatPageContent() {
                     className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                   >
                     <Lightbulb className="h-4 w-4 shrink-0" />
-                    <span>Source Vault</span>
+                    <span>Stories &amp; Proof</span>
                   </button>
                   <button
                     type="button"
@@ -9501,7 +9501,7 @@ function ChatPageContent() {
                               <span>
                                 {dismissedAutoSavedSourceByMessageId[message.id]
                                   ? "Won't reuse that source."
-                                  : `Saved for later${
+                                  : `Saved to Stories & Proof${
                                       message.autoSavedSourceMaterials.assets[0]?.title
                                         ? `: ${message.autoSavedSourceMaterials.assets[0].title}`
                                         : "."
@@ -9537,7 +9537,7 @@ function ChatPageContent() {
                             <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/[0.06] px-3 py-1 text-[11px] text-sky-200/90">
                               <BookOpen className="h-3.5 w-3.5" />
                               <span>
-                                Added to reusable sources
+                                Added to Stories &amp; Proof
                                 {message.promotedSourceMaterials.assets[0]?.title
                                   ? `: ${message.promotedSourceMaterials.assets[0].title}`
                                   : "."}
@@ -11358,28 +11358,28 @@ function ChatPageContent() {
             }}
           >
             <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Source Vault
-                  </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-white">
-                    Save reusable grounded source material
-                  </h2>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-                    Add verified stories, playbooks, frameworks, and case studies that Xpo can safely reuse for first-person drafts.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
+                <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Stories &amp; Proof
+                    </p>
+                    <h2 className="mt-3 text-2xl font-semibold text-white">
+                      Teach Xpo a few real stories once
+                    </h2>
+                    <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                      Save real stories, wins, lessons, and frameworks so Xpo can write grounded posts without inventing details or asking the same thing twice.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
                     onClick={() => {
                       resetSourceMaterialDraft();
                       setSourceMaterialsNotice(null);
                     }}
                     className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
                   >
-                    New
+                    New story
                   </button>
                   <button
                     type="button"
@@ -11387,7 +11387,7 @@ function ChatPageContent() {
                     disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
                     className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:border-white/5 disabled:text-zinc-500"
                   >
-                    Seed
+                    Import yours
                   </button>
                   <button
                     type="button"
@@ -11408,6 +11408,26 @@ function ChatPageContent() {
               </div>
 
               <div className="overflow-y-auto px-6 py-6">
+                <div className="mb-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Why this exists
+                  </p>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-300">
+                    Add a few things that are true about you or your work, and Xpo can reuse them in drafts without guessing.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs text-zinc-400">
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                      a launch story
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                      a repeatable playbook
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                      a lesson you keep coming back to
+                    </span>
+                  </div>
+                </div>
+
                 {sourceMaterialsNotice ? (
                   <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200">
                     {sourceMaterialsNotice}
@@ -11418,12 +11438,12 @@ function ChatPageContent() {
                   <div className="min-h-0 rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-white">Saved assets</p>
+                        <p className="text-sm font-semibold text-white">Saved stories and proof</p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Verified assets can authorize first-person claims.
+                          Verified items are safe for first-person details in drafts.
                         </p>
                         <p className="mt-1 text-xs text-zinc-600">
-                          Seed imports from onboarding anchors and grounded draft history.
+                          Import pulls from onboarding anchors and grounded draft history.
                         </p>
                       </div>
                       <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
@@ -11488,7 +11508,7 @@ function ChatPageContent() {
                         })
                       ) : (
                         <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-6 text-sm leading-7 text-zinc-400">
-                          No source materials yet. Add a verified story, framework, or playbook so Xpo has reusable facts instead of guessing.
+                          Nothing saved yet. Add one real story or framework so Xpo has something true to reuse instead of guessing.
                         </div>
                       )}
                     </div>
@@ -11498,10 +11518,10 @@ function ChatPageContent() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-white">
-                          {sourceMaterialDraft.id ? "Edit asset" : "New asset"}
+                          {sourceMaterialDraft.id ? "Edit saved item" : "Add something true"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Keep facts explicit. Keep unsupported details in do-not-claim.
+                          Start simple. Add the real thing you want Xpo to remember.
                         </p>
                       </div>
                       {sourceMaterialDraft.id ? (
@@ -11526,7 +11546,7 @@ function ChatPageContent() {
                             title: event.target.value,
                           }))
                         }
-                        placeholder="Customer onboarding story"
+                        placeholder="We cut onboarding friction by removing the tour"
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
                       />
                     </div>
@@ -11569,9 +11589,9 @@ function ChatPageContent() {
                         }`}
                     >
                       <div>
-                        <p className="text-sm font-medium text-zinc-200">Verified for first-person use</p>
+                        <p className="text-sm font-medium text-zinc-200">Safe for first-person use</p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Turn this on only when the claims are safe to reuse as direct autobiographical facts.
+                          Turn this on only when these details are safe to reuse as direct facts about you or your work.
                         </p>
                       </div>
                       <span
@@ -11586,7 +11606,7 @@ function ChatPageContent() {
                     </button>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">Tags</label>
+                      <label className="text-sm font-medium text-zinc-300">Topics</label>
                       <input
                         type="text"
                         value={sourceMaterialDraft.tagsInput}
@@ -11599,12 +11619,12 @@ function ChatPageContent() {
                         placeholder="onboarding, activation, growth"
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
                       />
-                      <p className="text-xs text-zinc-500">Comma-separated. Used for retrieval, not direct claims.</p>
+                      <p className="text-xs text-zinc-500">Comma-separated. Helps Xpo find the right story later.</p>
                     </div>
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-300">Claims</label>
+                        <label className="text-sm font-medium text-zinc-300">What happened</label>
                         <textarea
                           value={sourceMaterialDraft.claimsInput}
                           onChange={(event) =>
@@ -11614,14 +11634,14 @@ function ChatPageContent() {
                             }))
                           }
                           rows={8}
-                          placeholder={"One claim per line\nI interviewed 30 users before shipping v1"}
+                          placeholder={"One fact per line\nI interviewed 30 users before shipping v1"}
                           className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
                         />
-                        <p className="text-xs text-zinc-500">These are the strongest reusable facts.</p>
+                        <p className="text-xs text-zinc-500">These are the core details Xpo is allowed to lean on.</p>
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-300">Source snippets</label>
+                        <label className="text-sm font-medium text-zinc-300">Helpful wording</label>
                         <textarea
                           value={sourceMaterialDraft.snippetsInput}
                           onChange={(event) =>
@@ -11631,15 +11651,15 @@ function ChatPageContent() {
                             }))
                           }
                           rows={8}
-                          placeholder={"One snippet per line\nWe cut setup friction by simplifying the first-run path"}
+                          placeholder={"One line per snippet\nWe cut setup friction by simplifying the first-run path"}
                           className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
                         />
-                        <p className="text-xs text-zinc-500">Useful raw lines or supporting evidence.</p>
+                        <p className="text-xs text-zinc-500">Raw lines, proof, or phrasing worth remembering.</p>
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">Do not claim</label>
+                      <label className="text-sm font-medium text-zinc-300">Keep private / don&apos;t say</label>
                       <textarea
                         value={sourceMaterialDraft.doNotClaimInput}
                         onChange={(event) =>
@@ -11653,7 +11673,7 @@ function ChatPageContent() {
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
                       />
                       <p className="text-xs text-zinc-500">
-                        Use this for private details, unsupported numbers, or wording that should never appear in a draft.
+                        Use this for private details, unsupported numbers, or wording that should never show up in a draft.
                       </p>
                     </div>
 
