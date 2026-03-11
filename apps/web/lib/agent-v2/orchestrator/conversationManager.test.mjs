@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fc from "fast-check";
 
 import {
   evaluateDraftContextSlots,
@@ -22,6 +23,7 @@ import {
   buildLooseDirectionReply,
 } from "./assistantReplyStyle.ts";
 import {
+  hasStrongDraftCommand,
   isBareIdeationRequest,
   isBareDraftRequest,
   resolveConversationMode,
@@ -44,6 +46,7 @@ import {
 import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker.ts";
+import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
@@ -54,6 +57,66 @@ test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("give me random post i'd use"), true);
   assert.equal(isBareDraftRequest("write me a post about internship hunt"), false);
   assert.equal(isBareDraftRequest("write me a thread about internship hunt"), false);
+});
+
+test("filler-prefixed draft commands still count as bare draft requests", () => {
+  fc.assert(
+    fc.property(
+      fc.constantFrom(
+        "yes",
+        "yeah",
+        "yep",
+        "ok",
+        "okay",
+        "just",
+        "please",
+        "actually",
+        "i mean",
+        "no i mean",
+      ),
+      fc.constantFrom("write me a post", "write me a thread", "draft a post", "make me a post"),
+      fc.constantFrom("", ".", "!", "?"),
+      (prefix, baseCommand, punctuation) => {
+        assert.equal(
+          isBareDraftRequest(`${prefix} ${baseCommand}${punctuation}`),
+          true,
+        );
+      },
+    ),
+    { numRuns: 40 },
+  );
+});
+
+test("draft commands with growth language do not collapse into capability chat", () => {
+  fc.assert(
+    fc.property(
+      fc.constantFrom("write me a post", "draft a post", "make me a post"),
+      fc.constantFrom("to help me grow", "for growth", "for reach", "to grow on x"),
+      (baseCommand, growthTail) => {
+        const message = `${baseCommand} ${growthTail}`;
+
+        assert.equal(hasStrongDraftCommand(message), true);
+        assert.equal(
+          getDeterministicChatReply({
+            userMessage: message,
+            recentHistory: "",
+            userContextString: "",
+            activeConstraints: [],
+          }),
+          null,
+        );
+        assert.equal(
+          resolveConversationMode({
+            explicitIntent: null,
+            userMessage: message,
+            classifiedIntent: "coach",
+          }),
+          "plan",
+        );
+      },
+    ),
+    { numRuns: 20 },
+  );
 });
 
 test("generic ideation prompts are detected deterministically", () => {
@@ -273,6 +336,33 @@ test("specific thread draft requests auto-draft from the planner path", () => {
 
   assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
   assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+});
+
+test("growth phrasing inside a draft request does not route to coach chat", () => {
+  const turnPlan = planTurn({
+    userMessage: "write me a post to help me grow",
+    recentHistory: "assistant: none",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      activeConstraints: [],
+      assistantTurnCount: 0,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.notEqual(turnPlan?.overrideClassifiedIntent, "coach");
+  assert.equal(
+    resolveConversationMode({
+      explicitIntent: null,
+      userMessage: "write me a post to help me grow",
+      classifiedIntent: "coach",
+    }),
+    "plan",
+  );
 });
 
 test("fast-start draft path triggers for bare requests with saved grounded sources", () => {

@@ -1,5 +1,6 @@
 import { extractTopicGrounding } from "./correctionRepair.ts";
 import type { TurnPlan, V2ChatIntent, V2ConversationMemory } from "../contracts/chat";
+import { hasStrongDraftCommand, isBareDraftRequest } from "./conversationManagerLogic.ts";
 
 // ---------------------------------------------------------------------------
 // Deterministic Turn Planner (V3)
@@ -685,6 +686,10 @@ function looksLikeChatQuestion(
 ): boolean {
   // Must be relatively short and contain a chat cue.
   if (original.length > 120) {
+    return false;
+  }
+
+  if (hasStrongDraftCommand(original)) {
     return false;
   }
 

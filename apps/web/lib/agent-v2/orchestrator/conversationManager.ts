@@ -100,6 +100,7 @@ import {
   isMissingSourceMaterialAssetTableError,
 } from "./prismaGuards";
 import {
+  hasStrongDraftCommand,
   isBareDraftRequest,
   isBareIdeationRequest,
   resolveConversationMode,
@@ -754,6 +755,10 @@ function inferAbstractTopicSeed(
   }
 
   if (isBareDraftRequest(trimmed)) {
+    return null;
+  }
+
+  if (hasStrongDraftCommand(trimmed)) {
     return null;
   }
 

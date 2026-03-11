@@ -1,3 +1,5 @@
+import { hasStrongDraftCommand } from "./conversationManagerLogic.ts";
+
 const GREETING_CUES = [
   "hi",
   "hey",
@@ -196,6 +198,10 @@ function looksLikeConversationReset(message: string): boolean {
 function looksLikeCapabilityQuestion(message: string): boolean {
   const normalized = normalizeMessage(message);
   if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  if (hasStrongDraftCommand(message)) {
     return false;
   }
 

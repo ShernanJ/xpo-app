@@ -1,9 +1,47 @@
-export function isBareDraftRequest(message: string): boolean {
-  const normalized = message
+function normalizeDraftIntentMessage(message: string): string {
+  let normalized = message
     .trim()
     .toLowerCase()
     .replace(/[.?!,]+$/, "")
     .replace(/\s+/g, " ");
+
+  const leadInPatterns = [
+    /^(?:yes|yeah|yep|ok|okay|please|actually|just)\s+/,
+    /^(?:no\s+)?i\s+mean\s+/,
+  ];
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of leadInPatterns) {
+      const nextNormalized = normalized.replace(pattern, "");
+      if (nextNormalized !== normalized) {
+        normalized = nextNormalized.trim();
+        changed = true;
+      }
+    }
+  }
+
+  return normalized;
+}
+
+export function hasStrongDraftCommand(message: string): boolean {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized) {
+    return false;
+  }
+
+  if (/\b(?:idea|ideas|angle|angles|brainstorm)\b/.test(normalized)) {
+    return false;
+  }
+
+  return /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?(?:post|thread)\b/.test(
+    normalized,
+  );
+}
+
+export function isBareDraftRequest(message: string): boolean {
+  const normalized = normalizeDraftIntentMessage(message);
   if ([
     "write me a post",
     "write a post for me",
@@ -157,6 +195,10 @@ export function resolveConversationMode(args: {
     ["hello", "hi", "help me grow", "i want to grow"].includes(normalized)
   ) {
     mode = "coach";
+  }
+
+  if (!args.explicitIntent && !args.activeDraft && hasStrongDraftCommand(args.userMessage)) {
+    return "plan";
   }
 
   if (!args.explicitIntent && !args.activeDraft && isBareDraftRequest(args.userMessage)) {
