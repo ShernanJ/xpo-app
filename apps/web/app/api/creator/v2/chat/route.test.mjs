@@ -133,6 +133,8 @@ test("thread payloads build structured thread artifacts with posts", () => {
         snippets: ["We kept the rollout small at first."],
       },
     ],
+    groundingMode: "saved_sources",
+    groundingExplanation: "Built from saved stories and proof you've already taught Xpo to reuse.",
     noveltyNotes: ["avoid mirroring last week's thread hook"],
     threadPostMaxCharacterLimit: 25_000,
     threadFramingStyle: "numbered",
@@ -148,6 +150,11 @@ test("thread payloads build structured thread artifacts with posts", () => {
   assert.equal(payload.draftVersions?.[0]?.artifact?.posts.length, 3);
   assert.equal(payload.draftVersions?.[0]?.artifact?.supportAsset, "pair with a screenshot of the workflow");
   assert.equal(payload.draftArtifacts[0]?.groundingSources[0]?.title, "Launch story");
+  assert.equal(payload.draftArtifacts[0]?.groundingMode, "saved_sources");
+  assert.equal(
+    payload.draftArtifacts[0]?.groundingExplanation,
+    "Built from saved stories and proof you've already taught Xpo to reuse.",
+  );
   assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");
 });
 

@@ -51,6 +51,8 @@ interface DraftPromotionRequest extends Record<string, unknown> {
   voiceTarget?: unknown;
   noveltyNotes?: unknown;
   groundingSources?: unknown;
+  groundingMode?: unknown;
+  groundingExplanation?: unknown;
   threadFramingStyle?: unknown;
 }
 
@@ -77,6 +79,8 @@ function buildDraftArtifactWithLimit(params: {
   supportAsset: string | null;
   maxCharacterLimit: number;
   groundingSources?: DraftArtifactDetails["groundingSources"];
+  groundingMode?: DraftArtifactDetails["groundingMode"];
+  groundingExplanation?: DraftArtifactDetails["groundingExplanation"];
   posts?: string[];
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
@@ -90,6 +94,8 @@ function buildDraftArtifactWithLimit(params: {
     content: params.content,
     supportAsset: params.supportAsset,
     ...(params.groundingSources?.length ? { groundingSources: params.groundingSources } : {}),
+    ...(params.groundingMode ? { groundingMode: params.groundingMode } : {}),
+    ...(params.groundingExplanation ? { groundingExplanation: params.groundingExplanation } : {}),
     ...(params.posts?.length ? { posts: params.posts } : {}),
     ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
     ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
@@ -243,6 +249,17 @@ export async function POST(
             : [],
         }))
     : [];
+  const groundingMode =
+    body.groundingMode === "saved_sources" ||
+    body.groundingMode === "current_chat" ||
+    body.groundingMode === "mixed" ||
+    body.groundingMode === "safe_framework"
+      ? body.groundingMode
+      : null;
+  const groundingExplanation =
+    typeof body.groundingExplanation === "string" && body.groundingExplanation.trim()
+      ? body.groundingExplanation.trim()
+      : null;
   const threadFramingStyle =
     body.threadFramingStyle === "none" ||
     body.threadFramingStyle === "soft_signal" ||
@@ -289,6 +306,8 @@ export async function POST(
       supportAsset,
       maxCharacterLimit,
       ...(groundingSources.length ? { groundingSources } : {}),
+      ...(groundingMode ? { groundingMode } : {}),
+      ...(groundingExplanation ? { groundingExplanation } : {}),
       ...(posts.length ? { posts } : {}),
       ...(replyPlan.length ? { replyPlan } : {}),
       ...(voiceTarget ? { voiceTarget } : {}),

@@ -45,6 +45,7 @@ import {
   inferThreadFramingStyleFromPosts,
   inferThreadFramingStyleFromPrompt,
   resolveThreadFramingStyle,
+  type DraftGroundingMode,
   type ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts";
 import { prisma } from "../../db";
@@ -188,6 +189,8 @@ export interface OrchestratorData {
   noveltyNotes?: string[];
   threadFramingStyle?: ThreadFramingStyle | null;
   groundingSources?: GroundingPacketSourceMaterial[];
+  groundingMode?: DraftGroundingMode | null;
+  groundingExplanation?: string | null;
   autoSavedSourceMaterials?: {
     count: number;
     assets: Array<{
@@ -255,6 +258,51 @@ function normalizeHandleForContext(value: string | null | undefined): string | n
 
   const normalized = value.trim().replace(/^@+/, "").toLowerCase();
   return normalized || null;
+}
+
+function buildDraftGroundingSummary(args: {
+  groundingSources: GroundingPacketSourceMaterial[];
+  hasCurrentChatGrounding: boolean;
+  usesSafeFramework: boolean;
+}): {
+  groundingMode: DraftGroundingMode | null;
+  groundingExplanation: string | null;
+} {
+  if (args.groundingSources.length > 0 && args.hasCurrentChatGrounding) {
+    return {
+      groundingMode: "mixed",
+      groundingExplanation:
+        "Built from your saved stories and proof, plus the facts you shared in this chat.",
+    };
+  }
+
+  if (args.groundingSources.length > 0) {
+    return {
+      groundingMode: "saved_sources",
+      groundingExplanation:
+        "Built from saved stories and proof you've already taught Xpo to reuse.",
+    };
+  }
+
+  if (args.usesSafeFramework) {
+    return {
+      groundingMode: "safe_framework",
+      groundingExplanation:
+        "Kept in safe framework mode because there wasn't enough grounded personal proof to make a first-person claim yet.",
+    };
+  }
+
+  if (args.hasCurrentChatGrounding) {
+    return {
+      groundingMode: "current_chat",
+      groundingExplanation: "Built from details you shared in this chat.",
+    };
+  }
+
+  return {
+    groundingMode: null,
+    groundingExplanation: null,
+  };
 }
 
 export function createDefaultConversationServices(): ConversationServices {
@@ -1905,6 +1953,11 @@ User Profile Summary:
   const safeFrameworkConstraint = forceSafeFrameworkModeForTurn
     ? buildSafeFrameworkConstraint(groundingPacket)
     : null;
+  const draftGroundingSummary = buildDraftGroundingSummary({
+    groundingSources: groundingSourcesForTurn,
+    hasCurrentChatGrounding: groundingPacket.turnGrounding.length > 0,
+    usesSafeFramework: Boolean(safeFrameworkConstraint),
+  });
   const baseVoiceTarget = resolveVoiceTarget({
     styleCard,
     userMessage,
@@ -2751,6 +2804,8 @@ User Profile Summary:
           }),
           threadFramingStyle,
           groundingSources: groundingSourcesForTurn,
+          groundingMode: draftGroundingSummary.groundingMode,
+          groundingExplanation: draftGroundingSummary.groundingExplanation,
         },
         memory,
       };
@@ -3466,6 +3521,8 @@ User Profile Summary:
           }),
           threadFramingStyle,
           groundingSources: groundingSourcesForTurn,
+          groundingMode: draftGroundingSummary.groundingMode,
+          groundingExplanation: draftGroundingSummary.groundingExplanation,
         },
         memory,
       };
@@ -3684,6 +3741,8 @@ User Profile Summary:
           noveltyNotes: buildNoveltyNotes({}),
           threadFramingStyle: turnThreadFramingStyle,
           groundingSources: groundingSourcesForTurn,
+          groundingMode: draftGroundingSummary.groundingMode,
+          groundingExplanation: draftGroundingSummary.groundingExplanation,
         },
         memory,
       };
@@ -3837,6 +3896,8 @@ User Profile Summary:
         }),
         threadFramingStyle,
         groundingSources: groundingSourcesForTurn,
+        groundingMode: draftGroundingSummary.groundingMode,
+        groundingExplanation: draftGroundingSummary.groundingExplanation,
       },
       memory,
     };

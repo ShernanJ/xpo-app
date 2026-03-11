@@ -80,6 +80,9 @@ function rebuildArtifact(args: {
     content: args.content,
     supportAsset: args.artifact.supportAsset || null,
     posts: args.artifact.kind === "thread_seed" ? args.content.split(/\n\s*---\s*\n/g) : undefined,
+    groundingSources: args.artifact.groundingSources || [],
+    groundingMode: args.artifact.groundingMode || null,
+    groundingExplanation: args.artifact.groundingExplanation || null,
     replyPlan: args.artifact.replyPlan || [],
     voiceTarget: args.artifact.voiceTarget || null,
     noveltyNotes: args.artifact.noveltyNotes || [],
@@ -316,6 +319,10 @@ export async function PATCH(
       kind: resolveArtifactKindFromOutputShape(nextResult.outputShape) ?? currentArtifact.kind,
       content: nextResult.data.draft,
       supportAsset: nextResult.data.supportAsset || currentArtifact.supportAsset || null,
+      groundingSources: nextResult.data.groundingSources || currentArtifact.groundingSources || [],
+      groundingMode: nextResult.data.groundingMode || currentArtifact.groundingMode || null,
+      groundingExplanation:
+        nextResult.data.groundingExplanation || currentArtifact.groundingExplanation || null,
       voiceTarget: nextResult.data.voiceTarget || currentArtifact.voiceTarget || null,
       noveltyNotes: nextResult.data.noveltyNotes || currentArtifact.noveltyNotes || [],
       ...(currentArtifact.kind === "thread_seed"

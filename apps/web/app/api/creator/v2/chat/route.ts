@@ -539,6 +539,22 @@ export async function POST(request: NextRequest) {
       Array.isArray((resultData as Record<string, unknown>).groundingSources)
         ? ((resultData as Record<string, unknown>).groundingSources as GroundingPacketSourceMaterial[])
         : [];
+    const responseGroundingMode =
+      resultData &&
+      typeof resultData === "object" &&
+      typeof (resultData as Record<string, unknown>).groundingMode === "string"
+        ? ((resultData as Record<string, unknown>).groundingMode as
+            | "saved_sources"
+            | "current_chat"
+            | "mixed"
+            | "safe_framework")
+        : null;
+    const responseGroundingExplanation =
+      resultData &&
+      typeof resultData === "object" &&
+      typeof (resultData as Record<string, unknown>).groundingExplanation === "string"
+        ? ((resultData as Record<string, unknown>).groundingExplanation as string)
+        : null;
     const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
     const draftVersionPayload = buildInitialDraftVersionPayload({
       draft: policyDraft,
@@ -546,6 +562,8 @@ export async function POST(request: NextRequest) {
       supportAsset: (resultData?.supportAsset as string) || null,
       selectedDraftContext,
       groundingSources: responseGroundingSources,
+      groundingMode: responseGroundingMode,
+      groundingExplanation: responseGroundingExplanation,
       voiceTarget: responseVoiceTarget,
       noveltyNotes: responseNoveltyNotes,
       threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),

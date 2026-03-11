@@ -441,6 +441,8 @@ export function buildInitialDraftVersionPayload(args: {
   supportAsset: string | null;
   selectedDraftContext: SelectedDraftContext | null;
   groundingSources?: DraftArtifactDetails["groundingSources"];
+  groundingMode?: DraftArtifactDetails["groundingMode"];
+  groundingExplanation?: DraftArtifactDetails["groundingExplanation"];
   posts?: string[];
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
@@ -480,6 +482,8 @@ export function buildInitialDraftVersionPayload(args: {
     content: args.draft,
     supportAsset: args.supportAsset,
     ...(args.groundingSources?.length ? { groundingSources: args.groundingSources } : {}),
+    ...(args.groundingMode ? { groundingMode: args.groundingMode } : {}),
+    ...(args.groundingExplanation ? { groundingExplanation: args.groundingExplanation } : {}),
     ...(args.posts?.length ? { posts: args.posts } : {}),
     ...(args.replyPlan?.length ? { replyPlan: args.replyPlan } : {}),
     ...(args.voiceTarget ? { voiceTarget: args.voiceTarget } : {}),

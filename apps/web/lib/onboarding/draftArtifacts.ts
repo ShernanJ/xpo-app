@@ -10,6 +10,12 @@ export interface DraftGroundingSource {
   snippets: string[];
 }
 
+export type DraftGroundingMode =
+  | "saved_sources"
+  | "current_chat"
+  | "mixed"
+  | "safe_framework";
+
 export interface DraftArtifactPost {
   id: string;
   content: string;
@@ -30,6 +36,8 @@ export interface DraftArtifactDetails {
   isWithinXLimit: boolean;
   supportAsset: string | null;
   groundingSources: DraftGroundingSource[];
+  groundingMode: DraftGroundingMode | null;
+  groundingExplanation: string | null;
   betterClosers: string[];
   replyPlan: string[];
   voiceTarget: VoiceTarget | null;
@@ -44,6 +52,8 @@ export interface DraftArtifactInput {
   content: string;
   supportAsset: string | null;
   groundingSources?: DraftGroundingSource[];
+  groundingMode?: DraftGroundingMode | null;
+  groundingExplanation?: string | null;
   maxCharacterLimit?: number;
   posts?: string[];
   replyPlan?: string[];
@@ -187,6 +197,8 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     isWithinXLimit,
     supportAsset: params.supportAsset,
     groundingSources: (params.groundingSources || []).slice(0, 2),
+    groundingMode: params.groundingMode ?? null,
+    groundingExplanation: params.groundingExplanation?.trim() || null,
     betterClosers: buildBetterClosers(content, params.kind),
     replyPlan:
       params.replyPlan && params.replyPlan.length > 0
