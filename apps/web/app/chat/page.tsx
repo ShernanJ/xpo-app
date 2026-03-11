@@ -1023,6 +1023,14 @@ function isEmptySourceMaterialDraft(draft: SourceMaterialDraftState): boolean {
   );
 }
 
+function hasAdvancedSourceMaterialDraftFields(draft: SourceMaterialDraftState): boolean {
+  return (
+    draft.tagsInput.trim().length > 0 ||
+    draft.snippetsInput.trim().length > 0 ||
+    draft.doNotClaimInput.trim().length > 0
+  );
+}
+
 function parseCommaSeparatedList(value: string): string[] {
   return dedupePreserveOrder(
     value
@@ -3775,6 +3783,7 @@ function ChatPageContent() {
   const [sourceMaterialDraft, setSourceMaterialDraft] = useState<SourceMaterialDraftState>(
     () => buildEmptySourceMaterialDraft(),
   );
+  const [sourceMaterialAdvancedOpen, setSourceMaterialAdvancedOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
     useState<FeedbackCategory>("feedback");
@@ -4390,9 +4399,12 @@ function ChatPageContent() {
   );
   const resetSourceMaterialDraft = useCallback(() => {
     setSourceMaterialDraft(buildEmptySourceMaterialDraft());
+    setSourceMaterialAdvancedOpen(false);
   }, []);
   const selectSourceMaterial = useCallback((asset: SourceMaterialAsset) => {
-    setSourceMaterialDraft(buildSourceMaterialDraftFromAsset(asset));
+    const nextDraft = buildSourceMaterialDraftFromAsset(asset);
+    setSourceMaterialDraft(nextDraft);
+    setSourceMaterialAdvancedOpen(hasAdvancedSourceMaterialDraftFields(nextDraft));
     setSourceMaterialsNotice(null);
   }, []);
   const loadSourceMaterials = useCallback(async () => {
@@ -11358,29 +11370,29 @@ function ChatPageContent() {
             }}
           >
             <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-                <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                      Stories &amp; Proof
-                    </p>
-                    <h2 className="mt-3 text-2xl font-semibold text-white">
-                      Teach Xpo a few real stories once
-                    </h2>
-                    <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-                      Save real stories, wins, lessons, and frameworks so Xpo can write grounded posts without inventing details or asking the same thing twice.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Stories &amp; Proof
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Teach Xpo a few real stories once
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                    Save real stories, wins, lessons, and frameworks so Xpo can write grounded posts without inventing details or asking the same thing twice.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                     <button
                       type="button"
-                    onClick={() => {
-                      resetSourceMaterialDraft();
-                      setSourceMaterialsNotice(null);
-                    }}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-                  >
-                    New story
-                  </button>
+                      onClick={() => {
+                        resetSourceMaterialDraft();
+                        setSourceMaterialsNotice(null);
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+                    >
+                      New story
+                    </button>
                   <button
                     type="button"
                     onClick={seedSourceMaterials}
@@ -11606,75 +11618,99 @@ function ChatPageContent() {
                     </button>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">Topics</label>
-                      <input
-                        type="text"
-                        value={sourceMaterialDraft.tagsInput}
-                        onChange={(event) =>
-                          setSourceMaterialDraft((current) => ({
-                            ...current,
-                            tagsInput: event.target.value,
-                          }))
-                        }
-                        placeholder="onboarding, activation, growth"
-                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
-                      />
-                      <p className="text-xs text-zinc-500">Comma-separated. Helps Xpo find the right story later.</p>
-                    </div>
-
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-300">What happened</label>
-                        <textarea
-                          value={sourceMaterialDraft.claimsInput}
-                          onChange={(event) =>
-                            setSourceMaterialDraft((current) => ({
-                              ...current,
-                              claimsInput: event.target.value,
-                            }))
-                          }
-                          rows={8}
-                          placeholder={"One fact per line\nI interviewed 30 users before shipping v1"}
-                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
-                        />
-                        <p className="text-xs text-zinc-500">These are the core details Xpo is allowed to lean on.</p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-300">Helpful wording</label>
-                        <textarea
-                          value={sourceMaterialDraft.snippetsInput}
-                          onChange={(event) =>
-                            setSourceMaterialDraft((current) => ({
-                              ...current,
-                              snippetsInput: event.target.value,
-                            }))
-                          }
-                          rows={8}
-                          placeholder={"One line per snippet\nWe cut setup friction by simplifying the first-run path"}
-                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
-                        />
-                        <p className="text-xs text-zinc-500">Raw lines, proof, or phrasing worth remembering.</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">Keep private / don&apos;t say</label>
+                      <label className="text-sm font-medium text-zinc-300">What happened</label>
                       <textarea
-                        value={sourceMaterialDraft.doNotClaimInput}
+                        value={sourceMaterialDraft.claimsInput}
                         onChange={(event) =>
                           setSourceMaterialDraft((current) => ({
                             ...current,
-                            doNotClaimInput: event.target.value,
+                            claimsInput: event.target.value,
                           }))
                         }
-                        rows={5}
-                        placeholder={"One warning per line\nDo not claim exact revenue numbers\nDo not mention customer names"}
+                        rows={6}
+                        placeholder={"One fact per line\nI interviewed 30 users before shipping v1"}
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
                       />
                       <p className="text-xs text-zinc-500">
-                        Use this for private details, unsupported numbers, or wording that should never show up in a draft.
+                        Most people only need a title plus a few true details here.
                       </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <button
+                        type="button"
+                        onClick={() => setSourceMaterialAdvancedOpen((current) => !current)}
+                        className="flex w-full items-center justify-between gap-3 text-left"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-zinc-200">Advanced options</p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Add retrieval topics, proof snippets, or private guardrails only if you need them.
+                          </p>
+                        </div>
+                        {sourceMaterialAdvancedOpen ? (
+                          <ChevronUp className="h-4 w-4 text-zinc-500" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-zinc-500" />
+                        )}
+                      </button>
+
+                      {sourceMaterialAdvancedOpen ? (
+                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Topics</label>
+                            <input
+                              type="text"
+                              value={sourceMaterialDraft.tagsInput}
+                              onChange={(event) =>
+                                setSourceMaterialDraft((current) => ({
+                                  ...current,
+                                  tagsInput: event.target.value,
+                                }))
+                              }
+                              placeholder="onboarding, activation, growth"
+                              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
+                            />
+                            <p className="text-xs text-zinc-500">Comma-separated. Helps Xpo find the right story later.</p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Helpful wording</label>
+                            <textarea
+                              value={sourceMaterialDraft.snippetsInput}
+                              onChange={(event) =>
+                                setSourceMaterialDraft((current) => ({
+                                  ...current,
+                                  snippetsInput: event.target.value,
+                                }))
+                              }
+                              rows={6}
+                              placeholder={"One line per snippet\nWe cut setup friction by simplifying the first-run path"}
+                              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
+                            />
+                            <p className="text-xs text-zinc-500">Raw lines, proof, or phrasing worth remembering.</p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Keep private / don&apos;t say</label>
+                            <textarea
+                              value={sourceMaterialDraft.doNotClaimInput}
+                              onChange={(event) =>
+                                setSourceMaterialDraft((current) => ({
+                                  ...current,
+                                  doNotClaimInput: event.target.value,
+                                }))
+                              }
+                              rows={5}
+                              placeholder={"One warning per line\nDo not claim exact revenue numbers\nDo not mention customer names"}
+                              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
+                            />
+                            <p className="text-xs text-zinc-500">
+                              Use this for private details, unsupported numbers, or wording that should never show up in a draft.
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
                     {sourceMaterialDraft.id ? (
