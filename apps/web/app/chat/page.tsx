@@ -387,6 +387,11 @@ interface SourceMaterialMutationSuccess {
   };
 }
 
+interface SourceMaterialSeedOptions {
+  silentIfEmpty?: boolean;
+  successNotice?: string | null;
+}
+
 interface SourceMaterialsFailure {
   ok: false;
   errors: ValidationError[];
@@ -3092,6 +3097,11 @@ function ChatPageContent() {
 
   const accountName = session?.user?.activeXHandle ?? null;
   const requiresXAccountGate = status === "authenticated" && !accountName;
+  const sourceMaterialsBootstrapKey = useMemo(() => {
+    const normalizedHandle = normalizeAccountHandle(accountName ?? "");
+    const accountKey = normalizedHandle || session?.user?.id?.trim() || "default";
+    return `xpo:stories-proof-bootstrap:${accountKey}`;
+  }, [accountName, session?.user?.id]);
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
@@ -3347,6 +3357,7 @@ function ChatPageContent() {
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const growthGuideSelectedPlaybookRef = useRef<HTMLElement | null>(null);
   const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
+  const sourceMaterialsBootstrapAttemptedRef = useRef<Set<string>>(new Set());
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
@@ -4407,7 +4418,7 @@ function ChatPageContent() {
     setSourceMaterialAdvancedOpen(hasAdvancedSourceMaterialDraftFields(nextDraft));
     setSourceMaterialsNotice(null);
   }, []);
-  const loadSourceMaterials = useCallback(async () => {
+  const loadSourceMaterials = useCallback(async (): Promise<SourceMaterialAsset[]> => {
     setIsSourceMaterialsLoading(true);
 
     try {
@@ -4443,11 +4454,13 @@ function ChatPageContent() {
 
         return current;
       });
+      return nextAssets;
     } catch (error) {
       setSourceMaterials([]);
       setSourceMaterialsNotice(
         error instanceof Error ? error.message : "Failed to load source materials.",
       );
+      return [];
     } finally {
       setIsSourceMaterialsLoading(false);
     }
@@ -4516,9 +4529,13 @@ function ChatPageContent() {
       setIsSourceMaterialsSaving(false);
     }
   }, [sourceMaterialDraft]);
-  const seedSourceMaterials = useCallback(async () => {
+  const seedSourceMaterials = useCallback(async (
+    options: SourceMaterialSeedOptions = {},
+  ): Promise<SourceMaterialAsset[]> => {
     setIsSourceMaterialsSaving(true);
-    setSourceMaterialsNotice(null);
+    if (!options.silentIfEmpty) {
+      setSourceMaterialsNotice(null);
+    }
 
     try {
       const response = await fetch("/api/creator/v2/source-materials/seed", {
@@ -4536,15 +4553,20 @@ function ChatPageContent() {
       }
 
       await loadSourceMaterials();
-      setSourceMaterialsNotice(
-        result.data.assets.length > 0
-          ? `Imported ${result.data.assets.length} source material${result.data.assets.length === 1 ? "" : "s"} from onboarding and grounded drafts.`
-          : "No new source materials were found to import.",
-      );
+      if (result.data.assets.length > 0) {
+        setSourceMaterialsNotice(
+          options.successNotice ??
+            `Imported ${result.data.assets.length} source material${result.data.assets.length === 1 ? "" : "s"} from onboarding and grounded drafts.`,
+        );
+      } else if (!options.silentIfEmpty) {
+        setSourceMaterialsNotice("No new source materials were found to import.");
+      }
+      return result.data.assets;
     } catch (error) {
       setSourceMaterialsNotice(
         error instanceof Error ? error.message : "Failed to import source materials.",
       );
+      return [];
     } finally {
       setIsSourceMaterialsSaving(false);
     }
@@ -4668,8 +4690,50 @@ function ChatPageContent() {
       return;
     }
 
-    void loadSourceMaterials();
-  }, [loadSourceMaterials, sourceMaterialsOpen]);
+    let cancelled = false;
+
+    async function bootstrapSourceMaterials() {
+      const existingAssets = await loadSourceMaterials();
+      if (cancelled || existingAssets.length > 0) {
+        return;
+      }
+
+      const bootstrapKey = sourceMaterialsBootstrapKey;
+      let alreadyAttempted = sourceMaterialsBootstrapAttemptedRef.current.has(bootstrapKey);
+      if (!alreadyAttempted) {
+        try {
+          alreadyAttempted = window.localStorage.getItem(bootstrapKey) === "1";
+        } catch {
+          alreadyAttempted = false;
+        }
+      }
+
+      if (alreadyAttempted) {
+        return;
+      }
+
+      sourceMaterialsBootstrapAttemptedRef.current.add(bootstrapKey);
+      try {
+        window.localStorage.setItem(bootstrapKey, "1");
+      } catch {
+        // Ignore storage failures and keep the in-memory guard.
+      }
+
+      const importedAssets = await seedSourceMaterials({
+        silentIfEmpty: true,
+        successNotice: "Pulled in a few stories from onboarding and grounded drafts to get you started.",
+      });
+
+      if (cancelled || importedAssets.length === 0) {
+        return;
+      }
+    }
+
+    void bootstrapSourceMaterials();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSourceMaterials, seedSourceMaterials, sourceMaterialsBootstrapKey, sourceMaterialsOpen]);
   const effectivePreferenceMaxCharacters = isVerifiedAccount
     ? Math.min(Math.max(preferenceMaxCharacters || 250, 250), 25000)
     : 250;
@@ -11395,7 +11459,9 @@ function ChatPageContent() {
                     </button>
                   <button
                     type="button"
-                    onClick={seedSourceMaterials}
+                    onClick={() => {
+                      void seedSourceMaterials();
+                    }}
                     disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
                     className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:border-white/5 disabled:text-zinc-500"
                   >
