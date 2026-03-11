@@ -47,6 +47,35 @@ interface GroundingStyleCard {
   } | null;
 }
 
+const GROUNDING_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "for",
+  "from",
+  "i",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "of",
+  "on",
+  "our",
+  "that",
+  "the",
+  "this",
+  "to",
+  "us",
+  "was",
+  "we",
+  "with",
+]);
+
 function normalizeLine(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
@@ -91,6 +120,191 @@ function collectNumberTokens(values: string[]): string[] {
   );
 }
 
+function normalizeComparable(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s%]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripForbiddenPrefix(value: string): string {
+  return normalizeLine(
+    value
+      .replace(
+        /^(?:do not|don't|dont|never)\s+(?:claim|say|mention|write|reuse)\s+/i,
+        "",
+      )
+      .replace(/^(?:do not|don't|dont|never)\s+/i, ""),
+  );
+}
+
+function collectComparableTokens(value: string): string[] {
+  return normalizeComparable(value)
+    .split(" ")
+    .map((token) => {
+      const normalized = token.trim();
+      if (normalized.length > 4 && normalized.endsWith("s")) {
+        return normalized.slice(0, -1);
+      }
+
+      return normalized;
+    })
+    .filter((token) => token.length > 1 && !GROUNDING_STOPWORDS.has(token));
+}
+
+function hasNegationCue(value: string): boolean {
+  return /\b(?:no|not|never|dont|don't|doesnt|doesn't|didnt|didn't|cant|can't|cannot|isnt|isn't|arent|aren't|wasnt|wasn't|werent|weren't|without)\b/i.test(
+    value,
+  );
+}
+
+function invertCorrectionDetail(detail: string): string | null {
+  const normalized = normalizeLine(detail);
+  if (!normalized) {
+    return null;
+  }
+
+  const doesNotMatch = normalized.match(/^(.*)\bdoes(?: not|n't|nt)\s+([a-z]+)(.*)$/i);
+  if (doesNotMatch) {
+    const [, subject, verb, rest] = doesNotMatch;
+    const nextVerb = verb.endsWith("s") ? verb : `${verb}s`;
+    const inverted = normalizeLine(`${subject.trim()} ${nextVerb}${rest}`);
+    return inverted && inverted.toLowerCase() !== normalized.toLowerCase() ? inverted : null;
+  }
+
+  const replacements: Array<[RegExp, string]> = [
+    [/\bdoes not\b/gi, ""],
+    [/\bdoesn't\b/gi, ""],
+    [/\bdoesnt\b/gi, ""],
+    [/\bdo not\b/gi, ""],
+    [/\bdon't\b/gi, ""],
+    [/\bdont\b/gi, ""],
+    [/\bdid not\b/gi, ""],
+    [/\bdidn't\b/gi, ""],
+    [/\bdidnt\b/gi, ""],
+    [/\bis not\b/gi, "is"],
+    [/\bisn't\b/gi, "is"],
+    [/\bisnt\b/gi, "is"],
+    [/\bare not\b/gi, "are"],
+    [/\baren't\b/gi, "are"],
+    [/\barent\b/gi, "are"],
+    [/\bwas not\b/gi, "was"],
+    [/\bwasn't\b/gi, "was"],
+    [/\bwasnt\b/gi, "was"],
+    [/\bwere not\b/gi, "were"],
+    [/\bweren't\b/gi, "were"],
+    [/\bwerent\b/gi, "were"],
+    [/\bcannot\b/gi, "can"],
+    [/\bcan't\b/gi, "can"],
+    [/\bcant\b/gi, "can"],
+    [/\bwill not\b/gi, "will"],
+    [/\bwon't\b/gi, "will"],
+    [/\bwont\b/gi, "will"],
+    [/\bnot a\b/gi, "a"],
+    [/\bnot an\b/gi, "an"],
+    [/\bnot the\b/gi, "the"],
+    [/\bnot\b/gi, ""],
+    [/\bno\b/gi, ""],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    if (!pattern.test(normalized)) {
+      continue;
+    }
+
+    const inverted = normalizeLine(normalized.replace(pattern, replacement));
+    return inverted && inverted.toLowerCase() !== normalized.toLowerCase() ? inverted : null;
+  }
+
+  return null;
+}
+
+function deriveForbiddenClaimsFromCorrectionLocks(activeConstraints: string[]): string[] {
+  return dedupeLines(
+    activeConstraints
+      .filter((entry) => /^Correction lock:/i.test(entry))
+      .map((entry) => entry.replace(/^Correction lock:\s*/i, "").trim())
+      .map(invertCorrectionDetail)
+      .filter((entry): entry is string => Boolean(entry))
+      .map((entry) => `Do not claim ${entry}.`),
+  );
+}
+
+export function conflictsWithGroundingForbiddenClaims(
+  candidate: string,
+  forbiddenClaims: string[],
+): boolean {
+  const normalizedCandidate = normalizeComparable(candidate);
+  if (!normalizedCandidate) {
+    return false;
+  }
+
+  const candidateTokens = Array.from(new Set(collectComparableTokens(candidate)));
+  const candidateHasNegation = hasNegationCue(candidate);
+
+  return forbiddenClaims.some((entry) => {
+    const comparableEntry = normalizeComparable(stripForbiddenPrefix(entry));
+    if (!comparableEntry) {
+      return false;
+    }
+
+    const entryHasNegation = hasNegationCue(comparableEntry);
+    if (candidateHasNegation && !entryHasNegation) {
+      return false;
+    }
+
+    if (
+      normalizedCandidate.includes(comparableEntry) ||
+      comparableEntry.includes(normalizedCandidate)
+    ) {
+      return true;
+    }
+
+    const entryTokens = new Set(collectComparableTokens(comparableEntry));
+    if (candidateTokens.length === 0 || entryTokens.size === 0) {
+      return false;
+    }
+
+    const overlap = candidateTokens.filter((token) => entryTokens.has(token)).length;
+    if (overlap === 0) {
+      return false;
+    }
+
+    const score = overlap / candidateTokens.length;
+    const candidateNumbers = candidate.match(/\b\d[\d,./%a-z]*\b/gi) || [];
+    const entryNumbers = comparableEntry.match(/\b\d[\d,./%a-z]*\b/gi) || [];
+    const sharesNumber =
+      candidateNumbers.length > 0 &&
+      entryNumbers.some((value) =>
+        candidateNumbers.some((candidateValue) => candidateValue.toLowerCase() === value.toLowerCase()),
+      );
+
+    return score >= 0.6 || (score >= 0.4 && sharesNumber);
+  });
+}
+
+export function filterConflictingGroundingStrings(
+  values: string[],
+  forbiddenClaims: string[],
+): string[] {
+  return dedupeLines(values).filter(
+    (value) => !conflictsWithGroundingForbiddenClaims(value, forbiddenClaims),
+  );
+}
+
+export function sanitizeGroundingSourceMaterials<
+  T extends { claims: string[]; snippets: string[] },
+>(sourceMaterials: T[], forbiddenClaims: string[]): T[] {
+  return sourceMaterials
+    .map((asset) => ({
+      ...asset,
+      claims: filterConflictingGroundingStrings(asset.claims || [], forbiddenClaims),
+      snippets: filterConflictingGroundingStrings(asset.snippets || [], forbiddenClaims),
+    }))
+    .filter((asset) => asset.claims.length > 0 || asset.snippets.length > 0);
+}
+
 function getDurableFactsFromStyleCard(styleCard: GroundingStyleCard | null | undefined): string[] {
   if (!styleCard) {
     return [];
@@ -116,30 +330,39 @@ export function buildGroundingPacket(args: {
   activeConstraints: string[];
   extractedFacts?: string[] | null;
 }): GroundingPacket {
-  const durableFacts = dedupeLines([
+  const rawDurableFacts = dedupeLines([
     ...getDurableFactsFromStyleCard(args.styleCard),
     ...extractConstraintGrounding(args.activeConstraints),
   ]);
-  const turnGrounding = dedupeLines([
+  const rawTurnGrounding = dedupeLines([
     ...extractConstraintGrounding(args.activeConstraints),
     ...((args.extractedFacts || []).filter(Boolean)),
   ]);
   const factLedger = args.styleCard?.factLedger;
-  const allowedFirstPersonClaims = dedupeLines([
-    ...(factLedger?.allowedFirstPersonClaims || []),
-    ...durableFacts.filter(looksLikeAutobiographicalClaim),
-    ...turnGrounding.filter(looksLikeAutobiographicalClaim),
-  ]);
   const forbiddenClaims = dedupeLines([
     ...(factLedger?.forbiddenClaims || []),
+    ...deriveForbiddenClaimsFromCorrectionLocks(args.activeConstraints),
     "Do not invent first-person usage, testing, rollout history, metrics, timelines, or named places that are not explicitly grounded.",
   ]);
-  const sourceMaterials = (factLedger?.sourceMaterials || []).map((entry) => ({
-    type: entry.type,
-    title: normalizeLine(entry.title),
-    claims: dedupeLines(entry.claims || []),
-    snippets: dedupeLines(entry.snippets || []),
-  }));
+  const durableFacts = filterConflictingGroundingStrings(rawDurableFacts, forbiddenClaims);
+  const turnGrounding = filterConflictingGroundingStrings(rawTurnGrounding, forbiddenClaims);
+  const allowedFirstPersonClaims = filterConflictingGroundingStrings(
+    [
+      ...(factLedger?.allowedFirstPersonClaims || []),
+      ...durableFacts.filter(looksLikeAutobiographicalClaim),
+      ...turnGrounding.filter(looksLikeAutobiographicalClaim),
+    ],
+    forbiddenClaims,
+  );
+  const sourceMaterials = sanitizeGroundingSourceMaterials(
+    (factLedger?.sourceMaterials || []).map((entry) => ({
+      type: entry.type,
+      title: normalizeLine(entry.title),
+      claims: dedupeLines(entry.claims || []),
+      snippets: dedupeLines(entry.snippets || []),
+    })),
+    forbiddenClaims,
+  );
 
   return {
     durableFacts,

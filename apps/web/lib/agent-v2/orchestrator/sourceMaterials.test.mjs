@@ -184,6 +184,40 @@ test("source material retrieval adds verified claims to the grounding packet", (
   assert.equal(packet.sourceMaterials[0]?.title, "Launch story");
 });
 
+test("source material merge strips claims that conflict with newer forbidden grounding", () => {
+  const packet = mergeSourceMaterialsIntoGroundingPacket({
+    groundingPacket: {
+      durableFacts: ["xpo doesn't generate hashtags automatically"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: ["Do not claim xpo generates hashtags automatically."],
+      unknowns: [],
+      sourceMaterials: [],
+    },
+    sourceMaterials: [
+      {
+        id: "asset_conflict",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Old hashtag workflow",
+        tags: ["hashtags"],
+        verified: true,
+        claims: ["xpo generates hashtags automatically"],
+        snippets: ["We generate hashtags automatically for every post."],
+        doNotClaim: [],
+        lastUsedAt: null,
+        createdAt: new Date("2026-03-01T00:00:00.000Z").toISOString(),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z").toISOString(),
+      },
+    ],
+  });
+
+  assert.equal(packet.durableFacts.includes("xpo generates hashtags automatically"), false);
+  assert.equal(packet.sourceMaterials.length, 0);
+});
+
 test("seed builder imports onboarding anchors and grounded draft sources without duplicates", () => {
   const seeds = buildSeedSourceMaterialInputs({
     examples: {

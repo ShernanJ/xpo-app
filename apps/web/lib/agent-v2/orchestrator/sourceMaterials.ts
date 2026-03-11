@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import type { GroundingPacket } from "./groundingPacket.ts";
+import {
+  sanitizeGroundingSourceMaterials,
+  type GroundingPacket,
+} from "./groundingPacket.ts";
 import type { DraftGroundingSource } from "../../onboarding/draftArtifacts.ts";
 import type {
   CreatorRepresentativeExamples,
@@ -710,24 +713,29 @@ export function mergeSourceMaterialsIntoGroundingPacket(args: {
   groundingPacket: GroundingPacket;
   sourceMaterials: SourceMaterialAssetRecord[];
 }): GroundingPacket {
-  if (args.sourceMaterials.length === 0) {
+  const sanitizedSourceMaterials = sanitizeGroundingSourceMaterials(
+    args.sourceMaterials,
+    args.groundingPacket.forbiddenClaims,
+  );
+
+  if (sanitizedSourceMaterials.length === 0) {
     return args.groundingPacket;
   }
 
   const addedClaims = dedupeList(
-    args.sourceMaterials.flatMap((asset) => asset.claims),
+    sanitizedSourceMaterials.flatMap((asset) => asset.claims),
   );
   const addedAutobiographicalClaims = addedClaims.filter(looksAutobiographical);
   const addedNumbers = dedupeList(
     addedClaims.flatMap((claim) => claim.match(/\b\d[\d,./%]*\b/g) || []),
   );
   const addedForbiddenClaims = dedupeList(
-    args.sourceMaterials.flatMap((asset) => asset.doNotClaim),
+    sanitizedSourceMaterials.flatMap((asset) => asset.doNotClaim),
   );
   const existingSourceMaterialKeys = new Set(
     args.groundingPacket.sourceMaterials.map((asset) => `${asset.type}:${asset.title}`.toLowerCase()),
   );
-  const mergedSourceMaterials = args.sourceMaterials
+  const mergedSourceMaterials = sanitizedSourceMaterials
     .filter((asset) => {
       const key = `${asset.type}:${asset.title}`.toLowerCase();
       if (existingSourceMaterialKeys.has(key)) {

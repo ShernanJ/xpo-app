@@ -479,6 +479,53 @@ test("grounding packet normalizes legacy durable facts and flags missing product
   assert.equal(hasAutobiographicalGrounding(packet), true);
 });
 
+test("grounding packet lets correction locks override stale positive facts and source material", () => {
+  const packet = buildGroundingPacket({
+    styleCard: {
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      pacing: "direct",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: [],
+      customGuidelines: [],
+      contextAnchors: ["xpo generates hashtags automatically"],
+      factLedger: {
+        durableFacts: ["xpo generates hashtags automatically"],
+        allowedFirstPersonClaims: ["We generate hashtags automatically for every post."],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        sourceMaterials: [
+          {
+            type: "story",
+            title: "Hashtag workflow",
+            claims: ["xpo generates hashtags automatically"],
+            snippets: ["We generate hashtags automatically for every post."],
+          },
+        ],
+      },
+      antiExamples: [],
+    },
+    activeConstraints: ["Correction lock: xpo doesn't generate hashtags automatically"],
+    extractedFacts: null,
+  });
+
+  assert.equal(
+    packet.durableFacts.includes("xpo doesn't generate hashtags automatically"),
+    true,
+  );
+  assert.equal(packet.durableFacts.includes("xpo generates hashtags automatically"), false);
+  assert.equal(
+    packet.forbiddenClaims.some((entry) => /do not claim xpo generates hashtags automatically/i.test(entry)),
+    true,
+  );
+  assert.equal(
+    packet.allowedFirstPersonClaims.includes("We generate hashtags automatically for every post."),
+    false,
+  );
+  assert.equal(packet.sourceMaterials.length, 0);
+});
+
 test("safe framework constraint forbids autobiographical invention when facts are thin", () => {
   const packet = {
     durableFacts: ["xpo helps people write better on x"],
