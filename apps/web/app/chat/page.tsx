@@ -994,7 +994,7 @@ function buildEmptySourceMaterialDraft(): SourceMaterialDraftState {
     id: null,
     title: "",
     type: "story",
-    verified: false,
+    verified: true,
     tagsInput: "",
     claimsInput: "",
     snippetsInput: "",
@@ -1056,6 +1056,29 @@ function parseLineSeparatedList(value: string): string[] {
 
 function formatSourceMaterialTypeLabel(type: SourceMaterialType): string {
   return formatEnumLabel(type);
+}
+
+function normalizeSourceMaterialLookupValue(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function deriveSourceMaterialTitle(draft: SourceMaterialDraftState): string {
+  const explicitTitle = draft.title.trim();
+  if (explicitTitle.length >= 3) {
+    return explicitTitle;
+  }
+
+  const firstClaim = parseLineSeparatedList(draft.claimsInput)[0];
+  if (firstClaim) {
+    return firstClaim.slice(0, 72);
+  }
+
+  const firstSnippet = parseLineSeparatedList(draft.snippetsInput)[0];
+  if (firstSnippet) {
+    return firstSnippet.slice(0, 72);
+  }
+
+  return `Saved ${formatSourceMaterialTypeLabel(draft.type).toLowerCase()}`;
 }
 
 function sortSourceMaterials(assets: SourceMaterialAsset[]): SourceMaterialAsset[] {
@@ -3835,6 +3858,7 @@ function ChatPageContent() {
     () => buildEmptySourceMaterialDraft(),
   );
   const [sourceMaterialAdvancedOpen, setSourceMaterialAdvancedOpen] = useState(false);
+  const [sourceMaterialsLibraryOpen, setSourceMaterialsLibraryOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
     useState<FeedbackCategory>("feedback");
@@ -4451,11 +4475,13 @@ function ChatPageContent() {
   const resetSourceMaterialDraft = useCallback(() => {
     setSourceMaterialDraft(buildEmptySourceMaterialDraft());
     setSourceMaterialAdvancedOpen(false);
+    setSourceMaterialsLibraryOpen(false);
   }, []);
   const selectSourceMaterial = useCallback((asset: SourceMaterialAsset) => {
     const nextDraft = buildSourceMaterialDraftFromAsset(asset);
     setSourceMaterialDraft(nextDraft);
     setSourceMaterialAdvancedOpen(hasAdvancedSourceMaterialDraftFields(nextDraft));
+    setSourceMaterialsLibraryOpen(true);
     setSourceMaterialsNotice(null);
   }, []);
   const loadSourceMaterials = useCallback(async (): Promise<SourceMaterialAsset[]> => {
@@ -4483,13 +4509,7 @@ function ChatPageContent() {
             return buildSourceMaterialDraftFromAsset(activeAsset);
           }
 
-          return nextAssets[0]
-            ? buildSourceMaterialDraftFromAsset(nextAssets[0])
-            : buildEmptySourceMaterialDraft();
-        }
-
-        if (isEmptySourceMaterialDraft(current) && nextAssets[0]) {
-          return buildSourceMaterialDraftFromAsset(nextAssets[0]);
+          return buildEmptySourceMaterialDraft();
         }
 
         return current;
@@ -4505,12 +4525,62 @@ function ChatPageContent() {
       setIsSourceMaterialsLoading(false);
     }
   }, []);
+  const openSourceMaterialEditor = useCallback(
+    async (params: {
+      assetId?: string | null;
+      title?: string | null;
+      fallbackNotice?: string;
+    }) => {
+      setSourceMaterialsOpen(true);
+      setSourceMaterialsNotice(null);
+
+      const normalizedTitle = normalizeSourceMaterialLookupValue(params.title);
+      let assets = sourceMaterials;
+      const needsRefresh =
+        assets.length === 0 ||
+        (params.assetId && !assets.some((asset) => asset.id === params.assetId)) ||
+        (normalizedTitle &&
+          !assets.some(
+            (asset) => normalizeSourceMaterialLookupValue(asset.title) === normalizedTitle,
+          ));
+
+      if (needsRefresh) {
+        assets = await loadSourceMaterials();
+      }
+
+      const matchedAsset =
+        (params.assetId
+          ? assets.find((asset) => asset.id === params.assetId)
+          : null) ||
+        (normalizedTitle
+          ? assets.find(
+            (asset) => normalizeSourceMaterialLookupValue(asset.title) === normalizedTitle,
+          )
+          : null);
+
+      if (matchedAsset) {
+        selectSourceMaterial(matchedAsset);
+        return;
+      }
+
+      resetSourceMaterialDraft();
+      setSourceMaterialsLibraryOpen(true);
+      setSourceMaterialsNotice(
+        params.fallbackNotice ||
+          "Couldn't find that saved source, but you can review or add it here.",
+      );
+    },
+    [loadSourceMaterials, resetSourceMaterialDraft, selectSourceMaterial, sourceMaterials],
+  );
   const saveSourceMaterial = useCallback(async () => {
-    const title = sourceMaterialDraft.title.trim();
-    if (title.length < 3) {
-      setSourceMaterialsNotice("Add a source title with at least 3 characters.");
+    const claims = parseLineSeparatedList(sourceMaterialDraft.claimsInput);
+    const snippets = parseLineSeparatedList(sourceMaterialDraft.snippetsInput);
+    if (claims.length === 0 && snippets.length === 0) {
+      setSourceMaterialsNotice("Add one real story, lesson, or proof point first.");
       return;
     }
+
+    const title = deriveSourceMaterialTitle(sourceMaterialDraft);
 
     setIsSourceMaterialsSaving(true);
     setSourceMaterialsNotice(null);
@@ -4522,8 +4592,8 @@ function ChatPageContent() {
           title,
           verified: sourceMaterialDraft.verified,
           tags: parseCommaSeparatedList(sourceMaterialDraft.tagsInput),
-          claims: parseLineSeparatedList(sourceMaterialDraft.claimsInput),
-          snippets: parseLineSeparatedList(sourceMaterialDraft.snippetsInput),
+          claims,
+          snippets,
           doNotClaim: parseLineSeparatedList(sourceMaterialDraft.doNotClaimInput),
         },
       };
@@ -4557,9 +4627,11 @@ function ChatPageContent() {
           ...current.filter((asset) => asset.id !== savedAsset.id),
         ]),
       );
-      setSourceMaterialDraft(buildSourceMaterialDraftFromAsset(savedAsset));
+      setSourceMaterialDraft(buildEmptySourceMaterialDraft());
+      setSourceMaterialAdvancedOpen(false);
+      setSourceMaterialsLibraryOpen(true);
       setSourceMaterialsNotice(
-        isEditing ? "Source material updated." : "Source material saved.",
+        isEditing ? "Updated. Xpo will reuse the latest version." : "Saved. Xpo can now reuse that without asking again.",
       );
     } catch (error) {
       setSourceMaterialsNotice(
@@ -4642,11 +4714,8 @@ function ChatPageContent() {
 
       setSourceMaterials((current) => {
         const nextAssets = current.filter((asset) => asset.id !== draftId);
-        setSourceMaterialDraft(
-          nextAssets[0]
-            ? buildSourceMaterialDraftFromAsset(nextAssets[0])
-            : buildEmptySourceMaterialDraft(),
-        );
+        setSourceMaterialDraft(buildEmptySourceMaterialDraft());
+        setSourceMaterialAdvancedOpen(false);
         return nextAssets;
       });
       setSourceMaterialsNotice("Source material deleted.");
@@ -9026,9 +9095,17 @@ function ChatPageContent() {
                                 <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-200">
                                   {candidate.artifact.groundingSources.slice(0, 2).map((source, index) => (
                                     <li key={`${candidate.id}-grounding-${index}`}>
-                                      <span className="font-semibold text-emerald-200">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void openSourceMaterialEditor({
+                                            title: source.title,
+                                          });
+                                        }}
+                                        className="font-semibold text-emerald-200 transition hover:text-white"
+                                      >
                                         {source.title}
-                                      </span>
+                                      </button>
                                       {summarizeGroundingSource(source)
                                         ? ` · ${summarizeGroundingSource(source)}`
                                         : ""}
@@ -9181,6 +9258,7 @@ function ChatPageContent() {
                   <button
                     type="button"
                     onClick={() => {
+                      resetSourceMaterialDraft();
                       setSourceMaterialsNotice(null);
                       setSourceMaterialsOpen(true);
                     }}
@@ -9686,6 +9764,21 @@ function ChatPageContent() {
                                     }`}
                               </span>
                               {!dismissedAutoSavedSourceByMessageId[message.id] &&
+                              message.autoSavedSourceMaterials.assets[0] ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void openSourceMaterialEditor({
+                                      assetId: message.autoSavedSourceMaterials!.assets[0].id,
+                                      title: message.autoSavedSourceMaterials!.assets[0].title,
+                                    });
+                                  }}
+                                  className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white"
+                                >
+                                  Review
+                                </button>
+                              ) : null}
+                              {!dismissedAutoSavedSourceByMessageId[message.id] &&
                               message.autoSavedSourceMaterials.assets.some(
                                 (asset) => asset.deletable,
                               ) ? (
@@ -9720,6 +9813,20 @@ function ChatPageContent() {
                                   ? `: ${message.promotedSourceMaterials.assets[0].title}`
                                   : "."}
                               </span>
+                              {message.promotedSourceMaterials.assets[0] ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void openSourceMaterialEditor({
+                                      assetId: message.promotedSourceMaterials!.assets[0].id,
+                                      title: message.promotedSourceMaterials!.assets[0].title,
+                                    });
+                                  }}
+                                  className="inline-flex items-center rounded-full border border-sky-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-sky-100 transition hover:border-sky-300/40 hover:text-white"
+                                >
+                                  Review
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
 
@@ -9908,9 +10015,17 @@ function ChatPageContent() {
                                             <ul className="mt-2 space-y-1.5 text-xs leading-6 text-zinc-200">
                                               {artifact.groundingSources.slice(0, 2).map((source, sourceIndex) => (
                                                 <li key={`${artifact.id}-grounding-${sourceIndex}`}>
-                                                  <span className="font-semibold text-emerald-200">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      void openSourceMaterialEditor({
+                                                        title: source.title,
+                                                      });
+                                                    }}
+                                                    className="font-semibold text-emerald-200 transition hover:text-white"
+                                                  >
                                                     {source.title}
-                                                  </span>
+                                                  </button>
                                                   {summarizeGroundingSource(source)
                                                     ? ` · ${summarizeGroundingSource(source)}`
                                                     : ""}
@@ -11556,23 +11671,13 @@ function ChatPageContent() {
                     Stories &amp; Proof
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold text-white">
-                    Teach Xpo a few real stories once
+                    Teach Xpo one true thing in under a minute
                   </h2>
                   <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-                    Save real stories, wins, lessons, and frameworks so Xpo can write grounded posts without inventing details or asking the same thing twice.
+                    Add one real story, lesson, or repeatable playbook. Xpo will reuse it in drafts so it stops guessing and stops asking again.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        resetSourceMaterialDraft();
-                        setSourceMaterialsNotice(null);
-                      }}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-                    >
-                      New story
-                    </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -11581,15 +11686,7 @@ function ChatPageContent() {
                     disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
                     className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:border-white/5 disabled:text-zinc-500"
                   >
-                    Import yours
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveSourceMaterial}
-                    disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
-                    className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                  >
-                    {isSourceMaterialsSaving ? "Saving" : "Save"}
+                    Auto-fill what Xpo already knows
                   </button>
                   <button
                     type="button"
@@ -11628,109 +11725,53 @@ function ChatPageContent() {
                   </div>
                 ) : null}
 
-                <div className="grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
-                  <div className="min-h-0 rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-white">Saved stories and proof</p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          Verified items are safe for first-person details in drafts.
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-600">
-                          Import pulls from onboarding anchors and grounded draft history.
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                        {sourceMaterials.length} total
-                      </span>
-                    </div>
-
-                    <div className="mt-5 space-y-2">
-                      {isSourceMaterialsLoading ? (
-                        <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-zinc-400">
-                          Loading source materials...
-                        </div>
-                      ) : sourceMaterials.length > 0 ? (
-                        sourceMaterials.map((asset) => {
-                          const isSelected = sourceMaterialDraft.id === asset.id;
-
-                          return (
-                            <button
-                              key={asset.id}
-                              type="button"
-                              onClick={() => selectSourceMaterial(asset)}
-                              className={`w-full rounded-2xl border px-4 py-4 text-left transition ${isSelected
-                                ? "border-white/20 bg-white/[0.08] text-white"
-                                : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/[0.04]"
-                                }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-white">
-                                    {asset.title}
-                                  </p>
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                      {formatSourceMaterialTypeLabel(asset.type)}
-                                    </span>
-                                    {asset.verified ? (
-                                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
-                                        Verified
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
-                              </div>
-
-                              {asset.tags.length > 0 ? (
-                                <p className="mt-3 text-xs leading-6 text-zinc-400">
-                                  {asset.tags.slice(0, 4).join(" · ")}
-                                </p>
-                              ) : null}
-
-                              <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-zinc-600">
-                                Updated {new Date(asset.updatedAt).toLocaleString()}
-                              </p>
-                              {asset.lastUsedAt ? (
-                                <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-zinc-600">
-                                  Last used {new Date(asset.lastUsedAt).toLocaleString()}
-                                </p>
-                              ) : null}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-6 text-sm leading-7 text-zinc-400">
-                          Nothing saved yet. Add one real story or framework so Xpo has something true to reuse instead of guessing.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
+                <div className="space-y-6">
                   <div className="space-y-5 rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-white">
-                          {sourceMaterialDraft.id ? "Edit saved item" : "Add something true"}
+                          {sourceMaterialDraft.id ? "Edit this saved item" : "Add something true"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Start simple. Add the real thing you want Xpo to remember.
+                          Keep it simple. One story, one lesson, or one repeatable playbook is enough.
                         </p>
                       </div>
-                      {sourceMaterialDraft.id ? (
-                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                          Existing
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                          Draft
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetSourceMaterialDraft();
+                          setSourceMaterialsNotice(null);
+                        }}
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:bg-white/[0.04]"
+                      >
+                        {sourceMaterialDraft.id ? "Add new" : "Clear"}
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        "We cut onboarding friction by removing the product tour.",
+                        "Our hiring playbook is publish the work, ask for a demo, skip resume theater.",
+                        "The lesson: most activation problems are really clarity problems.",
+                      ].map((example) => (
+                        <button
+                          key={example}
+                          type="button"
+                          onClick={() =>
+                            setSourceMaterialDraft((current) => ({
+                              ...current,
+                              claimsInput: example,
+                            }))
+                          }
+                          className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                        >
+                          {example}
+                        </button>
+                      ))}
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">Title</label>
+                      <label className="text-sm font-medium text-zinc-300">Optional title</label>
                       <input
                         type="text"
                         value={sourceMaterialDraft.title}
@@ -11740,13 +11781,13 @@ function ChatPageContent() {
                             title: event.target.value,
                           }))
                         }
-                        placeholder="We cut onboarding friction by removing the tour"
+                        placeholder="Leave blank and Xpo will name it from the story"
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-sm font-medium text-zinc-300">Type</p>
+                      <p className="text-sm font-medium text-zinc-300">What kind of thing is this?</p>
                       <div className="flex flex-wrap gap-2">
                         {(["story", "playbook", "framework", "case_study"] as SourceMaterialType[]).map((type) => (
                           <button
@@ -11783,9 +11824,9 @@ function ChatPageContent() {
                         }`}
                     >
                       <div>
-                        <p className="text-sm font-medium text-zinc-200">Safe for first-person use</p>
+                        <p className="text-sm font-medium text-zinc-200">Safe to reuse in first-person drafts</p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          Turn this on only when these details are safe to reuse as direct facts about you or your work.
+                          Leave this on when this is genuinely true and safe for Xpo to say as your story, lesson, or proof.
                         </p>
                       </div>
                       <span
@@ -11800,7 +11841,7 @@ function ChatPageContent() {
                     </button>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-300">What happened</label>
+                      <label className="text-sm font-medium text-zinc-300">What should Xpo remember?</label>
                       <textarea
                         value={sourceMaterialDraft.claimsInput}
                         onChange={(event) =>
@@ -11810,11 +11851,11 @@ function ChatPageContent() {
                           }))
                         }
                         rows={6}
-                        placeholder={"One fact per line\nI interviewed 30 users before shipping v1"}
+                        placeholder={"Write it the way you'd say it.\nWe cut onboarding friction by removing the tour.\nI interviewed 30 users before shipping v1."}
                         className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-600"
                       />
                       <p className="text-xs text-zinc-500">
-                        Most people only need a title plus a few true details here.
+                        One or two lines is usually enough.
                       </p>
                     </div>
 
@@ -11912,6 +11953,117 @@ function ChatPageContent() {
                           <Trash2 className="h-3.5 w-3.5" />
                           Delete
                         </button>
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+                      <p className="text-xs text-zinc-500">
+                        {sourceMaterialDraft.id
+                          ? "Update this if the wording changed."
+                          : "You only need one good entry to reduce guessing."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={saveSourceMaterial}
+                        disabled={isSourceMaterialsLoading || isSourceMaterialsSaving}
+                        className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                      >
+                        {isSourceMaterialsSaving ? "Saving" : sourceMaterialDraft.id ? "Update" : "Save for later"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <button
+                      type="button"
+                      onClick={() => setSourceMaterialsLibraryOpen((current) => !current)}
+                      className="flex w-full items-center justify-between gap-3 text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-white">Saved stories and proof</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Open this only if you want to review, edit, or delete what Xpo already knows.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                          {sourceMaterials.length} total
+                        </span>
+                        {sourceMaterialsLibraryOpen ? (
+                          <ChevronUp className="h-4 w-4 text-zinc-500" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-zinc-500" />
+                        )}
+                      </div>
+                    </button>
+
+                    {!sourceMaterialsLibraryOpen && sourceMaterials.length > 0 ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {sourceMaterials.slice(0, 3).map((asset) => (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            onClick={() => selectSourceMaterial(asset)}
+                            className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                          >
+                            {asset.title}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {sourceMaterialsLibraryOpen ? (
+                      <div className="mt-5 space-y-2">
+                        {isSourceMaterialsLoading ? (
+                          <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-zinc-400">
+                            Loading saved stories...
+                          </div>
+                        ) : sourceMaterials.length > 0 ? (
+                          sourceMaterials.map((asset) => {
+                            const isSelected = sourceMaterialDraft.id === asset.id;
+
+                            return (
+                              <button
+                                key={asset.id}
+                                type="button"
+                                onClick={() => selectSourceMaterial(asset)}
+                                className={`w-full rounded-2xl border px-4 py-4 text-left transition ${isSelected
+                                  ? "border-white/20 bg-white/[0.08] text-white"
+                                  : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/[0.04]"
+                                  }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-white">
+                                      {asset.title}
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                        {formatSourceMaterialTypeLabel(asset.type)}
+                                      </span>
+                                      {asset.verified ? (
+                                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
+                                          Reusable
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
+                                </div>
+
+                                {asset.tags.length > 0 ? (
+                                  <p className="mt-3 text-xs leading-6 text-zinc-400">
+                                    {asset.tags.slice(0, 4).join(" · ")}
+                                  </p>
+                                ) : null}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-6 text-sm leading-7 text-zinc-400">
+                            Nothing saved yet. Add one real story or playbook above and Xpo will start reusing it.
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </div>
