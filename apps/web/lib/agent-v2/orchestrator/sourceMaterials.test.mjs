@@ -102,8 +102,50 @@ test("source material retrieval only selects verified relevant assets", () => {
 
   assert.deepEqual(
     selected.map((asset) => asset.id),
-    ["asset_1", "asset_3"],
+    ["asset_1"],
   );
+});
+
+test("source material retrieval prefers recent approved assets over older seeded matches", () => {
+  const now = Date.now();
+  const selected = selectRelevantSourceMaterials({
+    userMessage: "write a post about the xpo launch rollout and what changed after shipping",
+    topicSummary: null,
+    assets: [
+      {
+        id: "asset_old_seed",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Xpo launch story",
+        tags: ["launch", "xpo", "story"],
+        verified: true,
+        claims: ["I launched Xpo in public and kept the rollout narrow."],
+        snippets: ["We started with a small rollout."],
+        doNotClaim: [],
+        lastUsedAt: null,
+        createdAt: new Date(now - 190 * 86_400_000).toISOString(),
+        updatedAt: new Date(now - 190 * 86_400_000).toISOString(),
+      },
+      {
+        id: "asset_recent_approved",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Xpo rollout lesson",
+        tags: ["launch", "xpo", "approved_draft", "accepted_output"],
+        verified: true,
+        claims: ["After shipping Xpo, we kept the first rollout intentionally small."],
+        snippets: ["That rollout constraint changed how I think about launches."],
+        doNotClaim: [],
+        lastUsedAt: new Date(now - 2 * 86_400_000).toISOString(),
+        createdAt: new Date(now - 10 * 86_400_000).toISOString(),
+        updatedAt: new Date(now - 2 * 86_400_000).toISOString(),
+      },
+    ],
+  });
+
+  assert.equal(selected[0]?.id, "asset_recent_approved");
 });
 
 test("source material retrieval adds verified claims to the grounding packet", () => {
@@ -333,6 +375,8 @@ test("approved draft promotion builds verified source assets from grounding sour
   assert.equal(promoted.length, 1);
   assert.equal(promoted[0]?.verified, true);
   assert.equal(promoted[0]?.title, "Onboarding lesson");
+  assert.equal(promoted[0]?.tags.includes("approved_draft"), true);
+  assert.equal(promoted[0]?.tags.includes("accepted_output"), true);
   assert.equal(
     promoted[0]?.snippets.some((entry) => /default product education/i.test(entry)),
     true,
