@@ -150,6 +150,65 @@ function looksLikeCommandOrQuestion(value: string): boolean {
   );
 }
 
+function getRecentAssistantPrompt(recentHistory: string): string | null {
+  const lines = recentHistory
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reverse();
+
+  for (const line of lines) {
+    const match = line.match(/^assistant:\s*(.+)$/i);
+    if (!match?.[1]) {
+      continue;
+    }
+
+    return normalizeLine(match[1]);
+  }
+
+  return null;
+}
+
+function looksLikeAssistantAnswer(value: string, recentHistory: string): boolean {
+  const recentAssistantPrompt = getRecentAssistantPrompt(recentHistory);
+  if (!recentAssistantPrompt || !/[?]$/.test(recentAssistantPrompt)) {
+    return false;
+  }
+
+  const normalized = value.trim();
+  if (normalized.length < 24 || looksLikeCommandOrQuestion(normalized)) {
+    return false;
+  }
+
+  return (
+    looksAutobiographical(normalized) ||
+    /\b(?:it|this)\s+(?:helps|does|lets|works|cuts|removes|improves|reduces|rewrites|turns)\b/i.test(
+      normalized,
+    )
+  );
+}
+
+function looksLikeImperativeOperatingList(value: string): boolean {
+  const lines = value
+    .split(/\r?\n+/)
+    .map(stripSeedLinePrefix)
+    .filter((line) => line.length >= 8);
+
+  if (lines.length < 2) {
+    return false;
+  }
+
+  const imperativeVerbs = /^(?:publish|ask|skip|start|stop|show|ship|share|write|test|keep|cut|remove|use|lead|open|close|answer|focus|document|sell|teach|hire|record|send)\b/i;
+  const imperativeLineCount = lines.filter(
+    (line) =>
+      imperativeVerbs.test(line) &&
+      !looksAutobiographical(line) &&
+      !/[?]$/.test(line),
+  ).length;
+
+  return imperativeLineCount >= 2;
+}
+
 function stripSeedLinePrefix(value: string): string {
   return normalizeLine(
     value
@@ -227,6 +286,10 @@ function inferSourceMaterialTypeFromMessage(value: string): SourceMaterialType |
 
   if (/\b(framework|template|formula|pattern|mental model|system)\b/.test(normalized)) {
     return "framework";
+  }
+
+  if (looksLikeImperativeOperatingList(value)) {
+    return "playbook";
   }
 
   if (
@@ -465,8 +528,9 @@ export function extractAutoSourceMaterialInputs(args: {
   extractedFacts?: string[] | null;
 }): SourceMaterialAssetInput[] {
   const trimmed = args.userMessage.trim();
+  const qualifiesAsAssistantAnswer = looksLikeAssistantAnswer(trimmed, args.recentHistory);
   if (
-    trimmed.length < 48 ||
+    (trimmed.length < 48 && !qualifiesAsAssistantAnswer) ||
     looksLikeCommandOrQuestion(trimmed) ||
     /^assistant:/i.test(trimmed)
   ) {

@@ -345,6 +345,30 @@ test("auto source extractor captures explicit framework messages from chat", () 
   assert.equal(extracted[0]?.claims.includes("Publish the work."), true);
 });
 
+test("auto source extractor captures short concrete answers after assistant questions", () => {
+  const extracted = extractAutoSourceMaterialInputs({
+    userMessage: "we cut the tour and activation went up.",
+    recentHistory: "assistant: what changed when you fixed onboarding?",
+    extractedFacts: null,
+  });
+
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0]?.type, "story");
+  assert.equal(extracted[0]?.claims.includes("we cut the tour and activation went up."), true);
+});
+
+test("auto source extractor infers unlabeled operating lists as playbooks", () => {
+  const extracted = extractAutoSourceMaterialInputs({
+    userMessage: "Publish the work.\nAsk for a demo.\nSkip resume theater.",
+    recentHistory: "",
+    extractedFacts: null,
+  });
+
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0]?.type, "playbook");
+  assert.equal(extracted[0]?.claims.includes("Publish the work."), true);
+});
+
 test("auto source extractor ignores draft commands", () => {
   const extracted = extractAutoSourceMaterialInputs({
     userMessage: "write me a post about onboarding",
