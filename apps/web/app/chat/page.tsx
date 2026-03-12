@@ -34,7 +34,7 @@ import {
 } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
-import { renderMarkdownToHtml } from "@/lib/ui/markdown";
+import { renderMarkdownToHtml, renderStreamingMarkdownToHtml } from "@/lib/ui/markdown";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -9164,13 +9164,17 @@ function ChatPageContent() {
                             message.role === "assistant" &&
                             message.id === latestAssistantMessageId &&
                             (typedAssistantLengths[message.id] ?? 0) < message.content.length ? (
-                              <p className="whitespace-pre-wrap">
-                                {message.content.slice(
-                                  0,
-                                  typedAssistantLengths[message.id] ?? 0,
-                                )}
+                              <div className="space-y-2 text-sm leading-7 text-zinc-100 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-100 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc">
+                                <div
+                                  dangerouslySetInnerHTML={{
+                                    __html: renderStreamingMarkdownToHtml(
+                                      message.content,
+                                      typedAssistantLengths[message.id] ?? 0,
+                                    ),
+                                  }}
+                                />
                                 <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                              </p>
+                              </div>
                             ) : message.role === "assistant" ? (
                               <div
                                 className="space-y-2 text-sm leading-7 text-zinc-100 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-100 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc"

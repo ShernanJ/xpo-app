@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderMarkdownToHtml } from "./markdown.ts";
+import { renderMarkdownToHtml, renderStreamingMarkdownToHtml } from "./markdown.ts";
 
 test("markdown renderer preserves headings, lists, links, and emphasis", () => {
   const html = renderMarkdownToHtml(`# heading
@@ -45,4 +45,14 @@ tweet 2`);
 
   assert.equal(html.includes("<ol><li>hook</li><li>proof</li><li>close</li></ol>"), true);
   assert.equal(html.includes("<p>tweet 1<br />tweet 2</p>"), true);
+});
+
+test("streaming markdown renderer preserves formatting before completion", () => {
+  const html = renderStreamingMarkdownToHtml(`- first item
+- second item
+
+next line`, 31);
+
+  assert.equal(html.includes("<ul><li>first item</li><li>second item</li></ul>"), true);
+  assert.equal(html.includes("<p>nex</p>"), true);
 });

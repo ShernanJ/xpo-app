@@ -122,3 +122,11 @@ export function renderMarkdownToHtml(markdown: string): string {
 
   return html.join("");
 }
+
+export function renderStreamingMarkdownToHtml(markdown: string, visibleLength: number): string {
+  const safeVisibleLength = Number.isFinite(visibleLength)
+    ? Math.max(0, Math.floor(visibleLength))
+    : 0;
+
+  return renderMarkdownToHtml(markdown.slice(0, safeVisibleLength));
+}
