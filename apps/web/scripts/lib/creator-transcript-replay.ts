@@ -289,6 +289,9 @@ export function createReplayConversationSnapshot(
     clarificationQuestionsAsked: envelope.clarificationQuestionsAsked,
     preferredSurfaceMode: envelope.preferredSurfaceMode,
     formatPreference: envelope.formatPreference,
+    activeReplyContext: null,
+    activeReplyArtifactRef: null,
+    selectedReplyOptionId: null,
     voiceFidelity: "balanced",
   };
 }

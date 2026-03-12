@@ -2,6 +2,8 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import type {
   ActiveDraftRef,
+  ActiveReplyArtifactRef,
+  ActiveReplyContext,
   ClarificationState,
   ConversationState,
   DraftFormatPreference,
@@ -34,6 +36,9 @@ export interface UpdateMemoryArgs {
   clarificationQuestionsAsked?: number;
   preferredSurfaceMode?: "natural" | "structured" | null;
   formatPreference?: DraftFormatPreference | null;
+  activeReplyContext?: ActiveReplyContext | null;
+  activeReplyArtifactRef?: ActiveReplyArtifactRef | null;
+  selectedReplyOptionId?: string | null;
 }
 
 interface StoredMemoryEnvelope {
@@ -50,6 +55,9 @@ interface StoredMemoryEnvelope {
   clarificationQuestionsAsked: number;
   preferredSurfaceMode: "natural" | "structured" | null;
   formatPreference: DraftFormatPreference | null;
+  activeReplyContext: ActiveReplyContext | null;
+  activeReplyArtifactRef: ActiveReplyArtifactRef | null;
+  selectedReplyOptionId: string | null;
 }
 
 function normalizeConversationState(value: unknown): ConversationState {
@@ -198,6 +206,120 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
     .filter((item) => item.value && item.label);
 }
 
+function normalizeReplyOption(value: unknown): ActiveReplyContext["latestReplyOptions"][number] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const label = typeof record.label === "string" ? record.label.trim() : "";
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+  if (!id || !label || !text) {
+    return null;
+  }
+
+  const intent =
+    record.intent && typeof record.intent === "object" && !Array.isArray(record.intent)
+      ? (record.intent as Record<string, unknown>)
+      : null;
+
+  return {
+    id,
+    label,
+    text,
+    ...(intent &&
+    typeof intent.label === "string" &&
+    typeof intent.strategyPillar === "string" &&
+    typeof intent.anchor === "string" &&
+    typeof intent.rationale === "string"
+      ? {
+          intent: {
+            label: intent.label,
+            strategyPillar: intent.strategyPillar,
+            anchor: intent.anchor,
+            rationale: intent.rationale,
+          },
+        }
+      : {}),
+  };
+}
+
+function normalizeReplyOptions(value: unknown): ActiveReplyContext["latestReplyOptions"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeReplyOption(entry))
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .slice(0, 6);
+}
+
+function normalizeActiveReplyContext(value: unknown): ActiveReplyContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const sourceText = typeof record.sourceText === "string" ? record.sourceText.trim() : "";
+  const opportunityId = typeof record.opportunityId === "string" ? record.opportunityId.trim() : "";
+  if (!sourceText || !opportunityId) {
+    return null;
+  }
+
+  return {
+    sourceText,
+    sourceUrl: typeof record.sourceUrl === "string" ? record.sourceUrl.trim() || null : null,
+    authorHandle:
+      typeof record.authorHandle === "string" ? record.authorHandle.trim().replace(/^@+/, "").toLowerCase() || null : null,
+    quotedUserAsk: typeof record.quotedUserAsk === "string" ? record.quotedUserAsk.trim() || null : null,
+    confidence:
+      record.confidence === "low" || record.confidence === "medium" || record.confidence === "high"
+        ? record.confidence
+        : "medium",
+    parseReason: typeof record.parseReason === "string" ? record.parseReason : "unknown",
+    awaitingConfirmation: record.awaitingConfirmation === true,
+    stage:
+      record.stage === "0_to_1k" ||
+      record.stage === "1k_to_10k" ||
+      record.stage === "10k_to_50k" ||
+      record.stage === "50k_plus"
+        ? record.stage
+        : "0_to_1k",
+    tone:
+      record.tone === "dry" ||
+      record.tone === "bold" ||
+      record.tone === "builder" ||
+      record.tone === "warm"
+        ? record.tone
+        : "builder",
+    goal: typeof record.goal === "string" ? record.goal.trim() || "followers" : "followers",
+    opportunityId,
+    latestReplyOptions: normalizeReplyOptions(record.latestReplyOptions),
+    latestReplyDraftOptions: normalizeReplyOptions(record.latestReplyDraftOptions),
+    selectedReplyOptionId:
+      typeof record.selectedReplyOptionId === "string" ? record.selectedReplyOptionId.trim() || null : null,
+  };
+}
+
+function normalizeActiveReplyArtifactRef(value: unknown): ActiveReplyArtifactRef | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const messageId = typeof record.messageId === "string" ? record.messageId.trim() : "";
+  if (!messageId) {
+    return null;
+  }
+
+  return {
+    messageId,
+    kind: record.kind === "reply_draft" ? "reply_draft" : "reply_options",
+  };
+}
+
 function normalizeClarificationState(value: unknown): ClarificationState | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -242,6 +364,9 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       clarificationQuestionsAsked: 0,
       preferredSurfaceMode: null,
       formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
     };
   }
 
@@ -260,6 +385,9 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       clarificationQuestionsAsked: 0,
       preferredSurfaceMode: null,
       formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
     };
   }
 
@@ -297,6 +425,10 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       record.formatPreference === "thread"
         ? record.formatPreference
         : null,
+    activeReplyContext: normalizeActiveReplyContext(record.activeReplyContext),
+    activeReplyArtifactRef: normalizeActiveReplyArtifactRef(record.activeReplyArtifactRef),
+    selectedReplyOptionId:
+      typeof record.selectedReplyOptionId === "string" ? record.selectedReplyOptionId.trim() || null : null,
   };
 }
 
@@ -315,6 +447,9 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     clarificationQuestionsAsked: value.clarificationQuestionsAsked,
     preferredSurfaceMode: value.preferredSurfaceMode,
     formatPreference: value.formatPreference,
+    activeReplyContext: value.activeReplyContext,
+    activeReplyArtifactRef: value.activeReplyArtifactRef,
+    selectedReplyOptionId: value.selectedReplyOptionId,
   } as Prisma.InputJsonValue;
 }
 
@@ -346,6 +481,9 @@ export function createConversationMemorySnapshot(
     clarificationQuestionsAsked: envelope.clarificationQuestionsAsked,
     preferredSurfaceMode: envelope.preferredSurfaceMode,
     formatPreference: envelope.formatPreference,
+    activeReplyContext: envelope.activeReplyContext,
+    activeReplyArtifactRef: envelope.activeReplyArtifactRef,
+    selectedReplyOptionId: envelope.selectedReplyOptionId,
     voiceFidelity: "balanced",
   };
 }
@@ -384,6 +522,9 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
           clarificationQuestionsAsked: 0,
           preferredSurfaceMode: null,
           formatPreference: null,
+          activeReplyContext: null,
+          activeReplyArtifactRef: null,
+          selectedReplyOptionId: null,
         }),
         concreteAnswerCount: 0,
       },
@@ -449,6 +590,18 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
         args.formatPreference === undefined
           ? existingSnapshot.formatPreference
           : args.formatPreference,
+      activeReplyContext:
+        args.activeReplyContext === undefined
+          ? existingSnapshot.activeReplyContext
+          : args.activeReplyContext,
+      activeReplyArtifactRef:
+        args.activeReplyArtifactRef === undefined
+          ? existingSnapshot.activeReplyArtifactRef
+          : args.activeReplyArtifactRef,
+      selectedReplyOptionId:
+        args.selectedReplyOptionId === undefined
+          ? existingSnapshot.selectedReplyOptionId
+          : args.selectedReplyOptionId,
     };
 
     const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {

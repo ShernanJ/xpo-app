@@ -282,6 +282,7 @@ interface DraftPromotionSuccess {
       supportAsset: string | null;
       groundingSources?: DraftArtifact["groundingSources"];
       outputShape: CreatorChatSuccess["data"]["outputShape"];
+      replyArtifacts?: ReplyArtifacts | null;
       source: "deterministic";
       model: string | null;
     };
@@ -604,6 +605,8 @@ interface CreatorChatSuccess {
       | "revise_and_return"
       | "offer_options"
       | "generate_full_output";
+    replyArtifacts?: ReplyArtifacts | null;
+    replyParse?: ReplyParseEnvelope | null;
     contextPacket?: {
       version: string;
       summary: string;
@@ -645,6 +648,12 @@ interface CreatorChatSuccess {
       clarificationQuestionsAsked?: number;
       preferredSurfaceMode?: "natural" | "structured" | null;
       formatPreference?: "shortform" | "longform" | "thread" | null;
+      activeReplyContext?: {
+        sourceText: string;
+        sourceUrl: string | null;
+        authorHandle: string | null;
+        selectedReplyOptionId: string | null;
+      } | null;
       voiceFidelity?: "balanced";
     };
   };
@@ -722,6 +731,48 @@ interface DraftBundlePayload {
   options: DraftBundleOption[];
 }
 
+interface ReplyIntentMetadata {
+  label: string;
+  strategyPillar: string;
+  anchor: string;
+  rationale: string;
+}
+
+interface ReplyArtifactOption {
+  id: string;
+  label: string;
+  text: string;
+  intent?: ReplyIntentMetadata;
+}
+
+type ReplyArtifacts =
+  | {
+      kind: "reply_options";
+      sourceText: string;
+      sourceUrl: string | null;
+      authorHandle: string | null;
+      options: ReplyArtifactOption[];
+      groundingNotes: string[];
+      warnings: string[];
+      selectedOptionId: string | null;
+    }
+  | {
+      kind: "reply_draft";
+      sourceText: string;
+      sourceUrl: string | null;
+      authorHandle: string | null;
+      options: ReplyArtifactOption[];
+      notes: string[];
+      selectedOptionId: string | null;
+    };
+
+interface ReplyParseEnvelope {
+  detected: boolean;
+  confidence: "low" | "medium" | "high";
+  needsConfirmation: boolean;
+  parseReason: string;
+}
+
 interface DraftDrawerSelection {
   messageId: string;
   versionId: string;
@@ -778,6 +829,8 @@ interface ChatMessage {
   watchOutFor?: string[];
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
   surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
+  replyArtifacts?: ReplyArtifacts | null;
+  replyParse?: ReplyParseEnvelope | null;
   contextPacket?: {
     version: string;
     summary: string;
@@ -6496,6 +6549,7 @@ function ChatPageContent() {
           supportAsset: data.data.assistantMessage.supportAsset,
           promotedSourceMaterials: data.data.promotedSourceMaterials ?? null,
           outputShape: data.data.assistantMessage.outputShape,
+          replyArtifacts: data.data.assistantMessage.replyArtifacts ?? null,
           feedbackValue: null,
         },
       ]);
@@ -7034,6 +7088,8 @@ function ChatPageContent() {
               autoSavedSourceMaterials: data.data.autoSavedSourceMaterials ?? null,
               outputShape: data.data.outputShape,
               surfaceMode: data.data.surfaceMode,
+              replyArtifacts: data.data.replyArtifacts ?? null,
+              replyParse: data.data.replyParse ?? null,
               feedbackValue: null,
               quickReplies:
                 data.data.quickReplies && data.data.quickReplies.length > 0
@@ -7187,6 +7243,8 @@ function ChatPageContent() {
             autoSavedSourceMaterials: streamedResult.autoSavedSourceMaterials ?? null,
             outputShape: streamedResult.outputShape,
             surfaceMode: streamedResult.surfaceMode,
+            replyArtifacts: streamedResult.replyArtifacts ?? null,
+            replyParse: streamedResult.replyParse ?? null,
             contextPacket: streamedResult.contextPacket ?? null,
             feedbackValue: null,
             quickReplies:
@@ -7473,6 +7531,31 @@ function ChatPageContent() {
         selectedAngle: angle,
         appendUserMessage: true,
         intent: "draft",
+        strategyInputOverride: activeStrategyInputs,
+        toneInputOverride: activeToneInputs,
+        contentFocusOverride: activeContentFocus,
+      });
+    },
+    [
+      activeContentFocus,
+      activeStrategyInputs,
+      activeToneInputs,
+      isMainChatLocked,
+      requestAssistantReply,
+    ],
+  );
+
+  const handleReplyOptionSelect = useCallback(
+    async (optionIndex: number) => {
+      if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
+        return;
+      }
+
+      await requestAssistantReply({
+        prompt: `go with option ${optionIndex + 1}`,
+        displayUserMessage: `> option ${optionIndex + 1}`,
+        includeUserMessageInHistory: false,
+        appendUserMessage: true,
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
         contentFocusOverride: activeContentFocus,
@@ -9446,6 +9529,129 @@ function ChatPageContent() {
                                   {quickReply.label}
                                 </button>
                               ))}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            message.replyArtifacts?.kind === "reply_options" ? (
+                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
+                                  Source Post
+                                </p>
+                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                                  {message.replyArtifacts.sourceText}
+                                </p>
+                                {message.replyArtifacts.authorHandle || message.replyArtifacts.sourceUrl ? (
+                                  <p className="mt-2 text-xs text-zinc-400">
+                                    {message.replyArtifacts.authorHandle
+                                      ? `@${message.replyArtifacts.authorHandle}`
+                                      : message.replyArtifacts.sourceUrl}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                {message.replyArtifacts.options.map((option, optionIndex) => (
+                                  <button
+                                    key={`${message.id}-reply-option-${option.id}`}
+                                    type="button"
+                                    onClick={() => {
+                                      void handleReplyOptionSelect(optionIndex);
+                                    }}
+                                    disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
+                                    className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                      Option {optionIndex + 1}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-white">
+                                      {option.label.replace(/_/g, " ")}
+                                    </p>
+                                    {option.intent?.anchor ? (
+                                      <p className="mt-2 text-xs leading-5 text-emerald-200/80">
+                                        {option.intent.anchor}
+                                      </p>
+                                    ) : null}
+                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                                      {option.text}
+                                    </p>
+                                  </button>
+                                ))}
+                              </div>
+                              {message.replyArtifacts.groundingNotes?.length ? (
+                                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Grounding Notes
+                                  </p>
+                                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-zinc-300">
+                                    {message.replyArtifacts.groundingNotes.map((note, noteIndex) => (
+                                      <li key={`${message.id}-reply-grounding-${noteIndex}`}>{note}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            message.replyArtifacts?.kind === "reply_draft" ? (
+                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                  Reply Drafts
+                                </p>
+                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                                  {message.replyArtifacts.sourceText}
+                                </p>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {message.replyArtifacts.options.map((option) => (
+                                  <div
+                                    key={`${message.id}-reply-draft-${option.id}`}
+                                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                          Variant
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-white">
+                                          {option.label}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void navigator.clipboard.writeText(option.text);
+                                        }}
+                                        className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                                      >
+                                        Copy
+                                      </button>
+                                    </div>
+                                    {option.intent?.anchor ? (
+                                      <p className="mt-2 text-xs leading-5 text-emerald-200/80">
+                                        {option.intent.anchor}
+                                      </p>
+                                    ) : null}
+                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                                      {option.text}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                              {message.replyArtifacts.notes?.length ? (
+                                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Notes
+                                  </p>
+                                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-zinc-300">
+                                    {message.replyArtifacts.notes.map((note, noteIndex) => (
+                                      <li key={`${message.id}-reply-note-${noteIndex}`}>{note}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
 

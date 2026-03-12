@@ -92,6 +92,40 @@ export interface ActiveDraftRef {
   revisionChainId?: string | null;
 }
 
+export interface ActiveReplyArtifactRef {
+  messageId: string;
+  kind: "reply_options" | "reply_draft";
+}
+
+export interface ActiveReplyOption {
+  id: string;
+  label: string;
+  text: string;
+  intent?: {
+    label: string;
+    strategyPillar: string;
+    anchor: string;
+    rationale: string;
+  };
+}
+
+export interface ActiveReplyContext {
+  sourceText: string;
+  sourceUrl: string | null;
+  authorHandle: string | null;
+  quotedUserAsk: string | null;
+  confidence: "low" | "medium" | "high";
+  parseReason: string;
+  awaitingConfirmation: boolean;
+  stage: "0_to_1k" | "1k_to_10k" | "10k_to_50k" | "50k_plus";
+  tone: "dry" | "bold" | "builder" | "warm";
+  goal: string;
+  opportunityId: string;
+  latestReplyOptions: ActiveReplyOption[];
+  latestReplyDraftOptions: ActiveReplyOption[];
+  selectedReplyOptionId: string | null;
+}
+
 export interface V2ConversationMemory {
   conversationState: ConversationState;
   activeConstraints: string[];
@@ -109,6 +143,9 @@ export interface V2ConversationMemory {
   clarificationQuestionsAsked: number;
   preferredSurfaceMode: "natural" | "structured" | null;
   formatPreference: DraftFormatPreference | null;
+  activeReplyContext: ActiveReplyContext | null;
+  activeReplyArtifactRef: ActiveReplyArtifactRef | null;
+  selectedReplyOptionId: string | null;
   voiceFidelity: "balanced";
 }
 

@@ -285,6 +285,43 @@ test("conversation context builder reuses stored assistant plan, draft, and grou
   assert.equal(context.activeDraft, "xpo should feel like one smart operator, not a pile of routing rules.");
 });
 
+test("conversation context builder reuses stored assistant reply artifact context", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      {
+        id: "assistant_reply_1",
+        role: "assistant",
+        content: "pulled 3 grounded reply directions from that post.",
+        data: {
+          contextPacket: {
+            version: "assistant_context_v2",
+            summary: "reply_source: most people optimize for approval first",
+            replyRef: {
+              kind: "reply_options",
+              sourceExcerpt: "most people optimize for approval first",
+              sourceUrl: "https://x.com/creator/status/1",
+              authorHandle: "creator",
+              selectedOptionId: null,
+              optionLabels: ["nuance", "example", "translate"],
+            },
+            replyParse: {
+              detected: true,
+              confidence: "medium",
+              needsConfirmation: false,
+              parseReason: "reply_ask_with_multiline_post_block",
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("assistant_reply:"), true);
+  assert.equal(context.recentHistory.includes("source: most people optimize for approval first"), true);
+  assert.equal(context.recentHistory.includes("options: nuance | example | translate"), true);
+});
+
 test("conversation context builder prefers standardized context packet refs over legacy top-level fields", () => {
   const context = buildConversationContextFromHistory({
     selectedDraftContext: null,

@@ -33,6 +33,8 @@ import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
 import { recordProductEvent } from "@/lib/productEvents";
+import type { GrowthStrategySnapshot } from "@/lib/onboarding/growthStrategy";
+import type { VoiceStyleCard } from "@/lib/agent-v2/core/styleProfile";
 import {
   buildDraftBundleVersionPayload,
   buildInitialDraftVersionPayload,
@@ -52,6 +54,26 @@ import {
   inferCurrentPlaybookStage,
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
+import { buildChatReplyDraft, buildChatReplyOptions } from "@/lib/extension/chatReplyAdapter";
+import type { ExtensionReplyIntentMetadata } from "@/lib/extension/types";
+import {
+  buildEmbeddedPostWithoutReplyPrompt,
+  buildMissingReplyPostPrompt,
+  buildReplyArtifactsFromDraft,
+  buildReplyArtifactsFromOptions,
+  buildReplyConfirmationPrompt,
+  buildReplyDraftQuickReplies,
+  buildReplyOptionsQuickReplies,
+  buildReplyParseEnvelope,
+  buildReplyConfirmationQuickReplies,
+  createEmptyActiveReplyContext,
+  parseEmbeddedReplyRequest,
+  resolveReplyContinuation,
+  type ActiveReplyContext,
+  type ChatReplyArtifacts,
+  type ChatReplyParseEnvelope,
+  type EmbeddedReplyContext,
+} from "./reply.logic";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   threadId?: unknown;
@@ -66,6 +88,9 @@ interface CreatorChatRequest extends Record<string, unknown> {
   threadFramingStyle?: unknown;
   preferenceConstraints?: unknown;
   preferenceSettings?: unknown;
+  replyContext?: unknown;
+  goal?: unknown;
+  toneRisk?: unknown;
 }
 
 const DEFAULT_THREAD_TITLE = "New Chat";
@@ -219,6 +244,90 @@ function clipContextLine(value: string, maxLength: number): string {
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+function buildFallbackGrowthStrategySnapshot(activeHandle: string | null): GrowthStrategySnapshot {
+  return {
+    knownFor: activeHandle ? `${activeHandle}'s niche` : "a clearer niche",
+    targetAudience: "the right people in your niche on X",
+    contentPillars: ["clear positioning", "useful nuance", "proof-first writing"],
+    replyGoals: ["Add one useful layer instead of generic agreement."],
+    profileConversionCues: ["Replies should reinforce the niche the account wants to be known for."],
+    offBrandThemes: ["generic agreement with no point of view"],
+    ambiguities: ["Profile context is thin, so keep reply guidance conservative and grounded to the pasted post."],
+    confidence: {
+      overall: 40,
+      positioning: 35,
+      replySignal: 30,
+      readiness: "caution",
+    },
+    truthBoundary: {
+      verifiedFacts: activeHandle ? [`Active handle: @${activeHandle}`] : [],
+      inferredThemes: ["useful nuance"],
+      unknowns: ["Profile context is thin, so reply recommendations should avoid overclaiming voice patterns."],
+    },
+  };
+}
+
+function resolveChatReplyStage(
+  creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null,
+): ActiveReplyContext["stage"] {
+  const followerBand = creatorAgentContext?.creatorProfile.identity.followerBand;
+  if (followerBand === "1k-10k") {
+    return "1k_to_10k";
+  }
+  if (followerBand === "10k+") {
+    return "10k_to_50k";
+  }
+  return "0_to_1k";
+}
+
+function resolveChatReplyTone(rawValue: unknown): ActiveReplyContext["tone"] {
+  if (rawValue === "bold") {
+    return "bold";
+  }
+
+  return "builder";
+}
+
+function resolveChatReplyGoal(rawValue: unknown): string {
+  return rawValue === "followers" || rawValue === "leads" || rawValue === "authority"
+    ? rawValue
+    : "followers";
+}
+
+function toExtensionReplyIntentMetadata(
+  value:
+    | {
+        label: string;
+        strategyPillar: string;
+        anchor: string;
+        rationale: string;
+      }
+    | null
+    | undefined,
+): ExtensionReplyIntentMetadata | null {
+  if (!value) {
+    return null;
+  }
+
+  if (
+    value.label !== "nuance" &&
+    value.label !== "sharpen" &&
+    value.label !== "disagree" &&
+    value.label !== "example" &&
+    value.label !== "translate" &&
+    value.label !== "known_for"
+  ) {
+    return null;
+  }
+
+  return {
+    label: value.label,
+    strategyPillar: value.strategyPillar,
+    anchor: value.anchor,
+    rationale: value.rationale,
+  };
+}
+
 function buildAssistantContextPacket(args: {
   reply: string;
   plan: StrategyPlan | null;
@@ -232,6 +341,8 @@ function buildAssistantContextPacket(args: {
   groundingExplanation: string | null;
   groundingSources: GroundingPacketSourceMaterial[];
   quickReplies: unknown[];
+  replyArtifacts?: ChatReplyArtifacts | null;
+  replyParse?: ChatReplyParseEnvelope | null;
 }): {
   version: "assistant_context_v2";
   summary: string;
@@ -254,6 +365,15 @@ function buildAssistantContextPacket(args: {
   critique: {
     issuesFixed: string[];
   };
+  replyRef: {
+    kind: "reply_options" | "reply_draft";
+    sourceExcerpt: string;
+    sourceUrl: string | null;
+    authorHandle: string | null;
+    selectedOptionId: string | null;
+    optionLabels: string[];
+  } | null;
+  replyParse: ChatReplyParseEnvelope | null;
   artifacts: {
     outputShape: string;
     surfaceMode: string | null;
@@ -268,6 +388,9 @@ function buildAssistantContextPacket(args: {
     args.draft ? `draft: ${clipContextLine(args.draft, 220)}` : null,
     args.groundingExplanation ? `grounding: ${clipContextLine(args.groundingExplanation, 140)}` : null,
     args.issuesFixed[0] ? `critique: ${clipContextLine(args.issuesFixed[0], 120)}` : null,
+    args.replyArtifacts
+      ? `reply_source: ${clipContextLine(args.replyArtifacts.sourceText, 180)}`
+      : null,
     !args.plan && !args.draft && args.reply
       ? `reply: ${clipContextLine(args.reply, 180)}`
       : null,
@@ -299,6 +422,20 @@ function buildAssistantContextPacket(args: {
     critique: {
       issuesFixed: args.issuesFixed.slice(0, 5),
     },
+    replyRef: args.replyArtifacts
+      ? {
+          kind: args.replyArtifacts.kind,
+          sourceExcerpt: clipContextLine(args.replyArtifacts.sourceText, 220),
+          sourceUrl: args.replyArtifacts.sourceUrl,
+          authorHandle: args.replyArtifacts.authorHandle,
+          selectedOptionId: args.replyArtifacts.selectedOptionId,
+          optionLabels:
+            args.replyArtifacts.kind === "reply_options"
+              ? args.replyArtifacts.options.map((option) => option.label).slice(0, 3)
+              : args.replyArtifacts.options.map((option) => option.label).slice(0, 2),
+        }
+      : null,
+    replyParse: args.replyParse || null,
     artifacts: {
       outputShape: args.outputShape,
       surfaceMode: args.surfaceMode || null,
@@ -342,6 +479,14 @@ export async function POST(request: NextRequest) {
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
   const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
   let selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
+  const structuredReplyContext =
+    body.replyContext && typeof body.replyContext === "object" && !Array.isArray(body.replyContext)
+      ? (body.replyContext as {
+          sourceText?: string | null;
+          sourceUrl?: string | null;
+          authorHandle?: string | null;
+        })
+      : null;
   const preferenceConstraints = Array.isArray(body.preferenceConstraints)
     ? body.preferenceConstraints
         .filter((value): value is string => typeof value === "string")
@@ -585,6 +730,14 @@ export async function POST(request: NextRequest) {
 
     let recentHistoryStr = "None";
     let activeDraft: string | undefined;
+    let storedMemory = createConversationMemorySnapshot(null);
+    let threadMessages: Array<{
+      id: string;
+      role: string;
+      content: string;
+      data: Prisma.JsonValue;
+      createdAt: Date;
+    }> = [];
 
     if (storedThread) {
       const createdUserMessage = await prisma.chatMessage.create({
@@ -598,10 +751,11 @@ export async function POST(request: NextRequest) {
             formatPreference,
             threadFramingStyle,
             selectedDraftContext,
+            replyContext: structuredReplyContext,
           } as Prisma.InputJsonValue,
         }
       });
-      const threadMessages = await prisma.chatMessage.findMany({
+      threadMessages = await prisma.chatMessage.findMany({
         where: { threadId: storedThread.id },
         orderBy: { createdAt: "desc" },
         take: 24,
@@ -613,7 +767,7 @@ export async function POST(request: NextRequest) {
           createdAt: true,
         },
       });
-      const storedMemory = createConversationMemorySnapshot(
+      storedMemory = createConversationMemorySnapshot(
         await getConversationMemory({ threadId: storedThread.id }),
       );
       selectedDraftContext = resolveSelectedDraftContextFromHistory({
@@ -635,6 +789,407 @@ export async function POST(request: NextRequest) {
       });
       recentHistoryStr = context.recentHistory;
       activeDraft = context.activeDraft;
+    }
+
+    const styleCard: VoiceStyleCard | null =
+      parsedPersistedStyleCard?.success ? parsedPersistedStyleCard.data : null;
+    const creatorContextForReply =
+      (creatorAgentContext as { growthStrategySnapshot: GrowthStrategySnapshot } | null) ?? null;
+    const growthPayloadForReply =
+      (growthOsPayload as { replyInsights: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>>["replyInsights"] } | null) ?? null;
+    const replyStrategy: GrowthStrategySnapshot =
+      creatorContextForReply
+        ? creatorContextForReply.growthStrategySnapshot
+        : buildFallbackGrowthStrategySnapshot(activeHandle);
+    const replyInsights =
+      growthPayloadForReply
+        ? growthPayloadForReply.replyInsights
+        : null;
+    const replyParseResult = parseEmbeddedReplyRequest({
+      message: effectiveMessage,
+      replyContext: structuredReplyContext,
+    });
+    const replyContinuation = resolveReplyContinuation({
+      userMessage: effectiveMessage,
+      activeReplyContext: storedMemory.activeReplyContext,
+    });
+    const defaultReplyStage = resolveChatReplyStage(creatorAgentContext);
+    const defaultReplyTone = resolveChatReplyTone(body.toneRisk);
+    const defaultReplyGoal = resolveChatReplyGoal(body.goal);
+
+    const buildNextReplyMemory = (args: {
+      activeReplyContext: ActiveReplyContext | null;
+      selectedReplyOptionId?: string | null;
+    }) => ({
+      ...storedMemory,
+      activeReplyContext: args.activeReplyContext,
+      activeReplyArtifactRef: storedMemory.activeReplyArtifactRef,
+      selectedReplyOptionId:
+        args.selectedReplyOptionId === undefined
+          ? storedMemory.selectedReplyOptionId
+          : args.selectedReplyOptionId,
+      preferredSurfaceMode: "structured" as const,
+    });
+
+    const finalizeReplyAssistantTurn = async (args: {
+      reply: string;
+      outputShape: "coach_question" | "reply_candidate";
+      surfaceMode:
+        | "answer_directly"
+        | "ask_one_question"
+        | "offer_options"
+        | "generate_full_output";
+      quickReplies: unknown[];
+      activeReplyContext: ActiveReplyContext | null;
+      selectedReplyOptionId?: string | null;
+      replyArtifacts?: ChatReplyArtifacts | null;
+      replyParse?: ChatReplyParseEnvelope | null;
+      eventType?: string;
+    }) => {
+      const nextMemory = buildNextReplyMemory({
+        activeReplyContext: args.activeReplyContext,
+        selectedReplyOptionId: args.selectedReplyOptionId,
+      });
+      const mappedData = {
+        reply: args.reply,
+        angles: [],
+        quickReplies: args.quickReplies,
+        plan: null,
+        draft: null,
+        drafts: [],
+        draftArtifacts: [],
+        supportAsset: null,
+        outputShape: args.outputShape,
+        surfaceMode: args.surfaceMode,
+        memory: nextMemory,
+        threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
+        billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
+        replyArtifacts: args.replyArtifacts || null,
+        replyParse: args.replyParse || null,
+        contextPacket: buildAssistantContextPacket({
+          reply: args.reply,
+          plan: null,
+          draft: null,
+          outputShape: args.outputShape,
+          surfaceMode: args.surfaceMode,
+          issuesFixed: [],
+          groundingMode: null,
+          groundingExplanation: null,
+          groundingSources: [],
+          quickReplies: args.quickReplies,
+          replyArtifacts: args.replyArtifacts || null,
+          replyParse: args.replyParse || null,
+        }),
+      };
+
+      let createdAssistantMessageId: string | undefined;
+      if (storedThread) {
+        const assistantMessage = await prisma.chatMessage.create({
+          data: {
+            threadId: storedThread.id,
+            role: "assistant",
+            content: mappedData.reply,
+            data: mappedData as unknown as Prisma.InputJsonValue,
+          },
+        });
+        createdAssistantMessageId = assistantMessage.id;
+        await updateConversationMemory({
+          threadId: storedThread.id,
+          preferredSurfaceMode: "structured",
+          activeReplyContext: args.activeReplyContext,
+          activeReplyArtifactRef: args.replyArtifacts
+            ? {
+                messageId: assistantMessage.id,
+                kind: args.replyArtifacts.kind,
+              }
+            : null,
+          selectedReplyOptionId:
+            args.selectedReplyOptionId === undefined ? null : args.selectedReplyOptionId,
+        });
+        await prisma.chatThread.update({
+          where: { id: storedThread.id },
+          data: { updatedAt: new Date() },
+        });
+      }
+
+      if (args.eventType) {
+        void recordProductEvent({
+          userId: session.user.id,
+          xHandle: activeHandle,
+          threadId: storedThread?.id ?? null,
+          messageId: createdAssistantMessageId ?? null,
+          eventType: args.eventType,
+          properties: {
+            outputShape: args.outputShape,
+            surfaceMode: args.surfaceMode,
+            replyArtifactKind: args.replyArtifacts?.kind ?? null,
+            replyParseConfidence: args.replyParse?.confidence ?? null,
+          },
+        }).catch((error) =>
+          console.error(`Failed to record ${args.eventType} event:`, error),
+        );
+      }
+
+      mappedData.billing = await getBillingStateForUser(effectiveUserId);
+
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            ...mappedData,
+            ...(createdAssistantMessageId ? { messageId: createdAssistantMessageId } : {}),
+            newThreadId: !threadId && storedThread ? storedThread.id : undefined,
+          },
+        },
+        { status: 200 },
+      );
+    };
+
+    const activeReplyContext = storedMemory.activeReplyContext;
+    const selectedReplyIntent = toExtensionReplyIntentMetadata(
+      activeReplyContext?.latestReplyOptions.find(
+        (option) => option.id === activeReplyContext.selectedReplyOptionId,
+      )?.intent || activeReplyContext?.latestReplyOptions[0]?.intent,
+    );
+
+    if (replyContinuation?.type === "decline" && activeReplyContext) {
+      return await finalizeReplyAssistantTurn({
+        reply: "ok. paste the exact post text or x url you want help with when you're ready.",
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: [],
+        activeReplyContext: null,
+        selectedReplyOptionId: null,
+        replyParse: {
+          detected: true,
+          confidence: activeReplyContext.confidence,
+          needsConfirmation: false,
+          parseReason: "reply_confirmation_declined",
+        },
+      });
+    }
+
+    if (
+      (replyContinuation?.type === "confirm" && activeReplyContext) ||
+      (replyParseResult.classification === "reply_request_with_embedded_post" &&
+        replyParseResult.context?.confidence === "high")
+    ) {
+      const sourceContext =
+        activeReplyContext ||
+        createEmptyActiveReplyContext({
+          sourceText: replyParseResult.context?.sourceText || "",
+          sourceUrl: replyParseResult.context?.sourceUrl || null,
+          authorHandle: replyParseResult.context?.authorHandle || null,
+          quotedUserAsk: replyParseResult.context?.quotedUserAsk || null,
+          confidence: replyParseResult.context?.confidence || "high",
+          parseReason: replyParseResult.context?.parseReason || "reply_request_with_embedded_post",
+          awaitingConfirmation: false,
+          stage: defaultReplyStage,
+          tone: defaultReplyTone,
+          goal: defaultReplyGoal,
+        });
+      const strategyPillar =
+        selectedReplyIntent?.strategyPillar ||
+        replyStrategy.contentPillars[0] ||
+        replyStrategy.knownFor;
+      const generated = buildChatReplyOptions({
+        source: {
+          opportunityId: sourceContext.opportunityId,
+          sourceText: sourceContext.sourceText,
+          sourceUrl: sourceContext.sourceUrl,
+          authorHandle: sourceContext.authorHandle,
+        },
+        strategy: replyStrategy,
+        strategyPillar,
+        styleCard,
+        replyInsights,
+        stage: sourceContext.stage,
+        tone: sourceContext.tone,
+        goal: sourceContext.goal,
+      });
+      const nextReplyContext: ActiveReplyContext = {
+        ...sourceContext,
+        awaitingConfirmation: false,
+        latestReplyOptions: generated.response.options,
+        latestReplyDraftOptions: [],
+        selectedReplyOptionId: null,
+      };
+      return await finalizeReplyAssistantTurn({
+        reply: "pulled 3 grounded reply directions from that post.",
+        outputShape: "reply_candidate",
+        surfaceMode: "offer_options",
+        quickReplies: buildReplyOptionsQuickReplies(generated.response.options.length),
+        activeReplyContext: nextReplyContext,
+        selectedReplyOptionId: null,
+        replyArtifacts: buildReplyArtifactsFromOptions({
+          context: nextReplyContext,
+          response: generated.response,
+        }),
+        replyParse: buildReplyParseEnvelope(replyParseResult) || {
+          detected: true,
+          confidence: sourceContext.confidence,
+          needsConfirmation: false,
+          parseReason: sourceContext.parseReason,
+        },
+        eventType: "chat_reply_options_generated",
+      });
+    }
+
+    if (replyContinuation?.type === "select_option" && activeReplyContext) {
+      const selectedOption = activeReplyContext.latestReplyOptions[replyContinuation.optionIndex];
+      if (selectedOption) {
+        const generated = buildChatReplyDraft({
+          source: {
+            opportunityId: activeReplyContext.opportunityId,
+            sourceText: activeReplyContext.sourceText,
+            sourceUrl: activeReplyContext.sourceUrl,
+            authorHandle: activeReplyContext.authorHandle,
+          },
+          strategy: replyStrategy,
+          replyInsights,
+          stage: activeReplyContext.stage,
+          tone: activeReplyContext.tone,
+          goal: activeReplyContext.goal,
+          selectedIntent: toExtensionReplyIntentMetadata(selectedOption.intent) || undefined,
+        });
+        const nextReplyContext: ActiveReplyContext = {
+          ...activeReplyContext,
+          latestReplyDraftOptions: generated.response.options,
+          selectedReplyOptionId: selectedOption.id,
+        };
+        return await finalizeReplyAssistantTurn({
+          reply: `ran with option ${replyContinuation.optionIndex + 1} and turned it into a reply draft.`,
+          outputShape: "reply_candidate",
+          surfaceMode: "generate_full_output",
+          quickReplies: buildReplyDraftQuickReplies(),
+          activeReplyContext: nextReplyContext,
+          selectedReplyOptionId: selectedOption.id,
+          replyArtifacts: buildReplyArtifactsFromDraft({
+            context: nextReplyContext,
+            response: generated.response,
+          }),
+          replyParse: {
+            detected: true,
+            confidence: activeReplyContext.confidence,
+            needsConfirmation: false,
+            parseReason: "reply_option_selected",
+          },
+          eventType: "chat_reply_draft_generated",
+        });
+      }
+    }
+
+    if (replyContinuation?.type === "revise_draft" && activeReplyContext) {
+      const generated = buildChatReplyDraft({
+        source: {
+          opportunityId: activeReplyContext.opportunityId,
+          sourceText: activeReplyContext.sourceText,
+          sourceUrl: activeReplyContext.sourceUrl,
+          authorHandle: activeReplyContext.authorHandle,
+        },
+        strategy: replyStrategy,
+        replyInsights,
+        stage: activeReplyContext.stage,
+        tone: replyContinuation.tone,
+        goal: activeReplyContext.goal,
+        selectedIntent: selectedReplyIntent || undefined,
+        length: replyContinuation.length,
+      });
+      const nextReplyContext: ActiveReplyContext = {
+        ...activeReplyContext,
+        tone: replyContinuation.tone,
+        latestReplyDraftOptions: generated.response.options,
+      };
+      return await finalizeReplyAssistantTurn({
+        reply:
+          replyContinuation.length === "shorter"
+            ? "tightened the reply while keeping the same grounded angle."
+            : replyContinuation.tone === "bold"
+              ? "pushed the reply bolder without inventing anything."
+              : replyContinuation.tone === "warm"
+                ? "softened the reply without losing the point."
+                : "updated the reply and kept it grounded to the same post.",
+        outputShape: "reply_candidate",
+        surfaceMode: "generate_full_output",
+        quickReplies: buildReplyDraftQuickReplies(),
+        activeReplyContext: nextReplyContext,
+        selectedReplyOptionId: activeReplyContext.selectedReplyOptionId,
+        replyArtifacts: buildReplyArtifactsFromDraft({
+          context: nextReplyContext,
+          response: generated.response,
+        }),
+        replyParse: {
+          detected: true,
+          confidence: activeReplyContext.confidence,
+          needsConfirmation: false,
+          parseReason: "reply_draft_revised",
+        },
+        eventType: "chat_reply_draft_revised",
+      });
+    }
+
+    if (
+      replyParseResult.classification === "reply_request_with_embedded_post" &&
+      replyParseResult.context?.confidence === "medium"
+    ) {
+      const nextReplyContext = createEmptyActiveReplyContext({
+        sourceText: replyParseResult.context.sourceText,
+        sourceUrl: replyParseResult.context.sourceUrl,
+        authorHandle: replyParseResult.context.authorHandle,
+        quotedUserAsk: replyParseResult.context.quotedUserAsk,
+        confidence: replyParseResult.context.confidence,
+        parseReason: replyParseResult.context.parseReason,
+        awaitingConfirmation: true,
+        stage: defaultReplyStage,
+        tone: defaultReplyTone,
+        goal: defaultReplyGoal,
+      });
+      return await finalizeReplyAssistantTurn({
+        reply: buildReplyConfirmationPrompt(replyParseResult.context),
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: buildReplyConfirmationQuickReplies(),
+        activeReplyContext: nextReplyContext,
+        replyParse: buildReplyParseEnvelope(replyParseResult),
+      });
+    }
+
+    if (replyParseResult.classification === "reply_request_missing_post") {
+      return await finalizeReplyAssistantTurn({
+        reply: buildMissingReplyPostPrompt(),
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: [],
+        activeReplyContext: null,
+        selectedReplyOptionId: null,
+        replyParse: buildReplyParseEnvelope(replyParseResult),
+      });
+    }
+
+    if (
+      replyParseResult.classification === "embedded_post_without_reply_request" &&
+      replyParseResult.context
+    ) {
+      const nextReplyContext = createEmptyActiveReplyContext({
+        sourceText: replyParseResult.context.sourceText,
+        sourceUrl: replyParseResult.context.sourceUrl,
+        authorHandle: replyParseResult.context.authorHandle,
+        quotedUserAsk: null,
+        confidence: replyParseResult.context.confidence,
+        parseReason: replyParseResult.context.parseReason,
+        awaitingConfirmation: true,
+        stage: defaultReplyStage,
+        tone: defaultReplyTone,
+        goal: defaultReplyGoal,
+      });
+      return await finalizeReplyAssistantTurn({
+        reply: buildEmbeddedPostWithoutReplyPrompt(replyParseResult.context),
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: [],
+        activeReplyContext: nextReplyContext,
+        replyParse: buildReplyParseEnvelope(replyParseResult),
+      });
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
@@ -875,6 +1430,8 @@ export async function POST(request: NextRequest) {
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
       memory: result.memory,
+      replyArtifacts: null,
+      replyParse: null,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
       billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
       contextPacket: buildAssistantContextPacket({
@@ -915,6 +1472,8 @@ export async function POST(request: NextRequest) {
           responseShapePlan.shouldShowArtifacts && Array.isArray(resultData?.quickReplies)
             ? (resultData.quickReplies as unknown[])
             : [],
+        replyArtifacts: null,
+        replyParse: null,
       }),
     };
     let createdAssistantMessageId: string | undefined;

@@ -181,3 +181,31 @@ test("buildExtensionReplyDraft can bias toward a converting learned reply intent
     true,
   );
 });
+
+test("buildExtensionReplyDraft can stay locked to a selected reply intent", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_6",
+      tweetText: "Replies only work when they add a real layer instead of agreement.",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/6",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    selectedIntent: {
+      label: "example",
+      strategyPillar: "proof-first posting",
+      anchor: "proof | concrete example",
+      rationale: "Use a concrete example so the reply adds proof instead of agreement.",
+    },
+  });
+
+  assert.equal(result.angleLabel, "example");
+  assert.equal(result.strategyPillar, "proof-first posting");
+  assert.equal(
+    result.response.options.every((option) => option.intent?.label === "example"),
+    true,
+  );
+});

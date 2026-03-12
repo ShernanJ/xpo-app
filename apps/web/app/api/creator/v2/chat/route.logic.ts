@@ -632,6 +632,18 @@ export function buildConversationContextFromHistory(args: {
       !Array.isArray(contextPacket.critique)
         ? (contextPacket.critique as Record<string, unknown>)
         : null;
+    const replyRef =
+      contextPacket?.replyRef &&
+      typeof contextPacket.replyRef === "object" &&
+      !Array.isArray(contextPacket.replyRef)
+        ? (contextPacket.replyRef as Record<string, unknown>)
+        : null;
+    const replyParse =
+      contextPacket?.replyParse &&
+      typeof contextPacket.replyParse === "object" &&
+      !Array.isArray(contextPacket.replyParse)
+        ? (contextPacket.replyParse as Record<string, unknown>)
+        : null;
 
     if (contextSummary) {
       blocks.push(`assistant_context:\n${contextSummary}`);
@@ -704,6 +716,28 @@ export function buildConversationContextFromHistory(args: {
         : [];
     if (issuesFixed.length > 0) {
       blocks.push(`assistant_critique:\n${issuesFixed.map((issue) => `- ${clip(issue, 160)}`).join("\n")}`);
+    }
+
+    if (replyRef && typeof replyRef.sourceExcerpt === "string" && replyRef.sourceExcerpt.trim()) {
+      const replyLines = [
+        `- source: ${clip(replyRef.sourceExcerpt, 180)}`,
+        typeof replyRef.authorHandle === "string" && replyRef.authorHandle.trim()
+          ? `- author: @${replyRef.authorHandle.trim().replace(/^@+/, "")}`
+          : null,
+        Array.isArray(replyRef.optionLabels) && replyRef.optionLabels.length > 0
+          ? `- options: ${replyRef.optionLabels
+              .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+              .slice(0, 3)
+              .map((label) => clip(label, 48))
+              .join(" | ")}`
+          : null,
+        replyParse && replyParse.confidence
+          ? `- parse confidence: ${String(replyParse.confidence)}`
+          : null,
+      ].filter((value): value is string => Boolean(value));
+      if (replyLines.length > 0) {
+        blocks.push(`assistant_reply:\n${replyLines.join("\n")}`);
+      }
     }
 
     const titles = extractAngleTitles(entry);

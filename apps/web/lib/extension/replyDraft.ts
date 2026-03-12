@@ -8,6 +8,7 @@ import { collectKeywords, normalizeWhitespace, sanitizeReplyText } from "./reply
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionReplyDraftRequest,
+  ExtensionReplyIntentMetadata,
   ExtensionReplyDraftResponse,
   ExtensionReplyOption,
   ExtensionReplyTone,
@@ -138,13 +139,23 @@ export function buildExtensionReplyDraft(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
+  selectedIntent?: ExtensionReplyIntentMetadata;
 }): ExtensionReplyDraftBuildResult {
-  const intentPlan = buildReplyIntentPlanForDraft({
-    sourceText: args.request.tweetText,
-    goal: args.request.goal,
-    strategy: args.strategy,
-    replyInsights: args.replyInsights,
-  });
+  const intentPlan = args.selectedIntent
+    ? {
+        angleLabel: args.selectedIntent.label,
+        label: args.selectedIntent.label,
+        focusPhrase: pickFocusPhrase(args.request.tweetText),
+        strategyPillar: args.selectedIntent.strategyPillar,
+        rationale: args.selectedIntent.rationale,
+        anchor: args.selectedIntent.anchor,
+      }
+    : buildReplyIntentPlanForDraft({
+        sourceText: args.request.tweetText,
+        goal: args.request.goal,
+        strategy: args.strategy,
+        replyInsights: args.replyInsights,
+      });
   const strategyPillar = intentPlan.strategyPillar;
   const angleLabel = intentPlan.angleLabel;
   const focusPhrase = intentPlan.focusPhrase ?? pickFocusPhrase(args.request.tweetText);
