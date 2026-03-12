@@ -122,6 +122,22 @@ export interface StoredOpportunityNotes {
     copiedReplyId?: string | null;
     copiedReplyLabel?: string | null;
     copiedReplyText?: string | null;
+    followConversionOutcome?: {
+      observedAtIso: string;
+      metrics: {
+        likeCount: number;
+        replyCount: number;
+        profileClicks?: number;
+        followerDelta?: number;
+      };
+      intentLabel?: string | null;
+      intentAnchor?: string | null;
+      intentStrategyPillar?: string | null;
+      intentRationale?: string | null;
+      selectedReplyId?: string | null;
+      hasProfileClickSignal?: boolean;
+      hasFollowConversionSignal?: boolean;
+    } | null;
     lastLoggedEvent?: string | null;
   };
 }
@@ -292,6 +308,75 @@ function asReplyIntent(
 ): NonNullable<StoredOpportunityNotes["analytics"]>["copiedReplyIntent"] {
   const [first] = asReplyIntentArray(value ? [value] : []);
   return first || null;
+}
+
+function asFollowConversionOutcome(
+  value: unknown,
+): NonNullable<StoredOpportunityNotes["analytics"]>["followConversionOutcome"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const observedAtIso =
+    typeof record.observedAtIso === "string" && Number.isFinite(Date.parse(record.observedAtIso))
+      ? record.observedAtIso
+      : "";
+  if (!observedAtIso) {
+    return null;
+  }
+
+  const metrics =
+    record.metrics && typeof record.metrics === "object" && !Array.isArray(record.metrics)
+      ? (record.metrics as Record<string, unknown>)
+      : null;
+  if (!metrics) {
+    return null;
+  }
+
+  const likeCount =
+    typeof metrics.likeCount === "number" && Number.isFinite(metrics.likeCount)
+      ? Math.max(0, Math.round(metrics.likeCount))
+      : null;
+  const replyCount =
+    typeof metrics.replyCount === "number" && Number.isFinite(metrics.replyCount)
+      ? Math.max(0, Math.round(metrics.replyCount))
+      : null;
+  if (likeCount === null || replyCount === null) {
+    return null;
+  }
+
+  const profileClicks =
+    typeof metrics.profileClicks === "number" && Number.isFinite(metrics.profileClicks)
+      ? Math.max(0, Math.round(metrics.profileClicks))
+      : undefined;
+  const followerDelta =
+    typeof metrics.followerDelta === "number" && Number.isFinite(metrics.followerDelta)
+      ? Math.round(metrics.followerDelta)
+      : undefined;
+
+  return {
+    observedAtIso,
+    metrics: {
+      likeCount,
+      replyCount,
+      ...(profileClicks !== undefined ? { profileClicks } : {}),
+      ...(followerDelta !== undefined ? { followerDelta } : {}),
+    },
+    intentLabel: typeof record.intentLabel === "string" ? record.intentLabel.trim() || null : null,
+    intentAnchor:
+      typeof record.intentAnchor === "string" ? record.intentAnchor.trim() || null : null,
+    intentStrategyPillar:
+      typeof record.intentStrategyPillar === "string"
+        ? record.intentStrategyPillar.trim() || null
+        : null,
+    intentRationale:
+      typeof record.intentRationale === "string" ? record.intentRationale.trim() || null : null,
+    selectedReplyId:
+      typeof record.selectedReplyId === "string" ? record.selectedReplyId.trim() || null : null,
+    hasProfileClickSignal: Boolean(record.hasProfileClickSignal),
+    hasFollowConversionSignal: Boolean(record.hasFollowConversionSignal),
+  };
 }
 
 function stringifyScoreTier(score: number) {
@@ -1083,6 +1168,9 @@ export function readStoredOpportunityNotes(record: ReplyOpportunity): StoredOppo
               typeof (notes.analytics as Record<string, unknown>).copiedReplyText === "string"
                 ? ((notes.analytics as Record<string, unknown>).copiedReplyText as string)
                 : null,
+            followConversionOutcome: asFollowConversionOutcome(
+              (notes.analytics as Record<string, unknown>).followConversionOutcome,
+            ),
             lastLoggedEvent:
               typeof (notes.analytics as Record<string, unknown>).lastLoggedEvent === "string"
                 ? ((notes.analytics as Record<string, unknown>).lastLoggedEvent as string)
@@ -1166,6 +1254,10 @@ export function mergeStoredOpportunityNotes(
         patch.analytics?.copiedReplyIntent !== undefined
           ? patch.analytics.copiedReplyIntent
           : current.analytics?.copiedReplyIntent || null,
+      followConversionOutcome:
+        patch.analytics?.followConversionOutcome !== undefined
+          ? patch.analytics.followConversionOutcome
+          : current.analytics?.followConversionOutcome || null,
     },
   } satisfies StoredOpportunityNotes;
 }

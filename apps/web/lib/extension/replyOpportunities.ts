@@ -59,6 +59,12 @@ export interface ReplyInsights {
   topIntentLabels: ReplyOutcomeBucket[];
   topIntentAnchors: ReplyOutcomeBucket[];
   topIntentRationales: ReplyOutcomeBucket[];
+  intentAttribution: {
+    generatedIntentCount: number;
+    copiedIntentCount: number;
+    observedOutcomeCount: number;
+    fullyAttributedOutcomeCount: number;
+  };
   topGoals: string[];
   outcomeSnapshot: {
     averageLikes: number | null;
@@ -300,6 +306,39 @@ function getReplyAnalytics(record: ReplyOpportunityRecord): Prisma.JsonObject | 
   return isJsonObject(analytics) ? analytics : null;
 }
 
+function getFollowConversionOutcome(record: ReplyOpportunityRecord): {
+  intentLabel: string | null;
+  intentAnchor: string | null;
+  intentRationale: string | null;
+  profileClicks: number;
+  followerDelta: number;
+} | null {
+  const analytics = getReplyAnalytics(record);
+  if (!analytics) {
+    return null;
+  }
+
+  const outcome = analytics.followConversionOutcome;
+  if (!isJsonObject(outcome)) {
+    return null;
+  }
+
+  const metrics = isJsonObject(outcome.metrics) ? outcome.metrics : null;
+  if (!metrics) {
+    return null;
+  }
+
+  return {
+    intentLabel: typeof outcome.intentLabel === "string" ? outcome.intentLabel.trim() || null : null,
+    intentAnchor:
+      typeof outcome.intentAnchor === "string" ? outcome.intentAnchor.trim() || null : null,
+    intentRationale:
+      typeof outcome.intentRationale === "string" ? outcome.intentRationale.trim() || null : null,
+    profileClicks: asNumber(metrics.profileClicks ?? metrics.profile_clicks) || 0,
+    followerDelta: asNumber(metrics.followerDelta ?? metrics.follower_delta) || 0,
+  };
+}
+
 function getIntentEntries(record: ReplyOpportunityRecord): Array<{
   label: string;
   strategyPillar: string;
@@ -358,6 +397,14 @@ function getObservedOutcome(item: ReplyOpportunityRecord): {
   profileClicks: number;
   followerDelta: number;
 } {
+  const attributedOutcome = getFollowConversionOutcome(item);
+  if (attributedOutcome) {
+    return {
+      profileClicks: attributedOutcome.profileClicks,
+      followerDelta: attributedOutcome.followerDelta,
+    };
+  }
+
   const metrics = isJsonObject(item.observedMetrics) ? item.observedMetrics : null;
   if (!metrics) {
     return {
@@ -370,6 +417,33 @@ function getObservedOutcome(item: ReplyOpportunityRecord): {
     profileClicks: asNumber(metrics.profileClicks ?? metrics.profile_clicks) || 0,
     followerDelta: asNumber(metrics.followerDelta ?? metrics.follower_delta) || 0,
   };
+}
+
+function getObservedIntentEntries(record: ReplyOpportunityRecord): Array<{
+  label: string;
+  anchor: string;
+  rationale: string;
+}> {
+  const attributedOutcome = getFollowConversionOutcome(record);
+  if (
+    attributedOutcome?.intentLabel &&
+    attributedOutcome.intentAnchor &&
+    attributedOutcome.intentRationale
+  ) {
+    return [
+      {
+        label: attributedOutcome.intentLabel,
+        anchor: attributedOutcome.intentAnchor,
+        rationale: attributedOutcome.intentRationale,
+      },
+    ];
+  }
+
+  return getIntentEntries(record).map((entry) => ({
+    label: entry.label,
+    anchor: entry.anchor,
+    rationale: entry.rationale,
+  }));
 }
 
 function createBucketMap(
@@ -578,14 +652,26 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     (item) => item.selectedAngleLabel || item.generatedAngleLabel,
   );
   const topIntentLabels = createOutcomeBucketMap(items, (item) =>
-    getIntentEntries(item).map((entry) => entry.label),
+    getObservedIntentEntries(item).map((entry) => entry.label),
   );
   const topIntentAnchors = createOutcomeBucketMap(items, (item) =>
-    getIntentEntries(item).map((entry) => entry.anchor),
+    getObservedIntentEntries(item).map((entry) => entry.anchor),
   );
   const topIntentRationales = createOutcomeBucketMap(items, (item) =>
-    getIntentEntries(item).map((entry) => entry.rationale),
+    getObservedIntentEntries(item).map((entry) => entry.rationale),
   );
+  const intentAttribution = {
+    generatedIntentCount: items.filter((item) => getIntentEntries(item).length > 0).length,
+    copiedIntentCount: items.filter((item) => {
+      const analytics = getReplyAnalytics(item);
+      return Boolean(analytics && isJsonObject(analytics.copiedReplyIntent));
+    }).length,
+    observedOutcomeCount: items.filter((item) => getFollowConversionOutcome(item) !== null).length,
+    fullyAttributedOutcomeCount: items.filter((item) => {
+      const outcome = getFollowConversionOutcome(item);
+      return Boolean(outcome?.intentLabel && outcome.intentAnchor && outcome.intentRationale);
+    }).length,
+  };
   const topGoals = [...new Set(items.map((item) => item.goal.trim()).filter(Boolean))].slice(0, 4);
   const observedMetrics = items
     .map((item) => (isJsonObject(item.observedMetrics) ? item.observedMetrics : null))
@@ -653,6 +739,12 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     );
   }
 
+  if (intentAttribution.fullyAttributedOutcomeCount > 0) {
+    bestSignals.push(
+      `${intentAttribution.fullyAttributedOutcomeCount} observed reply outcomes are now fully attributed from generated intent through conversion result.`,
+    );
+  }
+
   if (selectionRate !== null && selectionRate < 0.25) {
     cautionSignals.push(
       "Most generated replies are still not being selected, which suggests angle fit is too generic.",
@@ -671,6 +763,10 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
 
   if (observedMetrics.length === 0) {
     unknowns.push("No observed reply outcomes yet, so conversion learning is still thin.");
+  }
+
+  if (observedCount > 0 && intentAttribution.fullyAttributedOutcomeCount === 0) {
+    unknowns.push("Observed reply outcomes exist, but they are not yet tied to a full intent attribution chain.");
   }
 
   if (totalProfileClicks === 0) {
@@ -693,6 +789,7 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     topIntentLabels,
     topIntentAnchors,
     topIntentRationales,
+    intentAttribution,
     topGoals,
     outcomeSnapshot: {
       averageLikes:
@@ -763,6 +860,12 @@ export function buildStrategyAdjustments(args: {
   if ((args.replyInsights.topIntentLabels[0]?.totalFollowerDelta || 0) > 0) {
     notes.push(
       `The leading reply intent label has produced ${args.replyInsights.topIntentLabels[0]?.totalFollowerDelta} follower delta so far.`,
+    );
+  }
+
+  if (args.replyInsights.intentAttribution.fullyAttributedOutcomeCount > 0) {
+    notes.push(
+      `${args.replyInsights.intentAttribution.fullyAttributedOutcomeCount} reply outcomes are fully attributed across generated intent, copied reply, and observed conversion.`,
     );
   }
 

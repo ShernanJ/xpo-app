@@ -72,6 +72,22 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
             anchor: "positioning | clarity",
             rationale: "push past agreement by grounding the point in positioning clarity",
           },
+          followConversionOutcome: {
+            observedAtIso: now.toISOString(),
+            metrics: {
+              likeCount: 6,
+              replyCount: 2,
+              profileClicks: 3,
+              followerDelta: 1,
+            },
+            intentLabel: "nuance",
+            intentAnchor: "positioning | clarity",
+            intentStrategyPillar: "product positioning",
+            intentRationale: "push past agreement by grounding the point in positioning clarity",
+            selectedReplyId: "safe-1",
+            hasProfileClickSignal: true,
+            hasFollowConversionSignal: true,
+          },
         },
       },
       selectedOptionId: "safe-1",
@@ -134,10 +150,18 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
   assert.equal(insights.topIntentAnchors[0]?.label, "positioning | clarity");
   assert.equal(insights.topIntentAnchors[0]?.totalProfileClicks, 3);
   assert.equal(insights.topIntentLabels[0]?.totalFollowerDelta, 1);
+  assert.equal(insights.intentAttribution.generatedIntentCount, 2);
+  assert.equal(insights.intentAttribution.copiedIntentCount, 1);
+  assert.equal(insights.intentAttribution.observedOutcomeCount, 1);
+  assert.equal(insights.intentAttribution.fullyAttributedOutcomeCount, 1);
   assert.equal(insights.outcomeSnapshot.totalProfileClicks, 3);
   assert.equal(insights.selectionRate, 0.5);
   assert.equal(
     insights.bestSignals.some((entry) => entry.toLowerCase().includes("profile-click events")),
+    true,
+  );
+  assert.equal(
+    insights.bestSignals.some((entry) => entry.toLowerCase().includes("fully attributed")),
     true,
   );
 });
@@ -218,6 +242,12 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
           averageFollowerDelta: 1,
         },
       ],
+      intentAttribution: {
+        generatedIntentCount: 2,
+        copiedIntentCount: 1,
+        observedOutcomeCount: 1,
+        fullyAttributedOutcomeCount: 1,
+      },
       topGoals: ["followers"],
       outcomeSnapshot: {
         averageLikes: 4,
@@ -246,6 +276,10 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
   assert.equal(adjustments.deprioritize.includes("broad motivational advice with no niche tie"), true);
   assert.equal(
     adjustments.notes.some((entry) => entry.toLowerCase().includes("profile-click events")),
+    true,
+  );
+  assert.equal(
+    adjustments.notes.some((entry) => entry.toLowerCase().includes("fully attributed")),
     true,
   );
 });
