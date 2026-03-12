@@ -77,6 +77,7 @@ import {
   assessGroundedProductDrift,
   assessConcreteSceneDrift,
   buildGroundedProductRetryConstraint,
+  buildUnsupportedClaimRetryConstraint,
   buildConcreteSceneRetryConstraint,
   extractConcreteSceneAnchors,
   isConcreteAnecdoteDraftRequest,
@@ -2323,6 +2324,7 @@ User Profile Summary:
           issues: Array.from(new Set([...attempt.criticOutput.issues, ...claimCheck.issues])),
         },
         draftToDeliver: claimCheck.draft || attempt.draftToDeliver,
+        hasUnsupportedClaims: claimCheck.hasUnsupportedClaims,
         claimNeedsClarification: claimCheck.needsClarification,
       };
     };
@@ -2499,7 +2501,11 @@ User Profile Summary:
       draft: firstAttemptWithClaimCheck.draftToDeliver,
     });
 
-    if (!firstAssessment.hasDrift && !firstProductAssessment.hasDrift) {
+    if (
+      !firstAssessment.hasDrift &&
+      !firstProductAssessment.hasDrift &&
+      !firstAttemptWithClaimCheck.hasUnsupportedClaims
+    ) {
       return {
         kind: "success",
         writerOutput: firstAttemptWithClaimCheck.writerOutput,
@@ -2512,6 +2518,9 @@ User Profile Summary:
     }
 
     const retryConstraints = [
+      ...(firstAttemptWithClaimCheck.hasUnsupportedClaims
+        ? [buildUnsupportedClaimRetryConstraint()]
+        : []),
       ...(firstAssessment.hasDrift
         ? [buildConcreteSceneRetryConstraint(args.sourceUserMessage || "")]
         : []),

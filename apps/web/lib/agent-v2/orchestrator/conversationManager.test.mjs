@@ -1261,3 +1261,17 @@ test("draft anchor selection keeps historical posts in style-only mode when trut
     true,
   );
 });
+
+test("unsupported claims force a stricter grounded retry before first-pass delivery", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./conversationManager.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(source.includes("buildUnsupportedClaimRetryConstraint"), true);
+  assert.equal(source.includes("hasUnsupportedClaims"), true);
+  assert.equal(
+    source.includes("!firstAttemptWithClaimCheck.hasUnsupportedClaims"),
+    true,
+  );
+});

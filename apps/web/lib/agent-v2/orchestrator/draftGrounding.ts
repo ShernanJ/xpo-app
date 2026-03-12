@@ -494,6 +494,10 @@ export function buildGroundedProductRetryConstraint(): string {
   return "Grounded product retry: do not invent first-person product usage, testing, build-story claims, adjacent mechanics, inflated market contrast, or promotional CTA/payoff language unless the user explicitly said them. State the grounded product fact plainly, and stay close to the user's grounded wording when it is already clear.";
 }
 
+export function buildUnsupportedClaimRetryConstraint(): string {
+  return "Unsupported claim retry: remove invented proof points, metrics, follower spikes, customer names, product mechanics, autobiographical usage claims, timelines, and outcome language unless they are explicitly grounded. If the real grounding is thin, downgrade the draft into a framework, opinion, or plain factual version instead of making it sound more proven.";
+}
+
 export function buildConcreteSceneRetryConstraint(message: string): string | null {
   if (!shouldGroundConcreteScene(message)) {
     return null;
