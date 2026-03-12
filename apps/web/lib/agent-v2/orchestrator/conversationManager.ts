@@ -3994,6 +3994,8 @@ User Profile Summary:
           formatPreference: turnFormatPreference,
           threadPostMaxCharacterLimit,
           threadFramingStyle: turnThreadFramingStyle,
+          sourceUserMessage: userMessage,
+          groundingPacket,
         },
       });
 
@@ -4024,6 +4026,7 @@ User Profile Summary:
           threadFramingStyle: turnThreadFramingStyle,
           previousDraft: effectiveActiveDraft,
           revisionChangeKind: revision.changeKind,
+          sourceUserMessage: userMessage,
           groundingPacket,
         },
       );
@@ -4050,9 +4053,10 @@ User Profile Summary:
       }
 
       const revisionWasRejectedByCritic = !criticOutput.approved;
-      const finalizedRevisionDraft = revisionWasRejectedByCritic
-        ? reviserOutput.revisedDraft
-        : claimCheck.draft || criticOutput.finalDraft;
+      const finalizedRevisionDraft =
+        claimCheck.draft ||
+        (revisionWasRejectedByCritic ? effectiveActiveDraft : criticOutput.finalDraft) ||
+        reviserOutput.revisedDraft;
       const revisionVoiceTarget = resolveVoiceTarget({
         styleCard,
         userMessage,

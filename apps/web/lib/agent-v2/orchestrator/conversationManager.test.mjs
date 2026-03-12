@@ -1031,6 +1031,28 @@ test("claim checker strips unsupported product behavior drift even when the prod
   assert.doesNotMatch(result.draft, /schedules posts automatically/i);
 });
 
+test("claim checker strips unsupported follower spike claims from revision-style additions", () => {
+  const result = checkDraftClaimsAgainstGrounding({
+    draft: [
+      "been in a rabbit hole this week learning how to grow on x.",
+      "a few tweaks actually moved the needle with real follower spikes.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: ["been in a rabbit hole this week learning how to grow on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: ["missing evidence for outcome claims"],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.hasUnsupportedClaims, true);
+  assert.match(result.draft, /rabbit hole this week learning how to grow on x/i);
+  assert.doesNotMatch(result.draft, /moved the needle|follower spikes/i);
+});
+
 test("claim checker removes claims that conflict with forbidden grounding", () => {
   const result = checkDraftClaimsAgainstGrounding({
     draft: "We grew xpo to 50k users last year.",

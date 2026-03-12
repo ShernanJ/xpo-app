@@ -16,6 +16,7 @@ import {
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
 import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
+import type { GroundingPacket } from "../orchestrator/groundingPacket";
 import {
   trimToXCharacterLimit,
   type ThreadFramingStyle,
@@ -148,6 +149,36 @@ EXPANSION MODE:
   return "";
 }
 
+function buildRevisionGroundingBlock(
+  groundingPacket: GroundingPacket | null | undefined,
+): string {
+  if (!groundingPacket) {
+    return "";
+  }
+
+  const sourceMaterialLines = groundingPacket.sourceMaterials
+    .slice(0, 3)
+    .map((item) => {
+      const claim = item.claims[0] ? ` | claim: ${item.claims[0]}` : "";
+      const snippet = item.snippets[0] ? ` | snippet: ${item.snippets[0]}` : "";
+      return `- [${item.type}] ${item.title}${claim}${snippet}`;
+    });
+
+  return `
+GROUNDING PACKET:
+- Durable facts: ${groundingPacket.durableFacts.join(" | ") || "None"}
+- Turn grounding: ${groundingPacket.turnGrounding.join(" | ") || "None"}
+- Allowed first-person claims: ${groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}
+- Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
+- Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
+${sourceMaterialLines.length > 0 ? `- Source material details:\n${sourceMaterialLines.join("\n")}` : "- Source material details: None"}
+
+Use this packet as the factual boundary for any revision.
+If a detail is not supported here, in the current draft, or in the current user note, do not add it.
+If the user asks for more specificity but the packet is thin, make the draft clearer or fuller without inventing proof.
+  `.trim();
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -164,6 +195,8 @@ export async function generateRevisionDraft(args: {
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
     threadFramingStyle?: ThreadFramingStyle | null;
+    sourceUserMessage?: string;
+    groundingPacket?: GroundingPacket | null;
   };
 }): Promise<ReviserOutput | null> {
   const conversationState = args.options?.conversationState || "editing";
@@ -174,10 +207,12 @@ export async function generateRevisionDraft(args: {
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference = args.options?.formatPreference || "shortform";
   const threadFramingStyle = args.options?.threadFramingStyle || null;
+  const sourceUserMessage = args.options?.sourceUserMessage?.trim() || "";
   const revisionChangeGuidance = buildRevisionChangeGuidance(
     args.revision,
     maxCharacterLimit,
   );
+  const groundingBlock = buildRevisionGroundingBlock(args.options?.groundingPacket);
 
   if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
@@ -228,6 +263,9 @@ ${buildAntiPatternBlock(antiPatterns)}
 CURRENT DRAFT (THIS IS THE CANONICAL BASE TEXT):
 ${args.activeDraft}
 
+CURRENT USER NOTE:
+${sourceUserMessage || args.revision.instruction}
+
 REVISION REQUEST:
 ${args.revision.instruction}
 
@@ -241,6 +279,7 @@ ACTIVE SESSION CONSTRAINTS:
 ${args.activeConstraints.join(" | ") || "None"}
 
 ${revisionChangeGuidance ? `${revisionChangeGuidance}\n` : ""}
+${groundingBlock ? `${groundingBlock}\n` : ""}
 
 REQUIREMENTS:
 1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.
@@ -258,6 +297,7 @@ REQUIREMENTS:
 13. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding.
 14. X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.
 15. Do NOT introduce empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something concrete in return (DM, template, checklist, link, copy, or access). If there is no real payoff, use a more natural CTA.
+16. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the current draft, current user note, or grounding packet.
 
 Respond ONLY with valid JSON:
 {

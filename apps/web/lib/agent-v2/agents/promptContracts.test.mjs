@@ -238,3 +238,25 @@ test("planner and writer prompts surface hard factual grounding for product asks
     true,
   );
 });
+
+test("reviser prompt keeps grounded revision boundaries for edit requests", () => {
+  const reviserSource = readFileSync(
+    fileURLToPath(new URL("./reviser.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(reviserSource.includes("CURRENT USER NOTE:"), true);
+  assert.equal(reviserSource.includes("GROUNDING PACKET:"), true);
+  assert.equal(
+    reviserSource.includes(
+      "If a detail is not supported here, in the current draft, or in the current user note, do not add it.",
+    ),
+    true,
+  );
+  assert.equal(
+    reviserSource.includes(
+      "Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims",
+    ),
+    true,
+  );
+});

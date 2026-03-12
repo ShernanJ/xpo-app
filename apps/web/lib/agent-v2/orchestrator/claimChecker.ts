@@ -52,6 +52,8 @@ const PRODUCT_BEHAVIOR_PATTERN =
   /\b(?:it|this|[a-z0-9][a-z0-9_-]{1,30})\s+(?:helps|lets|turns|rewrites|automates|handles|scans|finds|tracks|posts|schedules|pulls|writes|cuts|reduces|eliminates|prevents|improves|boosts|grows|converts|qualifies|prioritizes)\b/i;
 const METRIC_CONTEXT_PATTERN =
   /\b(?:followers|revenue|arr|mrr|gmv|pipeline|users|customers|teams|teammates|installs|signups|conversions|launches|years|months|days|people|attendees|percent|churn|retention|open rate|click rate|ctr|nps|%)\b/i;
+const OUTCOME_CLAIM_PATTERN =
+  /\b(?:moved the needle|move the needle|follower spike|follower spikes|spike in followers|spikes in followers|growth spike|growth spikes|lifted|lift|boosted|went up|surged|jumped)\b/i;
 const DATE_NUMBER_PATTERN = /\b(?:\d{4}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/;
 const METRIC_SCALE_PATTERN =
   /\b(?:\d[\d,.]*\s*(?:k|m|b|million|billion|%)?|\d{1,3}(?:,\d{3})+)\b/i;
@@ -219,6 +221,7 @@ function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
   const riskyTemporal = TEMPORAL_PATTERN.test(trimmed) || DATE_NUMBER_PATTERN.test(trimmed);
   const riskyCausal = CAUSAL_PATTERN.test(trimmed) && riskyAutobiography;
   const riskyProductBehavior = PRODUCT_BEHAVIOR_PATTERN.test(trimmed);
+  const riskyOutcomeClaim = OUTCOME_CLAIM_PATTERN.test(trimmed);
   const riskyNamedDetail = hasUnsupportedNamedDetail(trimmed, allSources);
   const forbiddenClaim = conflictsWithForbiddenClaim(trimmed, packet.forbiddenClaims);
   const isUnsupported =
@@ -228,6 +231,7 @@ function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
         riskyTemporal ||
         riskyCausal ||
         riskyProductBehavior ||
+        riskyOutcomeClaim ||
         hasUnsupportedNumber ||
         riskyNamedDetail));
 
