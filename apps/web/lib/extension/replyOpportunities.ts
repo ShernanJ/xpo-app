@@ -49,6 +49,9 @@ export interface ReplyInsights {
   observedRate: number | null;
   topPillars: ReplyInsightsBucket[];
   topAngleLabels: ReplyInsightsBucket[];
+  topIntentLabels: ReplyInsightsBucket[];
+  topIntentAnchors: ReplyInsightsBucket[];
+  topIntentRationales: ReplyInsightsBucket[];
   topGoals: string[];
   outcomeSnapshot: {
     averageLikes: number | null;
@@ -275,9 +278,78 @@ function isJsonObject(
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isJsonArray(
+  value: Prisma.JsonValue | null | undefined,
+): value is Prisma.JsonArray {
+  return Array.isArray(value);
+}
+
+function getReplyAnalytics(record: ReplyOpportunityRecord): Prisma.JsonObject | null {
+  if (!isJsonObject(record.notes)) {
+    return null;
+  }
+
+  const analytics = record.notes.analytics;
+  return isJsonObject(analytics) ? analytics : null;
+}
+
+function getIntentEntries(record: ReplyOpportunityRecord): Array<{
+  label: string;
+  strategyPillar: string;
+  anchor: string;
+  rationale: string;
+}> {
+  const analytics = getReplyAnalytics(record);
+  if (!analytics) {
+    return [];
+  }
+
+  const next: Array<{
+    label: string;
+    strategyPillar: string;
+    anchor: string;
+    rationale: string;
+  }> = [];
+
+  const generatedReplyIntents = analytics.generatedReplyIntents;
+  if (isJsonArray(generatedReplyIntents)) {
+    for (const entry of generatedReplyIntents) {
+      if (!isJsonObject(entry)) {
+        continue;
+      }
+      const label = typeof entry.label === "string" ? entry.label.trim() : "";
+      const strategyPillar =
+        typeof entry.strategyPillar === "string" ? entry.strategyPillar.trim() : "";
+      const anchor = typeof entry.anchor === "string" ? entry.anchor.trim() : "";
+      const rationale = typeof entry.rationale === "string" ? entry.rationale.trim() : "";
+      if (!label || !strategyPillar || !anchor || !rationale) {
+        continue;
+      }
+      next.push({ label, strategyPillar, anchor, rationale });
+    }
+  }
+
+  const copiedReplyIntent = analytics.copiedReplyIntent;
+  if (isJsonObject(copiedReplyIntent)) {
+    const label = typeof copiedReplyIntent.label === "string" ? copiedReplyIntent.label.trim() : "";
+    const strategyPillar =
+      typeof copiedReplyIntent.strategyPillar === "string"
+        ? copiedReplyIntent.strategyPillar.trim()
+        : "";
+    const anchor = typeof copiedReplyIntent.anchor === "string" ? copiedReplyIntent.anchor.trim() : "";
+    const rationale =
+      typeof copiedReplyIntent.rationale === "string" ? copiedReplyIntent.rationale.trim() : "";
+    if (label && strategyPillar && anchor && rationale) {
+      return [{ label, strategyPillar, anchor, rationale }];
+    }
+  }
+
+  return next;
+}
+
 function createBucketMap(
   items: ReplyOpportunityRecord[],
-  selector: (item: ReplyOpportunityRecord) => string | null,
+  selector: (item: ReplyOpportunityRecord) => string | string[] | null,
 ): ReplyInsightsBucket[] {
   const buckets = new Map<
     string,
@@ -285,33 +357,40 @@ function createBucketMap(
   >();
 
   for (const item of items) {
-    const label = selector(item)?.trim();
-    if (!label) {
+    const selected = selector(item);
+    const labels = Array.isArray(selected)
+      ? selected.map((entry) => entry.trim()).filter(Boolean)
+      : typeof selected === "string"
+        ? [selected.trim()].filter(Boolean)
+        : [];
+    if (labels.length === 0) {
       continue;
     }
 
-    const current = buckets.get(label) || {
-      label,
-      generatedCount: 0,
-      selectedCount: 0,
-      postedCount: 0,
-      observedCount: 0,
-    };
+    for (const label of [...new Set(labels)]) {
+      const current = buckets.get(label) || {
+        label,
+        generatedCount: 0,
+        selectedCount: 0,
+        postedCount: 0,
+        observedCount: 0,
+      };
 
-    if (item.generatedAt) {
-      current.generatedCount += 1;
-    }
-    if (item.selectedAt) {
-      current.selectedCount += 1;
-    }
-    if (item.postedAt) {
-      current.postedCount += 1;
-    }
-    if (item.observedAt) {
-      current.observedCount += 1;
-    }
+      if (item.generatedAt) {
+        current.generatedCount += 1;
+      }
+      if (item.selectedAt) {
+        current.selectedCount += 1;
+      }
+      if (item.postedAt) {
+        current.postedCount += 1;
+      }
+      if (item.observedAt) {
+        current.observedCount += 1;
+      }
 
-    buckets.set(label, current);
+      buckets.set(label, current);
+    }
   }
 
   return [...buckets.values()]
@@ -381,6 +460,15 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     items,
     (item) => item.selectedAngleLabel || item.generatedAngleLabel,
   );
+  const topIntentLabels = createBucketMap(items, (item) =>
+    getIntentEntries(item).map((entry) => entry.label),
+  );
+  const topIntentAnchors = createBucketMap(items, (item) =>
+    getIntentEntries(item).map((entry) => entry.anchor),
+  );
+  const topIntentRationales = createBucketMap(items, (item) =>
+    getIntentEntries(item).map((entry) => entry.rationale),
+  );
   const topGoals = [...new Set(items.map((item) => item.goal.trim()).filter(Boolean))].slice(0, 4);
   const observedMetrics = items
     .map((item) => (isJsonObject(item.observedMetrics) ? item.observedMetrics : null))
@@ -424,6 +512,18 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     );
   }
 
+  if (topIntentAnchors[0]?.selectionRate && topIntentAnchors[0].selectionRate >= 0.4) {
+    bestSignals.push(
+      `Replies using the intent anchor "${topIntentAnchors[0].label}" are earning the strongest selection rate so far.`,
+    );
+  }
+
+  if (topIntentLabels[0]?.postedCount && topIntentLabels[0].postedCount > 0) {
+    bestSignals.push(
+      `${topIntentLabels[0].label} is the intent label most likely to make it to posting.`,
+    );
+  }
+
   if (selectionRate !== null && selectionRate < 0.25) {
     cautionSignals.push(
       "Most generated replies are still not being selected, which suggests angle fit is too generic.",
@@ -461,6 +561,9 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     observedRate,
     topPillars,
     topAngleLabels,
+    topIntentLabels,
+    topIntentAnchors,
+    topIntentRationales,
     topGoals,
     outcomeSnapshot: {
       averageLikes:
@@ -501,12 +604,24 @@ export function buildStrategyAdjustments(args: {
     );
   }
 
+  if (args.replyInsights.topIntentAnchors[0]) {
+    reinforce.push(
+      `Keep using the reply anchor "${args.replyInsights.topIntentAnchors[0].label}" because it is earning the best downstream action so far.`,
+    );
+  }
+
   if (
     args.replyInsights.topGoals[0] &&
     (args.replyInsights.selectionRate || 0) > 0
   ) {
     experiments.push(
       `Keep testing ${args.replyInsights.topGoals[0]} replies against ${args.replyInsights.topPillars[0]?.label || args.strategySnapshot.contentPillars[0] || "the top pillar"}.`,
+    );
+  }
+
+  if (args.replyInsights.topIntentLabels[0]) {
+    experiments.push(
+      `Test more ${args.replyInsights.topIntentLabels[0].label} reply intents against ${args.replyInsights.topPillars[0]?.label || args.strategySnapshot.contentPillars[0] || "the top pillar"}.`,
     );
   }
 

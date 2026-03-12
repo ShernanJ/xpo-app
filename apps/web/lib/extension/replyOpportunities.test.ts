@@ -56,7 +56,24 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
       dismissedAt: null,
       observedAt: now,
       generatedOptions: null,
-      notes: null,
+      notes: {
+        analytics: {
+          generatedReplyIntents: [
+            {
+              label: "nuance",
+              strategyPillar: "product positioning",
+              anchor: "positioning | clarity",
+              rationale: "push past agreement by grounding the point in positioning clarity",
+            },
+          ],
+          copiedReplyIntent: {
+            label: "nuance",
+            strategyPillar: "product positioning",
+            anchor: "positioning | clarity",
+            rationale: "push past agreement by grounding the point in positioning clarity",
+          },
+        },
+      },
       selectedOptionId: "safe-1",
       selectedOptionText: "reply",
       selectedAngleLabel: "tradeoff",
@@ -89,7 +106,18 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
       dismissedAt: null,
       observedAt: null,
       generatedOptions: null,
-      notes: null,
+      notes: {
+        analytics: {
+          generatedReplyIntents: [
+            {
+              label: "example",
+              strategyPillar: "reply leverage",
+              anchor: "generic agreement | the proof layer",
+              rationale: "make the point concrete with a usable example tied to the proof layer",
+            },
+          ],
+        },
+      },
       selectedOptionId: null,
       selectedOptionText: null,
       selectedAngleLabel: null,
@@ -102,6 +130,8 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
   assert.equal(insights.lifecycleCounts.generated, 2);
   assert.equal(insights.lifecycleCounts.posted, 1);
   assert.equal(insights.topPillars[0]?.label, "product positioning");
+  assert.equal(insights.topIntentLabels[0]?.label, "nuance");
+  assert.equal(insights.topIntentAnchors[0]?.label, "positioning | clarity");
   assert.equal(insights.outcomeSnapshot.totalProfileClicks, 3);
   assert.equal(insights.selectionRate, 0.5);
 });
@@ -137,6 +167,39 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
         },
       ],
       topAngleLabels: [],
+      topIntentLabels: [
+        {
+          label: "nuance",
+          generatedCount: 1,
+          selectedCount: 1,
+          postedCount: 1,
+          observedCount: 1,
+          selectionRate: 1,
+          postedRate: 1,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "positioning | clarity",
+          generatedCount: 1,
+          selectedCount: 1,
+          postedCount: 1,
+          observedCount: 1,
+          selectionRate: 1,
+          postedRate: 1,
+        },
+      ],
+      topIntentRationales: [
+        {
+          label: "push past agreement by grounding the point in positioning clarity",
+          generatedCount: 1,
+          selectedCount: 1,
+          postedCount: 1,
+          observedCount: 1,
+          selectionRate: 1,
+          postedRate: 1,
+        },
+      ],
       topGoals: ["followers"],
       outcomeSnapshot: {
         averageLikes: 4,
@@ -152,6 +215,10 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
 
   assert.equal(
     adjustments.reinforce[0]?.toLowerCase().includes("product positioning"),
+    true,
+  );
+  assert.equal(
+    adjustments.reinforce.some((entry) => entry.toLowerCase().includes("positioning | clarity")),
     true,
   );
   assert.equal(
