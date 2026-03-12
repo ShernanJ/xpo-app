@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { buildCreatorGenerationContract } from "@/lib/onboarding/generationContract";
+import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
 import {
   applyCreatorToneOverrides,
   applyCreatorStrategyOverrides,
@@ -80,6 +82,16 @@ export async function POST(request: Request) {
     baseTone: storedRun.input.tone,
     overrides: extractCreatorToneOverrides(body),
   });
+  const agentContext = buildCreatorAgentContext({
+    runId: storedRun.runId,
+    onboarding,
+  });
+  const growthOs = await buildGrowthOperatingSystemPayload({
+    userId: session.user.id,
+    xHandle: session.user.activeXHandle,
+    onboarding,
+    context: agentContext,
+  });
 
   return NextResponse.json(
     {
@@ -88,6 +100,11 @@ export async function POST(request: Request) {
         runId: storedRun.runId,
         onboarding,
         tonePreference,
+        agentContext,
+        replyInsights: growthOs.replyInsights,
+        strategyAdjustments: growthOs.strategyAdjustments,
+        contentInsights: growthOs.contentInsights,
+        contentAdjustments: growthOs.contentAdjustments,
       }),
     },
     { status: 200 },

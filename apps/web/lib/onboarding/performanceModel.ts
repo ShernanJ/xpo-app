@@ -172,17 +172,54 @@ function buildWeaknesses(
   return weaknesses;
 }
 
+function pickSaferActionContentType(params: {
+  bestContentType: ContentType | null;
+  formatInsights: PerformanceBandInsight[];
+  growthGoal: OnboardingResult["strategyState"]["goal"];
+}): ContentType | null {
+  if (params.bestContentType !== "link_post") {
+    return params.bestContentType;
+  }
+
+  if (params.growthGoal !== "followers") {
+    return params.bestContentType;
+  }
+
+  const saferInsight = params.formatInsights.find(
+    (insight) => insight.isReliable && insight.key !== "link_post",
+  );
+
+  return (saferInsight?.key ?? null) as ContentType | null;
+}
+
 function buildNextActions(params: {
   bestContentType: ContentType | null;
   weakestContentType: ContentType | null;
   bestHookPattern: HookPattern | null;
   recommendedLengthBand: LengthBand | null;
+  formatInsights: PerformanceBandInsight[];
+  growthGoal: OnboardingResult["strategyState"]["goal"];
 }): string[] {
   const actions: string[] = [];
+  const saferActionContentType = pickSaferActionContentType({
+    bestContentType: params.bestContentType,
+    formatInsights: params.formatInsights,
+    growthGoal: params.growthGoal,
+  });
 
-  if (params.bestContentType) {
+  if (params.bestContentType === "link_post" && params.growthGoal === "followers") {
+    if (saferActionContentType && saferActionContentType !== "link_post") {
+      actions.push(
+        `Favor native ${saferActionContentType} posts over link_post for follower growth. If you need the link, put it in the first reply after the post earns distribution.`,
+      );
+    } else {
+      actions.push(
+        "Do not default to link_post for follower growth. Publish the core idea natively first, then place the link in the first reply only if it adds value.",
+      );
+    }
+  } else if (saferActionContentType) {
     actions.push(
-      `Post 2-3 ${params.bestContentType} posts this week to exploit current edge.`,
+      `Post 2-3 ${saferActionContentType} posts this week to exploit current edge.`,
     );
   }
 
@@ -282,6 +319,8 @@ export function buildPerformanceModel(params: {
       weakestContentType,
       bestHookPattern,
       recommendedLengthBand,
+      formatInsights,
+      growthGoal: params.onboarding.strategyState.goal,
     }),
   };
 }

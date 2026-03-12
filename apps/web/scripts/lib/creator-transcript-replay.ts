@@ -7,6 +7,10 @@ import type {
   OrchestratorResponse,
 } from "../../lib/agent-v2/orchestrator/conversationManager";
 import type {
+  SourceMaterialAssetInput,
+  SourceMaterialAssetRecord,
+} from "../../lib/agent-v2/orchestrator/sourceMaterials";
+import type {
   DraftFormatPreference,
   StrategyPlan,
   V2ChatIntent,
@@ -32,6 +36,7 @@ export interface TranscriptReplayFixture {
   runId?: string;
   threadId?: string;
   styleCard?: VoiceStyleCard | null;
+  sourceMaterials?: SourceMaterialAssetInput[];
   topicAnchors?: string[];
   historicalPosts?: string[];
   initialMemory?: Partial<V2ConversationMemory>;
@@ -412,6 +417,17 @@ export function createReplayServiceOverrides(
   const threadId = fixture.threadId || `replay_${fixture.id}`;
   const userId = fixture.userId || "replay-user";
   const styleCard = fixture.styleCard ?? buildDefaultStyleCard();
+  let sourceMaterialAssets: SourceMaterialAssetRecord[] = (fixture.sourceMaterials || []).map(
+    (asset) => ({
+      ...asset,
+      id: randomUUID(),
+      userId,
+      xHandle: fixture.xHandle || null,
+      lastUsedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }),
+  );
   let memoryRecord: ReplayMemoryRecord | null = fixture.initialMemory
     ? buildReplayMemoryRecordUpdate(
         createReplayMemoryRecord({
@@ -481,6 +497,36 @@ export function createReplayServiceOverrides(
     async getHistoricalPosts() {
       return fixture.historicalPosts || [];
     },
+    async getSourceMaterialAssets() {
+      return sourceMaterialAssets;
+    },
+    async markSourceMaterialAssetsUsed(assetIds) {
+      const usedIds = new Set(assetIds);
+      const now = new Date().toISOString();
+      sourceMaterialAssets = sourceMaterialAssets.map((asset) =>
+        usedIds.has(asset.id)
+          ? {
+              ...asset,
+              lastUsedAt: now,
+              updatedAt: now,
+            }
+          : asset,
+      );
+    },
+    async saveSourceMaterialAssets(args) {
+      const now = new Date().toISOString();
+      const savedAssets = args.assets.map((asset) => ({
+        ...asset,
+        id: randomUUID(),
+        userId: args.userId,
+        xHandle: args.xHandle || null,
+        lastUsedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      sourceMaterialAssets = [...savedAssets, ...sourceMaterialAssets];
+      return savedAssets;
+    },
     async retrieveAnchors() {
       return {
         topicAnchors: fixture.topicAnchors || fixture.historicalPosts || [],
@@ -508,6 +554,9 @@ export function createReplayServiceOverrides(
     },
     async extractCoreFacts() {
       return null;
+    },
+    shouldIncludeRoutingTrace() {
+      return true;
     },
   };
 }

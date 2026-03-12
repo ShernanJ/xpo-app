@@ -15,7 +15,10 @@ import {
   getXCharacterLimitForAccount,
   resolveThreadFramingStyle,
 } from "@/lib/onboarding/draftArtifacts";
-import { buildCreatorProfileHintsFromOnboarding } from "@/lib/agent-v2/orchestrator/creatorProfileHints";
+import {
+  applyGrowthStrategyToCreatorProfileHints,
+  buildCreatorProfileHintsFromOnboarding,
+} from "@/lib/agent-v2/orchestrator/creatorProfileHints";
 import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
@@ -25,8 +28,11 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
+import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
 import { recordProductEvent } from "@/lib/productEvents";
 import {
+  buildDraftBundleVersionPayload,
   buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
   normalizeDraftPayload,
@@ -34,6 +40,14 @@ import {
   resolveEffectiveExplicitIntent,
   type SelectedDraftContext,
 } from "./route.logic";
+import type { DraftBundleResult } from "@/lib/agent-v2/orchestrator/draftBundles";
+import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
+import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
+import { isMissingDraftCandidateTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
+import {
+  buildRecommendedPlaybookSummaries,
+  inferCurrentPlaybookStage,
+} from "@/lib/creator/playbooks";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   threadId?: unknown;
@@ -153,6 +167,10 @@ function resolveChatTurnCreditCost(args: {
   }
 
   const normalized = args.message.trim().toLowerCase();
+  if (isMultiDraftRequest(normalized)) {
+    return ACTION_CREDIT_COST.chat_draft_like;
+  }
+
   if (
     /\b(draft|rewrite|revise|edit|fix this draft|make this tighter|make it tighter)\b/.test(
       normalized,
@@ -162,6 +180,30 @@ function resolveChatTurnCreditCost(args: {
   }
 
   return ACTION_CREDIT_COST.chat_standard;
+}
+
+function buildConversationalDiagnosticContext(args: {
+  agentContext: ReturnType<typeof buildCreatorAgentContext>;
+  growthOs: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>>;
+}): ConversationalDiagnosticContext {
+  const reasons = [
+    args.growthOs.profileConversionAudit.gaps[0],
+    args.growthOs.contentInsights.cautionSignals[0],
+    args.growthOs.strategyAdjustments.notes[0],
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const nextActions = [
+    args.growthOs.profileConversionAudit.recommendedBioEdits[0],
+    args.growthOs.strategyAdjustments.experiments[0] || args.growthOs.strategyAdjustments.reinforce[0],
+    args.growthOs.contentAdjustments.experiments[0] || args.growthOs.contentAdjustments.reinforce[0],
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  return {
+    stage: inferCurrentPlaybookStage(args.agentContext),
+    knownFor: args.agentContext.growthStrategySnapshot.knownFor,
+    reasons,
+    nextActions,
+    recommendedPlaybooks: buildRecommendedPlaybookSummaries(args.agentContext, 2),
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -279,26 +321,60 @@ export async function POST(request: NextRequest) {
         };
       }
     | null;
-  const creatorProfileHints =
-    storedRun?.id && storedRun?.result
-      ? (() => {
-              try {
-                return buildCreatorProfileHintsFromOnboarding({
-                  runId: storedRun.id,
-                  onboarding: storedRun.result as unknown as Parameters<
-                    typeof buildCreatorProfileHintsFromOnboarding
-                  >[0]["onboarding"],
-                });
-          } catch {
-            return null;
-          }
-        })()
-      : null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
   const activeHandleRaw = storedThread?.xHandle || session.user.activeXHandle || null;
   const activeHandle =
     typeof activeHandleRaw === "string" && activeHandleRaw.trim()
       ? activeHandleRaw.trim().replace(/^@+/, "").toLowerCase()
+      : null;
+  let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
+  let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
+  let diagnosticContext: ConversationalDiagnosticContext | null = null;
+  const creatorProfileHints =
+    storedRun?.id && storedRun?.result
+      ? await (async () => {
+          try {
+            const onboarding = storedRun.result as unknown as Parameters<
+              typeof buildCreatorProfileHintsFromOnboarding
+            >[0]["onboarding"];
+            const baseHints = buildCreatorProfileHintsFromOnboarding({
+              runId: storedRun.id,
+              onboarding,
+            });
+            creatorAgentContext = buildCreatorAgentContext({
+              runId: storedRun.id,
+              onboarding,
+            });
+            growthOsPayload = await buildGrowthOperatingSystemPayload({
+              userId: session.user.id,
+              xHandle: activeHandle,
+              onboarding,
+              context: creatorAgentContext,
+            });
+            diagnosticContext = buildConversationalDiagnosticContext({
+              agentContext: creatorAgentContext,
+              growthOs: growthOsPayload,
+            });
+
+            return applyGrowthStrategyToCreatorProfileHints({
+              hints: baseHints,
+              growthStrategySnapshot: creatorAgentContext.growthStrategySnapshot,
+              learningSignals: [
+                ...growthOsPayload.replyInsights.bestSignals,
+                ...growthOsPayload.replyInsights.cautionSignals,
+                ...growthOsPayload.strategyAdjustments.experiments,
+                ...growthOsPayload.contentInsights.bestSignals,
+                ...growthOsPayload.contentInsights.cautionSignals,
+                ...growthOsPayload.contentAdjustments.experiments,
+              ],
+            });
+          } catch {
+            creatorAgentContext = null;
+            growthOsPayload = null;
+            diagnosticContext = null;
+            return null;
+          }
+        })()
       : null;
   const persistedVoiceProfile = activeHandle
     ? await prisma.voiceProfile.findFirst({
@@ -434,6 +510,7 @@ export async function POST(request: NextRequest) {
       threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
       creatorProfileHints,
+      diagnosticContext,
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
@@ -480,12 +557,22 @@ export async function POST(request: NextRequest) {
         })
       : null;
     const responseShapePlan = result.responseShapePlan;
+    const rawDraftBundle =
+      resultData &&
+      typeof resultData === "object" &&
+      resultData.draftBundle &&
+      typeof resultData.draftBundle === "object"
+        ? (resultData.draftBundle as DraftBundleResult)
+        : null;
+    const selectedBundleDraft =
+      rawDraftBundle?.options.find((option) => option.id === rawDraftBundle.selectedOptionId)?.draft ??
+      null;
     const normalizedDraftPayload = normalizeDraftPayload({
       reply: result.response,
-      draft: resultData?.draft as string || null,
-      drafts: resultData?.draft
-        ? [resultData.draft as string]
-        : [],
+      draft: selectedBundleDraft ?? (resultData?.draft as string) ?? null,
+      drafts:
+        rawDraftBundle?.options.map((option) => option.draft) ??
+        (resultData?.draft ? [resultData.draft as string] : []),
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
       shouldAskFollowUp:
@@ -556,33 +643,79 @@ export async function POST(request: NextRequest) {
       typeof (resultData as Record<string, unknown>).groundingExplanation === "string"
         ? ((resultData as Record<string, unknown>).groundingExplanation as string)
         : null;
-    const policyDrafts = policyDraft ? [policyDraft] : normalizedDraftPayload.drafts;
-    const draftVersionPayload = buildInitialDraftVersionPayload({
-      draft: policyDraft,
-      outputShape: result.outputShape,
-      supportAsset: (resultData?.supportAsset as string) || null,
-      selectedDraftContext,
-      groundingSources: responseGroundingSources,
-      groundingMode: responseGroundingMode,
-      groundingExplanation: responseGroundingExplanation,
-      voiceTarget: responseVoiceTarget,
-      noveltyNotes: responseNoveltyNotes,
-      threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
-      threadFramingStyle: responseThreadFramingStyle,
-    });
+    const policyDraftBundle = rawDraftBundle
+      ? {
+          ...rawDraftBundle,
+          options: rawDraftBundle.options.map((option) => ({
+            ...option,
+            draft: applyFinalDraftPolicy({
+              draft: option.draft,
+              formatPreference: effectiveFormatPreference,
+              isVerifiedAccount,
+              userPreferences: effectiveUserPreferences,
+              styleCard:
+                parsedPersistedStyleCard?.success
+                  ? parsedPersistedStyleCard.data
+                  : null,
+              threadFramingStyle: option.threadFramingStyle ?? responseThreadFramingStyle,
+            }),
+          })),
+        }
+      : null;
+    const selectedBundleOption =
+      policyDraftBundle?.options.find(
+        (option) => option.id === policyDraftBundle.selectedOptionId,
+      ) ?? policyDraftBundle?.options[0] ?? null;
+    const resolvedPolicyDraft = selectedBundleOption?.draft ?? policyDraft;
+    const policyDrafts =
+      policyDraftBundle?.options.map((option) => option.draft) ??
+      (resolvedPolicyDraft ? [resolvedPolicyDraft] : normalizedDraftPayload.drafts);
+    const draftBundlePayload = policyDraftBundle
+      ? buildDraftBundleVersionPayload({
+          draftBundle: policyDraftBundle,
+          outputShape: result.outputShape,
+          groundingSources: responseGroundingSources,
+          groundingMode: responseGroundingMode,
+          groundingExplanation: responseGroundingExplanation,
+          threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
+        })
+      : null;
+    const singleDraftVersionPayload = !policyDraftBundle
+      ? buildInitialDraftVersionPayload({
+          draft: resolvedPolicyDraft,
+          outputShape: result.outputShape,
+          supportAsset: (resultData?.supportAsset as string) || null,
+          selectedDraftContext,
+          groundingSources: responseGroundingSources,
+          groundingMode: responseGroundingMode,
+          groundingExplanation: responseGroundingExplanation,
+          voiceTarget: responseVoiceTarget,
+          noveltyNotes: responseNoveltyNotes,
+          threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
+          threadFramingStyle: responseThreadFramingStyle,
+        })
+      : null;
+    const draftVersionPayload = draftBundlePayload ?? singleDraftVersionPayload ?? {
+      draftArtifacts: [],
+    };
     const mappedData = {
       reply: normalizedDraftPayload.reply,
       angles: responseShapePlan.shouldShowArtifacts ? resultData?.angles as unknown[] || [] : [],
       quickReplies: responseShapePlan.shouldShowArtifacts ? resultData?.quickReplies || [] : [],
       plan: responseShapePlan.shouldShowArtifacts ? resultData?.plan || null : null,
-      draft: policyDraft,
+      draft: resolvedPolicyDraft,
       drafts: policyDrafts,
       draftArtifacts: draftVersionPayload.draftArtifacts,
       draftVersions: draftVersionPayload.draftVersions,
       activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
-      previousVersionSnapshot: draftVersionPayload.previousVersionSnapshot,
+      previousVersionSnapshot:
+        "previousVersionSnapshot" in draftVersionPayload
+          ? draftVersionPayload.previousVersionSnapshot
+          : undefined,
       revisionChainId: draftVersionPayload.revisionChainId,
-      supportAsset: resultData?.supportAsset as string || null,
+      draftBundle: draftBundlePayload?.draftBundle ?? null,
+      supportAsset:
+        selectedBundleOption?.supportAsset ?? ((resultData?.supportAsset as string) || null),
       groundingSources: responseGroundingSources,
       autoSavedSourceMaterials:
         resultData &&
@@ -628,8 +761,7 @@ export async function POST(request: NextRequest) {
               },
             }
           : {}),
-        preferredSurfaceMode:
-          responseShapePlan.mode === "structured_generation" ? "structured" : "natural",
+        preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
       });
 
       const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
@@ -644,9 +776,46 @@ export async function POST(request: NextRequest) {
       });
 
       mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
+
+      if (draftBundlePayload?.draftBundle?.options.length) {
+        try {
+          await Promise.all(
+            draftBundlePayload.draftBundle.options.map((option) =>
+              prisma.draftCandidate.create({
+                data: {
+                  userId: session.user.id,
+                  ...(activeHandle ? { xHandle: activeHandle } : {}),
+                  threadId: storedThread.id,
+                  runId: storedRun?.id ?? null,
+                  title: option.label,
+                  sourcePrompt: effectiveMessage,
+                  sourcePlaybook: "chat_bundle",
+                  outputShape: result.outputShape,
+                  artifact: option.artifact as unknown as Prisma.InputJsonValue,
+                  voiceTarget: option.artifact.voiceTarget
+                    ? (option.artifact.voiceTarget as unknown as Prisma.InputJsonValue)
+                    : Prisma.JsonNull,
+                  noveltyNotes: (option.artifact.noveltyNotes ?? []) as unknown as Prisma.InputJsonValue,
+                },
+              }),
+            ),
+          );
+        } catch (error) {
+          if (!isMissingDraftCandidateTableError(error)) {
+            throw error;
+          }
+        }
+      }
     }
 
-    const primaryDraftArtifact = draftVersionPayload.draftArtifacts[0] ?? null;
+    const primaryDraftArtifact =
+      draftBundlePayload?.draftBundle
+        ? (
+            draftBundlePayload.draftBundle.options.find(
+              (option) => option.id === draftBundlePayload.draftBundle?.selectedOptionId,
+            )?.artifact ?? draftVersionPayload.draftArtifacts[0]
+          )
+        : draftVersionPayload.draftArtifacts[0] ?? null;
     const primaryGroundingMode = primaryDraftArtifact?.groundingMode ?? null;
     const primaryGroundingSourceCount = primaryDraftArtifact?.groundingSources?.length ?? 0;
     const autoSavedSourceMaterialCount = mappedData.autoSavedSourceMaterials?.count ?? 0;

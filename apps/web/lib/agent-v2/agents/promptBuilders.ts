@@ -163,9 +163,20 @@ CREATOR PROFILE HINTS:
 - Tone guidelines: ${creatorProfileHints.toneGuidelines.join(" | ") || "None"}
 - CTA policy: ${creatorProfileHints.ctaPolicy || "None"}
 - Top example snippets: ${creatorProfileHints.topExampleSnippets.join(" | ") || "None"}
+- Known for: ${creatorProfileHints.knownFor || "None"}
+- Target audience: ${creatorProfileHints.targetAudience || "None"}
+- Content pillars: ${creatorProfileHints.contentPillars?.join(" | ") || "None"}
+- Reply goals: ${creatorProfileHints.replyGoals?.join(" | ") || "None"}
+- Profile conversion cues: ${creatorProfileHints.profileConversionCues?.join(" | ") || "None"}
+- Off-brand themes: ${creatorProfileHints.offBrandThemes?.join(" | ") || "None"}
+- Ambiguities: ${creatorProfileHints.ambiguities?.join(" | ") || "None"}
+- Learning signals: ${creatorProfileHints.learningSignals?.join(" | ") || "None"}
 
 Use these hints to bias format, hook shape, pacing, and CTA choices before you improvise.
 They should shape the structure of the draft without turning into copied wording.
+If ambiguities are present, choose the narrowest useful interpretation instead of acting certain.
+Every draft or reply must clearly map to at least one current content pillar or learning signal.
+Reject broad motivational filler, generic praise-only replies, and off-brand side quests even if they sound polished.
   `.trim();
 }
 
@@ -447,6 +458,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
 10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement(threadFramingStyle)}
+10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
 11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
@@ -461,6 +473,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
 15. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 16. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
+17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
 
 Respond ONLY with a valid JSON matching this schema:
 {

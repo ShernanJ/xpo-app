@@ -25,6 +25,24 @@ const bluntStyleCard: VoiceStyleCard = {
 
 export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
   {
+    id: "growth-draft-command-clarification-loop",
+    title: "Growth Draft Command Clarification Loop",
+    description:
+      "Checks that mixed draft-plus-growth asks never collapse into a capability blurb and that follow-up draft commands do not get stored as fake topics.",
+    xHandle: "shernanjavier",
+    styleCard: bluntStyleCard,
+    turns: [
+      {
+        role: "user",
+        message: "write me a post to help me grow",
+      },
+      {
+        role: "user",
+        message: "yes write me a post",
+      },
+    ],
+  },
+  {
     id: "pending-plan-draft-command",
     title: "Pending Plan Draft Command",
     description:

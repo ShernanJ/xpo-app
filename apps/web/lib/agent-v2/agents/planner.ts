@@ -13,6 +13,42 @@ import type {
 } from "../orchestrator/groundingPacket";
 import { buildPlanInstruction } from "./promptBuilders";
 
+function summarizePlannerFetchFailure(reason: string): string {
+  const normalized = reason.trim().toLowerCase();
+
+  if (normalized === "returned invalid json") {
+    return "the planner returned invalid JSON";
+  }
+
+  if (normalized === "returned no content") {
+    return "the planner returned no content";
+  }
+
+  if (normalized === "returned no choices") {
+    return "the planner returned no choices";
+  }
+
+  return "the planner request failed";
+}
+
+function summarizePlannerSchemaFailure(error: z.ZodError): string {
+  const firstIssue = error.issues[0];
+  if (!firstIssue) {
+    return "the planner returned an invalid plan shape";
+  }
+
+  const path = firstIssue.path
+    .map((segment) => String(segment).trim())
+    .filter(Boolean)
+    .join(".");
+
+  if (!path) {
+    return "the planner returned an invalid plan shape";
+  }
+
+  return `the planner returned an invalid plan shape for ${path}`;
+}
+
 export const PlannerOutputSchema = z.object({
   objective: z.string(),
   angle: z.string(),
@@ -44,6 +80,7 @@ export async function generatePlan(
     voiceTarget?: VoiceTarget | null;
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;
+    onFailureReason?: (reason: string) => void;
   },
 ): Promise<PlannerOutput | null> {
   const instruction = buildPlanInstruction({
@@ -63,6 +100,9 @@ export async function generatePlan(
     reasoning_effort: "low",
     temperature: 0.2,
     top_p: 0.9,
+    onFailure: (reason) => {
+      options?.onFailureReason?.(summarizePlannerFetchFailure(reason));
+    },
     messages: [
       { role: "system", content: instruction },
       { role: "user", content: `User Request: ${userMessage}` },
@@ -74,6 +114,11 @@ export async function generatePlan(
   try {
     return PlannerOutputSchema.parse(data);
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      options?.onFailureReason?.(summarizePlannerSchemaFailure(err));
+    } else {
+      options?.onFailureReason?.("the planner returned an invalid plan shape");
+    }
     console.error("Planner validation failed", err);
     return null;
   }

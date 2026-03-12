@@ -24,9 +24,15 @@ import {
   buildLooseDirectionReply,
 } from "./assistantReplyStyle.ts";
 import {
+  buildDraftBundleBriefs,
+} from "./draftBundles.ts";
+import {
+  buildPlanFailureResponse,
   hasStrongDraftCommand,
+  inferExplicitDraftFormatPreference,
   isBareIdeationRequest,
   isBareDraftRequest,
+  isMultiDraftRequest,
   resolveConversationMode,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
@@ -88,6 +94,34 @@ test("filler-prefixed draft commands still count as bare draft requests", () => 
   );
 });
 
+test("multi-draft prompts are detected deterministically", () => {
+  assert.equal(isMultiDraftRequest("generate me multiple posts i can use"), true);
+  assert.equal(isMultiDraftRequest("draft 4 posts about growing my company"), true);
+  assert.equal(isMultiDraftRequest("draft 4 posts from what you know about me"), true);
+  assert.equal(isMultiDraftRequest("give me a random post i would use"), true);
+  assert.equal(isMultiDraftRequest("write me a post"), false);
+});
+
+test("explicit draft format cues prefer post or thread wording over profile bias", () => {
+  assert.equal(inferExplicitDraftFormatPreference("write me a post"), "shortform");
+  assert.equal(inferExplicitDraftFormatPreference("turn this into a post"), "shortform");
+  assert.equal(inferExplicitDraftFormatPreference("write me a thread"), "thread");
+});
+
+test("generic draft asks still fall back to creator-profile format hints", () => {
+  const hintedFallback =
+    mapPreferredOutputShapeToFormatPreference("thread_seed") || "shortform";
+
+  assert.equal(
+    inferExplicitDraftFormatPreference("write me something") || hintedFallback,
+    "thread",
+  );
+  assert.equal(
+    inferExplicitDraftFormatPreference("write me a post") || hintedFallback,
+    "shortform",
+  );
+});
+
 test("draft commands with growth language do not collapse into capability chat", () => {
   fc.assert(
     fc.property(
@@ -118,6 +152,84 @@ test("draft commands with growth language do not collapse into capability chat",
     ),
     { numRuns: 20 },
   );
+});
+
+test("bundle brief builder creates four distinct framings from saved context", () => {
+  const briefs = buildDraftBundleBriefs({
+    userMessage: "draft 4 posts about growing my company",
+    basePlan: {
+      objective: "turn the company growth story into posts",
+      angle: "use the story of growing the company",
+      targetLane: "original",
+      mustInclude: ["Keep it in my voice."],
+      mustAvoid: ["No generic platitudes."],
+      hookType: "story",
+      pitchResponse: "Running with the company-growth story.",
+      formatPreference: "shortform",
+    },
+    sourceMaterials: [
+      {
+        id: "asset_1",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Growth story",
+        tags: ["growth", "approved_draft"],
+        verified: true,
+        claims: ["We grew the company by tightening onboarding first."],
+        snippets: ["That onboarding change became the turning point."],
+        doNotClaim: [],
+        lastUsedAt: null,
+        createdAt: new Date("2026-03-01T00:00:00.000Z").toISOString(),
+        updatedAt: new Date("2026-03-01T00:00:00.000Z").toISOString(),
+      },
+    ],
+  });
+
+  assert.equal(briefs.length, 4);
+  assert.equal(new Set(briefs.map((brief) => brief.prompt)).size, 4);
+  assert.deepEqual(
+    briefs.map((brief) => brief.id),
+    [
+      "lesson_reflection",
+      "proof_result",
+      "mistake_turning_point",
+      "playbook_breakdown",
+    ],
+  );
+});
+
+test("diagnostic reply explains likely reasons and next actions from diagnostic context", () => {
+  const reply = getDeterministicChatReply({
+    userMessage: "why am i not getting views",
+    recentHistory: "",
+    userContextString: "",
+    activeConstraints: [],
+    diagnosticContext: {
+      stage: "1k-10k",
+      knownFor: "product lessons",
+      reasons: [
+        "your positioning is still blurry across the bio and recent posts",
+        "recent posts are not repeating the same pillar enough",
+      ],
+      nextActions: [
+        "tighten the bio around one promise",
+        "publish three posts from the same pillar this week",
+      ],
+      recommendedPlaybooks: [
+        {
+          id: "weekly-series",
+          name: "Weekly series",
+          whyFit: "this gives the account a more repeatable format.",
+        },
+      ],
+    },
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply.includes("likely reasons:"), true);
+  assert.equal(reply.includes("next actions:"), true);
+  assert.equal(reply.includes("full breakdown is there if you want it."), true);
 });
 
 test("generic ideation prompts are detected deterministically", () => {
@@ -397,6 +509,26 @@ test("specific thread draft requests auto-draft from the planner path", () => {
   assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
 });
 
+test("memory-grounded multi-draft requests auto-draft from saved context", () => {
+  const turnPlan = planTurn({
+    userMessage: "draft 4 posts from what you know about me",
+    recentHistory: "assistant: none",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 2,
+      topicSummary: "x growth lessons from building stanley",
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      activeConstraints: [],
+      assistantTurnCount: 0,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
+  assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+});
+
 test("growth phrasing inside a draft request does not route to coach chat", () => {
   const turnPlan = planTurn({
     userMessage: "write me a post to help me grow",
@@ -421,6 +553,37 @@ test("growth phrasing inside a draft request does not route to coach chat", () =
       classifiedIntent: "coach",
     }),
     "plan",
+  );
+});
+
+test("missing-draft improvement requests stay in coach mode until a draft is provided", () => {
+  const turnPlan = planTurn({
+    userMessage: "help me improve this draft",
+    recentHistory: "assistant: none",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      activeConstraints: [],
+      assistantTurnCount: 0,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(turnPlan?.overrideClassifiedIntent, "coach");
+  assert.equal(turnPlan?.shouldGenerate, false);
+});
+
+test("planner failure replies preserve the captured reason", () => {
+  assert.equal(
+    buildPlanFailureResponse("the planner returned invalid JSON"),
+    "Failed to generate strategy plan because the planner returned invalid JSON.",
+  );
+  assert.equal(
+    buildPlanFailureResponse(null),
+    "Failed to generate strategy plan.",
   );
 });
 

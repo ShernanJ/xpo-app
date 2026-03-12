@@ -1,6 +1,7 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
 import { generateCoachReply } from "../agents/coach.ts";
+import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
 import { getDeterministicChatReply } from "./chatResponderDeterministic";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ export async function respondConversationally(args: {
   topicAnchors: string[];
   userContextString: string;
   activeConstraints?: string[];
+  diagnosticContext?: ConversationalDiagnosticContext | null;
   options?: {
     goal?: string;
     conversationState?: ConversationState;
@@ -89,6 +91,7 @@ export async function respondConversationally(args: {
     recentHistory: args.recentHistory,
     userContextString: args.userContextString,
     activeConstraints: args.activeConstraints,
+    diagnosticContext: args.diagnosticContext,
   });
   if (deterministicReply) {
     return deterministicReply;

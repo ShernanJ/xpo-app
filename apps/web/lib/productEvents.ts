@@ -1,6 +1,6 @@
-import { prisma } from "@/lib/db";
-import { Prisma } from "@/lib/generated/prisma/client";
-import { isMissingProductEventTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
+import { prisma } from "./db.ts";
+import { Prisma } from "./generated/prisma/client.ts";
+import { isMissingProductEventTableError } from "./agent-v2/orchestrator/prismaGuards.ts";
 
 export interface ProductEventInput {
   userId: string;

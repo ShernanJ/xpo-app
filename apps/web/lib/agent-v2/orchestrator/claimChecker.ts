@@ -199,7 +199,7 @@ function cleanupDraft(value: string): string {
     .trim();
 }
 
-function sanitizeLine(line: string, packet: GroundingPacket): {
+function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
   nextLine: string;
   issue: string | null;
 } {
@@ -253,6 +253,57 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
   };
 }
 
+function splitSentenceLikeSegments(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed === "---") {
+    return [trimmed];
+  }
+
+  const segments = trimmed
+    .split(/(?<=[.!?])\s+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  return segments.length > 0 ? segments : [trimmed];
+}
+
+function sanitizeLine(line: string, packet: GroundingPacket): {
+  nextLine: string;
+  issues: string[];
+} {
+  const trimmed = normalizeWhitespace(line);
+  if (!trimmed || trimmed === "---") {
+    return { nextLine: line.trim(), issues: [] };
+  }
+
+  const segments = splitSentenceLikeSegments(trimmed);
+  if (segments.length === 1) {
+    const result = sanitizeAtomicLine(segments[0] || trimmed, packet);
+    return {
+      nextLine: result.nextLine,
+      issues: result.issue ? [result.issue] : [],
+    };
+  }
+
+  const nextSegments: string[] = [];
+  const issues: string[] = [];
+
+  for (const segment of segments) {
+    const result = sanitizeAtomicLine(segment, packet);
+    if (result.nextLine) {
+      nextSegments.push(result.nextLine);
+    }
+    if (result.issue) {
+      issues.push(result.issue);
+    }
+  }
+
+  return {
+    nextLine: cleanupDraft(nextSegments.join(" ")),
+    issues,
+  };
+}
+
 export function checkDraftClaimsAgainstGrounding(args: {
   draft: string;
   groundingPacket: GroundingPacket;
@@ -264,9 +315,9 @@ export function checkDraftClaimsAgainstGrounding(args: {
   const nextLines = lines
     .map((line) => {
       const result = sanitizeLine(line, args.groundingPacket);
-      if (result.issue) {
-        removedOrChanged += 1;
-        issues.push(result.issue);
+      if (result.issues.length > 0) {
+        removedOrChanged += result.issues.length;
+        issues.push(...result.issues);
       }
       return result.nextLine;
     })
@@ -285,8 +336,13 @@ export function checkDraftClaimsAgainstGrounding(args: {
     });
 
   const sanitizedDraft = cleanupDraft(nextLines.join("\n"));
+  const sanitizedWordCount = sanitizedDraft
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean).length;
   const needsClarification =
     removedOrChanged > 0 &&
+    sanitizedWordCount < 6 &&
     (sanitizedDraft.length < 48 ||
       sanitizedDraft.length < Math.max(32, Math.floor(args.draft.length * 0.45)));
 

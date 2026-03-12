@@ -317,6 +317,41 @@ test("v3: 'go ahead' with pending plan routes to planner_feedback", () => {
   assert.equal(result.overrideClassifiedIntent, "planner_feedback");
 });
 
+test("v3: diagnostic follow-up asking for examples stays in coach chat", () => {
+  const result = planTurn({
+    userMessage: "give me examples",
+    recentHistory: [
+      "assistant: a few things are probably suppressing reach right now:",
+      "",
+      "for you specifically, this looks less like a reach problem and more like making software and product through grow on legible through a sharper lived example.",
+      "",
+      "likely reasons:",
+      "1. Most drafted posts are not getting to posted state yet, which suggests draft fit or specificity is still weak.",
+      "",
+      "next actions:",
+      "1. Keep the bio tight and make \"software and product through grow on\" legible in one glance.",
+      "2. Lean harder into built an in replies because it is earning the strongest downstream action.",
+      "3. Test the next short form post draft against grow on.",
+      "",
+      "full breakdown is there if you want it. the best playbook match is reply ladder.",
+    ].join("\n"),
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 2,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "chat");
+  assert.equal(result.overrideClassifiedIntent, "coach");
+  assert.equal(result.shouldGenerate, false);
+});
+
 test("v3: answering the active clarification question routes forward instead of looping coach", () => {
   const result = planTurn({
     userMessage: "the problem is most builders only see vanity metrics",
@@ -371,6 +406,71 @@ test("v3: 'run with it' triggers draft when topic is known", () => {
   assert.ok(result);
   assert.equal(result.userGoal, "draft");
   assert.equal(result.overrideClassifiedIntent, "draft");
+});
+
+test("v3: 'generate me an example' uses the concrete assistant seed instead of looping", () => {
+  const result = planTurn({
+    userMessage: "generate me an example",
+    recentHistory:
+      "assistant: lost to stan? use that sting. show how that loss sparked your app. turn the defeat into a case study for grow on. show followers the exact tweak that would've flipped the match.",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 2,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "draft");
+  assert.equal(result.shouldGenerate, true);
+  assert.equal(result.shouldAutoDraftFromPlan, true);
+});
+
+test("v3: 'give me examples' also uses the concrete assistant seed when it is a content angle", () => {
+  const result = planTurn({
+    userMessage: "give me examples",
+    recentHistory:
+      "assistant: lost to stan? use that sting. show how that loss sparked your app. turn the defeat into a case study for grow on. show followers the exact tweak that would've flipped the match.",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 2,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(result.userGoal, "draft");
+  assert.equal(result.overrideClassifiedIntent, "draft");
+  assert.equal(result.shouldGenerate, true);
+  assert.equal(result.shouldAutoDraftFromPlan, true);
+});
+
+test("v3: 'generate me an example' without a real seed still returns null", () => {
+  const result = planTurn({
+    userMessage: "generate me an example",
+    recentHistory:
+      "assistant: i can help with what to post on x, draft in your voice, revise drafts, and give blunt growth feedback. send what to post today, a rough idea, or a draft.",
+    memory: {
+      conversationState: "needs_more_context",
+      concreteAnswerCount: 0,
+      topicSummary: null,
+      pendingPlan: null,
+      currentDraftArtifactId: null,
+      assistantTurnCount: 1,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(result, null);
 });
 
 test("v3: specific first-turn draft request routes straight to draft", () => {

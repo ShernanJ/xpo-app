@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildDraftBundleVersionPayload,
   buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
   buildDraftVersionMetadata,
@@ -156,6 +157,55 @@ test("thread payloads build structured thread artifacts with posts", () => {
     "Built from saved stories and proof you've already taught Xpo to reuse.",
   );
   assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");
+});
+
+test("bundle payload builds sibling draft versions and keeps the selected option active", () => {
+  const payload = buildDraftBundleVersionPayload({
+    draftBundle: {
+      kind: "sibling_options",
+      selectedOptionId: "bundle-proof",
+      options: [
+        {
+          id: "bundle-lesson",
+          label: "Lesson / Reflection",
+          framing: "lesson_reflection",
+          draft: "First option",
+          supportAsset: null,
+          issuesFixed: [],
+          voiceTarget: null,
+          noveltyNotes: ["keep it distinct"],
+          threadFramingStyle: null,
+          groundingSources: [],
+          groundingMode: "saved_sources",
+          groundingExplanation: "Saved context.",
+        },
+        {
+          id: "bundle-proof",
+          label: "Proof / Result",
+          framing: "proof_result",
+          draft: "Second option",
+          supportAsset: null,
+          issuesFixed: [],
+          voiceTarget: null,
+          noveltyNotes: ["lead with proof"],
+          threadFramingStyle: null,
+          groundingSources: [],
+          groundingMode: "saved_sources",
+          groundingExplanation: "Saved context.",
+        },
+      ],
+    },
+    outputShape: "short_form_post",
+  });
+
+  assert.equal(payload.draftArtifacts.length, 2);
+  assert.equal(payload.draftVersions?.length, 2);
+  assert.equal(payload.draftBundle?.options.length, 2);
+  assert.equal(payload.draftBundle?.selectedOptionId, "bundle-proof");
+  assert.equal(
+    payload.draftBundle?.options.find((option) => option.id === "bundle-proof")?.versionId,
+    payload.activeDraftVersionId,
+  );
 });
 
 test("conversation context builder keeps recent history and prefers selected draft context", () => {

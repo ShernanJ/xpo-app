@@ -90,6 +90,7 @@ import {
 import { buildIdeationReply } from "./ideationReply";
 import { buildIdeationQuickReplies } from "./ideationQuickReplies";
 import { interpretPlannerFeedback } from "./plannerFeedback";
+import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
 import {
   buildComparisonRelationshipQuestion,
   buildProblemStakeQuestion,
@@ -100,9 +101,12 @@ import {
   isMissingSourceMaterialAssetTableError,
 } from "./prismaGuards";
 import {
+  buildPlanFailureResponse,
   hasStrongDraftCommand,
+  inferExplicitDraftFormatPreference,
   isBareDraftRequest,
   isBareIdeationRequest,
+  isMultiDraftRequest,
   resolveConversationMode,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
@@ -112,7 +116,14 @@ import {
   inferBroadTopicDraftRequest,
   shouldFastStartGroundedDraft,
 } from "./draftFastStart.ts";
-import { resolveConversationRouterState } from "./conversationRouterMachine";
+import {
+  resolveConversationRouterState,
+  type ConversationRouterState,
+} from "./conversationRouterMachine";
+import {
+  getTurnRelationContext,
+  isContextDependentFollowUp,
+} from "./turnRelation.ts";
 import {
   evaluateDraftContextSlots,
   hasFunctionalDetail,
@@ -134,6 +145,7 @@ import {
   buildSafeFrameworkConstraint,
   hasAutobiographicalGrounding,
   type CreatorProfileHints,
+  type GroundingPacket,
   type GroundingPacketSourceMaterial,
 } from "./groundingPacket";
 import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
@@ -154,6 +166,10 @@ import {
   type SourceMaterialAssetInput,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
+import {
+  buildDraftBundleBriefs,
+  type DraftBundleResult,
+} from "./draftBundles";
 import { selectResponseShapePlan } from "./surfaceModeSelector";
 import { shapeAssistantResponse } from "./responseShaper";
 import type {
@@ -181,12 +197,15 @@ export interface OrchestratorInput {
   threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
   creatorProfileHints?: CreatorProfileHints | null;
+  diagnosticContext?: ConversationalDiagnosticContext | null;
 }
 
 export interface OrchestratorData {
   angles?: unknown[];
   plan?: StrategyPlan | null;
   draft?: string | null;
+  drafts?: string[];
+  draftBundle?: DraftBundleResult | null;
   supportAsset?: string | null;
   issuesFixed?: string[];
   quickReplies?: CreatorChatQuickReply[];
@@ -204,6 +223,41 @@ export interface OrchestratorData {
       deletable: boolean;
     }>;
   };
+  routingTrace?: RoutingTrace;
+}
+
+export interface RoutingTrace {
+  turnPlan: {
+    userGoal: string;
+    overrideClassifiedIntent: string | null;
+    shouldAutoDraftFromPlan: boolean;
+  } | null;
+  classifiedIntent: string | null;
+  resolvedMode: string | null;
+  routerState: ConversationRouterState | null;
+  planInputSource: "raw_user_message" | "clarification_answer" | "grounded_topic" | null;
+  clarification:
+    | {
+        kind: "question" | "tree";
+        reason: string | null;
+        branchKey: string | null;
+        question: string;
+      }
+    | null;
+  draftGuard:
+    | {
+        reason:
+          | "claim_needs_clarification"
+          | "concrete_scene_drift"
+          | "product_drift";
+        issues: string[];
+      }
+    | null;
+  planFailure:
+    | {
+        reason: string;
+      }
+    | null;
 }
 
 export type OrchestratorResponse = {
@@ -254,6 +308,7 @@ export interface ConversationServices {
     xHandle?: string | null;
     assets: SourceMaterialAssetInput[];
   }) => Promise<SourceMaterialAssetRecord[]>;
+  shouldIncludeRoutingTrace: () => boolean;
 }
 
 function normalizeHandleForContext(value: string | null | undefined): string | null {
@@ -488,6 +543,9 @@ export function createDefaultConversationServices(): ConversationServices {
         throw error;
       }
     },
+    shouldIncludeRoutingTrace() {
+      return false;
+    },
   };
 }
 
@@ -616,6 +674,22 @@ function inferMissingSpecificQuestion(message: string): string | null {
   });
 }
 
+function buildNaturalDraftClarificationQuestion(args: {
+  multiple: boolean;
+  topicSummary?: string | null;
+}): string {
+  const topic = args.topicSummary?.trim();
+  if (topic) {
+    return args.multiple
+      ? `what real story, proof point, or lesson inside ${topic} should these posts pull from?`
+      : `what real story, proof point, or lesson inside ${topic} should this post pull from?`;
+  }
+
+  return args.multiple
+    ? "what real story, proof point, or lesson should these posts pull from?"
+    : "what real story, proof point, or lesson should this post pull from?";
+}
+
 function buildAmbiguousReferenceQuestion(reference: string): string {
   const normalized = reference.trim().toLowerCase();
 
@@ -742,6 +816,7 @@ function inferTopicFromIdeaTitles(ideaTitles: string[]): string | null {
 
 function inferAbstractTopicSeed(
   message: string,
+  recentHistory: string,
   memory: Pick<V2ConversationMemory, "conversationState" | "concreteAnswerCount" | "topicSummary">,
 ): string | null {
   if (memory.conversationState !== "needs_more_context" || memory.concreteAnswerCount >= 2) {
@@ -763,6 +838,13 @@ function inferAbstractTopicSeed(
   }
 
   if (looksLikeUnsafeClarificationSeed(trimmed)) {
+    return null;
+  }
+
+  if (
+    getTurnRelationContext(recentHistory).lastAssistantTurn &&
+    isContextDependentFollowUp(trimmed)
+  ) {
     return null;
   }
 
@@ -1036,47 +1118,7 @@ function inferDraftFormatPreference(
     return explicitFormatPreference;
   }
 
-  const normalized = message.trim().toLowerCase();
-
-  if (
-    [
-      "thread",
-      "x thread",
-      "tweet thread",
-      "make it a thread",
-      "turn this into a thread",
-      "write a thread",
-    ].some((cue) => normalized.includes(cue))
-  ) {
-    return "thread";
-  }
-
-  if (
-    [
-      "longform",
-      "long form",
-      "long-form",
-      "write longer",
-      "go deeper",
-      "expand this",
-    ].some((cue) => normalized.includes(cue))
-  ) {
-    return "longform";
-  }
-
-  if (
-    [
-      "shortform",
-      "short form",
-      "short-form",
-      "keep it short",
-      "keep it tight",
-    ].some((cue) => normalized.includes(cue))
-  ) {
-    return "shortform";
-  }
-
-  return fallback;
+  return inferExplicitDraftFormatPreference(message) || fallback;
 }
 
 function resolveRequestedThreadFramingStyle(args: {
@@ -1376,6 +1418,7 @@ export async function manageConversationTurn(
     formatPreference,
     threadFramingStyle,
     creatorProfileHints: inputCreatorProfileHints,
+    diagnosticContext,
   } = input;
   const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
   const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
@@ -1432,6 +1475,23 @@ export async function manageConversationTurn(
     memory,
     explicitIntent,
   });
+  const shouldIncludeRoutingTrace = services.shouldIncludeRoutingTrace();
+  const routingTrace: RoutingTrace = {
+    turnPlan: turnPlan
+      ? {
+          userGoal: turnPlan.userGoal,
+          overrideClassifiedIntent: turnPlan.overrideClassifiedIntent || null,
+          shouldAutoDraftFromPlan: turnPlan.shouldAutoDraftFromPlan === true,
+        }
+      : null,
+    classifiedIntent: null,
+    resolvedMode: null,
+    routerState: null,
+    planInputSource: null,
+    clarification: null,
+    draftGuard: null,
+    planFailure: null,
+  };
   let autoSavedSourceMaterials:
     | {
         count: number;
@@ -1488,6 +1548,8 @@ export async function manageConversationTurn(
     classifiedIntent: classification.intent,
     activeDraft,
   }) as V2ChatIntent;
+  routingTrace.classifiedIntent = classification.intent;
+  routingTrace.resolvedMode = mode;
 
   if (
     !explicitIntent &&
@@ -1675,21 +1737,38 @@ export async function manageConversationTurn(
     suppress: suppressFeedbackMemoryNotice,
   });
 
-  let groundingPacket = buildGroundingPacket({
-    styleCard,
-    activeConstraints: effectiveActiveConstraints,
-    extractedFacts,
-  });
   const selectedSourceMaterials = selectRelevantSourceMaterials({
     assets: sourceMaterialAssets,
     userMessage,
     topicSummary: memory.topicSummary,
     limit: 2,
   });
-  groundingPacket = mergeSourceMaterialsIntoGroundingPacket({
-    groundingPacket,
-    sourceMaterials: selectedSourceMaterials,
-  });
+  const buildGroundingPacketForContext = (
+    activeConstraints: string[],
+    sourceText: string,
+  ): GroundingPacket => {
+    let nextPacket = buildGroundingPacket({
+      styleCard,
+      activeConstraints,
+      extractedFacts,
+    });
+    nextPacket = mergeSourceMaterialsIntoGroundingPacket({
+      groundingPacket: nextPacket,
+      sourceMaterials: selectedSourceMaterials,
+    });
+    return addGroundingUnknowns(
+      nextPacket,
+      evaluateDraftContextSlots({
+        userMessage: sourceText,
+        topicSummary: memory.topicSummary,
+        contextAnchors: nextPacket.durableFacts,
+      }),
+    );
+  };
+  let groundingPacket = buildGroundingPacketForContext(
+    effectiveActiveConstraints,
+    userMessage,
+  );
   const groundingSourcesForTurn = groundingPacket.sourceMaterials.slice(0, 2);
   if (selectedSourceMaterials.length > 0) {
     services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error) =>
@@ -1701,7 +1780,6 @@ export async function manageConversationTurn(
     topicSummary: memory.topicSummary,
     contextAnchors: groundingPacket.durableFacts,
   });
-  groundingPacket = addGroundingUnknowns(groundingPacket, turnDraftContextSlots);
   const relevantTopicAnchors = retrieveRelevantContext({
     userMessage,
     topicSummary: memory.topicSummary,
@@ -1847,6 +1925,8 @@ User Profile Summary:
     formatPreference: turnFormatPreference,
     explicitThreadFramingStyle: threadFramingStyle,
   });
+  const isMultiDraftTurn =
+    turnFormatPreference === "shortform" && isMultiDraftRequest(userMessage);
   const threadPostMaxCharacterLimit =
     turnFormatPreference === "thread"
       ? getXCharacterLimitForAccount(isVerifiedAccount)
@@ -1871,6 +1951,11 @@ User Profile Summary:
     hasCurrentChatGrounding: groundingPacket.turnGrounding.length > 0,
     usesSafeFramework: Boolean(safeFrameworkConstraint),
   });
+  const hasReusableGroundingForTurn =
+    groundingSourcesForTurn.length > 0 ||
+    groundingPacket.turnGrounding.length > 0 ||
+    hasAutobiographicalGrounding(groundingPacket) ||
+    Boolean(memory.topicSummary?.trim() && memory.concreteAnswerCount >= 1);
   const baseVoiceTarget = resolveVoiceTarget({
     styleCard,
     userMessage,
@@ -1934,7 +2019,15 @@ User Profile Summary:
     quickReplies?: CreatorChatQuickReply[];
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
+    traceReason?: string | null;
+    traceKind?: "question" | "tree";
   }): Promise<RawOrchestratorResponse> {
+    routingTrace.clarification = {
+      kind: args.traceKind || "question",
+      reason: args.traceReason || null,
+      branchKey: args.clarificationState?.branchKey || null,
+      question: args.question,
+    };
     await writeMemory({
       ...(args.topicSummary !== undefined ? { topicSummary: args.topicSummary } : {}),
       ...(args.pendingPlan !== undefined ? { pendingPlan: args.pendingPlan } : {}),
@@ -1987,6 +2080,8 @@ User Profile Summary:
       reply: args.replyOverride,
       clarificationState: clarification.clarificationState,
       quickReplies: clarification.quickReplies,
+      traceReason: args.branchKey,
+      traceKind: "tree",
       ...(args.topicSummary !== undefined ? { topicSummary: args.topicSummary } : {}),
       ...(args.pendingPlan !== undefined ? { pendingPlan: args.pendingPlan } : {}),
     });
@@ -2161,6 +2256,7 @@ User Profile Summary:
     fallbackToWriterWhenCriticRejected: boolean;
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
+    groundingPacket?: GroundingPacket;
   }): Promise<
     | {
         kind: "success";
@@ -2176,6 +2272,7 @@ User Profile Summary:
         response: RawOrchestratorResponse;
       }
   > {
+    const draftGroundingPacket = args.groundingPacket || groundingPacket;
     const applyClaimCheck = (attempt: {
       writerOutput: WriterOutput;
       criticOutput: CriticOutput;
@@ -2186,7 +2283,7 @@ User Profile Summary:
     }) => {
       const claimCheck = checkDraftClaimsAgainstGrounding({
         draft: attempt.draftToDeliver,
-        groundingPacket,
+        groundingPacket: draftGroundingPacket,
       });
 
       return {
@@ -2250,7 +2347,7 @@ User Profile Summary:
           referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
           threadPostMaxCharacterLimit,
           threadFramingStyle: args.threadFramingStyle,
-          groundingPacket,
+          groundingPacket: draftGroundingPacket,
           creatorProfileHints,
         },
       );
@@ -2278,7 +2375,7 @@ User Profile Summary:
           voiceTarget,
           threadPostMaxCharacterLimit,
           threadFramingStyle: args.threadFramingStyle,
-          groundingPacket,
+          groundingPacket: draftGroundingPacket,
         },
       );
 
@@ -2342,12 +2439,17 @@ User Profile Summary:
       threadFramingStyle: firstAttempt.threadFramingStyle,
     });
     if (firstAttemptWithClaimCheck.claimNeedsClarification) {
+      routingTrace.draftGuard = {
+        reason: "claim_needs_clarification",
+        issues: firstAttemptWithClaimCheck.criticOutput.issues,
+      };
       return {
         kind: "response",
         response: await returnClarificationQuestion({
           question: buildGroundedProductClarificationQuestion(
             args.sourceUserMessage || args.plan.objective,
           ),
+          traceReason: "claim_needs_clarification",
           ...(args.topicSummary !== undefined
             ? { topicSummary: args.topicSummary }
             : {}),
@@ -2425,12 +2527,17 @@ User Profile Summary:
       threadFramingStyle: secondAttempt.threadFramingStyle,
     });
     if (secondAttemptWithClaimCheck.claimNeedsClarification) {
+      routingTrace.draftGuard = {
+        reason: "claim_needs_clarification",
+        issues: secondAttemptWithClaimCheck.criticOutput.issues,
+      };
       return {
         kind: "response",
         response: await returnClarificationQuestion({
           question: buildGroundedProductClarificationQuestion(
             args.sourceUserMessage || args.plan.objective,
           ),
+          traceReason: "claim_needs_clarification",
           ...(args.topicSummary !== undefined
             ? { topicSummary: args.topicSummary }
             : {}),
@@ -2452,6 +2559,15 @@ User Profile Summary:
     });
 
     if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
+      routingTrace.draftGuard = secondAssessment.hasDrift
+        ? {
+            reason: "concrete_scene_drift",
+            issues: [secondAssessment.reason || "Concrete scene drift."],
+          }
+        : {
+            reason: "product_drift",
+            issues: [secondProductAssessment.reason || "Grounded product drift."],
+          };
       return {
         kind: "response",
         response: secondAssessment.hasDrift
@@ -2459,6 +2575,7 @@ User Profile Summary:
               question: buildConcreteSceneClarificationQuestion(
                 args.sourceUserMessage || args.plan.objective,
               ),
+              traceReason: "concrete_scene_drift",
               ...(args.topicSummary !== undefined
                 ? { topicSummary: args.topicSummary }
                 : {}),
@@ -2470,6 +2587,7 @@ User Profile Summary:
               question: buildGroundedProductClarificationQuestion(
                 args.sourceUserMessage || args.plan.objective,
               ),
+              traceReason: "product_drift",
               ...(args.topicSummary !== undefined
                 ? { topicSummary: args.topicSummary }
                 : {}),
@@ -2488,6 +2606,165 @@ User Profile Summary:
       voiceTarget: secondAttemptWithClaimCheck.voiceTarget,
       retrievalReasons: secondAttemptWithClaimCheck.retrievalReasons,
       threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,
+    };
+  }
+
+  async function generateDraftBundleWithGroundingRetry(args: {
+    plan: StrategyPlan;
+    activeConstraints: string[];
+    sourceUserMessage?: string | null;
+    draftPreference: DraftPreference;
+    topicSummary?: string | null;
+    groundingPacket?: GroundingPacket;
+  }): Promise<
+    | {
+        kind: "success";
+        draftBundle: DraftBundleResult;
+        draft: string;
+        drafts: string[];
+        supportAsset: string | null;
+        issuesFixed: string[];
+      }
+    | {
+        kind: "response";
+        response: RawOrchestratorResponse;
+      }
+  > {
+    const bundleBriefs = buildDraftBundleBriefs({
+      userMessage: args.sourceUserMessage || userMessage,
+      basePlan: args.plan,
+      sourceMaterials: selectedSourceMaterials,
+    });
+
+    if (bundleBriefs.length === 0) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to build draft options.",
+          memory,
+        },
+      };
+    }
+
+    const historicalTexts = await services.getHistoricalPosts({
+      userId,
+      xHandle: effectiveXHandle,
+    });
+    const options: DraftBundleResult["options"] = [];
+
+    for (const brief of bundleBriefs) {
+      const bundlePlan: StrategyPlan = {
+        ...args.plan,
+        objective: brief.objective,
+        angle: brief.angle,
+        hookType: brief.hookType,
+        mustInclude: Array.from(new Set([...args.plan.mustInclude, ...brief.mustInclude])),
+        mustAvoid: Array.from(new Set([...args.plan.mustAvoid, ...brief.mustAvoid])),
+        formatPreference: "shortform",
+      };
+
+      let bundleDraftResult = await generateDraftWithGroundingRetry({
+        plan: bundlePlan,
+        activeConstraints: args.activeConstraints,
+        sourceUserMessage: brief.prompt,
+        draftPreference: args.draftPreference,
+        formatPreference: "shortform",
+        threadFramingStyle: null,
+        fallbackToWriterWhenCriticRejected: false,
+        topicSummary: args.topicSummary,
+        groundingPacket: args.groundingPacket,
+      });
+
+      if (bundleDraftResult.kind === "response") {
+        return bundleDraftResult;
+      }
+
+      const earlierDrafts = options.map((option) => option.draft);
+      let noveltyCheck = services.checkDeterministicNovelty(
+        bundleDraftResult.draftToDeliver,
+        [...historicalTexts, ...earlierDrafts],
+      );
+
+      if (!noveltyCheck.isNovel && earlierDrafts.length > 0) {
+        bundleDraftResult = await generateDraftWithGroundingRetry({
+          plan: {
+            ...bundlePlan,
+            mustAvoid: Array.from(
+              new Set([
+                ...bundlePlan.mustAvoid,
+                "Do not mirror the opener, structure, or payoff from the earlier bundle options.",
+              ]),
+            ),
+          },
+          activeConstraints: Array.from(
+            new Set([
+              ...args.activeConstraints,
+              `Sibling novelty: make "${brief.label}" clearly distinct from the earlier bundle options.`,
+            ]),
+          ),
+          sourceUserMessage: `${brief.prompt} Keep it clearly distinct from the earlier bundle options.`,
+          draftPreference: args.draftPreference,
+          formatPreference: "shortform",
+          threadFramingStyle: null,
+          fallbackToWriterWhenCriticRejected: false,
+          topicSummary: args.topicSummary,
+          groundingPacket: args.groundingPacket,
+        });
+
+        if (bundleDraftResult.kind === "response") {
+          return bundleDraftResult;
+        }
+
+        noveltyCheck = services.checkDeterministicNovelty(
+          bundleDraftResult.draftToDeliver,
+          [...historicalTexts, ...earlierDrafts],
+        );
+      }
+
+      options.push({
+        id: `bundle-${brief.id}`,
+        label: brief.label,
+        framing: brief.id,
+        draft: bundleDraftResult.draftToDeliver,
+        supportAsset: bundleDraftResult.writerOutput.supportAsset ?? null,
+        issuesFixed: bundleDraftResult.criticOutput.issues,
+        voiceTarget: bundleDraftResult.voiceTarget,
+        noveltyNotes: buildNoveltyNotes({
+          noveltyCheck,
+          retrievalReasons: bundleDraftResult.retrievalReasons,
+        }),
+        threadFramingStyle: bundleDraftResult.threadFramingStyle,
+        groundingSources: groundingSourcesForTurn,
+        groundingMode: draftGroundingSummary.groundingMode,
+        groundingExplanation: draftGroundingSummary.groundingExplanation,
+      });
+    }
+
+    if (options.length === 0) {
+      return {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to write draft options.",
+          memory,
+        },
+      };
+    }
+
+    return {
+      kind: "success",
+      draftBundle: {
+        kind: "sibling_options",
+        selectedOptionId: options[0].id,
+        options,
+      },
+      draft: options[0].draft,
+      drafts: options.map((option) => option.draft),
+      supportAsset: options[0].supportAsset,
+      issuesFixed: Array.from(new Set(options.flatMap((option) => option.issuesFixed))),
     };
   }
 
@@ -2634,6 +2911,10 @@ User Profile Summary:
         userId,
         xHandle: effectiveXHandle,
       });
+      const approvedPlanGroundingPacket = buildGroundingPacketForContext(
+        draftActiveConstraints,
+        buildPlanSourceMessage(approvedPlan),
+      );
 
       const draftResult = await generateDraftWithGroundingRetry({
         plan: approvedPlan,
@@ -2646,6 +2927,7 @@ User Profile Summary:
         fallbackToWriterWhenCriticRejected: false,
         topicSummary: approvedPlan.objective,
         pendingPlan: approvedPlan,
+        groundingPacket: approvedPlanGroundingPacket,
       });
 
       if (draftResult.kind === "response") {
@@ -2886,6 +3168,7 @@ User Profile Summary:
     hasEnoughContextToAct,
     clarificationBranchKey: memory.clarificationState?.branchKey ?? null,
   });
+  routingTrace.routerState = routerState;
   const canAskPlanClarification = (): boolean =>
     routerState === "clarify_before_generation";
 
@@ -2933,9 +3216,12 @@ User Profile Summary:
     }
 
     if (turnDraftContextSlots.entityNeedsDefinition && turnDraftContextSlots.namedEntity) {
+      const prefersBroaderProductSeed =
+        /\b(?:extension|plugin|tool|app|product)\b/i.test(userMessage) &&
+        inferBroadTopicDraftRequest(userMessage);
       return returnClarificationTree({
         branchKey: "entity_context_missing",
-        seedTopic: turnDraftContextSlots.namedEntity,
+        seedTopic: prefersBroaderProductSeed || turnDraftContextSlots.namedEntity,
       });
     }
   }
@@ -2951,6 +3237,16 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification()) {
+    if (isMultiDraftTurn && !hasReusableGroundingForTurn) {
+      return returnClarificationQuestion({
+        question: buildNaturalDraftClarificationQuestion({
+          multiple: true,
+          topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+        }),
+        topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+      });
+    }
+
     const broadTopic = inferBroadTopicDraftRequest(userMessage);
 
     if (broadTopic) {
@@ -2977,12 +3273,12 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification() && isBareDraftRequest(userMessage)) {
-    return returnClarificationTree({
-      branchKey: isLazyDraftRequest(userMessage)
-        ? "lazy_request"
-        : "vague_draft_request",
-      seedTopic: null,
-      isVerifiedAccount,
+    return returnClarificationQuestion({
+      question: buildNaturalDraftClarificationQuestion({
+        multiple: false,
+        topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+      }),
+      topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
     });
   }
 
@@ -3002,7 +3298,7 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification()) {
-    const abstractTopicSeed = inferAbstractTopicSeed(userMessage, memory);
+    const abstractTopicSeed = inferAbstractTopicSeed(userMessage, recentHistory, memory);
 
     if (abstractTopicSeed) {
       return returnClarificationTree({
@@ -3278,25 +3574,39 @@ User Profile Summary:
       userMessage,
       activeConstraints: effectiveActiveConstraints,
     });
-    const planInput =
+    const usesClarificationPlanInput =
       clarificationAwarePlanInput.planMessage !== userMessage ||
-      clarificationAwarePlanInput.activeConstraints !== effectiveActiveConstraints
-        ? clarificationAwarePlanInput
-        : groundedTopicDraftInput.planMessage
-          ? {
-              planMessage: groundedTopicDraftInput.planMessage,
-              activeConstraints: groundedTopicDraftInput.nextConstraints,
-            }
-          : clarificationAwarePlanInput;
+      clarificationAwarePlanInput.activeConstraints !== effectiveActiveConstraints;
+    const usesGroundedTopicPlanInput =
+      !usesClarificationPlanInput && Boolean(groundedTopicDraftInput.planMessage);
+    const planInput = usesClarificationPlanInput
+      ? clarificationAwarePlanInput
+      : groundedTopicDraftInput.planMessage
+        ? {
+            planMessage: groundedTopicDraftInput.planMessage,
+            activeConstraints: groundedTopicDraftInput.nextConstraints,
+          }
+        : clarificationAwarePlanInput;
+    routingTrace.planInputSource = usesClarificationPlanInput
+      ? "clarification_answer"
+      : usesGroundedTopicPlanInput
+        ? "grounded_topic"
+        : "raw_user_message";
+    const planActiveConstraints = Array.from(
+      new Set([
+        ...planInput.activeConstraints,
+        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+      ]),
+    );
+    const planGroundingPacket = buildGroundingPacketForContext(
+      planActiveConstraints,
+      planInput.planMessage,
+    );
+    let planFailureReason: string | null = null;
     const plan = await services.generatePlan(
       planInput.planMessage,
       memory.topicSummary,
-      Array.from(
-        new Set([
-          ...planInput.activeConstraints,
-          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-        ]),
-      ),
+      planActiveConstraints,
       effectiveContext,
       activeDraft,
       {
@@ -3306,19 +3616,27 @@ User Profile Summary:
         draftPreference: turnDraftPreference,
         formatPreference: turnFormatPreference,
         voiceTarget: baseVoiceTarget,
-        groundingPacket,
+        groundingPacket: planGroundingPacket,
         creatorProfileHints,
+        onFailureReason: (reason) => {
+          planFailureReason = reason;
+        },
       },
     );
 
     if (!plan) {
+      routingTrace.planFailure = planFailureReason
+        ? { reason: planFailureReason }
+        : { reason: "the planner request failed" };
       return {
         mode: "error",
         outputShape: "coach_question",
-        response: "Failed to generate strategy plan.",
+        response: buildPlanFailureResponse(planFailureReason),
         memory,
       };
     }
+
+    routingTrace.planFailure = null;
 
     const planWithPreference = applySourceMaterialBiasToPlan(
       applyCreatorProfileHintsToPlan(
@@ -3331,18 +3649,12 @@ User Profile Summary:
       ),
       selectedSourceMaterials,
       {
-        hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
+        hasAutobiographicalGrounding: hasAutobiographicalGrounding(planGroundingPacket),
       },
     );
     const guardedPlan = shouldForceNoFabricationGuardrailForTurn
       ? withNoFabricationPlanGuardrail(planWithPreference)
       : planWithPreference;
-    const planActiveConstraints = Array.from(
-      new Set([
-        ...planInput.activeConstraints,
-        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-      ]),
-    );
 
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
@@ -3352,6 +3664,97 @@ User Profile Summary:
         (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
         shouldFastStartFromGroundedContext)
     ) {
+      if (isMultiDraftTurn) {
+        const draftBundleResult = await generateDraftBundleWithGroundingRetry({
+          plan: guardedPlan,
+          activeConstraints: planActiveConstraints,
+          sourceUserMessage: planInput.planMessage,
+          draftPreference: turnDraftPreference,
+          topicSummary: guardedPlan.objective,
+          groundingPacket: planGroundingPacket,
+        });
+
+        if (draftBundleResult.kind === "response" && draftBundleResult.response.mode === "error") {
+          await writeMemory({
+            topicSummary: guardedPlan.objective,
+            activeConstraints: planActiveConstraints,
+            conversationState: "plan_pending_approval",
+            pendingPlan: guardedPlan,
+            clarificationState: null,
+            assistantTurnCount: nextAssistantTurnCount,
+            formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+            ...clearClarificationPatch(),
+          });
+
+          return {
+            mode: "plan",
+            outputShape: "planning_outline",
+            response: prependFeedbackMemoryNotice(
+              buildPlanPitch(guardedPlan),
+              feedbackMemoryNotice,
+            ),
+            data: {
+              plan: guardedPlan,
+              quickReplies: buildPlannerQuickReplies({
+                plan: guardedPlan,
+                styleCard,
+                context: "approval",
+              }),
+            },
+            memory,
+          };
+        }
+
+        if (draftBundleResult.kind === "response") {
+          return draftBundleResult.response;
+        }
+
+        const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
+          ? buildRollingSummary({
+              currentSummary: memory.rollingSummary,
+              topicSummary: guardedPlan.objective,
+              approvedPlan: guardedPlan,
+              activeConstraints: planActiveConstraints,
+              latestDraftStatus: "Draft bundle generated",
+              formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+            })
+          : memory.rollingSummary;
+
+        await writeMemory({
+          topicSummary: guardedPlan.objective,
+          activeConstraints: planActiveConstraints,
+          conversationState: "draft_ready",
+          pendingPlan: null,
+          clarificationState: null,
+          assistantTurnCount: nextAssistantTurnCount,
+          rollingSummary,
+          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+          latestRefinementInstruction: null,
+          ...clearClarificationPatch(),
+        });
+
+        return {
+          mode: "draft",
+          outputShape: "short_form_post",
+          response: prependFeedbackMemoryNotice(
+            "pulled four different post directions from what i already know about you.",
+            feedbackMemoryNotice,
+          ),
+          data: {
+            draft: draftBundleResult.draft,
+            drafts: draftBundleResult.drafts,
+            draftBundle: draftBundleResult.draftBundle,
+            supportAsset: draftBundleResult.supportAsset,
+            plan: guardedPlan,
+            issuesFixed: draftBundleResult.issuesFixed,
+            groundingSources: groundingSourcesForTurn,
+            groundingMode: draftGroundingSummary.groundingMode,
+            groundingExplanation: draftGroundingSummary.groundingExplanation,
+          },
+          memory,
+        };
+      }
+
       const draftResult = await generateDraftWithGroundingRetry({
         plan: guardedPlan,
         activeConstraints: planActiveConstraints,
@@ -3362,6 +3765,7 @@ User Profile Summary:
         threadFramingStyle: turnThreadFramingStyle,
         fallbackToWriterWhenCriticRejected: true,
         topicSummary: guardedPlan.objective,
+        groundingPacket: planGroundingPacket,
       });
 
       if (draftResult.kind === "response" && draftResult.response.mode === "error") {
@@ -3536,6 +3940,13 @@ User Profile Summary:
       }
     }
 
+    if ((mode === "edit" || mode === "review") && !effectiveActiveDraft) {
+      return returnClarificationQuestion({
+        question: "paste the draft you want me to improve, or open one from this thread and i'll revise it.",
+        traceReason: "missing_active_draft_for_edit",
+      });
+    }
+
     const revisionActiveConstraints = Array.from(
       new Set([
         ...(isConstraintDeclaration(userMessage)
@@ -3698,6 +4109,7 @@ User Profile Summary:
       xHandle: effectiveXHandle,
     });
 
+    let planFailureReason: string | null = null;
     const plan = await services.generatePlan(
       draftInstruction,
       memory.topicSummary,
@@ -3718,17 +4130,25 @@ User Profile Summary:
         voiceTarget: baseVoiceTarget,
         groundingPacket,
         creatorProfileHints,
+        onFailureReason: (reason) => {
+          planFailureReason = reason;
+        },
       },
     );
 
     if (!plan) {
+      routingTrace.planFailure = planFailureReason
+        ? { reason: planFailureReason }
+        : { reason: "the planner request failed" };
       return {
         mode: "error",
         outputShape: "coach_question",
-        response: "Failed to generate strategy plan.",
+        response: buildPlanFailureResponse(planFailureReason),
         memory,
       };
     }
+
+    routingTrace.planFailure = null;
 
     const planWithPreference = applySourceMaterialBiasToPlan(
       applyCreatorProfileHintsToPlan(
@@ -3750,6 +4170,10 @@ User Profile Summary:
     const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
       ? appendNoFabricationConstraint(revisionActiveConstraints)
       : revisionActiveConstraints;
+    const draftGroundingPacket = buildGroundingPacketForContext(
+      draftActiveConstraints,
+      draftInstruction,
+    );
 
     const draftResult = await generateDraftWithGroundingRetry({
       plan: guardedPlan,
@@ -3761,6 +4185,7 @@ User Profile Summary:
       threadFramingStyle: turnThreadFramingStyle,
       fallbackToWriterWhenCriticRejected: false,
       topicSummary: guardedPlan.objective,
+      groundingPacket: draftGroundingPacket,
     });
 
     if (draftResult.kind === "response") {
@@ -3861,6 +4286,7 @@ User Profile Summary:
         topicAnchors: relevantTopicAnchors,
         userContextString,
         activeConstraints: memory.activeConstraints,
+        diagnosticContext,
         options: {
           goal,
           conversationState: memory.conversationState,
@@ -3957,6 +4383,7 @@ User Profile Summary:
   // Execution Routing
   // ---------------------------------------------------------------------------
 
+  routingTrace.resolvedMode = mode;
   switch (mode) {
     case "ideate":
       return handleIdeateMode();
@@ -3983,6 +4410,16 @@ User Profile Summary:
           },
         }
       : rawResponse;
+  const responseWithRoutingTrace =
+    shouldIncludeRoutingTrace
+      ? {
+          ...responseWithAutoSavedSources,
+          data: {
+            ...(responseWithAutoSavedSources.data || {}),
+            routingTrace,
+          },
+        }
+      : responseWithAutoSavedSources;
 
-  return finalizeOrchestratorResponse(responseWithAutoSavedSources);
+  return finalizeOrchestratorResponse(responseWithRoutingTrace);
 }

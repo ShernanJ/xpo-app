@@ -17,6 +17,7 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "stan-office-league-story"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "casual-opening-to-help-offer"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "direct-draft-first-turn"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "growth-draft-command-clarification-loop"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "vague-product-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "opaque-entity-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
@@ -183,6 +184,39 @@ test("transcript replay turns a pending-plan draft command straight into a draft
   assert.equal(result.finalMemory.conversationState, "draft_ready");
 });
 
+test("transcript replay does not turn growth draft commands into capability chat or fake topics", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "growth-draft-command-clarification-loop",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture, {
+    async classifyIntent() {
+      return {
+        intent: "coach",
+        needs_memory_update: false,
+        confidence: 0.2,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 2);
+  assert.equal(
+    result.turns[0]?.output.response.toLowerCase().includes("i can help with what to post on x"),
+    false,
+  );
+  assert.equal(
+    result.turns[1]?.output.response.toLowerCase().includes("which part of yes write me a post"),
+    false,
+  );
+  assert.equal(result.finalMemory.topicSummary, null);
+  assert.equal(
+    result.finalMemory.clarificationState?.branchKey === "abstract_topic_focus_pick",
+    false,
+  );
+});
+
 test("transcript replay asks one useful question for a vague product draft ask, then drafts after the answer", async () => {
   const fixture = findReplayFixture(
     CREATOR_TRANSCRIPT_FIXTURES,
@@ -225,9 +259,21 @@ test("transcript replay asks one useful question for a vague product draft ask, 
   assert.equal(result.turns[0]?.output.mode, "coach");
   assert.equal(result.turns[0]?.output.surfaceMode, "ask_one_question");
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("extension"), true);
+  assert.equal(
+    result.turns[0]?.output.data?.routingTrace?.clarification?.branchKey,
+    "entity_context_missing",
+  );
+  assert.equal(
+    result.turns[0]?.output.data?.routingTrace?.routerState,
+    "clarify_before_generation",
+  );
   assert.equal(/\?$/.test(result.turns[0]?.output.response.trim()), true);
   assert.equal(result.turns[1]?.output.mode, "draft");
   assert.equal(result.turns[1]?.output.outputShape, "short_form_post");
+  assert.equal(
+    result.turns[1]?.output.data?.routingTrace?.planInputSource,
+    "clarification_answer",
+  );
   assert.equal(
     /made that edit|updated it|reworked it/i.test(result.turns[1]?.output.response || ""),
     false,
@@ -282,7 +328,15 @@ test("transcript replay asks for entity definition before drafting an opaque nam
   assert.equal(result.turns[0]?.output.surfaceMode, "ask_one_question");
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what is xpo"), true);
   assert.equal(result.turns[0]?.output.response.toLowerCase().includes("before i write the post"), true);
+  assert.equal(
+    result.turns[0]?.output.data?.routingTrace?.clarification?.branchKey,
+    "entity_context_missing",
+  );
   assert.equal(result.turns[1]?.output.mode, "draft");
+  assert.equal(
+    result.turns[1]?.output.data?.routingTrace?.planInputSource,
+    "clarification_answer",
+  );
   assert.equal(lastPlanMessage.toLowerCase().includes("post about xpo"), true);
   assert.equal(lastPlanMessage.toLowerCase().includes("factual grounding"), true);
   assert.equal(lastPlanMessage.toLowerCase().includes("mental load"), true);

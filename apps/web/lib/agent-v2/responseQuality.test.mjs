@@ -302,6 +302,18 @@ test("draft handoff reply stays conversational and asks for tweaks", () => {
   assert.equal(/\?/.test(reply), true);
 });
 
+test("first-pass draft handoff does not imply trimming unless the user asked for it", () => {
+  const reply = buildDraftReply({
+    userMessage: "looks good, write it",
+    draftPreference: "balanced",
+    isEdit: false,
+    issuesFixed: ["Trimmed to fit the 280-char X limit."],
+  });
+
+  assert.equal(/trimmed|tightened|shortened|kept it tight/i.test(reply), false);
+  assert.equal(/\?/.test(reply), true);
+});
+
 test("edit reply stays conversational and asks if another pass is needed", () => {
   const reply = buildDraftReply({
     userMessage: "make it tighter",
@@ -311,6 +323,18 @@ test("edit reply stays conversational and asks if another pass is needed", () =>
   });
 
   assert.equal(/take a look/i.test(reply), false);
+  assert.equal(/\?/.test(reply), true);
+});
+
+test("trim-specific handoff still appears when the user explicitly asks for a shorter draft", () => {
+  const reply = buildDraftReply({
+    userMessage: "make it shorter",
+    draftPreference: "voice_first",
+    isEdit: false,
+    issuesFixed: ["Trimmed to fit the 280-char X limit."],
+  });
+
+  assert.equal(/trimmed|tightened|shortened/i.test(reply), true);
   assert.equal(/\?/.test(reply), true);
 });
 

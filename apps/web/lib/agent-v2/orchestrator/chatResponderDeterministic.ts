@@ -1,4 +1,5 @@
 import { hasStrongDraftCommand } from "./conversationManagerLogic.ts";
+import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
 
 const GREETING_CUES = [
   "hi",
@@ -102,6 +103,43 @@ const VISUAL_ADVICE_CUES = [
   "should i use screenshots",
   "should i add an image",
   "should i add images",
+];
+
+const DIAGNOSTIC_VIEW_CUES = [
+  "why am i not getting views",
+  "why am i not getting view",
+  "why am i not getting impressions",
+  "why am i not getting reach",
+  "why am i not getting traction",
+  "why aren't i getting views",
+  "why arent i getting views",
+];
+
+const FAILURE_EXPLANATION_CUES = [
+  "why did it fail",
+  "why did that fail",
+  "why did this fail",
+  "what failed",
+  "what went wrong",
+  "why did the plan fail",
+];
+
+const MISSING_DRAFT_EDIT_CUES = [
+  "help me improve this draft",
+  "improve this draft",
+  "help me edit this draft",
+  "edit this draft",
+  "revise this draft",
+  "fix this draft",
+  "tighten this draft",
+];
+
+const DIAGNOSTIC_FOCUS_CUES = [
+  "what should i focus on",
+  "what should i change",
+  "what do i need to change",
+  "where should i focus",
+  "what do i fix",
 ];
 
 function normalizeMessage(message: string): string {
@@ -235,6 +273,67 @@ function looksLikeVisualAdviceQuestion(message: string): boolean {
   return VISUAL_ADVICE_CUES.some((cue) => normalized.includes(cue));
 }
 
+function looksLikeFailureExplanationQuestion(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  return FAILURE_EXPLANATION_CUES.some((cue) => normalized.includes(cue));
+}
+
+function looksLikeMissingDraftEditRequest(message: string): boolean {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  return MISSING_DRAFT_EDIT_CUES.some((cue) => normalized === cue);
+}
+
+function buildMissingDraftEditReply(): string {
+  return "paste the draft you want me to improve and i'll tighten it up.";
+}
+
+function buildFailureExplanationReply(recentHistory: string): string | null {
+  const lastAssistantTurn = getLastAssistantTurn(recentHistory);
+  if (!lastAssistantTurn.includes("failed to")) {
+    return null;
+  }
+
+  const becauseMatch = lastAssistantTurn.match(/failed to [^.?!]+ because ([^.?!]+)/);
+  if (becauseMatch?.[1]) {
+    return `it failed because ${becauseMatch[1].trim()}.`;
+  }
+
+  if (lastAssistantTurn.includes("failed to generate strategy plan")) {
+    return "it failed because the planner didn't return a usable plan.";
+  }
+
+  return "it failed because the last generation step didn't return usable output.";
+}
+
+function resolveDiagnosticPromptKind(
+  message: string,
+): "views" | "focus" | "change" | null {
+  const normalized = normalizeMessage(message);
+  if (!normalized || normalized.length > 160) {
+    return null;
+  }
+
+  if (DIAGNOSTIC_VIEW_CUES.some((cue) => normalized.includes(cue))) {
+    return "views";
+  }
+
+  if (DIAGNOSTIC_FOCUS_CUES.some((cue) => normalized.includes(cue))) {
+    return normalized.includes("change") || normalized.includes("fix")
+      ? "change"
+      : "focus";
+  }
+
+  return null;
+}
+
 function extractGoal(userContextString: string | undefined): string | null {
   const match = userContextString?.match(/- Primary Goal:\s*(.+)$/mi);
   const goal = match?.[1]?.trim();
@@ -251,6 +350,19 @@ function extractStage(userContextString: string | undefined): string | null {
     return null;
   }
   return stage;
+}
+
+function extractKnownFacts(userContextString: string | undefined): string[] {
+  const match = userContextString?.match(/- Known Facts:\s*(.+)$/mi);
+  if (!match?.[1]) {
+    return [];
+  }
+
+  return match[1]
+    .split("|")
+    .map((fact) => fact.trim())
+    .filter(Boolean)
+    .slice(0, 2);
 }
 
 function summarizeConstraints(activeConstraints: string[] | undefined): string[] {
@@ -327,12 +439,121 @@ function buildVisualAdviceReply(): string {
   return "sometimes. use an image only if it adds proof, context, or a visual punchline. if the text already lands on its own, skip it.";
 }
 
+function hasSpecificStoryContext(recentHistory: string): boolean {
+  return recentHistory
+    .split("\n")
+    .map((line) => line.replace(/^(?:assistant|user):\s*/i, "").trim().toLowerCase())
+    .some((line) => {
+      if (!line || line.length < 24) {
+        return false;
+      }
+
+      return (
+        /\b(?:app|product|tool|story|loss|match|stan|case study|build|built|launch)\b/.test(
+          line,
+        ) &&
+        /\b(?:use|show|turn|built|lost|sparked|flipped)\b/.test(line)
+      );
+    });
+}
+
+function buildDiagnosticPersonalization(args: {
+  diagnosticContext: ConversationalDiagnosticContext;
+  recentHistory: string;
+  userContextString?: string;
+}): string | null {
+  const stage = extractStage(args.userContextString);
+  const knownFacts = extractKnownFacts(args.userContextString);
+  const knownFor = args.diagnosticContext.knownFor?.trim();
+  const specificStoryContext =
+    knownFacts.length > 0 || hasSpecificStoryContext(args.recentHistory);
+
+  if (knownFor && specificStoryContext) {
+    return `for you specifically, this looks less like a reach problem and more like making ${knownFor} legible through a sharper lived example.`;
+  }
+
+  if (knownFor) {
+    return `for you specifically, the miss is making ${knownFor} instantly legible instead of spreading the feed across softer angles.`;
+  }
+
+  if (specificStoryContext) {
+    return "for you specifically, the problem is not a lack of material. it's that your best personal proof is still not obvious fast enough.";
+  }
+
+  if (stage) {
+    return `for this ${stage} stage, clarity and repetition usually matter more than trying to cover too many angles at once.`;
+  }
+
+  return null;
+}
+
+function buildDiagnosticReply(args: {
+  kind: "views" | "focus" | "change";
+  diagnosticContext: ConversationalDiagnosticContext;
+  recentHistory: string;
+  userContextString?: string;
+}): string | null {
+  const reasons = args.diagnosticContext.reasons
+    .map((reason) => reason.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const nextActions = args.diagnosticContext.nextActions
+    .map((action) => action.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const playbook = args.diagnosticContext.recommendedPlaybooks?.[0] ?? null;
+
+  if (reasons.length === 0 && nextActions.length === 0) {
+    return null;
+  }
+
+  const intro =
+    args.kind === "views"
+      ? "a few things are probably suppressing reach right now:"
+      : args.kind === "change"
+        ? "here's what i'd change first:"
+        : "here's where i'd focus first:";
+  const personalization = buildDiagnosticPersonalization({
+    diagnosticContext: args.diagnosticContext,
+    recentHistory: args.recentHistory,
+    userContextString: args.userContextString,
+  });
+  const reasonLines = reasons.length
+    ? `likely reasons:\n${reasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n")}`
+    : "";
+  const actionLines = nextActions.length
+    ? `next actions:\n${nextActions.map((action, index) => `${index + 1}. ${action}`).join("\n")}`
+    : "";
+  const followUp = playbook
+    ? `full breakdown is there if you want it. the best playbook match is ${playbook.name.toLowerCase()}.`
+    : "full breakdown is there if you want it.";
+
+  return [intro, personalization, reasonLines, actionLines, followUp]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function getDeterministicChatReply(args: {
   userMessage: string;
   recentHistory: string;
   userContextString?: string;
   activeConstraints?: string[];
+  diagnosticContext?: ConversationalDiagnosticContext | null;
 }): string | null {
+  const diagnosticKind = resolveDiagnosticPromptKind(args.userMessage);
+  if (diagnosticKind && args.diagnosticContext) {
+    const diagnosticReply = buildDiagnosticReply({
+      kind: diagnosticKind,
+      diagnosticContext: args.diagnosticContext,
+      recentHistory: args.recentHistory,
+      userContextString: args.userContextString,
+    });
+
+    if (diagnosticReply) {
+      return diagnosticReply;
+    }
+  }
+
   if (looksLikeGreeting(args.userMessage)) {
     return buildGreetingReply(args.userMessage);
   }
@@ -354,6 +575,17 @@ export function getDeterministicChatReply(args: {
       userContextString: args.userContextString,
       activeConstraints: args.activeConstraints,
     });
+  }
+
+  if (looksLikeMissingDraftEditRequest(args.userMessage)) {
+    return buildMissingDraftEditReply();
+  }
+
+  if (looksLikeFailureExplanationQuestion(args.userMessage)) {
+    const failureReply = buildFailureExplanationReply(args.recentHistory);
+    if (failureReply) {
+      return failureReply;
+    }
   }
 
   if (looksLikePerformanceQuestion(args.userMessage)) {

@@ -180,6 +180,18 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      'The "draft" field must contain only the final X post text.',
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels',
+    ),
+    true,
+  );
   assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
   assert.equal(promptBuildersSource.includes("Source material details:"), true);
   assert.equal(
@@ -198,6 +210,18 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptBuildersSource.includes(
       "Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Every draft or reply must clearly map to at least one current content pillar or learning signal.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Reject broad motivational filler, generic praise-only replies, and off-brand side quests even if they sound polished.",
     ),
     true,
   );

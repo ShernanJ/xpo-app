@@ -5,7 +5,21 @@ import {
   evaluateCreatorProfile,
   type CreatorEvaluationCheck,
 } from "./evaluation";
+import {
+  buildGrowthStrategySnapshot,
+  type GrowthStrategySnapshot,
+} from "./growthStrategy";
 import { buildPerformanceModel } from "./performanceModel";
+import type {
+  ReplyInsights,
+  StrategyAdjustments,
+} from "../extension/replyOpportunities";
+import type {
+  ContentAdjustments,
+  ContentInsights,
+} from "./contentInsights";
+import type { OperatingQueueItem } from "./operatingQueue";
+import type { ProfileConversionAudit } from "./profileConversionAudit";
 import type {
   CreatorProfile,
   CreatorRepresentativePost,
@@ -70,12 +84,20 @@ export interface CreatorAgentContext {
   creatorProfile: CreatorProfile;
   performanceModel: ReturnType<typeof buildPerformanceModel>;
   strategyDelta: CreatorProfile["strategy"]["delta"];
+  growthStrategySnapshot: GrowthStrategySnapshot;
+  replyInsights?: ReplyInsights;
+  strategyAdjustments?: StrategyAdjustments;
+  profileConversionAudit?: ProfileConversionAudit;
+  contentInsights?: ContentInsights;
+  contentAdjustments?: ContentAdjustments;
+  operatingQueue?: OperatingQueueItem[];
   confidence: CreatorAgentContextConfidenceSummary;
   readiness: CreatorAgentContextReadinessSummary;
   anchorSummary: CreatorAgentContextAnchorSummary;
   positiveAnchors: CreatorRepresentativePost[];
   negativeAnchors: CreatorRepresentativePost[];
   retrieval: CreatorProfile["examples"];
+  unknowns: string[];
 }
 
 function dedupeRepresentativePosts(
@@ -266,6 +288,14 @@ export function buildCreatorAgentContext(params: {
     evaluationOverallScore: evaluation.overallScore,
     blockers: evaluation.blockers,
   });
+  const growthStrategySnapshot = buildGrowthStrategySnapshot({
+    creatorProfile,
+    performanceModel,
+    evaluationChecks: evaluation.checks,
+    evaluationOverallScore: evaluation.overallScore,
+    readiness: readiness.status,
+    sampleSize: params.onboarding.analysisConfidence.sampleSize,
+  });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -279,6 +309,7 @@ export function buildCreatorAgentContext(params: {
     creatorProfile,
     performanceModel,
     strategyDelta: creatorProfile.strategy.delta,
+    growthStrategySnapshot,
     confidence: {
       sampleBand: params.onboarding.analysisConfidence.band,
       sampleSize: params.onboarding.analysisConfidence.sampleSize,
@@ -304,5 +335,12 @@ export function buildCreatorAgentContext(params: {
     positiveAnchors,
     negativeAnchors,
     retrieval: creatorProfile.examples,
+    unknowns: Array.from(
+      new Set([
+        ...growthStrategySnapshot.ambiguities,
+        ...growthStrategySnapshot.truthBoundary.unknowns,
+        ...evaluation.blockers,
+      ]),
+    ).slice(0, 8),
   };
 }

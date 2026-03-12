@@ -1,5 +1,13 @@
 import { buildCreatorAgentContext } from "./agentContext";
 import type {
+  ContentAdjustments,
+  ContentInsights,
+} from "./contentInsights";
+import type {
+  ReplyInsights,
+  StrategyAdjustments,
+} from "../extension/replyOpportunities";
+import type {
   CreatorRepresentativePost,
   OnboardingResult,
   ToneCasing,
@@ -7,7 +15,7 @@ import type {
   ToneRisk,
 } from "./types";
 
-export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v5";
+export const CREATOR_GENERATION_CONTRACT_VERSION = "generation_contract_v6";
 
 export type CreatorGenerationStageMode =
   | "full_generation"
@@ -64,6 +72,36 @@ export interface CreatorCriticContract {
   failClosed: boolean;
 }
 
+export interface CreatorPositioningContract {
+  knownFor: string;
+  targetAudience: string;
+  contentPillars: string[];
+  profileConversionCues: string[];
+  offBrandThemes: string[];
+  ambiguities: string[];
+  confidence: {
+    positioning: number;
+    overall: number;
+    readiness: ReturnType<typeof buildCreatorAgentContext>["readiness"]["status"];
+  };
+}
+
+export interface CreatorLearningPrioritiesContract {
+  reinforce: string[];
+  experiments: string[];
+  cautionSignals: string[];
+  unknowns: string[];
+}
+
+export interface CreatorGuardrailsContract {
+  failClosed: boolean;
+  hardRequirements: string[];
+  prohibitedPatterns: string[];
+  truthBoundary: ReturnType<
+    typeof buildCreatorAgentContext
+  >["growthStrategySnapshot"]["truthBoundary"];
+}
+
 export interface CreatorGenerationContract {
   generatedAt: string;
   contractVersion: string;
@@ -72,6 +110,9 @@ export interface CreatorGenerationContract {
   account: string;
   source: OnboardingResult["source"];
   mode: CreatorGenerationStageMode;
+  positioning: CreatorPositioningContract;
+  learningPriorities: CreatorLearningPrioritiesContract;
+  guardrails: CreatorGuardrailsContract;
   planner: CreatorPlannerContract;
   writer: CreatorWriterContract;
   critic: CreatorCriticContract;
@@ -306,15 +347,26 @@ function formatReadableLabel(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
 export function buildCreatorGenerationContract(params: {
   runId: string;
   onboarding: OnboardingResult;
   tonePreference?: TonePreference | null;
+  agentContext?: ReturnType<typeof buildCreatorAgentContext>;
+  replyInsights?: ReplyInsights | null;
+  strategyAdjustments?: StrategyAdjustments | null;
+  contentInsights?: ContentInsights | null;
+  contentAdjustments?: ContentAdjustments | null;
 }): CreatorGenerationContract {
-  const context = buildCreatorAgentContext({
-    runId: params.runId,
-    onboarding: params.onboarding,
-  });
+  const context =
+    params.agentContext ??
+    buildCreatorAgentContext({
+      runId: params.runId,
+      onboarding: params.onboarding,
+    });
   const { creatorProfile } = context;
   const targetLane = pickTargetLane(creatorProfile.distribution.primaryLoop);
   const outputShapeDecision = selectOutputShape({
@@ -345,6 +397,35 @@ export function buildCreatorGenerationContract(params: {
     targetNiche !== "generalist";
   const effectiveNiche =
     (shouldPlanTowardTargetNiche ? targetNiche : observedNiche) ?? observedNiche;
+  const activeExperiments = unique([
+    ...(params.strategyAdjustments?.experiments || []),
+    ...(params.contentAdjustments?.experiments || []),
+  ]).slice(0, 3);
+  const pillarAnchor =
+    context.growthStrategySnapshot.contentPillars[0] ||
+    activeExperiments[0] ||
+    formatReadableLabel(effectiveNiche);
+  const positioningIsTentative =
+    context.growthStrategySnapshot.confidence.positioning < 65 ||
+    context.growthStrategySnapshot.ambiguities.length > 0;
+  const guardrailRequirements = unique([
+    `Anchor every draft to one current pillar or active experiment. Default anchor: ${pillarAnchor}`,
+    targetLane === "reply"
+      ? "Replies must add one concrete layer beyond agreement."
+      : "Drafts must make the account easier to categorize on first read.",
+    positioningIsTentative
+      ? "Keep positioning narrow and tentative instead of acting like the niche is fully locked."
+      : "",
+    "Respect the truth boundary and avoid invented lived experience, fake receipts, or fake authority.",
+  ]).slice(0, 4);
+  const prohibitedPatterns = unique([
+    "broad motivational filler with no niche tie",
+    "generic engagement bait with no positioning value",
+    targetLane === "reply" ? "generic praise-only replies" : "",
+    ...context.growthStrategySnapshot.offBrandThemes,
+    ...(params.strategyAdjustments?.deprioritize || []),
+    ...(params.contentAdjustments?.deprioritize || []),
+  ]).slice(0, 6);
 
   const mustInclude = [
     shouldPlanTowardTargetNiche
@@ -354,6 +435,7 @@ export function buildCreatorGenerationContract(params: {
     `Primary goal: ${creatorProfile.strategy.primaryGoal}`,
     `Target casing: ${targetTone.casing}`,
     `Risk appetite: ${targetTone.risk}`,
+    `Anchor to pillar or experiment: ${pillarAnchor}`,
     creatorProfile.playbook.ctaPolicy,
     proofRequirement,
   ];
@@ -369,6 +451,10 @@ export function buildCreatorGenerationContract(params: {
     creatorProfile.conversation.readiness === "low"
   ) {
     mustInclude.push("Use one clear reply-generating prompt instead of a passive statement.");
+  }
+
+  if (positioningIsTentative) {
+    mustInclude.push("Keep the positioning narrow and explicitly tentative where needed.");
   }
 
   const mustAvoid = [
@@ -387,10 +473,14 @@ export function buildCreatorGenerationContract(params: {
     mustAvoid.push("Do not generate a post draft while context readiness is below threshold.");
   }
 
+  mustAvoid.push(...prohibitedPatterns);
+
   const checklist = [
     "Matches the current voice and playbook, not generic platform advice.",
     "Supports the stated goal and current strategy delta.",
     "Respects the selected transformation mode (preserve, optimize, or pivot).",
+    "Maps clearly to one current pillar or active experiment.",
+    "Rejects broad motivational filler, generic bait, or shallow praise-only commentary.",
     "Does not reuse a negative anchor pattern.",
     targetLane === "reply"
       ? "Feels like a reply worth continuing, not a throwaway reactive line."
@@ -411,6 +501,10 @@ export function buildCreatorGenerationContract(params: {
     checklist.push("The draft creates an opening for real replies, not just passive likes.");
   }
 
+  if (positioningIsTentative) {
+    checklist.push("If the niche is not fully locked, the draft uses the narrowest useful interpretation.");
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     contractVersion: CREATOR_GENERATION_CONTRACT_VERSION,
@@ -419,6 +513,40 @@ export function buildCreatorGenerationContract(params: {
     account: params.onboarding.account,
     source: params.onboarding.source,
     mode,
+    positioning: {
+      knownFor: context.growthStrategySnapshot.knownFor,
+      targetAudience: context.growthStrategySnapshot.targetAudience,
+      contentPillars: context.growthStrategySnapshot.contentPillars.slice(0, 5),
+      profileConversionCues: context.growthStrategySnapshot.profileConversionCues.slice(0, 4),
+      offBrandThemes: context.growthStrategySnapshot.offBrandThemes.slice(0, 4),
+      ambiguities: context.growthStrategySnapshot.ambiguities.slice(0, 4),
+      confidence: {
+        positioning: context.growthStrategySnapshot.confidence.positioning,
+        overall: context.growthStrategySnapshot.confidence.overall,
+        readiness: context.readiness.status,
+      },
+    },
+    learningPriorities: {
+      reinforce: unique([
+        ...(params.strategyAdjustments?.reinforce || []),
+        ...(params.contentAdjustments?.reinforce || []),
+      ]).slice(0, 4),
+      experiments: activeExperiments,
+      cautionSignals: unique([
+        ...(params.replyInsights?.cautionSignals || []),
+        ...(params.contentInsights?.cautionSignals || []),
+      ]).slice(0, 4),
+      unknowns: unique([
+        ...(params.replyInsights?.unknowns || []),
+        ...(params.contentInsights?.unknowns || []),
+      ]).slice(0, 4),
+    },
+    guardrails: {
+      failClosed: true,
+      hardRequirements: guardrailRequirements,
+      prohibitedPatterns,
+      truthBoundary: context.growthStrategySnapshot.truthBoundary,
+    },
     planner: {
       mode,
       objective:
@@ -455,15 +583,15 @@ export function buildCreatorGenerationContract(params: {
       punctuationGuidelines: creatorProfile.styleCard.punctuationGuidelines.slice(0, 3),
       emojiPolicy: creatorProfile.styleCard.emojiPolicy,
       forbiddenPhrases: creatorProfile.styleCard.forbiddenPhrases.slice(0, 4),
-      mustInclude: mustInclude.slice(0, 7),
-      mustAvoid: mustAvoid.slice(0, 5),
+      mustInclude: unique(mustInclude).slice(0, 10),
+      mustAvoid: unique(mustAvoid).slice(0, 10),
       positiveAnchorIds: selectAnchorIds(context.positiveAnchors, 5),
       negativeAnchorIds: selectAnchorIds(context.negativeAnchors, 3),
     },
     critic: {
       mode,
       checklist,
-      failClosed: mode === "analysis_only",
+      failClosed: true,
     },
   };
 }

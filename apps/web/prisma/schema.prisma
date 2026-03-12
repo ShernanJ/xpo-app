@@ -68,6 +68,17 @@ enum SourceMaterialType {
   case_study
 }
 
+enum ReplyOpportunityState {
+  ranked
+  opened
+  generated
+  selected
+  copied
+  posted
+  dismissed
+  observed
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -89,6 +100,8 @@ model User {
   feedbackSubmissions      FeedbackSubmission[]
   sourceMaterialAssets     SourceMaterialAsset[]
   productEvents            ProductEvent[]
+  extensionApiTokens       ExtensionApiToken[]
+  replyOpportunities       ReplyOpportunity[]
   billingEntitlement       BillingEntitlement?
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
@@ -282,6 +295,65 @@ model ProductEvent {
   @@index([userId, createdAt])
   @@index([userId, eventType, createdAt])
   @@index([threadId, createdAt])
+}
+
+model ExtensionApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String?
+  scope      String    @default("xpo-companion-extension")
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastUsedAt DateTime?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model ReplyOpportunity {
+  id                 String                @id @default(cuid())
+  userId             String
+  xHandle            String?
+  tweetId            String
+  authorHandle       String
+  tweetText          String                @db.Text
+  tweetUrl           String
+  tweetSnapshot      Json
+  heuristicScore     Int?
+  heuristicTier      String?
+  stage              String
+  tone               String
+  goal               String
+  strategyPillar     String?
+  generatedAngleLabel String?
+  state              ReplyOpportunityState @default(opened)
+  openedAt           DateTime?
+  generatedAt        DateTime?
+  selectedAt         DateTime?
+  copiedAt           DateTime?
+  postedAt           DateTime?
+  dismissedAt        DateTime?
+  observedAt         DateTime?
+  generatedOptions   Json?
+  notes              Json?
+  selectedOptionId   String?
+  selectedOptionText String?               @db.Text
+  selectedAngleLabel String?
+  observedMetrics    Json?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tweetId])
+  @@index([userId, xHandle, updatedAt])
+  @@index([userId, state, updatedAt])
+  @@index([xHandle, updatedAt])
 }
 
 model FeedbackSubmission {

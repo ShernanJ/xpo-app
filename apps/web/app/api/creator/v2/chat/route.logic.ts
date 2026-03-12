@@ -1,5 +1,6 @@
 import type { SurfaceMode } from "../../../../../lib/agent-v2/contracts/chat.ts";
 import { buildDraftArtifact, buildDraftArtifactTitle, computeXWeightedCharacterCount, type DraftArtifactDetails } from "../../../../../lib/onboarding/draftArtifacts.ts";
+import type { DraftBundleResult } from "../../../../../lib/agent-v2/orchestrator/draftBundles.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -23,6 +24,21 @@ interface PreviousVersionSnapshot {
   createdAt: string;
   maxCharacterLimit?: number;
   revisionChainId?: string;
+}
+
+export interface DraftBundleOptionEntry {
+  id: string;
+  label: string;
+  framing?: string;
+  versionId: string;
+  content: string;
+  artifact: DraftArtifactDetails;
+}
+
+export interface DraftBundlePayload {
+  kind: DraftBundleResult["kind"];
+  selectedOptionId: string;
+  options: DraftBundleOptionEntry[];
 }
 
 const DRAFT_HANDOFF_REPLIES = new Set([
@@ -541,5 +557,102 @@ export function buildInitialDraftVersionPayload(args: {
     activeDraftVersionId: versionId,
     revisionChainId,
     ...(previousVersionSnapshot ? { previousVersionSnapshot } : {}),
+  };
+}
+
+export function buildDraftBundleVersionPayload(args: {
+  draftBundle: DraftBundleResult | null | undefined;
+  outputShape: string;
+  groundingSources?: DraftArtifactDetails["groundingSources"];
+  groundingMode?: DraftArtifactDetails["groundingMode"];
+  groundingExplanation?: DraftArtifactDetails["groundingExplanation"];
+  threadPostMaxCharacterLimit?: number;
+}): {
+  draftArtifacts: DraftArtifactDetails[];
+  draftVersions?: DraftVersionEntry[];
+  activeDraftVersionId?: string;
+  draftBundle?: DraftBundlePayload;
+  revisionChainId?: string;
+} {
+  if (!args.draftBundle || args.draftBundle.options.length === 0) {
+    return {
+      draftArtifacts: [],
+    };
+  }
+
+  const artifactKind = resolveDraftArtifactKind(args.outputShape);
+  if (!artifactKind) {
+    return {
+      draftArtifacts: [],
+    };
+  }
+
+  const createdAt = new Date().toISOString();
+  const revisionChainId = buildRevisionChainId();
+  const draftArtifacts: DraftArtifactDetails[] = [];
+  const draftVersions: DraftVersionEntry[] = [];
+  const bundleOptions: DraftBundleOptionEntry[] = [];
+
+  for (const [index, option] of args.draftBundle.options.entries()) {
+    const versionId = `version-${Date.now()}-${index + 1}`;
+    const artifact = buildDraftArtifact({
+      id: `${artifactKind}-${index + 1}`,
+      title: option.label || buildDraftArtifactTitle(artifactKind, index),
+      kind: artifactKind,
+      content: option.draft,
+      supportAsset: option.supportAsset,
+      ...(option.groundingSources?.length ? { groundingSources: option.groundingSources } : {}),
+      ...(option.groundingMode ? { groundingMode: option.groundingMode } : {}),
+      ...(option.groundingExplanation
+        ? { groundingExplanation: option.groundingExplanation }
+        : {}),
+      ...(option.voiceTarget ? { voiceTarget: option.voiceTarget } : {}),
+      ...(option.noveltyNotes?.length ? { noveltyNotes: option.noveltyNotes } : {}),
+      ...(args.threadPostMaxCharacterLimit
+        ? { threadPostMaxCharacterLimit: args.threadPostMaxCharacterLimit }
+        : {}),
+    });
+
+    draftArtifacts.push(artifact);
+    draftVersions.push({
+      id: versionId,
+      content: option.draft,
+      source: "assistant_generated",
+      createdAt,
+      basedOnVersionId: null,
+      weightedCharacterCount:
+        artifact.weightedCharacterCount ?? computeXWeightedCharacterCount(option.draft),
+      maxCharacterLimit: artifact.maxCharacterLimit,
+      supportAsset: option.supportAsset,
+      artifact,
+    });
+    bundleOptions.push({
+      id: option.id,
+      label: option.label,
+      ...(option.framing ? { framing: option.framing } : {}),
+      versionId,
+      content: option.draft,
+      artifact,
+    });
+  }
+
+  const selectedOptionId =
+    bundleOptions.some((option) => option.id === args.draftBundle?.selectedOptionId)
+      ? args.draftBundle.selectedOptionId
+      : bundleOptions[0].id;
+  const activeDraftVersionId =
+    bundleOptions.find((option) => option.id === selectedOptionId)?.versionId ??
+    draftVersions[0]?.id;
+
+  return {
+    draftArtifacts,
+    draftVersions,
+    activeDraftVersionId,
+    draftBundle: {
+      kind: args.draftBundle.kind,
+      selectedOptionId,
+      options: bundleOptions,
+    },
+    revisionChainId,
   };
 }

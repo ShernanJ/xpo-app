@@ -18,6 +18,9 @@ function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const xHandle = searchParams.get("xHandle");
+  const callbackUrlRaw = searchParams.get("callbackUrl");
+  const callbackUrl =
+    callbackUrlRaw && callbackUrlRaw.startsWith("/") ? callbackUrlRaw : "/chat";
   const emailInputState =
     focusedField === "email" ? "is-focused" : email.trim() ? "is-filled" : "is-idle";
   const passwordInputState =
@@ -70,7 +73,7 @@ function LoginFormContent() {
         }
       }
 
-      router.push("/chat");
+      router.push(callbackUrl);
       router.refresh();
     } catch (setupError) {
       setLoadingState("idle");

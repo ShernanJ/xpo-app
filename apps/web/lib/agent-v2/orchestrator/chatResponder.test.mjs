@@ -118,6 +118,63 @@ test("chat responder gives general image advice without inventing product specif
   assert.equal(reply?.toLowerCase().includes("app ui"), false);
 });
 
+test("chat responder explains the last planner failure instead of inventing a new reason", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "why did it fail",
+    recentHistory:
+      "assistant: Failed to generate strategy plan because the planner returned invalid JSON.",
+  });
+
+  assert.equal(reply, "it failed because the planner returned invalid json.");
+});
+
+test("chat responder asks for the actual draft on missing-draft improvement requests", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "help me improve this draft",
+    recentHistory: "",
+  });
+
+  assert.equal(reply, "paste the draft you want me to improve and i'll tighten it up.");
+});
+
+test("chat responder makes diagnostic replies more user-specific when context exists", async () => {
+  const reply = await getDeterministicChatReply({
+    userMessage: "why am i not getting views",
+    recentHistory:
+      "assistant: lost to stan? use that sting. show how that loss sparked your app. turn the defeat into a case study for grow on.",
+    userContextString: [
+      "User Profile Summary:",
+      "- Stage: 1k-10k",
+      "- Primary Goal: follower growth",
+      "- Known Facts: built grow on after losing to stan in league",
+    ].join("\n"),
+    diagnosticContext: {
+      stage: "1k-10k",
+      knownFor: "product lessons",
+      reasons: [
+        "your positioning is still blurry across the bio and recent posts",
+        "recent posts are not repeating the same pillar enough",
+      ],
+      nextActions: [
+        "tighten the bio around one promise",
+        "publish three posts from the same pillar this week",
+      ],
+      recommendedPlaybooks: [
+        {
+          id: "weekly-series",
+          name: "Weekly series",
+          whyFit: "this gives the account a more repeatable format.",
+        },
+      ],
+    },
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("for you specifically"), true);
+  assert.equal(reply?.toLowerCase().includes("product lessons"), true);
+  assert.equal(reply?.toLowerCase().includes("lived example"), true);
+});
+
 test("chat responder transcript flow stays generic after small talk", async () => {
   const openingReply = await getDeterministicChatReply({
     userMessage: "hi how are you",

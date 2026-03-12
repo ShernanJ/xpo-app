@@ -1,5 +1,5 @@
 import type { V2ChatIntent } from "../contracts/chat.ts";
-import { isBareDraftRequest } from "./conversationManagerLogic.ts";
+import { isBareDraftRequest, isMultiDraftRequest } from "./conversationManagerLogic.ts";
 
 export function inferBroadTopicDraftRequest(message: string): string | null {
   const normalized = message.trim().toLowerCase();
@@ -96,7 +96,12 @@ export function shouldFastStartGroundedDraft(args: {
 
   const broadTopic = inferBroadTopicDraftRequest(args.userMessage);
   const bareDraftRequest = isBareDraftRequest(args.userMessage);
-  const wantsDraft = bareDraftRequest || Boolean(broadTopic) || args.hasTopicGrounding;
+  const multiDraftRequest = isMultiDraftRequest(args.userMessage);
+  const wantsDraft =
+    bareDraftRequest ||
+    multiDraftRequest ||
+    Boolean(broadTopic) ||
+    args.hasTopicGrounding;
   if (!wantsDraft) {
     return false;
   }
@@ -113,7 +118,11 @@ export function shouldFastStartGroundedDraft(args: {
     Boolean(args.memoryTopicSummary?.trim()) ||
     Boolean(broadTopic) ||
     args.hasTopicGrounding ||
-    (args.creatorHintsAvailable && args.groundingSourceCount > 0 && bareDraftRequest);
+    (multiDraftRequest && args.turnGroundingCount > 0) ||
+    (multiDraftRequest && args.groundingSourceCount > 0) ||
+    (args.creatorHintsAvailable &&
+      args.groundingSourceCount > 0 &&
+      (bareDraftRequest || multiDraftRequest));
 
   return hasTopicOrProfileContext;
 }

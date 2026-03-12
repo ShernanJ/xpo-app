@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
 import {
   applyCreatorStrategyOverrides,
   extractCreatorStrategyOverrides,
@@ -74,14 +75,25 @@ export async function POST(request: Request) {
     onboarding: storedRun.result,
     overrides: extractCreatorStrategyOverrides(body),
   });
+  const context = buildCreatorAgentContext({
+    runId: storedRun.runId,
+    onboarding,
+  });
+  const growthOs = await buildGrowthOperatingSystemPayload({
+    userId: session.user.id,
+    xHandle: session.user.activeXHandle,
+    onboarding,
+    context,
+  });
 
   return NextResponse.json(
     {
       ok: true,
-      data: buildCreatorAgentContext({
-        runId: storedRun.runId,
-        onboarding,
-      }),
+      data: {
+        ...context,
+        ...growthOs,
+        unknowns: growthOs.unknowns,
+      },
     },
     { status: 200 },
   );

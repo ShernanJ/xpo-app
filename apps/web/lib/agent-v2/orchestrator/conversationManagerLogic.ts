@@ -1,3 +1,5 @@
+import type { DraftFormatPreference, V2ChatIntent } from "../contracts/chat.ts";
+
 function normalizeDraftIntentMessage(message: string): string {
   let normalized = message
     .trim()
@@ -25,6 +27,58 @@ function normalizeDraftIntentMessage(message: string): string {
   return normalized;
 }
 
+export function buildPlanFailureResponse(reason: string | null | undefined): string {
+  const normalized = reason?.trim().replace(/[.?!]+$/, "") || "";
+  if (!normalized) {
+    return "Failed to generate strategy plan.";
+  }
+
+  return `Failed to generate strategy plan because ${normalized}.`;
+}
+
+export function inferExplicitDraftFormatPreference(
+  message: string,
+): DraftFormatPreference | null {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized) {
+    return null;
+  }
+
+  const threadPatterns = [
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
+    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
+    /\bmake\s+it\s+a\s+thread\b/,
+  ];
+  if (threadPatterns.some((pattern) => pattern.test(normalized))) {
+    return "thread";
+  }
+
+  const longformPatterns = [
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?long(?:\s|-)?form\b/,
+    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?long(?:\s|-)?form\b/,
+    /\bwrite\s+longer\b/,
+    /\bgo\s+deeper\b/,
+    /\bexpand\s+this\b/,
+  ];
+  if (longformPatterns.some((pattern) => pattern.test(normalized))) {
+    return "longform";
+  }
+
+  const shortformPatterns = [
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?(?:(?:x\s+post|tweet|post))\b/,
+    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?(?:(?:x\s+post|tweet|post))\b/,
+    /\bmake\s+it\s+a\s+(?:x\s+post|tweet|post)\b/,
+    /\bturn\s+it\s+into\s+short(?:\s|-)?form\b/,
+    /\bkeep\s+it\s+short\b/,
+    /\bkeep\s+it\s+tight\b/,
+  ];
+  if (shortformPatterns.some((pattern) => pattern.test(normalized))) {
+    return "shortform";
+  }
+
+  return null;
+}
+
 export function hasStrongDraftCommand(message: string): boolean {
   const normalized = normalizeDraftIntentMessage(message);
   if (!normalized) {
@@ -38,6 +92,24 @@ export function hasStrongDraftCommand(message: string): boolean {
   return /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?(?:post|thread)\b/.test(
     normalized,
   );
+}
+
+export function isMultiDraftRequest(message: string): boolean {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized) {
+    return false;
+  }
+
+  const explicitBundlePatterns = [
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?multiple\s+(?:posts|drafts|tweets)\b/,
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?few\s+(?:posts|drafts|tweets)\b/,
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:\d+|two|three|four|five)\s+(?:different\s+)?(?:posts|drafts|tweets)\b/,
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?multiple\s+posts\s+i(?:\s+would|\s*'d)\s+use\b/,
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:a\s+)?random\s+post(?:\s+i(?:\s+would|\s*'d)\s+use)?$/,
+    /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?multiple\s+posts(?:\s+i(?:\s+can|\s*'d)\s+use)?$/,
+  ];
+
+  return explicitBundlePatterns.some((pattern) => pattern.test(normalized));
 }
 
 export function isBareDraftRequest(message: string): boolean {
@@ -198,6 +270,10 @@ export function resolveConversationMode(args: {
   }
 
   if (!args.explicitIntent && !args.activeDraft && hasStrongDraftCommand(args.userMessage)) {
+    return "plan";
+  }
+
+  if (!args.explicitIntent && !args.activeDraft && isMultiDraftRequest(args.userMessage)) {
     return "plan";
   }
 

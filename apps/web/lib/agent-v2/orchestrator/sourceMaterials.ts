@@ -734,6 +734,60 @@ function buildSourceMaterialCorpusTokenSet(asset: SourceMaterialAssetRecord): Se
   );
 }
 
+function looksLikeVagueSourceMaterialRequest(args: {
+  userMessage: string;
+  keywords: string[];
+}): boolean {
+  const normalized = args.userMessage.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  const genericBundlePrompt = /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:(?:a\s+)?random\s+post|multiple\s+(?:posts|drafts|tweets)(?:\s+i(?:\s+can|\s*'d)\s+use)?|(?:\d+|two|three|four|five)\s+(?:posts|drafts|tweets)|(?:a\s+)?post)\b/.test(
+    normalized,
+  );
+  if (genericBundlePrompt) {
+    return true;
+  }
+
+  if (args.keywords.length >= 3) {
+    return false;
+  }
+
+  return /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:(?:a\s+)?random\s+post|multiple\s+(?:posts|drafts|tweets)|(?:\d+|two|three|four|five)\s+(?:posts|drafts|tweets)|(?:a\s+)?post)\b/.test(
+    normalized,
+  );
+}
+
+function selectFallbackSourceMaterials(args: {
+  assets: SourceMaterialAssetRecord[];
+  limit: number;
+}): SourceMaterialAssetRecord[] {
+  return args.assets
+    .filter((asset) => asset.verified)
+    .map((asset) => {
+      const tagSet = new Set(asset.tags.map((tag) => tag.toLowerCase()));
+      const acceptanceBoost = Array.from(APPROVED_SOURCE_TAGS).some((tag) => tagSet.has(tag))
+        ? 28
+        : 0;
+      return {
+        asset,
+        score: scoreSourceRecency(asset) + acceptanceBoost + (asset.lastUsedAt ? 8 : 0),
+      };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      const rightRecency = Date.parse(right.asset.lastUsedAt || right.asset.updatedAt || right.asset.createdAt);
+      const leftRecency = Date.parse(left.asset.lastUsedAt || left.asset.updatedAt || left.asset.createdAt);
+      return rightRecency - leftRecency;
+    })
+    .slice(0, args.limit)
+    .map(({ asset }) => asset);
+}
+
 export function selectRelevantSourceMaterials(args: {
   assets: SourceMaterialAssetRecord[];
   userMessage: string;
@@ -742,8 +796,7 @@ export function selectRelevantSourceMaterials(args: {
 }): SourceMaterialAssetRecord[] {
   const limit = Math.max(1, Math.min(args.limit ?? 2, 2));
   const keywords = tokenize(`${args.userMessage} ${args.topicSummary || ""}`);
-
-  return args.assets
+  const scored = args.assets
     .filter((asset) => asset.verified)
     .map((asset) => {
       const corpusTokens = buildSourceMaterialCorpusTokenSet(asset);
@@ -767,10 +820,23 @@ export function selectRelevantSourceMaterials(args: {
 
       const rightRecency = Date.parse(right.asset.lastUsedAt || right.asset.updatedAt || right.asset.createdAt);
       const leftRecency = Date.parse(left.asset.lastUsedAt || left.asset.updatedAt || left.asset.createdAt);
-      return rightRecency - leftRecency;
-    })
+        return rightRecency - leftRecency;
+      })
     .slice(0, limit)
     .map(({ asset }) => asset);
+
+  if (scored.length > 0) {
+    return scored;
+  }
+
+  if (looksLikeVagueSourceMaterialRequest({ userMessage: args.userMessage, keywords })) {
+    return selectFallbackSourceMaterials({
+      assets: args.assets,
+      limit,
+    });
+  }
+
+  return [];
 }
 
 export function mergeSourceMaterialsIntoGroundingPacket(args: {

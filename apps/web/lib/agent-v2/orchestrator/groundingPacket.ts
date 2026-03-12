@@ -29,6 +29,14 @@ export interface CreatorProfileHints {
   toneGuidelines: string[];
   ctaPolicy: string;
   topExampleSnippets: string[];
+  knownFor?: string | null;
+  targetAudience?: string | null;
+  contentPillars?: string[];
+  replyGoals?: string[];
+  profileConversionCues?: string[];
+  offBrandThemes?: string[];
+  ambiguities?: string[];
+  learningSignals?: string[];
 }
 
 interface GroundingStyleCard {

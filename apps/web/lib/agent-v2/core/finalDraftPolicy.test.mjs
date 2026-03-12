@@ -92,6 +92,88 @@ test("returns adjustment metadata for downstream issue reporting", () => {
   assert.equal(result.adjustments.engagementAdjusted, true);
 });
 
+test("strips leaked transcript and composer chrome from draft content", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "write me a random draft i would use",
+      "",
+      'I’ll drop a draft: "lost to stan in a league match, but that’s how i discovered the real growth lever on x: one well-placed reply."',
+      "",
+      "Share a quick, actionable insight about growing on x that feels personal but stays within the user's known facts.",
+      "",
+      "if that's the angle, i'll draft it.",
+      "",
+      "looks good. write this version now.",
+      "",
+      "tightened it so it reads fast.",
+      "",
+      "shernan",
+      "@shernanjavier",
+      "",
+      "most people think you need a massive follower count to get traction on x",
+      "---",
+      "i just lost to stan in a league match. that sting turned into a growth lesson",
+      "---",
+      "it's the cheap hack most ignore",
+      "---",
+      "so i built stan",
+      "",
+      "Just now",
+      "·",
+      "210 / 280 chars",
+      "Shorter",
+      "Longer",
+      "Softer",
+      "Punchier",
+      "Less Negative",
+      "More Specific",
+      "Turn into Thread",
+      "Post",
+    ].join("\n"),
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.startsWith("most people think you need a massive follower count"), true);
+  assert.equal(result.includes("write me a random draft i would use"), false);
+  assert.equal(result.includes("I’ll drop a draft:"), false);
+  assert.equal(result.includes("@shernanjavier"), false);
+  assert.equal(result.includes("210 / 280 chars"), false);
+  assert.equal(result.includes("Turn into Thread"), false);
+});
+
+test("preserves drafts that naturally start with a reply handle", () => {
+  const result = applyFinalDraftPolicy({
+    draft: "@stan appreciate this take. the real unlock was one good reply, not more posting.",
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.startsWith("@stan appreciate this take."), true);
+});
+
+test("shortform drafts collapse leaked thread separators into one post", () => {
+  const result = applyFinalDraftPolicy({
+    draft: ["hook", "proof", "cta"].join("\n\n---\n\n"),
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.includes("---"), false);
+  assert.equal(result, ["hook", "proof", "cta"].join("\n"));
+});
+
+test("longform drafts collapse leaked thread separators without preserving serialization", () => {
+  const result = applyFinalDraftPolicy({
+    draft: ["opening paragraph", "supporting proof", "closer"].join("\n\n---\n\n"),
+    formatPreference: "longform",
+    isVerifiedAccount: true,
+  });
+
+  assert.equal(result.includes("---"), false);
+  assert.equal(result, ["opening paragraph", "supporting proof", "closer"].join("\n\n"));
+});
+
 test("soft-signal threads strip x/x numbering without forcing a canned opener", () => {
   const result = applyFinalDraftPolicy({
     draft: [

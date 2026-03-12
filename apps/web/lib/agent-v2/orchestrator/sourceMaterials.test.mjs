@@ -148,6 +148,48 @@ test("source material retrieval prefers recent approved assets over older seeded
   assert.equal(selected[0]?.id, "asset_recent_approved");
 });
 
+test("source material retrieval falls back to recent approved context for vague multi-post requests", () => {
+  const now = Date.now();
+  const selected = selectRelevantSourceMaterials({
+    userMessage: "generate me multiple posts i can use",
+    topicSummary: null,
+    assets: [
+      {
+        id: "asset_old",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Old launch note",
+        tags: ["launch"],
+        verified: true,
+        claims: ["I launched Xpo in public."],
+        snippets: ["We kept the rollout narrow."],
+        doNotClaim: [],
+        lastUsedAt: null,
+        createdAt: new Date(now - 220 * 86_400_000).toISOString(),
+        updatedAt: new Date(now - 220 * 86_400_000).toISOString(),
+      },
+      {
+        id: "asset_recent",
+        userId: "user_1",
+        xHandle: "stan",
+        type: "story",
+        title: "Approved rollout lesson",
+        tags: ["approved_draft", "accepted_output"],
+        verified: true,
+        claims: ["After shipping Xpo, we kept the first rollout intentionally small."],
+        snippets: ["That rollout constraint changed how I think about launches."],
+        doNotClaim: [],
+        lastUsedAt: new Date(now - 2 * 86_400_000).toISOString(),
+        createdAt: new Date(now - 10 * 86_400_000).toISOString(),
+        updatedAt: new Date(now - 2 * 86_400_000).toISOString(),
+      },
+    ],
+  });
+
+  assert.equal(selected[0]?.id, "asset_recent");
+});
+
 test("source material retrieval adds verified claims to the grounding packet", () => {
   const packet = mergeSourceMaterialsIntoGroundingPacket({
     groundingPacket: {

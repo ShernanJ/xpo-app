@@ -41,6 +41,14 @@ function buildHints(args: {
     toneGuidelines: args.creatorProfile.playbook.toneGuidelines.slice(0, 4),
     ctaPolicy: args.creatorProfile.playbook.ctaPolicy,
     topExampleSnippets,
+    knownFor: null,
+    targetAudience: null,
+    contentPillars: [],
+    replyGoals: [],
+    profileConversionCues: [],
+    offBrandThemes: [],
+    ambiguities: [],
+    learningSignals: [],
   };
 }
 
@@ -57,9 +65,12 @@ export function buildCreatorProfileHintsFromOnboarding(args: {
     onboarding: args.onboarding,
   });
 
-  return buildHints({
-    creatorProfile: context.creatorProfile,
-    preferredOutputShape: contract.planner.outputShape,
+  return applyGrowthStrategyToCreatorProfileHints({
+    hints: buildHints({
+      creatorProfile: context.creatorProfile,
+      preferredOutputShape: contract.planner.outputShape,
+    }),
+    growthStrategySnapshot: context.growthStrategySnapshot,
   });
 }
 
@@ -68,4 +79,31 @@ export function buildCreatorProfileHintsFromCreatorProfile(args: {
   preferredOutputShape: CreatorProfileHints["preferredOutputShape"];
 }): CreatorProfileHints {
   return buildHints(args);
+}
+
+export function applyGrowthStrategyToCreatorProfileHints(args: {
+  hints: CreatorProfileHints;
+  growthStrategySnapshot: {
+    knownFor: string;
+    targetAudience: string;
+    contentPillars: string[];
+    replyGoals: string[];
+    profileConversionCues: string[];
+    offBrandThemes: string[];
+    ambiguities: string[];
+  };
+  learningSignals?: string[] | null;
+}): CreatorProfileHints {
+  return {
+    ...args.hints,
+    knownFor: args.growthStrategySnapshot.knownFor,
+    targetAudience: args.growthStrategySnapshot.targetAudience,
+    contentPillars: args.growthStrategySnapshot.contentPillars.slice(0, 5),
+    replyGoals: args.growthStrategySnapshot.replyGoals.slice(0, 4),
+    profileConversionCues: args.growthStrategySnapshot.profileConversionCues.slice(0, 4),
+    offBrandThemes: args.growthStrategySnapshot.offBrandThemes.slice(0, 4),
+    ambiguities: args.growthStrategySnapshot.ambiguities.slice(0, 4),
+    learningSignals:
+      args.learningSignals?.filter(Boolean).slice(0, 4) || args.hints.learningSignals || [],
+  };
 }

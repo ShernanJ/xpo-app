@@ -238,6 +238,19 @@ function looksLikeRevisionRequestMessage(normalized: string): boolean {
   ].some((pattern) => pattern.test(normalizedCompact));
 }
 
+function looksLikeExplicitTrimRequestMessage(normalized: string): boolean {
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\b(?:make|keep)\s+it\s+(?:short|shorter|tight|tighter)\b/,
+    /\b(?:tighten|trim|shorten|condense|compress)\b/,
+    /\bcut\s+it\s+down\b/,
+    /\breads\s+fast\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function buildDraftReply(args: BuildDraftReplyArgs): string {
   const normalized = args.userMessage.trim().toLowerCase();
   const issuesFixed = args.issuesFixed || [];
@@ -251,8 +264,45 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
     cadenceProfile.lowercase ? "lowercase" : "normal",
   ].join("|");
   const isRevisionRequest = args.isEdit || looksLikeRevisionRequestMessage(normalized);
+  const canUseTrimSpecificCopy =
+    args.isEdit || looksLikeExplicitTrimRequestMessage(normalized);
 
   if (isRevisionRequest) {
+    if (mentionsTrim(issuesFixed) && canUseTrimSpecificCopy) {
+      return buildCadenceReply({
+        action: {
+          blunt: [
+            "trimmed it down and kept the point tight.",
+            "shortened it and cleaned the flow.",
+          ],
+          balanced: [
+            "trimmed it down and kept the point tight.",
+            "shortened it and cleaned the flow.",
+          ],
+          warm: [
+            "trimmed it down while keeping the point intact.",
+            "shortened it and smoothed the flow.",
+          ],
+        },
+        followUp: {
+          blunt: [
+            "want it tighter?",
+            "want another trim pass?",
+          ],
+          balanced: [
+            "want it tighter?",
+            "good to post or trim more?",
+          ],
+          warm: [
+            "want one more trim pass?",
+            "good to post or trim more?",
+          ],
+        },
+        profile: cadenceProfile,
+        seed: `${seed}|rev|trim`,
+      });
+    }
+
     if (args.draftPreference === "voice_first") {
       return buildCadenceReply({
         action: {
@@ -324,41 +374,6 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         },
         profile: cadenceProfile,
         seed: `${seed}|rev|growth`,
-      });
-    }
-
-    if (mentionsTrim(issuesFixed)) {
-      return buildCadenceReply({
-        action: {
-          blunt: [
-            "trimmed it down and kept the point tight.",
-            "shortened it and cleaned the flow.",
-          ],
-          balanced: [
-            "trimmed it down and kept the point tight.",
-            "shortened it and cleaned the flow.",
-          ],
-          warm: [
-            "trimmed it down while keeping the point intact.",
-            "shortened it and smoothed the flow.",
-          ],
-        },
-        followUp: {
-          blunt: [
-            "want it tighter?",
-            "want another trim pass?",
-          ],
-          balanced: [
-            "want it tighter?",
-            "good to post or trim more?",
-          ],
-          warm: [
-            "want one more trim pass?",
-            "good to post or trim more?",
-          ],
-        },
-        profile: cadenceProfile,
-        seed: `${seed}|rev|trim`,
       });
     }
 
@@ -470,7 +485,7 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
     });
   }
 
-  if (mentionsTrim(issuesFixed)) {
+  if (mentionsTrim(issuesFixed) && canUseTrimSpecificCopy) {
     return buildCadenceReply({
       action: {
         blunt: [

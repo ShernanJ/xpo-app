@@ -16,7 +16,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type, Wrench } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -52,6 +52,22 @@ import type {
   TransformationMode,
   UserGoal,
 } from "@/lib/onboarding/types";
+import {
+  PLAYBOOK_LIBRARY,
+  PLAYBOOK_STAGE_META,
+  PLAYBOOK_STAGE_ORDER,
+  buildPlaybookTemplateGroups,
+  buildRecommendedPlaybooks,
+  inferCurrentPlaybookStage,
+  type PlaybookDefinition,
+  type PlaybookStageKey,
+  type PlaybookTemplate,
+  type PlaybookTemplateTab,
+} from "@/lib/creator/playbooks";
+import {
+  ObservedMetricsModal,
+  type ObservedMetricsFormState,
+} from "./ObservedMetricsModal";
 
 interface ValidationError {
   field: string;
@@ -329,6 +345,45 @@ type DraftQueueCandidateMutationResponse =
   | DraftQueueCandidateMutationSuccess
   | DraftQueueFailure;
 
+function createEmptyObservedMetricsForm(): ObservedMetricsFormState {
+  return {
+    likeCount: "",
+    replyCount: "",
+    profileClicks: "",
+    followerDelta: "",
+  };
+}
+
+function normalizeObservedMetricValue(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function buildObservedMetricsPayload(
+  value: ObservedMetricsFormState,
+): Record<string, number> | null {
+  const likeCount = normalizeObservedMetricValue(value.likeCount);
+  const replyCount = normalizeObservedMetricValue(value.replyCount);
+  if (likeCount === undefined || replyCount === undefined) {
+    return null;
+  }
+
+  const profileClicks = normalizeObservedMetricValue(value.profileClicks);
+  const followerDelta = normalizeObservedMetricValue(value.followerDelta);
+
+  return {
+    likeCount,
+    replyCount,
+    ...(profileClicks !== undefined ? { profileClicks } : {}),
+    ...(followerDelta !== undefined ? { followerDelta } : {}),
+  };
+}
+
 interface PreferencesSuccess {
   ok: true;
   data: {
@@ -514,6 +569,7 @@ interface CreatorChatSuccess {
     draftArtifacts: DraftArtifact[];
     draftVersions?: DraftVersionEntry[];
     activeDraftVersionId?: string;
+    draftBundle?: DraftBundlePayload | null;
     previousVersionSnapshot?: DraftVersionSnapshot | null;
     revisionChainId?: string;
     supportAsset: string | null;
@@ -640,6 +696,21 @@ interface DraftVersionSnapshot {
   revisionChainId?: string;
 }
 
+interface DraftBundleOption {
+  id: string;
+  label: string;
+  framing?: string;
+  versionId: string;
+  content: string;
+  artifact: DraftArtifact;
+}
+
+interface DraftBundlePayload {
+  kind: "sibling_options";
+  selectedOptionId: string;
+  options: DraftBundleOption[];
+}
+
 interface DraftDrawerSelection {
   messageId: string;
   versionId: string;
@@ -675,6 +746,7 @@ interface ChatMessage {
   draftArtifacts?: DraftArtifact[];
   draftVersions?: DraftVersionEntry[];
   activeDraftVersionId?: string;
+  draftBundle?: DraftBundlePayload | null;
   previousVersionSnapshot?: DraftVersionSnapshot | null;
   revisionChainId?: string;
   supportAsset?: string | null;
@@ -844,16 +916,16 @@ const MODAL_PRO_APPROX_DRAFT_TURNS = Math.floor(
 
 const BASE_HERO_QUICK_ACTIONS = [
   {
-    label: "Give me post ideas",
-    prompt: "Give me post ideas",
+    label: "Write a post",
+    prompt: "write a post",
   },
   {
-    label: "Draft a post for me",
-    prompt: "Draft a post for me",
+    label: "Give me feedback",
+    prompt: "give me feedback",
   },
   {
-    label: "Give me a random post I would use",
-    prompt: "Give me a random post I would use",
+    label: "Write a thread",
+    prompt: "write a thread",
   },
 ] as const;
 
@@ -878,28 +950,10 @@ function buildHeroQuickActions(lowercase: boolean): Array<{ label: string; promp
 }
 
 function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
-  const baseReplies: ChatQuickReply[] = [
-    {
-      kind: "example_reply",
-      value: "write a post in my voice",
-      label: "Write a post in my voice",
-    },
-    {
-      kind: "example_reply",
-      value: "help me figure out what to post about",
-      label: "Help me figure out what to post",
-    },
-    {
-      kind: "example_reply",
-      value: "analyze my recent posts and tell me what's working",
-      label: "Analyze my recent posts",
-    },
-  ];
-
-  return baseReplies.map((reply) => ({
-    ...reply,
-    value: applyChipVoiceCase(reply.value, lowercase),
-    label: applyChipVoiceCase(reply.label, lowercase),
+  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
+    kind: "example_reply",
+    value: applyChipVoiceCase(action.prompt, lowercase),
+    label: applyChipVoiceCase(action.label, lowercase),
   }));
 }
 
@@ -1371,574 +1425,6 @@ function extractFeedbackTemplateFields(text: string): Record<string, string> {
 
   return fields;
 }
-
-type PlaybookStageKey = "0-1k" | "1k-10k" | "10k-50k" | "50k+";
-type PlaybookTemplateTab = "hook" | "reply" | "thread" | "cta";
-
-interface PlaybookTemplate {
-  id: string;
-  label: string;
-  text: string;
-}
-
-interface PlaybookDefinition {
-  id: string;
-  name: string;
-  outcome: string;
-  whenItWorks: string;
-  difficulty: string;
-  timePerDay: string;
-  bestFor: string[];
-  loop: {
-    input: string;
-    action: string;
-    feedback: string;
-  };
-  checklist: {
-    daily: string[];
-    weekly: string[];
-  };
-  templates: PlaybookTemplate[];
-  metrics: string[];
-  rationale: string;
-  mistakes: string[];
-  examples: string[];
-  quickStart: string[];
-}
-
-const PLAYBOOK_STAGE_ORDER: PlaybookStageKey[] = ["0-1k", "1k-10k", "10k-50k", "50k+"];
-
-const PLAYBOOK_STAGE_META: Record<
-  PlaybookStageKey,
-  {
-    label: string;
-    highlight: string;
-    winCondition: string;
-    bottleneck: string;
-    priorities: string[];
-    contentMix: {
-      replies: number;
-      posts: number;
-      threads: number;
-    };
-  }
-> = {
-  "0-1k": {
-    label: "0→1k",
-    highlight: "discovery + reps",
-    winCondition: "win by getting discovered consistently and learning fast.",
-    bottleneck: "your bottleneck is discovery. the win condition is consistent impressions from replies and proof posts.",
-    priorities: ["discovery", "consistency", "proof"],
-    contentMix: { replies: 60, posts: 30, threads: 10 },
-  },
-  "1k-10k": {
-    label: "1k→10k",
-    highlight: "consistent format + clear topic",
-    winCondition: "win by becoming known for one clear topic.",
-    bottleneck: "your bottleneck is clarity. people should quickly understand what you post about.",
-    priorities: ["positioning", "formats", "proof"],
-    contentMix: { replies: 40, posts: 40, threads: 20 },
-  },
-  "10k-50k": {
-    label: "10k→50k",
-    highlight: "distribution + collabs",
-    winCondition: "win by getting your best posts seen through smart collaboration.",
-    bottleneck: "your bottleneck is reach. focus on distribution and collaboration, not more generic posts.",
-    priorities: ["distribution", "collabs", "systems"],
-    contentMix: { replies: 35, posts: 35, threads: 30 },
-  },
-  "50k+": {
-    label: "50k+",
-    highlight: "systems + leverage",
-    winCondition: "win by turning trust into leverage without losing signal.",
-    bottleneck: "your bottleneck is leverage and trust maintenance. the writing needs to support a bigger operating system.",
-    priorities: ["leverage", "systems", "trust"],
-    contentMix: { replies: 20, posts: 35, threads: 45 },
-  },
-};
-
-const PLAYBOOK_LIBRARY: Record<PlaybookStageKey, PlaybookDefinition[]> = {
-  "0-1k": [
-    {
-      id: "reply-ladder",
-      name: "Reply Ladder",
-      outcome: "Get discovered by bigger accounts",
-      whenItWorks: "best when your best ideas are still under-distributed",
-      difficulty: "Easy",
-      timePerDay: "15 min/day",
-      bestFor: ["builders", "solo founders", "tech twitter"],
-      loop: {
-        input: "Find 10 prompts",
-        action: "Write 3 replies + 1 post",
-        feedback: "Track follows and profile clicks",
-      },
-      checklist: {
-        daily: [
-          "Reply to 10 posts (2 bigger accounts, 8 peers)",
-          "Post 1 proof tweet (build progress, result, lesson)",
-          "Save 3 high-performers to a swipe file",
-        ],
-        weekly: [
-          "Turn your best reply into a standalone post",
-          "Review which replies drove profile clicks",
-        ],
-      },
-      templates: [
-        {
-          id: "reply-ladder-hook",
-          label: "Hook",
-          text: "i used to think ___, then i saw ___, now i do ___.",
-        },
-        {
-          id: "reply-ladder-reply",
-          label: "Reply",
-          text: "this is true. the part ppl miss is ___. here's how i'd apply it: ___.",
-        },
-        {
-          id: "reply-ladder-thread",
-          label: "Thread skeleton",
-          text: "1) what changed 2) what i tested 3) what happened 4) what i'd do next",
-        },
-      ],
-      metrics: ["Replies/day", "Follows per 100 impressions", "7-day follower delta"],
-      rationale: "This compounds because replies earn discovery before your own posts have enough reach to carry themselves.",
-      mistakes: [
-        "Writing generic agreement replies with no point of view",
-        "Only replying to huge accounts",
-        "Never turning the best replies into standalone posts",
-      ],
-      examples: [
-        "a sharp disagree + example reply to a bigger account",
-        "a build update that proves you're actually shipping",
-        "a quick lesson post pulled from a winning reply",
-      ],
-      quickStart: [
-        "Find 5 posts to reply to",
-        "Write 3 replies using the template",
-        "Turn the best reply into 1 original post",
-      ],
-    },
-    {
-      id: "daily-shipping-loop",
-      name: "Daily Shipping Loop",
-      outcome: "Build trust through visible proof",
-      whenItWorks: "best when you need more reps and more proof",
-      difficulty: "Easy",
-      timePerDay: "20 min/day",
-      bestFor: ["builders", "students", "indie hackers"],
-      loop: {
-        input: "Pick one thing you shipped",
-        action: "Post the proof",
-        feedback: "Track saves and replies",
-      },
-      checklist: {
-        daily: [
-          "Ship one small thing",
-          "Screenshot or summarize the proof",
-          "Post 1 proof tweet with a clear takeaway",
-        ],
-        weekly: [
-          "Bundle 3 proof posts into a mini-thread",
-          "Review which proof angle earned the most saves",
-        ],
-      },
-      templates: [
-        {
-          id: "daily-shipping-hook",
-          label: "Hook",
-          text: "shipped ___ today. tiny win, but it fixed ___.",
-        },
-        {
-          id: "daily-shipping-reply",
-          label: "Reply",
-          text: "i'd keep this simple: ship ___, share ___, then measure ___.",
-        },
-        {
-          id: "daily-shipping-thread",
-          label: "Thread skeleton",
-          text: "1) what i built 2) why it mattered 3) what broke 4) what i learned",
-        },
-      ],
-      metrics: ["Posts/week", "Save rate", "Reply count"],
-      rationale: "At this stage, visible proof beats polished theory almost every time.",
-      mistakes: [
-        "Posting vague motivation with no artifact",
-        "Skipping screenshots or concrete proof",
-        "Turning every update into a long thread",
-      ],
-      examples: [
-        "a before/after screenshot post",
-        "a quick bug-fix lesson",
-        "a short shipping recap with one takeaway",
-      ],
-      quickStart: [
-        "Pick one thing you shipped today",
-        "Capture the proof",
-        "Write a quick proof-first hook",
-      ],
-    },
-  ],
-  "1k-10k": [
-    {
-      id: "weekly-series",
-      name: "Weekly Series",
-      outcome: "Build topic association and repeat engagement",
-      whenItWorks: "best when people know you but not your signature format",
-      difficulty: "Medium",
-      timePerDay: "25 min/day",
-      bestFor: ["builders", "operators", "career twitter"],
-      loop: {
-        input: "Pick one topic you'll post about every week",
-        action: "Use one format people can recognize",
-        feedback: "Track returning commenters and saves",
-      },
-      checklist: {
-        daily: [
-          "Collect one idea that fits the series",
-          "Draft one hook for the next installment",
-          "Reply on the same topic to reinforce your positioning",
-        ],
-        weekly: [
-          "Ship 1 flagship post in the series",
-          "Repurpose it into 1 smaller follow-up post",
-        ],
-      },
-      templates: [
-        {
-          id: "weekly-series-hook",
-          label: "Hook",
-          text: "every tuesday i'm breaking down ___. here's this week's one:",
-        },
-        {
-          id: "weekly-series-reply",
-          label: "Reply",
-          text: "this fits the same pattern i keep seeing: ___ -> ___ -> ___.",
-        },
-        {
-          id: "weekly-series-thread",
-          label: "Thread skeleton",
-          text: "1) recurring problem 2) this week's example 3) the repeatable lesson",
-        },
-      ],
-      metrics: ["Repeat commenters", "Series save rate", "Profile visits/post"],
-      rationale: "Repeatable formats help people remember what you're known for faster than one-off posts.",
-      mistakes: [
-        "Changing topics every day",
-        "Naming a series but not sticking to the cadence",
-        "Overbuilding the format before validating it",
-      ],
-      examples: [
-        "a weekly teardown format",
-        "a recurring job-hunt update series",
-        "a repeated build-in-public checkpoint post",
-      ],
-      quickStart: [
-        "Pick one topic that already gets traction",
-        "Name a simple recurring format",
-        "Draft the next hook now",
-      ],
-    },
-    {
-      id: "contrarian-proof",
-      name: "Contrarian Takes With Proof",
-      outcome: "Sharpen positioning with stronger opinions",
-      whenItWorks: "best when you have opinions and proof to back them up",
-      difficulty: "Medium",
-      timePerDay: "20 min/day",
-      bestFor: ["experts", "founders", "niche educators"],
-      loop: {
-        input: "Spot a common opinion",
-        action: "Post the inverse take with proof",
-        feedback: "Track saves and quality replies",
-      },
-      checklist: {
-        daily: [
-          "Save one common take you disagree with",
-          "Write one proof-backed counterpoint",
-          "Reply to one thread with your contrarian lens",
-        ],
-        weekly: [
-          "Ship 2 contrarian singles",
-          "Expand the best one into a short thread",
-        ],
-      },
-      templates: [
-        {
-          id: "contrarian-proof-hook",
-          label: "Hook",
-          text: "unpopular opinion: ___ is overrated. ___ matters more.",
-        },
-        {
-          id: "contrarian-proof-reply",
-          label: "Reply",
-          text: "i think the better frame is ___. i've seen ___ prove it.",
-        },
-        {
-          id: "contrarian-proof-thread",
-          label: "Thread skeleton",
-          text: "1) common belief 2) why it's wrong 3) proof 4) what to do instead",
-        },
-      ],
-      metrics: ["Save rate", "Replies with substance", "Follower conversion"],
-      rationale: "The take gets attention, but the proof is what keeps the take credible.",
-      mistakes: [
-        "Posting contrarian lines with no receipts",
-        "Being edgy instead of useful",
-        "Overexplaining before the hook lands",
-      ],
-      examples: [
-        "a myth-busting post with one hard example",
-        "a simple before/after result",
-        "a short thread that starts with a clear disagreement",
-      ],
-      quickStart: [
-        "Find one common belief you disagree with",
-        "List one proof point",
-        "Draft a short contrarian hook",
-      ],
-    },
-  ],
-  "10k-50k": [
-    {
-      id: "network-loops",
-      name: "Network Loops",
-      outcome: "Scale reach through high-signal relationships",
-      whenItWorks: "best when the writing is solid but reach is capped",
-      difficulty: "Medium",
-      timePerDay: "30 min/day",
-      bestFor: ["operators", "founders", "creators"],
-      loop: {
-        input: "Find 3 creators in your space",
-        action: "Support each other with useful replies",
-        feedback: "Track extra reach and profile follows",
-      },
-      checklist: {
-        daily: [
-          "Reply to 3 aligned peers with real value",
-          "Amplify 1 post that matches your topic",
-          "Open 1 useful conversation in DMs",
-        ],
-        weekly: [
-          "Run 1 collaborative quote or thread",
-          "Review which relationships grew your reach",
-        ],
-      },
-      templates: [
-        {
-          id: "network-loops-hook",
-          label: "Hook",
-          text: "___ is the pattern i keep seeing across builders right now:",
-        },
-        {
-          id: "network-loops-reply",
-          label: "Reply",
-          text: "this lines up with what i'm seeing too. one thing i'd add: ___.",
-        },
-        {
-          id: "network-loops-thread",
-          label: "Thread skeleton",
-          text: "1) shared theme 2) your angle 3) collaborator proof 4) next move",
-        },
-      ],
-      metrics: ["Shared reach", "Mutual reply rate", "Profile follows from collaborators"],
-      rationale: "At this stage, getting shared by trusted peers beats posting alone.",
-      mistakes: [
-        "Treating networking like random outreach",
-        "Only chasing bigger accounts",
-        "Not turning repeated conversations into collaborative content",
-      ],
-      examples: [
-        "a collaborative quote tweet",
-        "a mutual reply chain that becomes a post",
-        "a recap post with outside perspectives",
-      ],
-      quickStart: [
-        "Pick 3 aligned accounts",
-        "Write 1 useful reply for each",
-        "Turn the strongest exchange into a post angle",
-      ],
-    },
-    {
-      id: "content-ip",
-      name: "Content IP",
-      outcome: "Build signature formats people recognize instantly",
-      whenItWorks: "best when your audience needs a pattern they remember fast",
-      difficulty: "Hard",
-      timePerDay: "35 min/day",
-      bestFor: ["educators", "creators", "operators"],
-      loop: {
-        input: "Pick one format you'll repeat",
-        action: "Post it often so people recognize it",
-        feedback: "Track repeat saves, shares, and mentions",
-      },
-      checklist: {
-        daily: [
-          "Collect one example for your format",
-          "Refine the hook pattern, not the whole concept",
-          "Post one lighter-format variant",
-        ],
-        weekly: [
-          "Ship 1 flagship format post",
-          "Repurpose it into 2 smaller spins",
-        ],
-      },
-      templates: [
-        {
-          id: "content-ip-hook",
-          label: "Hook",
-          text: "pattern #__: if ___, then ___, because ___.",
-        },
-        {
-          id: "content-ip-reply",
-          label: "Reply",
-          text: "this fits the same framework i use: ___ -> ___ -> ___.",
-        },
-        {
-          id: "content-ip-thread",
-          label: "Thread skeleton",
-          text: "1) pattern name 2) setup 3) examples 4) when it fails 5) use it",
-        },
-      ],
-      metrics: ["Mentions of your format", "Saves per flagship post", "Repeat audience"],
-      rationale: "Signature formats make your writing easier to recognize and easier to share.",
-      mistakes: [
-        "Making the format too broad to feel distinct",
-        "Changing the branding every week",
-        "Posting the flagship too rarely to stick",
-      ],
-      examples: [
-        "a signature teardown format",
-        "a named framework post",
-        "a repeatable weekly pattern post",
-      ],
-      quickStart: [
-        "Name one format you'll repeat",
-        "Write its base structure",
-        "Draft a flagship version today",
-      ],
-    },
-  ],
-  "50k+": [
-    {
-      id: "narrative-arcs",
-      name: "Narrative Arcs",
-      outcome: "Keep trust high while scaling reach",
-      whenItWorks: "best when your audience is following the bigger journey",
-      difficulty: "Hard",
-      timePerDay: "30 min/day",
-      bestFor: ["founders", "creators", "operators"],
-      loop: {
-        input: "Pick the next chapter in your story",
-        action: "Share it across posts, replies, and threads",
-        feedback: "Track trust signals, replies, and conversions",
-      },
-      checklist: {
-        daily: [
-          "Check where your story currently stands",
-          "Post one update that advances the arc",
-          "Reply to key audience questions to keep trust high",
-        ],
-        weekly: [
-          "Map the next three story chapters",
-          "Review what moved attention vs what moved trust",
-        ],
-      },
-      templates: [
-        {
-          id: "narrative-arcs-hook",
-          label: "Hook",
-          text: "quick update on ___: here's what's changed since last week.",
-        },
-        {
-          id: "narrative-arcs-reply",
-          label: "Reply",
-          text: "the next piece of the story is ___. that's what i'm watching now.",
-        },
-        {
-          id: "narrative-arcs-thread",
-          label: "Thread skeleton",
-          text: "1) where we were 2) what changed 3) what it means 4) what's next",
-        },
-      ],
-      metrics: ["7-day follower delta", "High-signal replies", "Conversion quality"],
-      rationale: "At scale, the story you reinforce matters as much as the single post that spikes.",
-      mistakes: [
-        "Optimizing only for spikes and losing trust",
-        "Changing narrative direction too often",
-        "Ignoring audience confusion signals",
-      ],
-      examples: [
-        "a milestone update with context",
-        "a product narrative checkpoint",
-        "a community update with a clear next step",
-      ],
-      quickStart: [
-        "Pick the next story chapter",
-        "Write one update",
-        "Decide what signal proves it worked",
-      ],
-    },
-    {
-      id: "community-flywheel",
-      name: "Community Flywheel",
-      outcome: "Turn audience attention into durable leverage",
-      whenItWorks: "best when your audience already participates and responds",
-      difficulty: "Hard",
-      timePerDay: "40 min/day",
-      bestFor: ["operators", "founders", "community-led brands"],
-      loop: {
-        input: "Pull signals from the audience",
-        action: "Turn them into posts and product improvements",
-        feedback: "Track retention and trust",
-      },
-      checklist: {
-        daily: [
-          "Collect 3 recurring audience questions",
-          "Turn one into a post or reply cluster",
-          "Close one loop with a clear next action",
-        ],
-        weekly: [
-          "Ship one audience-led content asset",
-          "Review what deepened trust vs what only spiked reach",
-        ],
-      },
-      templates: [
-        {
-          id: "community-flywheel-hook",
-          label: "Hook",
-          text: "3 things my audience keeps asking me about ___:",
-        },
-        {
-          id: "community-flywheel-reply",
-          label: "Reply",
-          text: "i keep hearing this too. the fix is usually ___ first, then ___.",
-        },
-        {
-          id: "community-flywheel-thread",
-          label: "Thread skeleton",
-          text: "1) repeated audience pain 2) your answer 3) proof 4) invite the next conversation",
-        },
-      ],
-      metrics: ["Repeat responders", "Community reply quality", "Retention signals"],
-      rationale: "At this stage, the biggest upside comes from repeated trust, not just more reach.",
-      mistakes: [
-        "Treating the audience like an engagement machine",
-        "Ignoring repeated questions that signal demand",
-        "Optimizing only for vanity reach",
-      ],
-      examples: [
-        "an audience FAQ post",
-        "a post that turns comments into next week's content",
-        "a product-led community checkpoint",
-      ],
-      quickStart: [
-        "List 3 repeated audience questions",
-        "Answer 1 publicly",
-        "Use the replies to plan the next loop",
-      ],
-    },
-  ],
-};
 
 function formatEnumLabel(value: string): string {
   return value
@@ -2655,6 +2141,79 @@ function normalizeDraftVersionBundle(
   };
 }
 
+function replaceDraftVersionEntry(args: {
+  versions: DraftVersionEntry[];
+  versionId: string;
+  content: string;
+  artifact: DraftArtifact;
+}): DraftVersionEntry[] {
+  return args.versions.map((version) =>
+    version.id === args.versionId
+      ? {
+          ...version,
+          content: args.content,
+          weightedCharacterCount: computeXWeightedCharacterCount(args.content),
+          maxCharacterLimit: args.artifact.maxCharacterLimit,
+          supportAsset: args.artifact.supportAsset ?? version.supportAsset,
+          artifact: args.artifact,
+        }
+      : version,
+  );
+}
+
+function buildDraftCollectionsFromVersions(args: {
+  versions: DraftVersionEntry[];
+  activeVersionId: string;
+  fallbackDrafts?: string[];
+  fallbackArtifacts?: DraftArtifact[];
+}): {
+  draft: string;
+  drafts: string[];
+  draftArtifacts: DraftArtifact[];
+} {
+  const activeVersion =
+    args.versions.find((version) => version.id === args.activeVersionId) ??
+    args.versions[args.versions.length - 1];
+  const drafts = args.versions.map((version) => version.content).filter(Boolean);
+  const draftArtifacts = args.versions
+    .map((version) => version.artifact)
+    .filter((artifact): artifact is DraftArtifact => Boolean(artifact));
+
+  return {
+    draft: activeVersion?.content ?? args.fallbackDrafts?.[0] ?? "",
+    drafts: drafts.length > 0 ? drafts : args.fallbackDrafts ?? [],
+    draftArtifacts: draftArtifacts.length > 0 ? draftArtifacts : args.fallbackArtifacts ?? [],
+  };
+}
+
+function syncDraftBundleSelection(args: {
+  draftBundle: DraftBundlePayload | null | undefined;
+  versionId: string;
+  content: string;
+  artifact: DraftArtifact;
+}): DraftBundlePayload | null {
+  if (!args.draftBundle) {
+    return null;
+  }
+
+  const selectedOption =
+    args.draftBundle.options.find((option) => option.versionId === args.versionId) ?? null;
+
+  return {
+    ...args.draftBundle,
+    selectedOptionId: selectedOption?.id ?? args.draftBundle.selectedOptionId,
+    options: args.draftBundle.options.map((option) =>
+      option.versionId === args.versionId
+        ? {
+            ...option,
+            content: args.content,
+            artifact: args.artifact,
+          }
+        : option,
+    ),
+  };
+}
+
 function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) {
@@ -2982,84 +2541,6 @@ function formatNicheSummary(context: CreatorAgentContext): string {
   return formatEnumLabel(primaryNiche);
 }
 
-function inferCurrentPlaybookStage(
-  context: CreatorAgentContext | null,
-): PlaybookStageKey {
-  const followersCount = context?.creatorProfile.identity.followersCount ?? 0;
-
-  if (followersCount >= 50000) {
-    return "50k+";
-  }
-
-  if (followersCount >= 10000) {
-    return "10k-50k";
-  }
-
-  if (followersCount >= 1000) {
-    return "1k-10k";
-  }
-
-  return "0-1k";
-}
-
-function buildPlaybookTemplateGroups(
-  playbook: PlaybookDefinition,
-): Record<PlaybookTemplateTab, PlaybookTemplate[]> {
-  const groups: Record<PlaybookTemplateTab, PlaybookTemplate[]> = {
-    hook: [],
-    reply: [],
-    thread: [],
-    cta: [],
-  };
-
-  for (const template of playbook.templates) {
-    const label = template.label.toLowerCase();
-    if (label.includes("reply")) {
-      groups.reply.push(template);
-    } else if (label.includes("thread")) {
-      groups.thread.push(template);
-    } else if (label.includes("cta")) {
-      groups.cta.push(template);
-    } else {
-      groups.hook.push(template);
-    }
-  }
-
-  if (groups.hook.length === 0) {
-    groups.hook.push({
-      id: `${playbook.id}-hook-fallback`,
-      label: "Hook",
-      text: "i used to think ___, then i saw ___, now i do ___.",
-    });
-  }
-
-  if (groups.reply.length === 0) {
-    groups.reply.push({
-      id: `${playbook.id}-reply-fallback`,
-      label: "Reply",
-      text: "this is true. the part people miss is ___. here's how i'd apply it: ___.",
-    });
-  }
-
-  if (groups.thread.length === 0) {
-    groups.thread.push({
-      id: `${playbook.id}-thread-fallback`,
-      label: "Thread",
-      text: "hook\n\nwhat changed\n\n3 proof points\n\nwhat i learned\n\nwhat to do next",
-    });
-  }
-
-  if (groups.cta.length === 0) {
-    groups.cta.push({
-      id: `${playbook.id}-cta-fallback`,
-      label: "CTA",
-      text: "if this helps, tell me what you're testing next.",
-    });
-  }
-
-  return groups;
-}
-
 function formatTypingStatusLabel(status?: string | null): string {
   switch (status) {
     case "Planning the next move.":
@@ -3187,6 +2668,7 @@ function ChatPageContent() {
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const threadTransitionOutTimeoutRef = useRef<number | null>(null);
   const threadTransitionInTimeoutRef = useRef<number | null>(null);
   const shouldJumpToBottomAfterThreadSwitchRef = useRef(false);
@@ -3205,6 +2687,10 @@ function ChatPageContent() {
 
       if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
         setAccountMenuOpen(false);
+      }
+
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
+        setToolsMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -3454,7 +2940,6 @@ function ChatPageContent() {
   const [draftQueueOpen, setDraftQueueOpen] = useState(false);
   const [draftQueueItems, setDraftQueueItems] = useState<DraftQueueCandidate[]>([]);
   const [isDraftQueueLoading, setIsDraftQueueLoading] = useState(false);
-  const [isDraftQueueGenerating, setIsDraftQueueGenerating] = useState(false);
   const [draftQueueActionById, setDraftQueueActionById] = useState<Record<string, string>>({});
   const [draftQueueError, setDraftQueueError] = useState<string | null>(null);
   const [expandedInlineThreadPreviewId, setExpandedInlineThreadPreviewId] = useState<string | null>(null);
@@ -3463,6 +2948,10 @@ function ChatPageContent() {
   >({});
   const [editingDraftCandidateId, setEditingDraftCandidateId] = useState<string | null>(null);
   const [editingDraftCandidateText, setEditingDraftCandidateText] = useState("");
+  const [observedMetricsCandidateId, setObservedMetricsCandidateId] = useState<string | null>(null);
+  const [observedMetricsForm, setObservedMetricsForm] = useState<ObservedMetricsFormState>(
+    createEmptyObservedMetricsForm(),
+  );
 
   const loadBillingState = useCallback(
     async (options?: {
@@ -3546,44 +3035,6 @@ function ChatPageContent() {
     }
   }, [activeThreadId, session?.user?.id]);
 
-  const generateDraftQueue = useCallback(async () => {
-    if (!context?.runId) {
-      setDraftQueueError("Load a profile workspace before generating the draft queue.");
-      return;
-    }
-
-    setIsDraftQueueGenerating(true);
-    setDraftQueueError(null);
-
-    try {
-      const response = await fetch("/api/creator/v2/draft-candidates", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          count: 4,
-          ...(activeThreadId ? { threadId: activeThreadId } : {}),
-          runId: context.runId,
-        }),
-      });
-      const data = (await response.json()) as DraftQueueResponse;
-
-      if (!response.ok || !data.ok) {
-        const failure = data as DraftQueueFailure;
-        throw new Error(failure.errors?.[0]?.message || "Failed to generate queue drafts.");
-      }
-
-      await loadDraftQueue();
-    } catch (error) {
-      setDraftQueueError(
-        error instanceof Error ? error.message : "Failed to generate queue drafts.",
-      );
-    } finally {
-      setIsDraftQueueGenerating(false);
-    }
-  }, [activeThreadId, context?.runId, loadDraftQueue]);
-
   const mutateDraftQueueCandidate = useCallback(
     async (
       candidateId: string,
@@ -3628,10 +3079,12 @@ function ChatPageContent() {
           setEditingDraftCandidateId(null);
           setEditingDraftCandidateText("");
         }
+        return true;
       } catch (error) {
         setDraftQueueError(
           error instanceof Error ? error.message : "Failed to update the candidate.",
         );
+        return false;
       } finally {
         setDraftQueueActionById((current) => {
           const next = { ...current };
@@ -3642,6 +3095,67 @@ function ChatPageContent() {
     },
     [],
   );
+
+  const observedMetricsCandidate = useMemo(
+    () =>
+      observedMetricsCandidateId
+        ? draftQueueItems.find((candidate) => candidate.id === observedMetricsCandidateId) ?? null
+        : null,
+    [draftQueueItems, observedMetricsCandidateId],
+  );
+
+  const closeObservedMetricsModal = useCallback(() => {
+    setObservedMetricsCandidateId(null);
+    setObservedMetricsForm(createEmptyObservedMetricsForm());
+  }, []);
+
+  const openObservedMetricsModal = useCallback((candidate: DraftQueueCandidate) => {
+    const metrics = (candidate.observedMetrics ?? {}) as Record<string, unknown>;
+    setObservedMetricsCandidateId(candidate.id);
+    setObservedMetricsForm({
+      likeCount:
+        typeof metrics.likeCount === "number" || typeof metrics.likeCount === "string"
+          ? String(metrics.likeCount)
+          : "",
+      replyCount:
+        typeof metrics.replyCount === "number" || typeof metrics.replyCount === "string"
+          ? String(metrics.replyCount)
+          : "",
+      profileClicks:
+        typeof metrics.profileClicks === "number" || typeof metrics.profileClicks === "string"
+          ? String(metrics.profileClicks)
+          : "",
+      followerDelta:
+        typeof metrics.followerDelta === "number" || typeof metrics.followerDelta === "string"
+          ? String(metrics.followerDelta)
+          : "",
+    });
+  }, []);
+
+  const submitObservedMetrics = useCallback(async () => {
+    if (!observedMetricsCandidateId) {
+      return;
+    }
+
+    const observedMetrics = buildObservedMetricsPayload(observedMetricsForm);
+    if (!observedMetrics) {
+      setDraftQueueError("Likes and replies are required before saving observed metrics.");
+      return;
+    }
+
+    const didSave = await mutateDraftQueueCandidate(observedMetricsCandidateId, {
+      action: "observed",
+      observedMetrics,
+    });
+    if (didSave) {
+      closeObservedMetricsModal();
+    }
+  }, [
+    closeObservedMetricsModal,
+    mutateDraftQueueCandidate,
+    observedMetricsCandidateId,
+    observedMetricsForm,
+  ]);
 
   useEffect(() => {
     if (!draftQueueOpen) {
@@ -5175,6 +4689,7 @@ function ChatPageContent() {
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountMenuVisible, setAccountMenuVisible] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [rateLimitsMenuOpen, setRateLimitsMenuOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [availableHandles, setAvailableHandles] = useState<string[]>([]);
@@ -6140,110 +5655,8 @@ function ChatPageContent() {
       });
   }, [context]);
   const analysisRecommendedPlaybooks = useMemo(() => {
-    if (!context) {
-      return [] as Array<{
-        stage: PlaybookStageKey;
-        playbook: PlaybookDefinition;
-        whyFit: string;
-      }>;
-    }
-
-    const currentStageIndex = PLAYBOOK_STAGE_ORDER.indexOf(currentPlaybookStage);
-    const stageCandidates: PlaybookStageKey[] = [
-      currentPlaybookStage,
-      PLAYBOOK_STAGE_ORDER[Math.min(PLAYBOOK_STAGE_ORDER.length - 1, currentStageIndex + 1)],
-      PLAYBOOK_STAGE_ORDER[Math.max(0, currentStageIndex - 1)],
-    ].filter((stage): stage is PlaybookStageKey => Boolean(stage));
-
-    const candidatePool: Array<{ stage: PlaybookStageKey; playbook: PlaybookDefinition }> =
-      [];
-    const seen = new Set<string>();
-
-    for (const stage of stageCandidates) {
-      for (const playbook of PLAYBOOK_LIBRARY[stage]) {
-        const key = `${stage}:${playbook.id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          candidatePool.push({ stage, playbook });
-        }
-      }
-    }
-
-    if (candidatePool.length < 3) {
-      for (const stage of PLAYBOOK_STAGE_ORDER) {
-        for (const playbook of PLAYBOOK_LIBRARY[stage]) {
-          const key = `${stage}:${playbook.id}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            candidatePool.push({ stage, playbook });
-          }
-        }
-      }
-    }
-
-    const gapText = `${context.strategyDelta.primaryGap} ${context.strategyDelta.adjustments
-      .map((item) => `${item.area} ${item.note}`)
-      .join(" ")}`.toLowerCase();
-
-    const scorePlaybook = (playbookId: string, stage: PlaybookStageKey): number => {
-      let score = stage === currentPlaybookStage ? 35 : 10;
-
-      if (/\breply|conversation|discovery|reach\b/.test(gapText)) {
-        if (playbookId.includes("reply") || playbookId.includes("network")) {
-          score += 22;
-        }
-      }
-
-      if (/\bformat|topic|position|consisten|identity|clarity\b/.test(gapText)) {
-        if (playbookId.includes("weekly") || playbookId.includes("content-ip")) {
-          score += 18;
-        }
-      }
-
-      if (/\btrust|retention|community|conversion\b/.test(gapText)) {
-        if (playbookId.includes("community") || playbookId.includes("narrative")) {
-          score += 16;
-        }
-      }
-
-      if (/\bproof|story|hook\b/.test(gapText)) {
-        if (playbookId.includes("daily") || playbookId.includes("contrarian")) {
-          score += 14;
-        }
-      }
-
-      return score;
-    };
-
-    const buildWhyFit = (playbook: PlaybookDefinition): string => {
-      if (playbook.id.includes("reply")) {
-        return `your gap is ${context.strategyDelta.primaryGap.toLowerCase()}, and this strengthens discovery from replies.`;
-      }
-      if (playbook.id.includes("weekly") || playbook.id.includes("content-ip")) {
-        return `your current signals need clearer repetition, and this builds a recognizable format.`;
-      }
-      if (playbook.id.includes("network")) {
-        return `you already have a base signal; this helps expand reach through collaboration.`;
-      }
-      if (playbook.id.includes("daily") || playbook.id.includes("contrarian")) {
-        return `this directly sharpens proof and positioning without adding complexity.`;
-      }
-      if (playbook.id.includes("community") || playbook.id.includes("narrative")) {
-        return `this aligns with a trust-first growth path and tighter audience retention.`;
-      }
-      return `this targets the current gap: ${context.strategyDelta.primaryGap.toLowerCase()}.`;
-    };
-
-    return candidatePool
-      .map(({ stage, playbook }) => ({
-        stage,
-        playbook,
-        score: scorePlaybook(playbook.id, stage),
-        whyFit: buildWhyFit(playbook),
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
-  }, [context, currentPlaybookStage]);
+    return buildRecommendedPlaybooks(context, 3);
+  }, [context]);
   const openGrowthGuideForRecommendation = useCallback(
     (stage: PlaybookStageKey, playbookId: string) => {
       setPlaybookStage(stage);
@@ -6375,6 +5788,56 @@ function ChatPageContent() {
       ...context.creatorProfile.strategy.currentWeaknesses,
       ...context.creatorProfile.styleCard.forbiddenPhrases,
     ]).slice(0, 5);
+  }, [context]);
+  const analysisPositioningIsTentative = useMemo(() => {
+    if (!context) {
+      return false;
+    }
+
+    return (
+      context.growthStrategySnapshot.confidence.positioning < 65 ||
+      context.growthStrategySnapshot.ambiguities.length > 0
+    );
+  }, [context]);
+  const analysisLearningStrengths = useMemo(() => {
+    if (!context) {
+      return [] as string[];
+    }
+
+    return Array.from(
+      new Set([
+        ...(context.replyInsights?.bestSignals || []),
+        ...(context.contentInsights?.bestSignals || []),
+        ...(context.strategyAdjustments?.reinforce || []),
+        ...(context.contentAdjustments?.reinforce || []),
+      ]),
+    ).slice(0, 5);
+  }, [context]);
+  const analysisLearningCautions = useMemo(() => {
+    if (!context) {
+      return [] as string[];
+    }
+
+    return Array.from(
+      new Set([
+        ...(context.replyInsights?.cautionSignals || []),
+        ...(context.contentInsights?.cautionSignals || []),
+        ...(context.strategyAdjustments?.deprioritize || []),
+        ...(context.contentAdjustments?.deprioritize || []),
+      ]),
+    ).slice(0, 6);
+  }, [context]);
+  const analysisLearningExperiments = useMemo(() => {
+    if (!context) {
+      return [] as string[];
+    }
+
+    return Array.from(
+      new Set([
+        ...(context.strategyAdjustments?.experiments || []),
+        ...(context.contentAdjustments?.experiments || []),
+      ]),
+    ).slice(0, 5);
   }, [context]);
 
   useEffect(() => {
@@ -7181,6 +6644,24 @@ function ChatPageContent() {
         ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
         : {}),
     });
+    const nextDraftVersions = replaceDraftVersionEntry({
+      versions: nextVersions,
+      versionId: selectedDraftVersion.id,
+      content: nextContent,
+      artifact: activeDraftArtifact,
+    });
+    const nextDraftCollections = buildDraftCollectionsFromVersions({
+      versions: nextDraftVersions,
+      activeVersionId: selectedDraftVersion.id,
+      fallbackDrafts: selectedDraftMessage.drafts,
+      fallbackArtifacts: selectedDraftMessage.draftArtifacts,
+    });
+    const nextDraftBundle = syncDraftBundleSelection({
+      draftBundle: selectedDraftMessage.draftBundle,
+      versionId: selectedDraftVersion.id,
+      content: nextContent,
+      artifact: activeDraftArtifact,
+    });
 
     setMessages((current) =>
       current.map((message) => {
@@ -7190,17 +6671,12 @@ function ChatPageContent() {
 
         return {
           ...message,
-          draft: nextContent,
-          drafts:
-            message.drafts && message.drafts.length > 1
-              ? [nextContent, ...message.drafts.slice(1)]
-              : [nextContent],
-          draftArtifacts:
-            message.draftArtifacts && message.draftArtifacts.length > 1
-              ? [activeDraftArtifact, ...message.draftArtifacts.slice(1)]
-              : [activeDraftArtifact],
-          draftVersions: nextVersions,
+          draft: nextDraftCollections.draft,
+          drafts: nextDraftCollections.drafts,
+          draftArtifacts: nextDraftCollections.draftArtifacts,
+          draftVersions: nextDraftVersions,
           activeDraftVersionId: selectedDraftVersion.id,
+          draftBundle: nextDraftBundle,
           revisionChainId,
         };
       }),
@@ -7225,17 +6701,12 @@ function ChatPageContent() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            draftVersions: nextVersions,
+            draftVersions: nextDraftVersions,
             activeDraftVersionId: selectedDraftVersion.id,
-            draft: nextContent,
-            drafts:
-              selectedDraftMessage.drafts && selectedDraftMessage.drafts.length > 1
-                ? [nextContent, ...selectedDraftMessage.drafts.slice(1)]
-                : [nextContent],
-            draftArtifacts:
-              selectedDraftMessage.draftArtifacts && selectedDraftMessage.draftArtifacts.length > 1
-                ? [activeDraftArtifact, ...selectedDraftMessage.draftArtifacts.slice(1)]
-                : [activeDraftArtifact],
+            draft: nextDraftCollections.draft,
+            drafts: nextDraftCollections.drafts,
+            draftArtifacts: nextDraftCollections.draftArtifacts,
+            draftBundle: nextDraftBundle,
             revisionChainId,
           }),
         },
@@ -7614,6 +7085,7 @@ function ChatPageContent() {
               draftArtifacts: data.data.draftArtifacts,
               draftVersions: data.data.draftVersions,
               activeDraftVersionId: data.data.activeDraftVersionId,
+              draftBundle: data.data.draftBundle ?? null,
               previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
               revisionChainId: data.data.revisionChainId,
               supportAsset: data.data.supportAsset,
@@ -7766,6 +7238,7 @@ function ChatPageContent() {
             draftArtifacts: streamedResult.draftArtifacts,
             draftVersions: streamedResult.draftVersions,
             activeDraftVersionId: streamedResult.activeDraftVersionId,
+            draftBundle: streamedResult.draftBundle ?? null,
             previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
             revisionChainId: streamedResult.revisionChainId,
             supportAsset: streamedResult.supportAsset,
@@ -8818,25 +8291,26 @@ function ChatPageContent() {
           <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                Draft Queue
+                Draft Review
               </p>
               <h2 className="mt-3 text-2xl font-semibold text-white">
-                Review queued drafts outside the chat
+                Review drafts after chat generates them
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-                Generate a fresh batch from your playbooks, then approve, reject, edit, or regenerate without cluttering the main thread.
+                Chat is the primary drafting surface now. Use this view to review, approve, post, and log what happened after something ships.
               </p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  void generateDraftQueue();
+                  setDraftQueueOpen(false);
+                  void submitQuickStarter("draft 4 posts from what you know about me");
                 }}
-                disabled={isDraftQueueGenerating || !context?.runId}
+                disabled={!context?.runId}
                 className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
               >
-                {isDraftQueueGenerating ? "Generating" : "Generate 4 Drafts"}
+                Generate in Chat
               </button>
               <button
                 type="button"
@@ -8865,9 +8339,9 @@ function ChatPageContent() {
               </div>
             ) : draftQueueItems.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-center">
-                <p className="text-sm font-medium text-white">No queued drafts yet</p>
+                <p className="text-sm font-medium text-white">No reviewed drafts yet</p>
                 <p className="mt-2 text-sm text-zinc-500">
-                  Generate a batch and review them here.
+                  Generate a batch in chat, then review the results here.
                 </p>
               </div>
             ) : (
@@ -8987,15 +8461,12 @@ function ChatPageContent() {
                             <button
                               type="button"
                               onClick={() => {
-                                void mutateDraftQueueCandidate(candidate.id, {
-                                  action: "observed",
-                                  observedMetrics: candidate.observedMetrics ?? {},
-                                });
+                                openObservedMetricsModal(candidate);
                               }}
                               disabled={Boolean(activeCandidateAction)}
                               className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              {activeCandidateAction === "observed" ? "Updating" : "Mark Observed"}
+                              {candidate.status === "observed" ? "Update Observed" : "Mark Observed"}
                             </button>
                           ) : null}
                         </div>
@@ -9129,6 +8600,47 @@ function ChatPageContent() {
                             </ul>
                           </div>
                         ) : null}
+
+                        {candidate.observedMetrics ? (
+                          <div className="mt-4 rounded-2xl border border-sky-500/20 bg-sky-500/[0.05] px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300">
+                                Observed outcomes
+                              </p>
+                              {candidate.observedAt ? (
+                                <span className="text-[11px] text-zinc-500">
+                                  {new Date(candidate.observedAt).toLocaleDateString()}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-200">
+                              {typeof candidate.observedMetrics.likeCount === "number" ||
+                              typeof candidate.observedMetrics.likeCount === "string" ? (
+                                <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                  likes {String(candidate.observedMetrics.likeCount)}
+                                </span>
+                              ) : null}
+                              {typeof candidate.observedMetrics.replyCount === "number" ||
+                              typeof candidate.observedMetrics.replyCount === "string" ? (
+                                <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                  replies {String(candidate.observedMetrics.replyCount)}
+                                </span>
+                              ) : null}
+                              {typeof candidate.observedMetrics.profileClicks === "number" ||
+                              typeof candidate.observedMetrics.profileClicks === "string" ? (
+                                <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                  profile clicks {String(candidate.observedMetrics.profileClicks)}
+                                </span>
+                              ) : null}
+                              {typeof candidate.observedMetrics.followerDelta === "number" ||
+                              typeof candidate.observedMetrics.followerDelta === "string" ? (
+                                <span className="rounded-full border border-white/10 px-2.5 py-1">
+                                  follower delta {String(candidate.observedMetrics.followerDelta)}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="mt-4 flex items-center justify-between gap-3">
@@ -9238,45 +8750,6 @@ function ChatPageContent() {
                   >
                     <Settings2 className="h-4 w-4 shrink-0" />
                     <span>Preferences</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAnalysisOpen(true)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <BarChart3 className="h-4 w-4 shrink-0" />
-                    <span>Analysis</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPlaybookModalOpen(true)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <BookOpen className="h-4 w-4 shrink-0" />
-                    <span>Playbook</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetSourceMaterialDraft();
-                      setSourceMaterialsNotice(null);
-                      setSourceMaterialsOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <Lightbulb className="h-4 w-4 shrink-0" />
-                    <span>Stories &amp; Proof</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraftQueueError(null);
-                      setDraftQueueOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <Sparkles className="h-4 w-4 shrink-0" />
-                    <span>Draft Queue</span>
                   </button>
                   <button
                     type="button"
@@ -9536,6 +9009,66 @@ function ChatPageContent() {
                 />
               </div>
               <div className="flex items-center justify-end gap-3">
+                <div ref={toolsMenuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setToolsMenuOpen((current) => !current)}
+                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
+                      toolsMenuOpen
+                        ? "border-white/20 bg-white/[0.06] text-white"
+                        : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                    }`}
+                  >
+                    <Wrench className="h-3.5 w-3.5" />
+                    <span>Tools</span>
+                  </button>
+                  {toolsMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+0.65rem)] z-30 w-56 rounded-3xl border border-white/10 bg-[#101010] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+                      {[
+                        {
+                          label: "Saved context",
+                          onClick: () => {
+                            resetSourceMaterialDraft();
+                            setSourceMaterialsNotice(null);
+                            setSourceMaterialsOpen(true);
+                          },
+                        },
+                        {
+                          label: "Draft review",
+                          onClick: () => {
+                            setDraftQueueError(null);
+                            setDraftQueueOpen(true);
+                          },
+                        },
+                        {
+                          label: "Profile breakdown",
+                          onClick: () => setAnalysisOpen(true),
+                        },
+                        {
+                          label: "Growth guide",
+                          onClick: () => {
+                            setPlaybookStage(inferCurrentPlaybookStage(context));
+                            setPendingGrowthGuidePlaybookId(null);
+                            setPlaybookModalOpen(true);
+                          },
+                        },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => {
+                            setToolsMenuOpen(false);
+                            item.onClick();
+                          }}
+                          className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                        >
+                          <span>{item.label}</span>
+                          <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={() => setExtensionModalOpen(true)}
@@ -9757,7 +9290,7 @@ function ChatPageContent() {
                               <span>
                                 {dismissedAutoSavedSourceByMessageId[message.id]
                                   ? "Won't reuse that source."
-                                  : `Saved to Stories & Proof${
+                                  : `Saved to memory${
                                       message.autoSavedSourceMaterials.assets[0]?.title
                                         ? `: ${message.autoSavedSourceMaterials.assets[0].title}`
                                         : "."
@@ -9808,7 +9341,7 @@ function ChatPageContent() {
                             <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/[0.06] px-3 py-1 text-[11px] text-sky-200/90">
                               <BookOpen className="h-3.5 w-3.5" />
                               <span>
-                                Added to Stories &amp; Proof
+                                Added to saved context
                                 {message.promotedSourceMaterials.assets[0]?.title
                                   ? `: ${message.promotedSourceMaterials.assets[0].title}`
                                   : "."}
@@ -9955,6 +9488,73 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
+                            message.draftBundle?.options?.length &&
+                            message.draftBundle.options.length < 4 ? (
+                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
+                              {message.draftBundle.options.map((option, optionIndex) => {
+                                const isSelected =
+                                  option.id === message.draftBundle?.selectedOptionId ||
+                                  option.versionId === message.activeDraftVersionId;
+                                const preview =
+                                  option.content.length > 220
+                                    ? `${option.content.slice(0, 217).trimEnd()}...`
+                                    : option.content;
+
+                                return (
+                                  <button
+                                    key={`${message.id}-bundle-${option.id}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setMessages((current) =>
+                                        current.map((entry) =>
+                                          entry.id === message.id
+                                            ? {
+                                                ...entry,
+                                                activeDraftVersionId: option.versionId,
+                                                draftBundle: entry.draftBundle
+                                                  ? {
+                                                      ...entry.draftBundle,
+                                                      selectedOptionId: option.id,
+                                                    }
+                                                  : entry.draftBundle,
+                                              }
+                                            : entry,
+                                        ),
+                                      );
+                                      openDraftEditor(message.id, option.versionId);
+                                    }}
+                                    className={`rounded-3xl border p-4 text-left transition ${
+                                      isSelected
+                                        ? "border-white/20 bg-white/[0.06] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+                                        : "border-white/10 bg-black/20 hover:border-white/15 hover:bg-white/[0.04]"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                          Option {optionIndex + 1}
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-white">
+                                          {option.label}
+                                        </p>
+                                      </div>
+                                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                                        {option.artifact.weightedCharacterCount}/
+                                        {option.artifact.maxCharacterLimit}
+                                      </span>
+                                    </div>
+                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                                      {preview}
+                                    </p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
+                            message.outputShape !== "coach_question" &&
                             message.outputShape !== "short_form_post" &&
                             message.outputShape !== "long_form_post" &&
                             message.outputShape !== "thread_seed" &&
@@ -10045,6 +9645,133 @@ function ChatPageContent() {
                           {message.role === "assistant" &&
                             shouldShowDraftOutputForMessage(message) &&
                             message.outputShape !== "coach_question" &&
+                            message.draftBundle?.options?.length &&
+                            message.draftBundle.options.length >= 4 ? (
+                            <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                              {message.draftBundle.options.map((option) => {
+                                const username =
+                                  context?.creatorProfile?.identity?.username || "user";
+                                const displayName =
+                                  context?.creatorProfile?.identity?.displayName || username;
+                                const avatarUrl = context?.avatarUrl || null;
+                                const draftCounter = getXCharacterCounterMeta(
+                                  option.content,
+                                  getDisplayedDraftCharacterLimit(
+                                    option.artifact.maxCharacterLimit,
+                                    composerCharacterLimit,
+                                  ),
+                                );
+                                const isFocusedDraftPreview =
+                                  selectedDraftMessageId === message.id &&
+                                  selectedDraftVersionId === option.versionId;
+
+                                return (
+                                  <div
+                                    key={`${message.id}-inline-draft-${option.id}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => openDraftEditor(message.id, option.versionId)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openDraftEditor(message.id, option.versionId);
+                                      }
+                                    }}
+                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
+                                      isFocusedDraftPreview
+                                        ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
+                                        : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
+                                    }`}
+                                    aria-current={isFocusedDraftPreview ? "true" : undefined}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                                          {avatarUrl ? (
+                                            <div
+                                              className="h-full w-full bg-cover bg-center"
+                                              style={{ backgroundImage: `url(${avatarUrl})` }}
+                                              role="img"
+                                              aria-label={`${displayName} profile photo`}
+                                            />
+                                          ) : (
+                                            displayName.charAt(0)
+                                          )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1">
+                                            <span className="truncate text-sm font-bold text-white">
+                                              {displayName}
+                                            </span>
+                                            {isVerifiedAccount ? (
+                                              <Image
+                                                src="/x-verified.svg"
+                                                alt="Verified account"
+                                                width={16}
+                                                height={16}
+                                                className="h-4 w-4 shrink-0"
+                                              />
+                                            ) : null}
+                                          </div>
+                                          <span className="text-xs text-zinc-500">@{username}</span>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openDraftEditor(message.id, option.versionId);
+                                        }}
+                                        className="rounded-full p-2 text-zinc-500"
+                                        aria-label="Edit draft"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
+                                    </div>
+
+                                    <div className="mt-3">
+                                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
+                                        {option.content}
+                                      </p>
+                                    </div>
+
+                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+                                      <span>Just now</span>
+                                      <span>·</span>
+                                      <span className={draftCounter.toneClassName}>
+                                        {draftCounter.label}
+                                      </span>
+                                    </div>
+
+                                    <div className="mt-3 border-t border-white/[0.06]" />
+
+                                    <div className="mt-2 flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void copyPreviewDraft(option.versionId, option.content);
+                                        }}
+                                        className="rounded-full p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                                        aria-label="Copy draft"
+                                      >
+                                        {copiedPreviewDraftMessageId === option.versionId ? (
+                                          <Check className="h-4 w-4" />
+                                        ) : (
+                                          <Copy className="h-4 w-4" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+
+                          {message.role === "assistant" &&
+                            shouldShowDraftOutputForMessage(message) &&
+                            message.outputShape !== "coach_question" &&
+                            !(message.draftBundle?.options?.length && message.draftBundle.options.length >= 4) &&
                             (message.draft ||
                               message.draftArtifacts?.length ||
                               message.draftVersions?.length) ? (() => {
@@ -10729,6 +10456,23 @@ function ChatPageContent() {
       }
 
       {renderDraftQueueModal()}
+      <ObservedMetricsModal
+        open={Boolean(observedMetricsCandidate)}
+        candidateTitle={observedMetricsCandidate?.title ?? null}
+        value={observedMetricsForm}
+        isSubmitting={draftQueueActionById[observedMetricsCandidateId || ""] === "observed"}
+        errorMessage={draftQueueError}
+        onChange={(field, nextValue) => {
+          setObservedMetricsForm((current) => ({
+            ...current,
+            [field]: nextValue,
+          }));
+        }}
+        onClose={closeObservedMetricsModal}
+        onSubmit={() => {
+          void submitObservedMetrics();
+        }}
+      />
 
       {
         settingsModalOpen ? (
@@ -11668,10 +11412,10 @@ function ChatPageContent() {
               <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Stories &amp; Proof
+                    Saved Context
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold text-white">
-                    Teach Xpo one true thing in under a minute
+                    Review the stories and proof Xpo can reuse
                   </h2>
                   <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
                     Add one real story, lesson, or repeatable playbook. Xpo will reuse it in drafts so it stops guessing and stops asking again.
@@ -13094,6 +12838,194 @@ function ChatPageContent() {
                     ))}
                   </section>
 
+                  <section className="grid gap-4 xl:grid-cols-2">
+                    <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                            Positioning
+                          </p>
+                          <p className="mt-2 text-sm text-zinc-300">
+                            what this account should be known for right now
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                            analysisPositioningIsTentative
+                              ? "border-amber-500/30 text-amber-300"
+                              : "border-emerald-500/30 text-emerald-300"
+                          }`}
+                        >
+                          {analysisPositioningIsTentative ? "Tentative" : "Stable"}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                            Known for
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-white">
+                            {context.growthStrategySnapshot.knownFor}
+                          </p>
+                          <p className="mt-2 text-sm text-zinc-400">
+                            Attract: {context.growthStrategySnapshot.targetAudience}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                            Core pillars
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {context.growthStrategySnapshot.contentPillars.slice(0, 5).map((pillar) => (
+                              <span
+                                key={pillar}
+                                className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                              >
+                                {pillar}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                              Profile cues
+                            </p>
+                            <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                              {context.growthStrategySnapshot.profileConversionCues.slice(0, 3).map((cue) => (
+                                <li key={cue} className="leading-6">
+                                  • {cue}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                              Off-brand
+                            </p>
+                            <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                              {context.growthStrategySnapshot.offBrandThemes.length > 0 ? (
+                                context.growthStrategySnapshot.offBrandThemes.slice(0, 3).map((item) => (
+                                  <li key={item} className="leading-6">
+                                    • {item}
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="text-zinc-500">no major off-brand themes flagged</li>
+                              )}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {context.growthStrategySnapshot.ambiguities.length > 0 ? (
+                          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                              Ambiguities
+                            </p>
+                            <ul className="mt-3 space-y-2 text-sm text-zinc-200">
+                              {context.growthStrategySnapshot.ambiguities.slice(0, 3).map((item) => (
+                                <li key={item} className="leading-6">
+                                  • {item}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+
+                    <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                          Profile Conversion Audit
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-300">
+                          {context.profileConversionAudit?.headline || "profile conversion signals are loading."}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-3">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                          <div
+                            className="h-full rounded-full bg-white/80"
+                            style={{ width: `${Math.max(0, Math.min(100, context.profileConversionAudit?.score || 0))}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-semibold text-white">
+                          {context.profileConversionAudit?.score ?? 0}/100
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                            Strengths
+                          </p>
+                          <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                            {(context.profileConversionAudit?.strengths || []).length > 0 ? (
+                              context.profileConversionAudit?.strengths.slice(0, 3).map((item) => (
+                                <li key={item} className="leading-6">
+                                  • {item}
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-zinc-500">insufficient data</li>
+                            )}
+                          </ul>
+                        </div>
+                        <div className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                            Gaps
+                          </p>
+                          <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                            {(context.profileConversionAudit?.gaps || []).length > 0 ? (
+                              context.profileConversionAudit?.gaps.slice(0, 3).map((item) => (
+                                <li key={item} className="leading-6">
+                                  • {item}
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-zinc-500">no major gaps flagged</li>
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Recommended bio edits
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                          {(context.profileConversionAudit?.recommendedBioEdits || []).map((item) => (
+                            <li key={item} className="leading-6">
+                              • {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Recent-post coherence
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                          {(context.profileConversionAudit?.recentPostCoherenceNotes || []).length > 0 ? (
+                            context.profileConversionAudit?.recentPostCoherenceNotes.map((item) => (
+                              <li key={item} className="leading-6">
+                                • {item}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-zinc-500">no coherence notes yet</li>
+                          )}
+                        </ul>
+                      </div>
+                    </article>
+                  </section>
+
                   <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
@@ -13238,6 +13170,107 @@ function ChatPageContent() {
                           insufficient data
                         </p>
                       )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="h-4 w-4 text-zinc-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">What changed from learning</p>
+                        <p className="text-xs text-zinc-500">
+                          merged reply + post signals feeding the next strategy pass
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                      <article className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                          Reinforce
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                          {analysisLearningStrengths.length > 0 ? (
+                            analysisLearningStrengths.map((item) => (
+                              <li key={item} className="leading-6">
+                                • {item}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-zinc-500">no strong learning signals yet</li>
+                          )}
+                        </ul>
+                      </article>
+
+                      <article className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                          Deprioritize
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                          {analysisLearningCautions.length > 0 ? (
+                            analysisLearningCautions.map((item) => (
+                              <li key={item} className="leading-6">
+                                • {item}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-zinc-500">no major caution signals yet</li>
+                          )}
+                        </ul>
+                      </article>
+
+                      <article className="rounded-2xl border border-sky-500/20 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300">
+                          Experiments
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                          {analysisLearningExperiments.length > 0 ? (
+                            analysisLearningExperiments.map((item) => (
+                              <li key={item} className="leading-6">
+                                • {item}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-zinc-500">no active experiments yet</li>
+                          )}
+                        </ul>
+                      </article>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Reply loop
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            selection {context.replyInsights?.selectionRate ?? "n/a"}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            post rate {context.replyInsights?.postRate ?? "n/a"}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            observed {context.replyInsights?.observedRate ?? "n/a"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Post loop
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            drafts {context.contentInsights?.totalCandidates ?? 0}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            post rate {context.contentInsights?.postRate ?? "n/a"}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2.5 py-1">
+                            observed {context.contentInsights?.observedRate ?? "n/a"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </section>
 

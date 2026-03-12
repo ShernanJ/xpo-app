@@ -1,6 +1,15 @@
 import { extractTopicGrounding } from "./correctionRepair.ts";
 import type { TurnPlan, V2ChatIntent, V2ConversationMemory } from "../contracts/chat";
-import { hasStrongDraftCommand, isBareDraftRequest } from "./conversationManagerLogic.ts";
+import {
+  hasStrongDraftCommand,
+  isBareDraftRequest,
+  isMultiDraftRequest,
+} from "./conversationManagerLogic.ts";
+import {
+  classifyContextualFollowUp,
+  getTurnRelationContext,
+  type TurnRelationContext,
+} from "./turnRelation.ts";
 
 // ---------------------------------------------------------------------------
 // Deterministic Turn Planner (V3)
@@ -200,6 +209,16 @@ const CHAT_RESET_CUES = [
   "why are you asking that",
 ];
 
+const MISSING_DRAFT_EDIT_PATTERNS = [
+  /^(?:can you\s+)?help me improve this draft[.?!]*$/,
+  /^(?:can you\s+)?improve this draft[.?!]*$/,
+  /^(?:can you\s+)?help me edit this draft[.?!]*$/,
+  /^(?:can you\s+)?edit this draft[.?!]*$/,
+  /^(?:can you\s+)?revise this draft[.?!]*$/,
+  /^(?:can you\s+)?fix this draft[.?!]*$/,
+  /^(?:can you\s+)?tighten this draft[.?!]*$/,
+];
+
 // --- Draft commands (skip clarification gauntlet) ---------------------------
 
 const IMMEDIATE_DRAFT_CUES = [
@@ -391,6 +410,15 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
+  if (!hasDraftContext && looksLikeMissingDraftEditRequest(trimmed)) {
+    return {
+      userGoal: "chat",
+      shouldGenerate: false,
+      responseStyle: "natural",
+      overrideClassifiedIntent: "coach",
+    };
+  }
+
   // --- Rule 3: Immediate draft command after context is established --------
   // The user has already provided context and is saying "just write it".
   // Skip the clarification gauntlet.
@@ -400,17 +428,19 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     Boolean(input.memory.topicSummary) ||
     Boolean(input.memory.pendingPlan);
 
-  const lastAssistantMessage = input.recentHistory
-    .split("\n")
-    .filter((line) => line.trim().startsWith("assistant:"))
-    .pop()
-    ?.toLowerCase() || "";
-  const assistantOfferedDraft =
-    lastAssistantMessage.includes("want me to turn that into a post") ||
-    lastAssistantMessage.includes("want me to turn that into a thread") ||
-    lastAssistantMessage.includes("want me to draft") ||
-    lastAssistantMessage.includes("want to draft") ||
-    lastAssistantMessage.includes("want me to write");
+  const turnRelation = getTurnRelationContext(input.recentHistory);
+  const relatedFollowUpPlan = resolveRelatedFollowUp({
+    original: trimmed,
+    hasEnoughContext,
+    memory: input.memory,
+    turnRelation,
+  });
+
+  if (relatedFollowUpPlan) {
+    return relatedFollowUpPlan;
+  }
+
+  const assistantOfferedDraft = turnRelation.lastAssistantKind === "draft_offer";
   const isAffirmationAfterOffer =
     assistantOfferedDraft &&
     /^(yes|yeah|yep|sure|ok|okay|do it|lets do it|let's do it|sounds good|go for it|please do)[.?!]*$/.test(
@@ -418,26 +448,11 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     );
 
   if (hasEnoughContext && (looksLikeImmediateDraftCommand(normalized) || isAffirmationAfterOffer)) {
-    // If there is a pending plan, route to planner_feedback (approve).
-    if (
-      input.memory.pendingPlan &&
-      input.memory.conversationState === "plan_pending_approval"
-    ) {
-      return {
-        userGoal: "draft",
-        shouldGenerate: true,
-        responseStyle: "structured",
-        overrideClassifiedIntent: "planner_feedback",
-      };
-    }
+    return buildAutoDraftTurnPlan(input.memory);
+  }
 
-    return {
-      userGoal: "draft",
-      shouldGenerate: true,
-      responseStyle: "structured",
-      shouldAutoDraftFromPlan: true,
-      overrideClassifiedIntent: "draft",
-    };
+  if (!hasDraftContext && hasEnoughContext && isMemoryGroundedMultiDraftRequest(normalized)) {
+    return buildAutoDraftTurnPlan(input.memory);
   }
 
   const directDraftPayload = extractDirectDraftPayload(normalized);
@@ -542,6 +557,23 @@ function looksLikeImmediateDraftCommand(normalized: string): boolean {
   return IMMEDIATE_DRAFT_CUES.some((cue) => normalized.includes(cue));
 }
 
+function looksLikeMissingDraftEditRequest(original: string): boolean {
+  const normalized = original.trim().toLowerCase();
+  if (!normalized || normalized.length > 160) {
+    return false;
+  }
+
+  return MISSING_DRAFT_EDIT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isMemoryGroundedMultiDraftRequest(normalized: string): boolean {
+  if (!isMultiDraftRequest(normalized)) {
+    return false;
+  }
+
+  return /\b(?:from|based on|using)\s+what\s+you\s+know\s+about\s+me\b/.test(normalized);
+}
+
 function extractDirectDraftPayload(normalized: string): string | null {
   for (const pattern of DIRECT_DRAFT_REQUEST_PATTERNS) {
     const match = normalized.match(pattern);
@@ -641,11 +673,7 @@ function looksLikeGreetingOrSmallTalk(
     }
   }
 
-  const lastAssistantMessage = recentHistory
-    .split("\n")
-    .filter((line) => line.trim().startsWith("assistant:"))
-    .pop()
-    ?.toLowerCase() || "";
+  const lastAssistantMessage = getTurnRelationContext(recentHistory).lastAssistantTurn?.toLowerCase() || "";
 
   const assistantWasDoingSmallTalk =
     lastAssistantMessage.includes("how are you") ||
@@ -718,4 +746,91 @@ function looksLikeClarificationAnswer(
 
   const wordCount = normalized.split(/\s+/).filter(Boolean).length;
   return wordCount >= 2 || normalized.length >= 12;
+}
+
+function buildAutoDraftTurnPlan(
+  memory: PlanTurnInput["memory"],
+): TurnPlan {
+  if (memory.pendingPlan && memory.conversationState === "plan_pending_approval") {
+    return {
+      userGoal: "draft",
+      shouldGenerate: true,
+      responseStyle: "structured",
+      overrideClassifiedIntent: "planner_feedback",
+    };
+  }
+
+  return {
+    userGoal: "draft",
+    shouldGenerate: true,
+    responseStyle: "structured",
+    shouldAutoDraftFromPlan: true,
+    overrideClassifiedIntent: "draft",
+  };
+}
+
+function resolveRelatedFollowUp(args: {
+  original: string;
+  hasEnoughContext: boolean;
+  memory: PlanTurnInput["memory"];
+  turnRelation: TurnRelationContext;
+}): TurnPlan | null {
+  if (!args.turnRelation.lastAssistantTurn) {
+    return null;
+  }
+
+  const followUpKind = classifyContextualFollowUp(args.original);
+  if (!followUpKind) {
+    return null;
+  }
+
+  if (followUpKind === "explain") {
+    if (args.turnRelation.lastAssistantKind !== "generic") {
+      return {
+        userGoal: "chat",
+        shouldGenerate: false,
+        responseStyle: "natural",
+        overrideClassifiedIntent: "coach",
+      };
+    }
+
+    return null;
+  }
+
+  if (followUpKind === "example") {
+    if (args.memory.pendingPlan && args.memory.conversationState === "plan_pending_approval") {
+      return buildAutoDraftTurnPlan(args.memory);
+    }
+
+    if (args.turnRelation.lastAssistantKind === "diagnostic") {
+      return {
+        userGoal: "chat",
+        shouldGenerate: false,
+        responseStyle: "natural",
+        overrideClassifiedIntent: "coach",
+      };
+    }
+
+    if (
+      args.turnRelation.lastAssistantKind === "content_direction" ||
+      args.turnRelation.lastAssistantKind === "draft_offer"
+    ) {
+      return buildAutoDraftTurnPlan(args.memory);
+    }
+
+    return null;
+  }
+
+  if (followUpKind === "execute") {
+    if (
+      args.turnRelation.lastAssistantKind === "diagnostic" ||
+      args.turnRelation.lastAssistantKind === "content_direction" ||
+      args.turnRelation.lastAssistantKind === "draft_offer" ||
+      args.hasEnoughContext
+    ) {
+      return buildAutoDraftTurnPlan(args.memory);
+    }
+  }
+
+  return null;
 }

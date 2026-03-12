@@ -281,6 +281,162 @@ function stripUnsupportedMarkdown(value: string): string {
     .trim();
 }
 
+const DRAFT_TRANSCRIPT_LINE_PATTERNS = [
+  /^(?:user|assistant):\s*/i,
+];
+
+const DRAFT_COMPOSER_UI_LINE_PATTERNS = [
+  /^just now$/i,
+  /^·$/u,
+  /^\d[\d,]*\s*\/\s*\d[\d,]*\s+chars$/i,
+  /^shorter$/i,
+  /^longer$/i,
+  /^softer$/i,
+  /^punchier$/i,
+  /^less negative$/i,
+  /^more specific$/i,
+  /^turn into thread$/i,
+  /^turn into shortform$/i,
+  /^turn into longform$/i,
+  /^collapse$/i,
+  /^expand$/i,
+  /^post$/i,
+];
+
+const DRAFT_META_BLOCK_PATTERNS = [
+  /^i['’]ll drop a draft:/i,
+  /^share a quick, actionable insight/i,
+  /^if that'?s the angle, i['’]ll draft it\.?$/i,
+  /^looks good\. write this version now\.?$/i,
+  /^tightened it so it reads fast(?: and clean)?\.?$/i,
+];
+
+function looksLikeTranscriptLine(line: string): boolean {
+  const trimmed = line.trim();
+  return DRAFT_TRANSCRIPT_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function looksLikeComposerUiLine(line: string): boolean {
+  const trimmed = line.trim();
+  return DRAFT_COMPOSER_UI_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function looksLikeDraftMetaBlock(block: string): boolean {
+  const trimmed = block.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return DRAFT_META_BLOCK_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function isLikelyHandleLine(line: string): boolean {
+  return /^@[a-z0-9_]{1,30}$/i.test(line.trim());
+}
+
+function isLikelyDisplayNameLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > 40) {
+    return false;
+  }
+
+  return !/[.:;!?]/.test(trimmed) && !trimmed.startsWith("@");
+}
+
+function trimComposerFooter(lines: string[]): string[] {
+  const nextLines = [...lines];
+
+  while (nextLines.length > 0 && looksLikeComposerUiLine(nextLines[nextLines.length - 1] || "")) {
+    nextLines.pop();
+  }
+
+  while (nextLines.length > 0 && !(nextLines[nextLines.length - 1] || "").trim()) {
+    nextLines.pop();
+  }
+
+  return nextLines;
+}
+
+function extractDraftFromEmbeddedComposerPreview(value: string): string | null {
+  const lines = value.split("\n");
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const currentLine = lines[index]?.trim() || "";
+    const previousLine = lines[index - 1]?.trim() || "";
+
+    if (!isLikelyHandleLine(currentLine) || !isLikelyDisplayNameLine(previousLine)) {
+      continue;
+    }
+
+    const afterHandle = lines.slice(index + 1);
+    while (afterHandle.length > 0 && !afterHandle[0]?.trim()) {
+      afterHandle.shift();
+    }
+
+    const trimmedFooter = trimComposerFooter(afterHandle);
+    const candidate = trimmedFooter.join("\n").trim();
+    if (!candidate) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return null;
+}
+
+function stripLeakedDraftScaffolding(value: string): string {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return normalized;
+  }
+
+  const embeddedComposerDraft = extractDraftFromEmbeddedComposerPreview(normalized);
+  if (embeddedComposerDraft) {
+    return embeddedComposerDraft;
+  }
+
+  const hasLeakageSignal =
+    normalized
+      .split("\n")
+      .some((line) => looksLikeTranscriptLine(line) || looksLikeComposerUiLine(line)) ||
+    normalized
+      .split(/\n{2,}/)
+      .some((block) => looksLikeDraftMetaBlock(block));
+
+  if (!hasLeakageSignal) {
+    return normalized;
+  }
+
+  const filteredLines = trimComposerFooter(
+    normalized
+      .split("\n")
+      .filter((line) => !looksLikeTranscriptLine(line))
+      .filter((line) => !looksLikeComposerUiLine(line)),
+  );
+  const filtered = filteredLines.join("\n").trim();
+
+  if (!filtered) {
+    return normalized;
+  }
+
+  const blocks = filtered
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const substantiveBlocks = blocks.filter((block) => !looksLikeDraftMetaBlock(block));
+
+  if (substantiveBlocks.length === 0) {
+    return filtered;
+  }
+
+  const likelyDraftBlock = [...substantiveBlocks]
+    .reverse()
+    .find((block) => block.length >= 40 || block.includes("\n") || block.includes("---"));
+
+  return likelyDraftBlock || substantiveBlocks[substantiveBlocks.length - 1] || filtered;
+}
+
 function hasCtaIncentiveCue(text: string): boolean {
   const normalized = text.toLowerCase();
   return [
@@ -447,6 +603,27 @@ function normalizeThreadDraftFormatting(
   return normalizedPosts.join("\n\n---\n\n");
 }
 
+function normalizeNonThreadSerializedDraft(
+  draft: string,
+  formatPreference: "shortform" | "longform",
+): string {
+  if (!/\n\s*---\s*\n/.test(draft)) {
+    return draft.trim();
+  }
+
+  const segments = draft
+    .split(/\n\s*---\s*\n/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length <= 1) {
+    return draft.trim();
+  }
+
+  const joiner = formatPreference === "longform" ? "\n\n" : "\n";
+  return segments.join(joiner).replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function stripThreadNumberingMarker(value: string): string {
   return value
     .replace(
@@ -526,8 +703,13 @@ export function applyFinalDraftPolicyWithReport(args: {
         ? hardLimit
       : Math.min(hardLimit, getXCharacterLimitForFormat(Boolean(args.isVerifiedAccount), "shortform"));
 
-  const withNoMarkdown = stripUnsupportedMarkdown(args.draft);
-  const withBetterCta = normalizeWeakEngagementBaitCta(withNoMarkdown);
+  const withNoScaffolding = stripLeakedDraftScaffolding(args.draft);
+  const withNoMarkdown = stripUnsupportedMarkdown(withNoScaffolding);
+  const withResolvedFormat =
+    formatPreference === "thread"
+      ? withNoMarkdown
+      : normalizeNonThreadSerializedDraft(withNoMarkdown, formatPreference);
+  const withBetterCta = normalizeWeakEngagementBaitCta(withResolvedFormat);
   const withBlacklistsApplied = applyBlacklist(withBetterCta, normalizedPreferences.blacklist);
   const withBullets = normalizeBulletStyle(withBlacklistsApplied, normalizedPreferences.bulletStyle);
   const withCasing = applyCasing(withBullets, normalizedPreferences.casing);
@@ -542,8 +724,9 @@ export function applyFinalDraftPolicyWithReport(args: {
     draft: finalDraft,
     adjustments: {
       markdownAdjusted: withNoMarkdown !== args.draft.trim(),
-      engagementAdjusted: withBetterCta !== withNoMarkdown,
-      styleAdjusted: withThreadFormatting !== withCasing,
+      engagementAdjusted: withBetterCta !== withResolvedFormat,
+      styleAdjusted:
+        withResolvedFormat !== withNoMarkdown || withThreadFormatting !== withCasing,
       trimmed: finalDraft !== withThreadFormatting,
     },
   };
