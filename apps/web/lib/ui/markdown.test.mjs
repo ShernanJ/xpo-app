@@ -56,3 +56,21 @@ next line`, 31);
   assert.equal(html.includes("<ul><li>first item</li><li>second item</li></ul>"), true);
   assert.equal(html.includes("<p>nex</p>"), true);
 });
+
+test("markdown renderer preserves link-heavy replies with ordered follow-ups", () => {
+  const html = renderMarkdownToHtml(`Use [docs](https://example.com/docs) and [pricing](https://example.com/pricing).
+
+1. Open the docs
+2. Compare the plan
+
+Then send the link back.`);
+
+  assert.equal(
+    html.includes(
+      '<p>Use <a href="https://example.com/docs" target="_blank" rel="noreferrer noopener">docs</a> and <a href="https://example.com/pricing" target="_blank" rel="noreferrer noopener">pricing</a>.</p>',
+    ),
+    true,
+  );
+  assert.equal(html.includes("<ol><li>Open the docs</li><li>Compare the plan</li></ol>"), true);
+  assert.equal(html.includes("<p>Then send the link back.</p>"), true);
+});

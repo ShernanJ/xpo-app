@@ -34,7 +34,12 @@ import {
 } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
-import { renderMarkdownToHtml, renderStreamingMarkdownToHtml } from "@/lib/ui/markdown";
+import {
+  assistantMarkdownClassName,
+  mutedMarkdownClassName,
+  renderMarkdownToHtml,
+  renderStreamingMarkdownToHtml,
+} from "@/lib/ui/markdown";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -9164,7 +9169,7 @@ function ChatPageContent() {
                             message.role === "assistant" &&
                             message.id === latestAssistantMessageId &&
                             (typedAssistantLengths[message.id] ?? 0) < message.content.length ? (
-                              <div className="space-y-2 text-sm leading-7 text-zinc-100 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-100 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc">
+                              <div className={assistantMarkdownClassName}>
                                 <div
                                   dangerouslySetInnerHTML={{
                                     __html: renderStreamingMarkdownToHtml(
@@ -9177,7 +9182,7 @@ function ChatPageContent() {
                               </div>
                             ) : message.role === "assistant" ? (
                               <div
-                                className="space-y-2 text-sm leading-7 text-zinc-100 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-100 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc"
+                                className={assistantMarkdownClassName}
                                 dangerouslySetInnerHTML={{
                                   __html: renderMarkdownToHtml(message.content),
                                 }}
@@ -11030,7 +11035,7 @@ function ChatPageContent() {
                             </p>
                           ) : null}
                           <div
-                            className="mt-3 h-[20rem] overflow-y-auto pr-1 space-y-2 text-sm leading-6 text-zinc-200 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-200 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc md:h-[24rem]"
+                            className={`mt-3 h-[20rem] overflow-y-auto pr-1 ${mutedMarkdownClassName} md:h-[24rem]`}
                             dangerouslySetInnerHTML={{ __html: feedbackPreviewHtml }}
                           />
                         </div>

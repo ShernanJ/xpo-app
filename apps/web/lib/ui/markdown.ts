@@ -1,3 +1,40 @@
+function buildMarkdownProseClassName(paragraphTextClass: string): string {
+  return [
+    "space-y-2",
+    "text-sm",
+    "leading-7",
+    "text-zinc-100",
+    "[&_a]:text-sky-300",
+    "[&_a]:underline",
+    "[&_blockquote]:border-l",
+    "[&_blockquote]:border-white/20",
+    "[&_blockquote]:pl-3",
+    "[&_blockquote]:whitespace-pre-wrap",
+    "[&_code]:rounded",
+    "[&_code]:bg-white/[0.08]",
+    "[&_code]:px-1.5",
+    "[&_code]:py-0.5",
+    "[&_del]:text-zinc-500",
+    "[&_h1]:text-xl",
+    "[&_h1]:font-semibold",
+    "[&_h2]:text-lg",
+    "[&_h2]:font-semibold",
+    "[&_h3]:text-base",
+    "[&_h3]:font-semibold",
+    "[&_li]:ml-4",
+    "[&_li]:whitespace-pre-wrap",
+    "[&_ol]:list-decimal",
+    `[&_p]:${paragraphTextClass}`,
+    "[&_p]:whitespace-pre-wrap",
+    "[&_strong]:font-semibold",
+    "[&_ul]:list-disc",
+  ].join(" ");
+}
+
+export const assistantMarkdownClassName = buildMarkdownProseClassName("text-zinc-100");
+
+export const mutedMarkdownClassName = buildMarkdownProseClassName("text-zinc-200");
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -9,16 +46,16 @@ function escapeHtml(value: string): string {
 
 function applyInlineMarkdown(value: string): string {
   return value
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>',
-    )
     .replace(/`([^`\n]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
     .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
     .replace(/_([^_\n]+)_/g, "<em>$1</em>")
-    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>',
+    );
 }
 
 export function renderMarkdownToHtml(markdown: string): string {
