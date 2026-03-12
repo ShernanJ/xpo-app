@@ -40,7 +40,17 @@ test("assertExtensionReplyDraftResponseShape enforces safe or bold labels", () =
   assert.equal(
     assertExtensionReplyDraftResponseShape({
       options: [
-        { id: "safe-1", label: "safe", text: "reply one" },
+        {
+          id: "safe-1",
+          label: "safe",
+          text: "reply one",
+          intent: {
+            label: "translate",
+            strategyPillar: "product positioning",
+            anchor: "replies | positioning clarity",
+            rationale: "translate the take into practical language for builders",
+          },
+        },
         { id: "bold-1", label: "bold", text: "reply two" },
       ],
     }),

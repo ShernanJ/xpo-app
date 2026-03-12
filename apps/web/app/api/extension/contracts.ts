@@ -143,6 +143,15 @@ export const ExtensionReplyOptionChoiceSchema = z
     id: z.string().trim().min(1),
     label: ExtensionSuggestedAngleSchema,
     text: z.string().trim().min(1).max(500),
+    intent: z
+      .object({
+        label: ExtensionSuggestedAngleSchema,
+        strategyPillar: z.string().trim().min(1).max(120),
+        anchor: z.string().trim().min(1).max(240),
+        rationale: z.string().trim().min(1).max(240),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

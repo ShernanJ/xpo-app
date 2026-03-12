@@ -107,6 +107,12 @@ export interface StoredOpportunityNotes {
     source?: string | null;
     generatedReplyIds?: string[];
     generatedReplyLabels?: string[];
+    generatedReplyIntents?: Array<{
+      label: ExtensionSuggestedAngle;
+      strategyPillar: string;
+      anchor: string;
+      rationale: string;
+    }>;
     copiedReplyId?: string | null;
     copiedReplyLabel?: string | null;
     copiedReplyText?: string | null;
@@ -238,6 +244,41 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   }
 
   return undefined;
+}
+
+function asReplyIntentArray(
+  value: unknown,
+): NonNullable<NonNullable<StoredOpportunityNotes["analytics"]>["generatedReplyIntents"]> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const next: NonNullable<StoredOpportunityNotes["analytics"]>["generatedReplyIntents"] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const label = record.label;
+    const strategyPillar = typeof record.strategyPillar === "string" ? record.strategyPillar.trim() : "";
+    const anchor = typeof record.anchor === "string" ? record.anchor.trim() : "";
+    const rationale = typeof record.rationale === "string" ? record.rationale.trim() : "";
+    if (
+      label !== "nuance" &&
+      label !== "sharpen" &&
+      label !== "disagree" &&
+      label !== "example" &&
+      label !== "translate" &&
+      label !== "known_for"
+    ) {
+      continue;
+    }
+    if (!strategyPillar || !anchor || !rationale) {
+      continue;
+    }
+    next.push({ label, strategyPillar, anchor, rationale });
+  }
+  return next;
 }
 
 function stringifyScoreTier(score: number) {
@@ -1011,6 +1052,9 @@ export function readStoredOpportunityNotes(record: ReplyOpportunity): StoredOppo
                 : null,
             generatedReplyIds: asStringArray((notes.analytics as Record<string, unknown>).generatedReplyIds),
             generatedReplyLabels: asStringArray((notes.analytics as Record<string, unknown>).generatedReplyLabels),
+            generatedReplyIntents: asReplyIntentArray(
+              (notes.analytics as Record<string, unknown>).generatedReplyIntents,
+            ),
             copiedReplyId:
               typeof (notes.analytics as Record<string, unknown>).copiedReplyId === "string"
                 ? ((notes.analytics as Record<string, unknown>).copiedReplyId as string)
@@ -1099,6 +1143,9 @@ export function mergeStoredOpportunityNotes(
       generatedReplyLabels: patch.analytics?.generatedReplyLabels
         ? uniqueStrings(patch.analytics.generatedReplyLabels)
         : current.analytics?.generatedReplyLabels || [],
+      generatedReplyIntents: patch.analytics?.generatedReplyIntents
+        ? patch.analytics.generatedReplyIntents
+        : current.analytics?.generatedReplyIntents || [],
     },
   } satisfies StoredOpportunityNotes;
 }

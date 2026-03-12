@@ -113,7 +113,6 @@ export async function POST(request: NextRequest) {
     strategyPillar: generated.strategyPillar,
     generatedAngleLabel: generated.angleLabel,
     generatedOptions: response.options,
-    notes: response.notes || [],
   });
 
   void recordProductEvent({

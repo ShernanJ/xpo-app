@@ -1,12 +1,7 @@
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
 import { buildReplyIntentPlanForDraft } from "./replyIntent.ts";
-import {
-  collectKeywords,
-  normalizeComparable,
-  normalizeWhitespace,
-  sanitizeReplyText,
-} from "./replyQuality.ts";
+import { collectKeywords, normalizeWhitespace, sanitizeReplyText } from "./replyQuality.ts";
 import type {
   ExtensionReplyDraftRequest,
   ExtensionReplyDraftResponse,
@@ -167,6 +162,12 @@ export function buildExtensionReplyDraft(args: {
           angleLabel,
           focusPhrase,
         }),
+        intent: {
+          label: intentPlan.label,
+          strategyPillar,
+          anchor: intentPlan.anchor,
+          rationale: intentPlan.rationale,
+        },
       },
       fallbackText: safeFallback,
       strategy: args.strategy,
@@ -183,6 +184,12 @@ export function buildExtensionReplyDraft(args: {
           pillar: strategyPillar,
           focusPhrase,
         }),
+        intent: {
+          label: intentPlan.label,
+          strategyPillar,
+          anchor: intentPlan.anchor,
+          rationale: intentPlan.rationale,
+        },
       },
       fallbackText: boldFallback,
       strategy: args.strategy,

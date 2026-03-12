@@ -83,8 +83,22 @@ test("assertExtensionReplyOptionsResponseShape enforces allowed labels and optio
   assert.equal(
     assertExtensionReplyOptionsResponseShape({
       options: [
-        { id: "nuance-1", label: "nuance", text: "the useful nuance is the positioning clarity." },
-        { id: "sharpen-2", label: "sharpen", text: "sharper take: the positioning clarity is the hinge." },
+        {
+          id: "nuance-1",
+          label: "nuance",
+          text: "the useful nuance is the positioning clarity.",
+          intent: {
+            label: "nuance",
+            strategyPillar: "product positioning",
+            anchor: "positioning | clarity",
+            rationale: "push past agreement by grounding the point in positioning clarity",
+          },
+        },
+        {
+          id: "sharpen-2",
+          label: "sharpen",
+          text: "sharper take: the positioning clarity is the hinge.",
+        },
       ],
       warnings: [],
       groundingNotes: ["Anchored to product positioning."],

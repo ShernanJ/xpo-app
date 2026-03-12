@@ -8,6 +8,13 @@ export type ExtensionReplyTone = "dry" | "bold" | "builder" | "warm";
 
 export type ExtensionReplyOptionLabel = "safe" | "bold";
 
+export interface ExtensionReplyIntentMetadata {
+  label: ExtensionSuggestedAngle;
+  strategyPillar: string;
+  anchor: string;
+  rationale: string;
+}
+
 export interface ExtensionReplyDraftRequest {
   tweetId: string;
   tweetText: string;
@@ -24,6 +31,7 @@ export interface ExtensionReplyOption {
   id: string;
   label: ExtensionReplyOptionLabel;
   text: string;
+  intent?: ExtensionReplyIntentMetadata;
 }
 
 export interface ExtensionReplyDraftResponse {
@@ -169,6 +177,7 @@ export interface ExtensionReplyOptionChoice {
   id: string;
   label: ExtensionSuggestedAngle;
   text: string;
+  intent?: ExtensionReplyIntentMetadata;
 }
 
 export interface ExtensionReplyOptionsResponse {

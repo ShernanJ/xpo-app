@@ -130,6 +130,19 @@ export async function POST(request: NextRequest) {
         lastLoggedEvent: "generated",
         generatedReplyIds: response.options.map((option) => option.id),
         generatedReplyLabels: response.options.map((option) => option.label),
+        generatedReplyIntents: response.options
+          .map((option) => option.intent)
+          .filter(
+            (
+              intent,
+            ): intent is NonNullable<(typeof response.options)[number]["intent"]> => Boolean(intent),
+          )
+          .map((intent) => ({
+            label: intent.label,
+            strategyPillar: intent.strategyPillar,
+            anchor: intent.anchor,
+            rationale: intent.rationale,
+          })),
       },
     });
 

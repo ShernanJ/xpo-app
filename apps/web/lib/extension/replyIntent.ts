@@ -2,16 +2,14 @@ import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
 import type {
   ExtensionOpportunity,
   ExtensionOpportunityCandidate,
+  ExtensionReplyIntentMetadata,
   ExtensionSuggestedAngle,
 } from "./types.ts";
 import { collectKeywords, normalizeComparable } from "./replyQuality.ts";
 
-export interface ExtensionReplyIntentPlan {
+export interface ExtensionReplyIntentPlan extends ExtensionReplyIntentMetadata {
   angleLabel: ExtensionSuggestedAngle;
   focusPhrase: string | null;
-  strategyPillar: string;
-  rationale: string;
-  anchor: string;
 }
 
 function buildPillarLens(pillar: string): string {
@@ -165,6 +163,7 @@ export function buildReplyIntentPlansFromOpportunity(args: {
     return true;
   }).map((angleLabel) => ({
     angleLabel,
+    label: angleLabel,
     focusPhrase,
     strategyPillar: args.strategyPillar,
     rationale: buildReplyIntentRationale({
@@ -198,6 +197,7 @@ export function buildReplyIntentPlanForDraft(args: {
 
   return {
     angleLabel,
+    label: angleLabel,
     focusPhrase,
     strategyPillar,
     rationale: buildReplyIntentRationale({

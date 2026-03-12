@@ -213,6 +213,12 @@ export function buildExtensionReplyOptions(args: {
         id: `${intent.angleLabel}-${seen.size}`,
         label: intent.angleLabel,
         text: nextText,
+        intent: {
+          label: intent.label,
+          strategyPillar: intent.strategyPillar,
+          anchor: intent.anchor,
+          rationale: intent.rationale,
+        },
       };
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option))

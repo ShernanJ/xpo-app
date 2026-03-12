@@ -37,7 +37,21 @@ function isValidOption(option: ExtensionReplyOption): boolean {
     return false;
   }
 
-  return option.label === "safe" || option.label === "bold";
+  const validLabel = option.label === "safe" || option.label === "bold";
+  if (!validLabel) {
+    return false;
+  }
+
+  if (!option.intent) {
+    return true;
+  }
+
+  return (
+    Boolean(option.intent.label) &&
+    Boolean(option.intent.strategyPillar?.trim()) &&
+    Boolean(option.intent.anchor?.trim()) &&
+    Boolean(option.intent.rationale?.trim())
+  );
 }
 
 export function assertExtensionReplyDraftResponseShape(
