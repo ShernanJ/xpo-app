@@ -135,6 +135,15 @@ function buildRevisionChangeGuidance(
   revision: DraftRevisionDirective,
   maxCharacterLimit: number,
 ): string {
+  if (revision.changeKind === "hook_only_edit") {
+    return `
+HOOK EDIT MODE:
+- Rewrite only the opening beat unless a tiny downstream flow fix is necessary.
+- Keep the body, claims, and core point materially the same.
+- Do NOT use a hook rewrite as an excuse to add new proof, metrics, named entities, or product claims.
+    `.trim();
+  }
+
   if (revision.changeKind === "specificity_tune") {
     return `
 SPECIFICITY MODE:
@@ -146,6 +155,15 @@ SPECIFICITY MODE:
     `.trim();
   }
 
+  if (revision.changeKind === "tone_shift") {
+    return `
+TONE SHIFT MODE:
+- Change the feel, not the facts.
+- You may soften, sharpen, humanize, or de-corporatize the wording, but keep the same substantive claims and overall structure unless the flow clearly breaks.
+- Do NOT add new proof, results, experiments, customer names, or autobiographical details to make the tone feel stronger.
+    `.trim();
+  }
+
   if (revision.changeKind === "length_expand") {
     return `
 EXPANSION MODE:
@@ -154,6 +172,24 @@ EXPANSION MODE:
 - Do NOT introduce new proof points, experiments, tactics, metrics, follower spikes, timelines, product behavior, or first-person claims unless they already appear in grounded context.
 - If the source material is thin, expand through clarity, explanation, sequence, or sharper phrasing instead of inventing specifics.
 - Still stay under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+    `.trim();
+  }
+
+  if (revision.changeKind === "full_rewrite") {
+    return `
+FULL REWRITE MODE:
+- A full rewrite may change structure and phrasing, but it must still stay inside the same factual boundary.
+- You may rebuild the flow, but do NOT introduce new proof points, customer names, product mechanics, timelines, outcomes, or autobiographical claims unless they are already grounded.
+    `.trim();
+  }
+
+  if (revision.changeKind === "generic") {
+    return `
+GENERIC EDIT MODE:
+- Interpret the request conservatively.
+- Prefer the smallest meaningful edit that satisfies the user's note.
+- Stay close to the current draft's claims, structure, and factual content.
+- Do NOT add new proof, metrics, outcomes, customer names, product behavior, or autobiographical details just to make the revision sound stronger.
     `.trim();
   }
 

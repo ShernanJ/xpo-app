@@ -247,6 +247,10 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
 
   assert.equal(reviserSource.includes("CURRENT USER NOTE:"), true);
   assert.equal(reviserSource.includes("GROUNDING PACKET:"), true);
+  assert.equal(reviserSource.includes("HOOK EDIT MODE:"), true);
+  assert.equal(reviserSource.includes("TONE SHIFT MODE:"), true);
+  assert.equal(reviserSource.includes("GENERIC EDIT MODE:"), true);
+  assert.equal(reviserSource.includes("FULL REWRITE MODE:"), true);
   assert.equal(
     reviserSource.includes(
       "If a detail is not supported here, in the current draft, or in the current user note, do not add it.",

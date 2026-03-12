@@ -67,8 +67,9 @@ function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
     case "tone_shift":
       return 0.38;
     case "full_rewrite":
+      return 0.12;
     case "generic":
-      return 0;
+      return 0.3;
     default:
       return 0.55;
   }
