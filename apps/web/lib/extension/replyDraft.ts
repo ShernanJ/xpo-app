@@ -1,5 +1,6 @@
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import { buildReplyIntentPlanForDraft } from "./replyIntent.ts";
 import {
   collectKeywords,
   normalizeComparable,
@@ -20,26 +21,6 @@ export interface ExtensionReplyDraftBuildResult {
   groundingPacket: GroundingPacket;
 }
 
-function pickStrategyPillar(args: {
-  tweetText: string;
-  strategy: GrowthStrategySnapshot;
-}) {
-  const tweetTokens = new Set(collectKeywords(args.tweetText));
-  let best = args.strategy.contentPillars[0] || args.strategy.knownFor;
-  let bestScore = -1;
-
-  for (const pillar of args.strategy.contentPillars) {
-    const tokens = collectKeywords(pillar);
-    const score = tokens.reduce((sum, token) => sum + (tweetTokens.has(token) ? 2 : 0), 0);
-    if (score > bestScore) {
-      best = pillar;
-      bestScore = score;
-    }
-  }
-
-  return best || args.strategy.knownFor;
-}
-
 function pickFocusPhrase(tweetText: string): string | null {
   const keywords = collectKeywords(tweetText);
   if (keywords.length === 0) {
@@ -47,26 +28,6 @@ function pickFocusPhrase(tweetText: string): string | null {
   }
 
   return keywords.slice(0, 2).join(" ");
-}
-
-function buildAngleLabel(args: {
-  tweetText: string;
-  goal: string;
-}): string {
-  const normalized = normalizeComparable(`${args.tweetText} ${args.goal}`);
-  if (args.tweetText.includes("?")) {
-    return "answer_the_question";
-  }
-  if (/\b(mistake|wrong|myth|overrated|underrated|tradeoff|only works|unless)\b/.test(normalized)) {
-    return "tradeoff";
-  }
-  if (/\b(system|workflow|process|ship|build|execute|operator|loop)\b/.test(normalized)) {
-    return "implementation";
-  }
-  if (/\b(follow|profile|growth|convert)\b/.test(normalized)) {
-    return "profile_click";
-  }
-  return "specific_layer";
 }
 
 function buildPillarLens(pillar: string): string {
@@ -178,15 +139,14 @@ export function buildExtensionReplyDraft(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
 }): ExtensionReplyDraftBuildResult {
-  const strategyPillar = pickStrategyPillar({
-    tweetText: args.request.tweetText,
+  const intentPlan = buildReplyIntentPlanForDraft({
+    sourceText: args.request.tweetText,
+    goal: args.request.goal,
     strategy: args.strategy,
   });
-  const angleLabel = buildAngleLabel({
-    tweetText: args.request.tweetText,
-    goal: args.request.goal,
-  });
-  const focusPhrase = pickFocusPhrase(args.request.tweetText);
+  const strategyPillar = intentPlan.strategyPillar;
+  const angleLabel = intentPlan.angleLabel;
+  const focusPhrase = intentPlan.focusPhrase ?? pickFocusPhrase(args.request.tweetText);
   const groundingPacket = buildReplyGroundingPacket({
     request: args.request,
     strategy: args.strategy,
@@ -234,6 +194,7 @@ export function buildExtensionReplyDraft(args: {
   const notes = [
     `Anchored to: ${strategyPillar}`,
     `Angle: ${angleLabel.replace(/_/g, " ")}`,
+    `Intent: ${intentPlan.rationale}`,
     ...args.strategy.ambiguities.slice(0, 1).map((entry) => `Tentative positioning: ${entry}`),
   ];
 

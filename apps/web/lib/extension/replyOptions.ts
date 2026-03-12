@@ -1,6 +1,7 @@
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
+import { buildReplyIntentPlansFromOpportunity } from "./replyIntent.ts";
 import {
   collectKeywords,
   normalizeComparable,
@@ -139,25 +140,6 @@ function buildTemplate(args: {
   }
 }
 
-function adjacentAngles(label: ExtensionSuggestedAngle): ExtensionSuggestedAngle[] {
-  if (label === "nuance") {
-    return ["sharpen", "example"];
-  }
-  if (label === "sharpen") {
-    return ["nuance", "known_for"];
-  }
-  if (label === "disagree") {
-    return ["nuance", "example"];
-  }
-  if (label === "example") {
-    return ["nuance", "translate"];
-  }
-  if (label === "translate") {
-    return ["nuance", "known_for"];
-  }
-  return ["sharpen", "nuance"];
-}
-
 export function buildExtensionReplyOptions(args: {
   post: ExtensionOpportunityCandidate;
   opportunity: ExtensionOpportunity;
@@ -170,10 +152,12 @@ export function buildExtensionReplyOptions(args: {
 }): ExtensionReplyOptionsResponse {
   const lowercase = inferLowercasePreference(args.styleCard);
   const concise = inferConcisePreference(args.styleCard);
-  const labels: ExtensionSuggestedAngle[] = [
-    args.opportunity.suggestedAngle,
-    ...adjacentAngles(args.opportunity.suggestedAngle),
-  ];
+  const intents = buildReplyIntentPlansFromOpportunity({
+    post: args.post,
+    opportunity: args.opportunity,
+    strategy: args.strategy,
+    strategyPillar: args.strategyPillar,
+  });
   const warnings = [
     ...(args.styleCard ? [] : ["No parsed voice profile was found, so replies are using onboarding context only."]),
     ...args.strategy.ambiguities.slice(0, 1),
@@ -200,20 +184,20 @@ export function buildExtensionReplyOptions(args: {
 
   const seen = new Set<string>();
   const fallback = `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
-  const options = labels
-    .map((label) => {
+  const options = intents
+    .map((intent) => {
       const template = buildTemplate({
-        label,
+        label: intent.angleLabel,
         candidate: args.post,
         strategy: args.strategy,
-        strategyPillar: args.strategyPillar,
+        strategyPillar: intent.strategyPillar,
         concise,
       });
       const sanitized = sanitizeReplyText({
         candidate: template,
         fallbackText: fallback,
         sourceText: args.post.text,
-        strategyPillar: args.strategyPillar,
+        strategyPillar: intent.strategyPillar,
         strategy: args.strategy,
         groundingPacket,
         styleCard: args.styleCard,
@@ -226,8 +210,8 @@ export function buildExtensionReplyOptions(args: {
 
       seen.add(dedupeKey);
       return {
-        id: `${label}-${seen.size}`,
-        label,
+        id: `${intent.angleLabel}-${seen.size}`,
+        label: intent.angleLabel,
         text: nextText,
       };
     })

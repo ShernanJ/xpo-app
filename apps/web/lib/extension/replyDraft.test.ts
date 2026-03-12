@@ -91,3 +91,23 @@ test("buildExtensionReplyDraft keeps replies anchored instead of generic agreeme
     assert.equal(/\b(layer|reply|usable|system|follow-through)\b/i.test(option.text), true);
   }
 });
+
+test("buildExtensionReplyDraft records the chosen reply intent in notes", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_4",
+      tweetText: "How do you make replies worth reading instead of generic agreement?",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/4",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  assert.equal(
+    result.response.notes?.some((entry) => entry.toLowerCase().startsWith("intent:")),
+    true,
+  );
+});

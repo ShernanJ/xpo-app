@@ -189,3 +189,80 @@ test("buildExtensionReplyOptions avoids generic agreement-only replies", () => {
     assert.equal(/\b(positioning|product|usable|clarity)\b/i.test(option.text), true);
   }
 });
+
+test("buildExtensionReplyOptions follows a stable opportunity -> intent ordering", () => {
+  const response = buildExtensionReplyOptions({
+    post: {
+      postId: "post_3",
+      author: {
+        id: "author_3",
+        handle: "builder",
+        name: "Builder",
+        verified: false,
+        followerCount: 3000,
+      },
+      text: "Product positioning breaks when the promise sounds broad enough for everyone.",
+      url: "https://x.com/builder/status/3",
+      createdAtIso: "2026-03-11T12:00:00.000Z",
+      engagement: {
+        replyCount: 1,
+        repostCount: 0,
+        likeCount: 6,
+        quoteCount: 0,
+        viewCount: 210,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_3",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T12:05:00.000Z",
+    },
+    opportunity: {
+      opportunityId: "opp_3",
+      postId: "post_3",
+      score: 76,
+      verdict: "reply",
+      why: ["Clear overlap with your positioning content pillar."],
+      riskFlags: [],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "medium",
+        followConversion: "medium",
+      },
+      scoringBreakdown: {
+        niche_match: 77,
+        audience_fit: 73,
+        freshness: 79,
+        conversation_quality: 70,
+        profile_click_potential: 74,
+        follow_conversion_potential: 68,
+        visibility_potential: 62,
+        spam_risk: 8,
+        off_niche_risk: 11,
+        genericity_risk: 17,
+        negative_signal_risk: 4,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  assert.deepEqual(response.options.map((option) => option.label), ["nuance", "sharpen", "example"]);
+});
