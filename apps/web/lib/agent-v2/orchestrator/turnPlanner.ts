@@ -94,11 +94,6 @@ const MISSING_DRAFT_EDIT_PATTERNS = [
   /^(?:can you\s+)?tighten this draft[.?!]*$/,
 ];
 
-const PLAN_APPROVAL_PATTERNS = [
-  /^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it|run with it|let'?s do it|lets do it|write it)[.?!]*$/,
-  /^(?:looks|sounds)\s+good[.?!]*$/,
-];
-
 export interface PlanTurnInput {
   userMessage: string;
   recentHistory: string;
@@ -150,19 +145,6 @@ export function planTurn(input: PlanTurnInput): TurnPlan | null {
     };
   }
 
-  if (
-    input.memory.pendingPlan &&
-    input.memory.conversationState === "plan_pending_approval" &&
-    looksLikePlanApproval(normalized)
-  ) {
-    return {
-      userGoal: "draft",
-      shouldGenerate: true,
-      responseStyle: "structured",
-      overrideClassifiedIntent: "planner_feedback",
-    };
-  }
-
   return null;
 }
 
@@ -180,8 +162,4 @@ function looksLikeMissingDraftEditRequest(normalized: string): boolean {
   }
 
   return MISSING_DRAFT_EDIT_PATTERNS.some((pattern) => pattern.test(normalized));
-}
-
-function looksLikePlanApproval(normalized: string): boolean {
-  return PLAN_APPROVAL_PATTERNS.some((pattern) => pattern.test(normalized));
 }

@@ -575,27 +575,6 @@ function looksGenericTopicSummary(value: string | null | undefined): boolean {
   return isBareIdeationRequest(normalized) || isBareDraftRequest(normalized);
 }
 
-function looksLikeIdeationRetryCommand(message: string): boolean {
-  const normalized = message
-    .trim()
-    .toLowerCase()
-    .replace(/[.?!,]+$/, "")
-    .replace(/\s+/g, " ");
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    normalized === "try again" ||
-    normalized === "another round" ||
-    normalized === "one more round" ||
-    /^(?:try|run)\s+(?:that\s+)?again$/.test(normalized) ||
-    /^(?:give|show|share|suggest)\s+me\s+(?:another|different|new)\s+(?:set\s+of\s+)?(?:post\s+)?ideas?$/.test(
-      normalized,
-    )
-  );
-}
-
 function inferMissingSpecificQuestion(message: string): string | null {
   const normalized = message.trim().toLowerCase();
   const slots = evaluateDraftContextSlots({
@@ -1568,15 +1547,6 @@ export async function manageConversationTurn(
   let mode = classifiedIntent;
   routingTrace.classifiedIntent = classifiedIntent;
   routingTrace.resolvedMode = mode;
-
-  if (
-    !explicitIntent &&
-    !activeDraft &&
-    memory.conversationState === "ready_to_ideate" &&
-    looksLikeIdeationRetryCommand(userMessage)
-  ) {
-    mode = "ideate";
-  }
 
   let [styleCard, anchors, extractedRules, extractedFacts, sourceMaterialAssets] = await Promise.all([
     services.generateStyleProfile(userId, effectiveXHandle, 20),

@@ -461,7 +461,7 @@ test("conversation router machine opens the clarification gate only when plan co
   );
 });
 
-test("lets do it routes to planner feedback when a plan is pending", () => {
+test("lets do it now falls through to the controller when a plan is pending", () => {
   const turnPlan = planTurn({
     userMessage: "Lets do it",
     recentHistory: "assistant: start with a punchy hook and then land the CTA.",
@@ -486,8 +486,7 @@ test("lets do it routes to planner feedback when a plan is pending", () => {
     },
   });
 
-  assert.equal(turnPlan?.overrideClassifiedIntent, "planner_feedback");
-  assert.equal(turnPlan?.userGoal, "draft");
+  assert.equal(turnPlan, null);
 });
 
 test("specific thread draft requests auto-draft from the planner path", () => {

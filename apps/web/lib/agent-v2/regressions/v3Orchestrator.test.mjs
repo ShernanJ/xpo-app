@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { planTurn } from "../orchestrator/turnPlanner.ts";
 
@@ -44,7 +46,7 @@ test("v3: edit-style request without draft context stays in coach safety mode", 
   assert.equal(result.shouldGenerate, false);
 });
 
-test("v3: pending plan approvals still route to planner feedback", () => {
+test("v3: pending plan approvals now fall through to the controller", () => {
   const result = planTurn({
     userMessage: "lets do it",
     recentHistory: "assistant: this is the cleanest angle",
@@ -68,9 +70,7 @@ test("v3: pending plan approvals still route to planner feedback", () => {
     },
   });
 
-  assert.ok(result);
-  assert.equal(result.overrideClassifiedIntent, "planner_feedback");
-  assert.equal(result.userGoal, "draft");
+  assert.equal(result, null);
 });
 
 test("v3: broad routing now falls through to the controller instead of deterministic overrides", () => {
@@ -89,4 +89,14 @@ test("v3: broad routing now falls through to the controller instead of determini
   });
 
   assert.equal(result, null);
+});
+
+test("v3: ideation retry shortcuts no longer bypass the controller in conversation manager", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../orchestrator/conversationManager.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(source.includes("looksLikeIdeationRetryCommand"), false);
+  assert.equal(source.includes('mode = "ideate";'), false);
 });
