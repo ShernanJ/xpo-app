@@ -1979,6 +1979,10 @@ User Profile Summary:
     draftPreference: turnDraftPreference,
     formatPreference: turnFormatPreference,
   });
+  const hasStructuredTruthSourcesForTurn =
+    groundingPacket.durableFacts.length > 0 ||
+    groundingPacket.turnGrounding.length > 0 ||
+    groundingPacket.sourceMaterials.length > 0;
   const hasStrictFactualReferenceGuardrails = (constraints: string[]): boolean =>
     constraints.some(
       (constraint) =>
@@ -1992,7 +1996,10 @@ User Profile Summary:
     sourceText: string;
     activeConstraints: string[];
   }): boolean => {
-    if (hasStrictFactualReferenceGuardrails(args.activeConstraints)) {
+    if (
+      hasStrictFactualReferenceGuardrails(args.activeConstraints) ||
+      hasStructuredTruthSourcesForTurn
+    ) {
       return true;
     }
 
@@ -2222,6 +2229,10 @@ User Profile Summary:
       sourceText: [args.plan.objective, args.plan.angle, ...args.plan.mustInclude].join(" "),
       activeConstraints: args.activeConstraints,
     });
+    const referenceModeReason =
+      useFactSafeReferenceHintsForPlan && hasStructuredTruthSourcesForTurn
+        ? "kept historical posts in style-only mode because grounded truth sources were already available"
+        : null;
 
     return {
       topicAnchors: useFactSafeReferenceHintsForPlan
@@ -2240,6 +2251,7 @@ User Profile Summary:
       retrievalReasons: retrieval.rankedAnchors
         .slice(0, 3)
         .map((anchor) => anchor.reason)
+        .concat(referenceModeReason ? [referenceModeReason] : [])
         .filter(Boolean),
       referenceAnchorMode: useFactSafeReferenceHintsForPlan
         ? "reference_hints"

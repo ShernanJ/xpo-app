@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import {
@@ -1234,6 +1236,28 @@ test("source material draft constraints keep saved stories literal", () => {
   );
   assert.equal(
     constraints.some((entry) => /do not add extra first-person scenes/i.test(entry)),
+    true,
+  );
+});
+
+test("draft anchor selection keeps historical posts in style-only mode when truth sources exist", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./conversationManager.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    source.includes("groundingPacket.sourceMaterials.length > 0"),
+    true,
+  );
+  assert.equal(
+    source.includes(
+      "kept historical posts in style-only mode because grounded truth sources were already available",
+    ),
+    true,
+  );
+  assert.equal(
+    source.includes('? "reference_hints"'),
     true,
   );
 });
