@@ -77,6 +77,9 @@ export async function generatePlan(
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    activePlan?: StrategyPlan | null;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
     voiceTarget?: VoiceTarget | null;
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;

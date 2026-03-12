@@ -8,6 +8,7 @@ import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  StrategyPlan,
 } from "../contracts/chat";
 import type {
   CreatorProfileHints,
@@ -48,6 +49,9 @@ export async function generateDrafts(
     voiceTarget?: VoiceTarget | null;
     referenceAnchorMode?: "historical_posts" | "reference_hints";
     threadFramingStyle?: ThreadFramingStyle | null;
+    activePlan?: StrategyPlan | null;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;
   },

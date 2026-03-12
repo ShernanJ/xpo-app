@@ -26,6 +26,50 @@ import type {
 } from "../orchestrator/groundingPacket";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
+function buildArtifactContextBlock(args: {
+  activePlan?: StrategyPlan | null;
+  activeDraft?: string;
+  latestRefinementInstruction?: string | null;
+  lastIdeationAngles?: string[];
+}): string | null {
+  const lines: string[] = [];
+
+  if (args.activePlan) {
+    lines.push(
+      `- Active plan objective: ${args.activePlan.objective}`,
+      `- Active plan angle: ${args.activePlan.angle}`,
+      `- Active plan format: ${args.activePlan.formatPreference || "shortform"}`,
+    );
+  }
+
+  if (args.activeDraft?.trim()) {
+    lines.push("- Active draft artifact: present");
+  }
+
+  if (args.latestRefinementInstruction?.trim()) {
+    lines.push(`- Latest refinement instruction: ${args.latestRefinementInstruction.trim()}`);
+  }
+
+  if (args.lastIdeationAngles && args.lastIdeationAngles.length > 0) {
+    lines.push(
+      `- Ideation options in scope: ${args.lastIdeationAngles.slice(0, 3).join(" | ")}`,
+    );
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return `
+ACTIVE ARTIFACT CONTEXT:
+${lines.join("\n")}
+
+Use this block to continue the current plan/draft/idea set even if the latest user turn is short.
+Treat this artifact context as more reliable than vague transcript wording when they conflict.
+Do NOT reset to a fresh direction if the user is clearly continuing the active artifact.
+  `.trim();
+}
+
 function buildHardGroundingBlock(activeConstraints: string[]): string | null {
   const groundingLines = activeConstraints
     .filter(
@@ -218,6 +262,9 @@ export interface BuildPlanInstructionArgs {
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    activePlan?: StrategyPlan | null;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   };
 }
 
@@ -237,6 +284,12 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const artifactContextBlock = buildArtifactContextBlock({
+    activePlan: args.options?.activePlan || null,
+    activeDraft: args.activeDraft,
+    latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
+    lastIdeationAngles: args.options?.lastIdeationAngles || [],
+  });
 
   return `
 You are shaping the strongest next post direction for an X growth coach / ghostwriter system.
@@ -255,6 +308,7 @@ ${buildVoiceHydrationBlock(null, args.voiceTarget)}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${args.activeDraft}\n\n` : ""}
+${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
 
 RECENT CHAT HISTORY (For context on what they are replying to):
 ${args.recentHistory}
@@ -344,6 +398,9 @@ export interface BuildWriterInstructionArgs {
     formatPreference?: DraftFormatPreference;
     sourceUserMessage?: string;
     threadFramingStyle?: ThreadFramingStyle | null;
+    activePlan?: StrategyPlan | null;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   };
 }
 
@@ -392,6 +449,12 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const artifactContextBlock = buildArtifactContextBlock({
+    activePlan: args.options?.activePlan || args.plan,
+    activeDraft: args.activeDraft,
+    latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
+    lastIdeationAngles: args.options?.lastIdeationAngles || [],
+  });
   const referenceAnchorBlock =
     args.referenceAnchorMode === "reference_hints"
       ? `
@@ -471,6 +534,7 @@ ${buildVoiceHydrationBlock(args.styleCard, args.voiceTarget)}
 ${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activeDraft}\n\n` : ""}
+${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
 
 RECENT CHAT HISTORY (Provides context on what the user is replying to):
 ${args.recentHistory}

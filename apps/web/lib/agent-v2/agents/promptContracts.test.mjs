@@ -198,6 +198,7 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(promptBuildersSource.includes("FACTUAL TRUTH LAYER:"), true);
   assert.equal(promptBuildersSource.includes("STRATEGIC DRAFT PLAN:"), true);
   assert.equal(promptBuildersSource.includes("VOICE / SHAPE LAYER:"), true);
+  assert.equal(promptBuildersSource.includes("ACTIVE ARTIFACT CONTEXT:"), true);
   assert.equal(
     promptBuildersSource.includes(
       "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
@@ -220,6 +221,18 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptBuildersSource.includes(
       "Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Use this block to continue the current plan/draft/idea set even if the latest user turn is short.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Treat this artifact context as more reliable than vague transcript wording when they conflict.",
     ),
     true,
   );
