@@ -13,6 +13,7 @@ import {
   resolveDraftArtifactKind,
   resolveEffectiveExplicitIntent,
 } from "./route.logic.ts";
+import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
 
 test("selectedDraftContext defaults route intent to edit when explicit intent is missing", () => {
@@ -397,6 +398,142 @@ test("selected draft resolution prefers the stored active draft ref over stale c
   assert.equal(resolved?.versionId, "ver_new");
   assert.equal(resolved?.content, "newest canonical draft");
   assert.equal(resolved?.revisionChainId, "revision-chain-new");
+});
+
+test("continuity stack routes lets do it into draft from stored pending-plan context", () => {
+  const action = resolveArtifactContinuationAction({
+    userMessage: "lets do it",
+    memory: {
+      conversationState: "plan_pending_approval",
+      topicSummary: "xpo continuity",
+      hasPendingPlan: true,
+      hasActiveDraft: false,
+      unresolvedQuestion: null,
+      concreteAnswerCount: 2,
+      pendingPlanSummary: "xpo continuity | continuity beats brittle routing",
+      latestRefinementInstruction: null,
+      lastIdeationAngles: [],
+    },
+  });
+
+  assert.equal(action, "draft");
+});
+
+test("continuity stack routes option picks into plan from stored ideation angles", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      {
+        role: "assistant",
+        content: "here are a few directions",
+        data: {
+          angles: [
+            { title: "why context loss kills continuity" },
+            { title: "what makes an x growth agent feel natural" },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("assistant_angles:"), true);
+  const action = resolveArtifactContinuationAction({
+    userMessage: "go with option 2",
+    memory: {
+      conversationState: "ready_to_ideate",
+      topicSummary: "xpo continuity",
+      hasPendingPlan: false,
+      hasActiveDraft: false,
+      unresolvedQuestion: null,
+      concreteAnswerCount: 2,
+      pendingPlanSummary: null,
+      latestRefinementInstruction: null,
+      lastIdeationAngles: [
+        "why context loss kills continuity",
+        "what makes an x growth agent feel natural",
+      ],
+    },
+  });
+
+  assert.equal(action, "plan");
+});
+
+test("continuity stack routes short draft edits into revise from stored active draft refs", () => {
+  const selectedDraftContext = resolveSelectedDraftContextFromHistory({
+    selectedDraftContext: null,
+    activeDraftRef: {
+      messageId: "assistant_3",
+      versionId: "ver_3",
+      revisionChainId: "revision-chain-3",
+    },
+    history: [
+      {
+        id: "assistant_3",
+        role: "assistant",
+        data: {
+          draftVersions: [
+            {
+              id: "ver_3",
+              content: "context should survive the turn, not reset every message.",
+              source: "assistant_generated",
+              createdAt: "2026-03-03T00:00:00.000Z",
+              basedOnVersionId: null,
+              weightedCharacterCount: 52,
+              maxCharacterLimit: 280,
+              supportAsset: null,
+            },
+          ],
+          activeDraftVersionId: "ver_3",
+          revisionChainId: "revision-chain-3",
+        },
+      },
+    ],
+  });
+
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext,
+    history: [],
+  });
+
+  assert.equal(
+    context.activeDraft,
+    "context should survive the turn, not reset every message.",
+  );
+  const action = resolveArtifactContinuationAction({
+    userMessage: "make that punchier",
+    memory: {
+      conversationState: "draft_ready",
+      topicSummary: "xpo continuity",
+      hasPendingPlan: false,
+      hasActiveDraft: true,
+      unresolvedQuestion: null,
+      concreteAnswerCount: 2,
+      pendingPlanSummary: null,
+      latestRefinementInstruction: "drafted a version",
+      lastIdeationAngles: [],
+    },
+  });
+
+  assert.equal(action, "revise");
+});
+
+test("continuity stack routes pending-plan tone refinements back into plan", () => {
+  const action = resolveArtifactContinuationAction({
+    userMessage: "same angle but softer",
+    memory: {
+      conversationState: "plan_pending_approval",
+      topicSummary: "xpo continuity",
+      hasPendingPlan: true,
+      hasActiveDraft: false,
+      unresolvedQuestion: null,
+      concreteAnswerCount: 2,
+      pendingPlanSummary: "xpo continuity | continuity beats brittle routing",
+      latestRefinementInstruction: null,
+      lastIdeationAngles: [],
+    },
+  });
+
+  assert.equal(action, "plan");
 });
 
 test("route-level context feeds deterministic source transparency attribution", () => {
