@@ -122,3 +122,119 @@ test("rankOpportunityBatch returns top scored opportunities with valid shapes", 
   assert.equal(result.ranked[1]?.opportunity.verdict, "dont_reply");
   assert.equal((result.ranked[1]?.opportunity.riskFlags.length || 0) > 0, true);
 });
+
+test("rankOpportunityBatch biases opportunity scoring toward converting reply patterns", () => {
+  const request = {
+    pageUrl: "https://x.com/home",
+    surface: "home" as const,
+    candidates: [
+      {
+        postId: "post_learning",
+        author: {
+          id: "author_learning",
+          handle: "builder",
+          name: "Builder",
+          verified: false,
+          followerCount: 5200,
+        },
+        text: "The proof layer is what makes positioning advice actually usable.",
+        url: "https://x.com/builder/status/learning",
+        createdAtIso: "2026-03-11T09:00:00.000Z",
+        engagement: {
+          replyCount: 3,
+          repostCount: 1,
+          likeCount: 14,
+          quoteCount: 0,
+          viewCount: 640,
+        },
+        postType: "original" as const,
+        conversation: {
+          conversationId: "conv_learning",
+          inReplyToPostId: null,
+          inReplyToHandle: null,
+        },
+        media: {
+          hasMedia: false,
+          hasImage: false,
+          hasVideo: false,
+          hasGif: false,
+          hasLink: false,
+          hasPoll: false,
+        },
+        surface: "home" as const,
+        captureSource: "graphql" as const,
+        capturedAtIso: "2026-03-11T09:05:00.000Z",
+      },
+    ],
+  };
+
+  const baseline = rankOpportunityBatch({
+    request,
+    strategy,
+    styleCard: null,
+  });
+  const learned = rankOpportunityBatch({
+    request,
+    strategy,
+    styleCard: null,
+    replyInsights: {
+      topPillars: [
+        {
+          label: "product positioning",
+          generatedCount: 4,
+          selectedCount: 3,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 0.75,
+          postedRate: 0.5,
+        },
+      ],
+      topIntentLabels: [
+        {
+          label: "example",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "proof | the proof layer",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      intentAttribution: {
+        generatedIntentCount: 4,
+        copiedIntentCount: 2,
+        observedOutcomeCount: 2,
+        fullyAttributedOutcomeCount: 2,
+      },
+    } as never,
+  });
+
+  assert.equal(
+    learned.ranked[0]?.opportunity.score > baseline.ranked[0]?.opportunity.score,
+    true,
+  );
+  assert.equal(learned.ranked[0]?.opportunity.suggestedAngle, "example");
+  assert.equal(
+    learned.notes.some((entry) => entry.toLowerCase().includes("biased toward reply patterns")),
+    true,
+  );
+});

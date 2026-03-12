@@ -283,3 +283,122 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
     true,
   );
 });
+
+test("buildReplyInsights weights recent observed reply wins above stale totals", () => {
+  const recent = new Date("2026-03-11T12:00:00.000Z");
+  const stale = new Date("2025-11-15T12:00:00.000Z");
+
+  const insights = buildReplyInsights([
+    {
+      id: "stale_1",
+      userId: "u1",
+      xHandle: "builder",
+      tweetId: "stale_1",
+      authorHandle: "target",
+      tweetText: "text",
+      tweetUrl: "https://x.com/target/status/stale_1",
+      tweetSnapshot: {},
+      heuristicScore: 80,
+      heuristicTier: "high",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+      strategyPillar: "product positioning",
+      generatedAngleLabel: "nuance",
+      state: "observed",
+      openedAt: stale,
+      generatedAt: stale,
+      selectedAt: stale,
+      copiedAt: stale,
+      postedAt: stale,
+      dismissedAt: null,
+      observedAt: stale,
+      generatedOptions: null,
+      notes: {
+        analytics: {
+          followConversionOutcome: {
+            observedAtIso: stale.toISOString(),
+            metrics: {
+              likeCount: 5,
+              replyCount: 2,
+              profileClicks: 5,
+              followerDelta: 0,
+            },
+            intentLabel: "nuance",
+            intentAnchor: "positioning | clarity",
+            intentStrategyPillar: "product positioning",
+            intentRationale: "push past agreement by grounding the point in positioning clarity",
+            selectedReplyId: "safe-1",
+            hasProfileClickSignal: true,
+            hasFollowConversionSignal: false,
+          },
+        },
+      },
+      selectedOptionId: "safe-1",
+      selectedOptionText: "reply",
+      selectedAngleLabel: "nuance",
+      observedMetrics: { likeCount: 5, replyCount: 2, profileClicks: 5, followerDelta: 0 },
+      createdAt: stale,
+      updatedAt: stale,
+    },
+    {
+      id: "recent_1",
+      userId: "u1",
+      xHandle: "builder",
+      tweetId: "recent_1",
+      authorHandle: "target",
+      tweetText: "text",
+      tweetUrl: "https://x.com/target/status/recent_1",
+      tweetSnapshot: {},
+      heuristicScore: 76,
+      heuristicTier: "high",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+      strategyPillar: "product positioning",
+      generatedAngleLabel: "example",
+      state: "observed",
+      openedAt: recent,
+      generatedAt: recent,
+      selectedAt: recent,
+      copiedAt: recent,
+      postedAt: recent,
+      dismissedAt: null,
+      observedAt: recent,
+      generatedOptions: null,
+      notes: {
+        analytics: {
+          followConversionOutcome: {
+            observedAtIso: recent.toISOString(),
+            metrics: {
+              likeCount: 4,
+              replyCount: 1,
+              profileClicks: 3,
+              followerDelta: 1,
+            },
+            intentLabel: "example",
+            intentAnchor: "proof | the proof layer",
+            intentStrategyPillar: "product positioning",
+            intentRationale: "make the point concrete with a usable example tied to the proof layer",
+            selectedReplyId: "safe-1",
+            hasProfileClickSignal: true,
+            hasFollowConversionSignal: true,
+          },
+        },
+      },
+      selectedOptionId: "safe-1",
+      selectedOptionText: "reply",
+      selectedAngleLabel: "example",
+      observedMetrics: { likeCount: 4, replyCount: 1, profileClicks: 3, followerDelta: 1 },
+      createdAt: recent,
+      updatedAt: recent,
+    },
+  ] as never);
+
+  assert.equal(insights.topIntentLabels[0]?.label, "example");
+  assert.equal(
+    (insights.topIntentLabels[0]?.recencyWeightedOutcomeScore || 0) >
+      (insights.topIntentLabels[1]?.recencyWeightedOutcomeScore || 0),
+    true,
+  );
+});

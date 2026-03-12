@@ -1,4 +1,5 @@
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionOpportunity,
   ExtensionOpportunityCandidate,
@@ -97,6 +98,21 @@ function adjacentAngles(label: ExtensionSuggestedAngle): ExtensionSuggestedAngle
   return ["sharpen", "nuance"];
 }
 
+function uniqueAngleLabels(labels: ExtensionSuggestedAngle[]): ExtensionSuggestedAngle[] {
+  const seen = new Set<string>();
+  const next: ExtensionSuggestedAngle[] = [];
+
+  for (const label of labels) {
+    if (seen.has(label)) {
+      continue;
+    }
+    seen.add(label);
+    next.push(label);
+  }
+
+  return next;
+}
+
 function buildReplyIntentRationale(args: {
   angleLabel: ExtensionSuggestedAngle;
   strategyPillar: string;
@@ -142,74 +158,206 @@ function buildReplyIntentAnchor(args: {
   }
 }
 
+function overlapScore(left: string, right: string): number {
+  const leftTokens = new Set(collectKeywords(left));
+  if (leftTokens.size === 0) {
+    return 0;
+  }
+
+  return collectKeywords(right).reduce(
+    (sum, token) => sum + (leftTokens.has(token) ? 1 : 0),
+    0,
+  );
+}
+
+function scoreReplyIntentPlan(args: {
+  plan: ExtensionReplyIntentPlan;
+  replyInsights?: ReplyInsights | null;
+}): number {
+  const topLabel = args.replyInsights?.topIntentLabels?.[0];
+  const topAnchor = args.replyInsights?.topIntentAnchors?.[0];
+  const topPillar = args.replyInsights?.topPillars?.[0];
+  const attributedCount =
+    args.replyInsights?.intentAttribution?.fullyAttributedOutcomeCount || 0;
+  const topLabelBiasScore =
+    topLabel?.recencyWeightedOutcomeScore ??
+    ((topLabel?.totalFollowerDelta || 0) * 2 + (topLabel?.totalProfileClicks || 0));
+  const topAnchorBiasScore =
+    topAnchor?.recencyWeightedOutcomeScore ??
+    ((topAnchor?.totalFollowerDelta || 0) * 2 + (topAnchor?.totalProfileClicks || 0));
+
+  if (!topLabel && !topAnchor && !topPillar && attributedCount === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  if (topLabel?.label === args.plan.label) {
+    score += 10;
+    score += Math.min(8, topLabelBiasScore || 0);
+    score += Math.min(4, topLabel.recentObservedCount || 0);
+  }
+
+  if (topPillar?.label === args.plan.strategyPillar) {
+    score += 4;
+  }
+
+  if (topAnchor?.label) {
+    if (topAnchor.label === args.plan.anchor) {
+      score += 10;
+    } else {
+      score += Math.min(6, overlapScore(topAnchor.label, args.plan.anchor) * 2);
+    }
+
+    if ((topAnchorBiasScore || 0) > 0) {
+      score += Math.min(6, topAnchorBiasScore || 0);
+    }
+  }
+
+  if (attributedCount > 0) {
+    score += Math.min(4, attributedCount);
+  }
+
+  return score;
+}
+
+function rankReplyIntentPlans(args: {
+  plans: ExtensionReplyIntentPlan[];
+  replyInsights?: ReplyInsights | null;
+}): ExtensionReplyIntentPlan[] {
+  return args.plans
+    .map((plan, index) => ({
+      plan,
+      index,
+      score: scoreReplyIntentPlan({
+        plan,
+        replyInsights: args.replyInsights,
+      }),
+    }))
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.plan);
+}
+
+export function buildReplyLearningNotes(replyInsights?: ReplyInsights | null): string[] {
+  if (!replyInsights) {
+    return [];
+  }
+
+  const next: string[] = [];
+  const topAnchor = replyInsights.topIntentAnchors?.[0];
+  const topIntent = replyInsights.topIntentLabels?.[0];
+  const attributedCount = replyInsights.intentAttribution?.fullyAttributedOutcomeCount || 0;
+  const topAnchorBiasScore =
+    topAnchor?.recencyWeightedOutcomeScore ??
+    ((topAnchor?.totalFollowerDelta || 0) * 2 + (topAnchor?.totalProfileClicks || 0));
+  const topIntentBiasScore =
+    topIntent?.recencyWeightedOutcomeScore ??
+    ((topIntent?.totalFollowerDelta || 0) * 2 + (topIntent?.totalProfileClicks || 0));
+
+  if (topAnchor?.label && (topAnchorBiasScore || 0) > 0) {
+    next.push(
+      `Learning bias: prefer anchors like "${topAnchor.label}" because they are converting recently.`,
+    );
+  }
+
+  if (topIntent?.label && (topIntentBiasScore || 0) > 0) {
+    next.push(
+      `Learning bias: ${topIntent.label} is the strongest recent converting reply intent.`,
+    );
+  }
+
+  if (attributedCount > 0) {
+    next.push(`Learning coverage: ${attributedCount} reply outcomes are fully attributed.`);
+  }
+
+  return next.slice(0, 2);
+}
+
 export function buildReplyIntentPlansFromOpportunity(args: {
   post: ExtensionOpportunityCandidate;
   opportunity: ExtensionOpportunity;
   strategy: GrowthStrategySnapshot;
   strategyPillar: string;
+  replyInsights?: ReplyInsights | null;
 }): ExtensionReplyIntentPlan[] {
   const focusPhrase = pickReplyFocusPhrase(args.post.text);
-  const labels: ExtensionSuggestedAngle[] = [
+  const labels = uniqueAngleLabels([
     args.opportunity.suggestedAngle,
     ...adjacentAngles(args.opportunity.suggestedAngle),
-  ];
-  const seen = new Set<string>();
+    ...(args.replyInsights?.topIntentLabels?.[0]?.label
+      ? [args.replyInsights.topIntentLabels[0].label as ExtensionSuggestedAngle]
+      : []),
+  ]);
 
-  return labels.filter((label) => {
-    if (seen.has(label)) {
-      return false;
-    }
-    seen.add(label);
-    return true;
-  }).map((angleLabel) => ({
-    angleLabel,
-    label: angleLabel,
-    focusPhrase,
-    strategyPillar: args.strategyPillar,
-    rationale: buildReplyIntentRationale({
+  return rankReplyIntentPlans({
+    plans: labels.map((angleLabel) => ({
       angleLabel,
-      strategyPillar: args.strategyPillar,
+      label: angleLabel,
       focusPhrase,
-      strategy: args.strategy,
-    }),
-    anchor: buildReplyIntentAnchor({
-      angleLabel,
       strategyPillar: args.strategyPillar,
-      focusPhrase,
-    }),
-  }));
+      rationale: buildReplyIntentRationale({
+        angleLabel,
+        strategyPillar: args.strategyPillar,
+        focusPhrase,
+        strategy: args.strategy,
+      }),
+      anchor: buildReplyIntentAnchor({
+        angleLabel,
+        strategyPillar: args.strategyPillar,
+        focusPhrase,
+      }),
+    })),
+    replyInsights: args.replyInsights,
+  });
 }
 
 export function buildReplyIntentPlanForDraft(args: {
   sourceText: string;
   goal: string;
   strategy: GrowthStrategySnapshot;
+  replyInsights?: ReplyInsights | null;
 }): ExtensionReplyIntentPlan {
   const strategyPillar = pickReplyStrategyPillar({
     sourceText: args.sourceText,
     strategy: args.strategy,
   });
   const focusPhrase = pickReplyFocusPhrase(args.sourceText);
-  const angleLabel = buildReplyAngleLabel({
+  const baseAngleLabel = buildReplyAngleLabel({
     sourceText: args.sourceText,
     goal: args.goal,
   });
+  const candidateLabels = uniqueAngleLabels([
+    baseAngleLabel,
+    ...adjacentAngles(baseAngleLabel),
+    ...(args.replyInsights?.topIntentLabels?.[0]?.label
+      ? [args.replyInsights.topIntentLabels[0].label as ExtensionSuggestedAngle]
+      : []),
+  ]);
 
-  return {
-    angleLabel,
-    label: angleLabel,
-    focusPhrase,
-    strategyPillar,
-    rationale: buildReplyIntentRationale({
+  return rankReplyIntentPlans({
+    plans: candidateLabels.map((angleLabel) => ({
       angleLabel,
-      strategyPillar,
+      label: angleLabel,
       focusPhrase,
-      strategy: args.strategy,
-    }),
-    anchor: buildReplyIntentAnchor({
-      angleLabel,
       strategyPillar,
-      focusPhrase,
-    }),
-  };
+      rationale: buildReplyIntentRationale({
+        angleLabel,
+        strategyPillar,
+        focusPhrase,
+        strategy: args.strategy,
+      }),
+      anchor: buildReplyIntentAnchor({
+        angleLabel,
+        strategyPillar,
+        focusPhrase,
+      }),
+    })),
+    replyInsights: args.replyInsights,
+  })[0];
 }

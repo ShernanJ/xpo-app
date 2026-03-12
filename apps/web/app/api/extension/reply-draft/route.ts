@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
   const generated = buildExtensionReplyDraft({
     request: parsed.data,
     strategy: context.growthStrategySnapshot,
+    replyInsights,
   });
   const response = {
     ...generated.response,

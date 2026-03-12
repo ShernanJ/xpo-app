@@ -45,6 +45,10 @@ export interface ReplyOutcomeBucket extends ReplyInsightsBucket {
   totalFollowerDelta: number;
   averageProfileClicks: number | null;
   averageFollowerDelta: number | null;
+  recentObservedCount?: number;
+  recencyWeightedProfileClicks?: number | null;
+  recencyWeightedFollowerDelta?: number | null;
+  recencyWeightedOutcomeScore?: number | null;
 }
 
 export interface ReplyInsights {
@@ -312,6 +316,7 @@ function getFollowConversionOutcome(record: ReplyOpportunityRecord): {
   intentRationale: string | null;
   profileClicks: number;
   followerDelta: number;
+  observedAt: Date | null;
 } | null {
   const analytics = getReplyAnalytics(record);
   if (!analytics) {
@@ -336,6 +341,10 @@ function getFollowConversionOutcome(record: ReplyOpportunityRecord): {
       typeof outcome.intentRationale === "string" ? outcome.intentRationale.trim() || null : null,
     profileClicks: asNumber(metrics.profileClicks ?? metrics.profile_clicks) || 0,
     followerDelta: asNumber(metrics.followerDelta ?? metrics.follower_delta) || 0,
+    observedAt:
+      typeof outcome.observedAtIso === "string" && Number.isFinite(Date.parse(outcome.observedAtIso))
+        ? new Date(outcome.observedAtIso)
+        : null,
   };
 }
 
@@ -396,12 +405,14 @@ function getIntentEntries(record: ReplyOpportunityRecord): Array<{
 function getObservedOutcome(item: ReplyOpportunityRecord): {
   profileClicks: number;
   followerDelta: number;
+  observedAt: Date | null;
 } {
   const attributedOutcome = getFollowConversionOutcome(item);
   if (attributedOutcome) {
     return {
       profileClicks: attributedOutcome.profileClicks,
       followerDelta: attributedOutcome.followerDelta,
+      observedAt: attributedOutcome.observedAt,
     };
   }
 
@@ -410,13 +421,39 @@ function getObservedOutcome(item: ReplyOpportunityRecord): {
     return {
       profileClicks: 0,
       followerDelta: 0,
+      observedAt: item.observedAt || null,
     };
   }
 
   return {
     profileClicks: asNumber(metrics.profileClicks ?? metrics.profile_clicks) || 0,
     followerDelta: asNumber(metrics.followerDelta ?? metrics.follower_delta) || 0,
+    observedAt: item.observedAt || null,
   };
+}
+
+function computeRecencyWeight(observedAt: Date | null, now: Date): number {
+  if (!observedAt) {
+    return 0;
+  }
+
+  const ageDays = (now.getTime() - observedAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (!Number.isFinite(ageDays) || ageDays < 0) {
+    return 1;
+  }
+  if (ageDays <= 7) {
+    return 1;
+  }
+  if (ageDays <= 21) {
+    return 0.8;
+  }
+  if (ageDays <= 45) {
+    return 0.55;
+  }
+  if (ageDays <= 90) {
+    return 0.3;
+  }
+  return 0.15;
 }
 
 function getObservedIntentEntries(record: ReplyOpportunityRecord): Array<{
@@ -524,9 +561,23 @@ function createOutcomeBucketMap(
   items: ReplyOpportunityRecord[],
   selector: (item: ReplyOpportunityRecord) => string | string[] | null,
 ): ReplyOutcomeBucket[] {
+  const now = new Date();
+  type OutcomeBucketAccumulator = {
+    label: string;
+    generatedCount: number;
+    selectedCount: number;
+    postedCount: number;
+    observedCount: number;
+    recentObservedCount: number;
+    totalProfileClicks: number;
+    totalFollowerDelta: number;
+    recencyWeightedProfileClicks: number;
+    recencyWeightedFollowerDelta: number;
+    recencyWeightedOutcomeScore: number;
+  };
   const buckets = new Map<
     string,
-    Omit<ReplyOutcomeBucket, "selectionRate" | "postedRate" | "averageProfileClicks" | "averageFollowerDelta">
+    OutcomeBucketAccumulator
   >();
 
   for (const item of items) {
@@ -548,8 +599,12 @@ function createOutcomeBucketMap(
         selectedCount: 0,
         postedCount: 0,
         observedCount: 0,
+        recentObservedCount: 0,
         totalProfileClicks: 0,
         totalFollowerDelta: 0,
+        recencyWeightedProfileClicks: 0,
+        recencyWeightedFollowerDelta: 0,
+        recencyWeightedOutcomeScore: 0,
       };
 
       if (item.generatedAt) {
@@ -565,6 +620,15 @@ function createOutcomeBucketMap(
         current.observedCount += 1;
         current.totalProfileClicks += observedOutcome.profileClicks;
         current.totalFollowerDelta += observedOutcome.followerDelta;
+        const recencyWeight = computeRecencyWeight(observedOutcome.observedAt, now);
+        current.recencyWeightedProfileClicks += observedOutcome.profileClicks * recencyWeight;
+        current.recencyWeightedFollowerDelta += observedOutcome.followerDelta * recencyWeight;
+        current.recencyWeightedOutcomeScore +=
+          observedOutcome.profileClicks * recencyWeight +
+          observedOutcome.followerDelta * 3 * recencyWeight;
+        if (recencyWeight >= 0.8) {
+          current.recentObservedCount += 1;
+        }
       }
 
       buckets.set(label, current);
@@ -590,8 +654,27 @@ function createOutcomeBucketMap(
         bucket.observedCount > 0
           ? Number((bucket.totalFollowerDelta / bucket.observedCount).toFixed(2))
           : null,
+      recentObservedCount: bucket.recentObservedCount,
+      recencyWeightedProfileClicks:
+        bucket.observedCount > 0
+          ? Number(bucket.recencyWeightedProfileClicks.toFixed(2))
+          : null,
+      recencyWeightedFollowerDelta:
+        bucket.observedCount > 0
+          ? Number(bucket.recencyWeightedFollowerDelta.toFixed(2))
+          : null,
+      recencyWeightedOutcomeScore:
+        bucket.observedCount > 0
+          ? Number(bucket.recencyWeightedOutcomeScore.toFixed(2))
+          : null,
     }))
     .sort((left, right) => {
+      const weightedOutcome =
+        (right.recencyWeightedOutcomeScore || 0) - (left.recencyWeightedOutcomeScore || 0);
+      if (weightedOutcome !== 0) {
+        return weightedOutcome;
+      }
+
       const followerDelta = right.totalFollowerDelta - left.totalFollowerDelta;
       if (followerDelta !== 0) {
         return followerDelta;

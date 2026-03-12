@@ -1,7 +1,10 @@
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
-import { buildReplyIntentPlansFromOpportunity } from "./replyIntent.ts";
+import {
+  buildReplyIntentPlansFromOpportunity,
+  buildReplyLearningNotes,
+} from "./replyIntent.ts";
 import {
   collectKeywords,
   normalizeComparable,
@@ -14,6 +17,7 @@ import type {
   ExtensionReplyOptionsResponse,
   ExtensionSuggestedAngle,
 } from "./types.ts";
+import type { ReplyInsights } from "./replyOpportunities.ts";
 
 function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
   if (!styleCard) {
@@ -149,6 +153,7 @@ export function buildExtensionReplyOptions(args: {
   stage: string;
   tone: string;
   goal: string;
+  replyInsights?: ReplyInsights | null;
 }): ExtensionReplyOptionsResponse {
   const lowercase = inferLowercasePreference(args.styleCard);
   const concise = inferConcisePreference(args.styleCard);
@@ -157,6 +162,7 @@ export function buildExtensionReplyOptions(args: {
     opportunity: args.opportunity,
     strategy: args.strategy,
     strategyPillar: args.strategyPillar,
+    replyInsights: args.replyInsights,
   });
   const warnings = [
     ...(args.styleCard ? [] : ["No parsed voice profile was found, so replies are using onboarding context only."]),
@@ -166,6 +172,7 @@ export function buildExtensionReplyOptions(args: {
     `Anchored to ${args.strategyPillar}.`,
     `Known for ${args.strategy.knownFor}.`,
     ...args.strategy.truthBoundary.verifiedFacts.slice(0, 1),
+    ...buildReplyLearningNotes(args.replyInsights),
   ].map((entry) => applyVoiceCase(entry, lowercase));
   const groundingPacket = buildReplyGroundingPacket({
     request: {

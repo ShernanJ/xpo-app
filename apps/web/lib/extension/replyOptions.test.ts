@@ -266,3 +266,133 @@ test("buildExtensionReplyOptions follows a stable opportunity -> intent ordering
 
   assert.deepEqual(response.options.map((option) => option.label), ["nuance", "sharpen", "example"]);
 });
+
+test("buildExtensionReplyOptions biases the first option toward converting learned intents", () => {
+  const response = buildExtensionReplyOptions({
+    post: {
+      postId: "post_4",
+      author: {
+        id: "author_4",
+        handle: "builder",
+        name: "Builder",
+        verified: false,
+        followerCount: 3000,
+      },
+      text: "Proof is what makes positioning advice actually land.",
+      url: "https://x.com/builder/status/4",
+      createdAtIso: "2026-03-11T12:30:00.000Z",
+      engagement: {
+        replyCount: 1,
+        repostCount: 0,
+        likeCount: 5,
+        quoteCount: 0,
+        viewCount: 220,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_4",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T12:35:00.000Z",
+    },
+    opportunity: {
+      opportunityId: "opp_4",
+      postId: "post_4",
+      score: 75,
+      verdict: "reply",
+      why: ["Strong overlap with your proof-first positioning pillar."],
+      riskFlags: [],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "high",
+        followConversion: "medium",
+      },
+      scoringBreakdown: {
+        niche_match: 79,
+        audience_fit: 71,
+        freshness: 80,
+        conversation_quality: 72,
+        profile_click_potential: 80,
+        follow_conversion_potential: 68,
+        visibility_potential: 61,
+        spam_risk: 8,
+        off_niche_risk: 11,
+        genericity_risk: 16,
+        negative_signal_risk: 4,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "builder",
+    goal: "followers",
+    replyInsights: {
+      topPillars: [
+        {
+          label: "product positioning",
+          generatedCount: 4,
+          selectedCount: 3,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 0.75,
+          postedRate: 0.5,
+        },
+      ],
+      topIntentLabels: [
+        {
+          label: "example",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "proof | the proof layer",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      intentAttribution: {
+        generatedIntentCount: 4,
+        copiedIntentCount: 2,
+        observedOutcomeCount: 2,
+        fullyAttributedOutcomeCount: 2,
+      },
+    } as never,
+  });
+
+  assert.equal(response.options[0]?.label, "example");
+  assert.equal(
+    response.groundingNotes.some((entry) => entry.toLowerCase().includes("learning bias")),
+    true,
+  );
+});

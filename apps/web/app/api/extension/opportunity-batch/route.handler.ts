@@ -56,10 +56,15 @@ interface OpportunityBatchHandlerDeps {
     userId: string;
     activeXHandle: string | null | undefined;
   }): Promise<ExtensionUserContextSuccess | ExtensionUserContextFailure>;
+  getReplyInsightsForUser(args: {
+    userId: string;
+    xHandle?: string | null;
+  }): Promise<unknown>;
   rankOpportunityBatch(args: {
     request: ExtensionOpportunityBatchRequest;
     strategy: unknown;
     styleCard: unknown;
+    replyInsights?: unknown;
   }): RankedOpportunityBatch;
   persistRankedOpportunity(args: {
     userId: string;
@@ -121,10 +126,15 @@ export async function handleExtensionOpportunityBatchPost(
   }
 
   try {
+    const replyInsights = await deps.getReplyInsightsForUser({
+      userId: auth.user.id,
+      xHandle: userContext.xHandle,
+    });
     const rankedBatch = deps.rankOpportunityBatch({
       request: parsed.data,
       strategy: userContext.context.growthStrategySnapshot,
       styleCard: userContext.styleCard,
+      replyInsights,
     });
     const growthStage =
       userContext.storedRun.result.strategyState?.growthStage ||

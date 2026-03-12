@@ -115,3 +115,125 @@ test("buildReplyIntentPlanForDraft picks a first-class intent before reply writi
   assert.equal(intent.strategyPillar, "product positioning");
   assert.match(intent.rationale, /translate|practical language/i);
 });
+
+test("reply intent planning reprioritizes labels with proven conversion outcomes", () => {
+  const intents = buildReplyIntentPlansFromOpportunity({
+    post: {
+      postId: "post_4",
+      author: {
+        id: "author_4",
+        handle: "builder",
+        name: "Builder",
+        verified: false,
+        followerCount: 4100,
+      },
+      text: "Positioning gets easier once the product proof is concrete.",
+      url: "https://x.com/builder/status/4",
+      createdAtIso: "2026-03-11T12:00:00.000Z",
+      engagement: {
+        replyCount: 1,
+        repostCount: 0,
+        likeCount: 6,
+        quoteCount: 0,
+        viewCount: 240,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_4",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T12:05:00.000Z",
+    },
+    opportunity: {
+      opportunityId: "opp_4",
+      postId: "post_4",
+      score: 74,
+      verdict: "reply",
+      why: ["Clear overlap with your proof-first content pillar."],
+      riskFlags: [],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "medium",
+        followConversion: "medium",
+      },
+      scoringBreakdown: {
+        niche_match: 76,
+        audience_fit: 70,
+        freshness: 80,
+        conversation_quality: 73,
+        profile_click_potential: 71,
+        follow_conversion_potential: 69,
+        visibility_potential: 62,
+        spam_risk: 8,
+        off_niche_risk: 10,
+        genericity_risk: 17,
+        negative_signal_risk: 4,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    replyInsights: {
+      topPillars: [
+        {
+          label: "product positioning",
+          generatedCount: 4,
+          selectedCount: 3,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 0.75,
+          postedRate: 0.5,
+        },
+      ],
+      topIntentLabels: [
+        {
+          label: "example",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 4,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "proof | the proof layer",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 4,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 2,
+          averageFollowerDelta: 0.5,
+        },
+      ],
+      intentAttribution: {
+        generatedIntentCount: 4,
+        copiedIntentCount: 2,
+        observedOutcomeCount: 2,
+        fullyAttributedOutcomeCount: 2,
+      },
+    } as never,
+  });
+
+  assert.equal(intents[0]?.angleLabel, "example");
+});

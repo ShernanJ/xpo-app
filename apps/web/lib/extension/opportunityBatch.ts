@@ -13,6 +13,7 @@ import type {
   ExtensionOpportunityVerdict,
   ExtensionSuggestedAngle,
 } from "./types.ts";
+import type { ReplyInsights } from "./replyOpportunities.ts";
 
 const STOPWORDS = new Set([
   "a",
@@ -634,6 +635,86 @@ function computeFollowConversionPotential(args: {
   return roundScore(score);
 }
 
+function applyReplyLearningSuggestedAngleBias(args: {
+  candidate: ExtensionOpportunityCandidate;
+  strategyPillar: string;
+  baseSuggestedAngle: ExtensionSuggestedAngle;
+  replyInsights?: ReplyInsights | null;
+}) {
+  const topIntent = args.replyInsights?.topIntentLabels?.[0];
+  const topPillar = args.replyInsights?.topPillars?.[0];
+  const topAnchor = args.replyInsights?.topIntentAnchors?.[0];
+  const attributedCount =
+    args.replyInsights?.intentAttribution?.fullyAttributedOutcomeCount || 0;
+  const topIntentBiasScore =
+    topIntent?.recencyWeightedOutcomeScore ??
+    ((topIntent?.totalFollowerDelta || 0) * 2 + (topIntent?.totalProfileClicks || 0));
+  if (!topIntent?.label) {
+    return args.baseSuggestedAngle;
+  }
+
+  const hasObservedLearning =
+    (topIntentBiasScore || 0) > 0 ||
+    attributedCount > 0;
+  if (!hasObservedLearning) {
+    return args.baseSuggestedAngle;
+  }
+
+  const candidateTokens = collectKeywords(args.candidate.text);
+  const anchorTokens = topAnchor?.label ? collectKeywords(topAnchor.label) : [];
+  const anchorOverlap = overlapScore(candidateTokens, anchorTokens);
+  const samePillar = topPillar?.label === args.strategyPillar;
+
+  return samePillar || anchorOverlap >= 1
+    ? (topIntent.label as ExtensionSuggestedAngle)
+    : args.baseSuggestedAngle;
+}
+
+function computeReplyLearningFit(args: {
+  candidate: ExtensionOpportunityCandidate;
+  strategyPillar: string;
+  suggestedAngle: ExtensionSuggestedAngle;
+  replyInsights?: ReplyInsights | null;
+}) {
+  const topPillar = args.replyInsights?.topPillars?.[0];
+  const topIntent = args.replyInsights?.topIntentLabels?.[0];
+  const topAnchor = args.replyInsights?.topIntentAnchors?.[0];
+  const attributedCount =
+    args.replyInsights?.intentAttribution?.fullyAttributedOutcomeCount || 0;
+  const topIntentBiasScore =
+    topIntent?.recencyWeightedOutcomeScore ??
+    ((topIntent?.totalFollowerDelta || 0) * 2 + (topIntent?.totalProfileClicks || 0));
+  const topAnchorBiasScore =
+    topAnchor?.recencyWeightedOutcomeScore ??
+    ((topAnchor?.totalFollowerDelta || 0) * 2 + (topAnchor?.totalProfileClicks || 0));
+
+  if (!topPillar && !topIntent && !topAnchor && attributedCount === 0) {
+    return 0;
+  }
+
+  const candidateTokens = collectKeywords(args.candidate.text);
+  const anchorTokens = topAnchor?.label ? collectKeywords(topAnchor.label) : [];
+  let score = 0;
+
+  if (topPillar?.label === args.strategyPillar) {
+    score += 28;
+  }
+  if (topIntent?.label === args.suggestedAngle) {
+    score += 24;
+    score += Math.min(12, topIntentBiasScore || 0);
+    score += Math.min(4, topIntent.recentObservedCount || 0);
+  }
+  if (anchorTokens.length > 0) {
+    score += Math.min(18, overlapScore(candidateTokens, anchorTokens) * 9);
+    score += Math.min(6, topAnchorBiasScore || 0);
+  }
+  if (attributedCount > 0) {
+    score += Math.min(12, attributedCount * 3);
+  }
+
+  return roundScore(score);
+}
+
 function computeOffNicheRisk(args: {
   candidate: ExtensionOpportunityCandidate;
   strategy: GrowthStrategySnapshot;
@@ -689,6 +770,7 @@ function buildWhy(args: {
   profileClickPotential: number;
   followConversionPotential: number;
   visibilityPotential: number;
+  learningFit: number;
   score: number;
   verdict: ExtensionOpportunityVerdict;
 }) {
@@ -714,6 +796,9 @@ function buildWhy(args: {
   }
   if (args.conversationQuality >= 60) {
     why.push("The post format leaves room to add a concrete layer instead of agreement.");
+  }
+  if (args.learningFit >= 55) {
+    why.push("This opportunity lines up with reply anchors that are already converting.");
   }
 
   if (why.length === 0) {
@@ -779,6 +864,7 @@ export function scoreOpportunityCandidate(args: {
   pageUrl: string;
   strategy: GrowthStrategySnapshot;
   styleCard: VoiceStyleCard | null;
+  replyInsights?: ReplyInsights | null;
 }): RankedExtensionOpportunity {
   const strategyPillar = pickStrategyPillar({
     candidate: args.candidate,
@@ -818,6 +904,25 @@ export function scoreOpportunityCandidate(args: {
     offNicheRisk,
   });
 
+  const baseSuggestedAngle = pickSuggestedAngle({
+    candidate: args.candidate,
+    strategy: args.strategy,
+    strategyPillar,
+    nicheMatch,
+  });
+  const suggestedAngle = applyReplyLearningSuggestedAngleBias({
+    candidate: args.candidate,
+    strategyPillar,
+    baseSuggestedAngle,
+    replyInsights: args.replyInsights,
+  });
+  const learningFit = computeReplyLearningFit({
+    candidate: args.candidate,
+    strategyPillar,
+    suggestedAngle,
+    replyInsights: args.replyInsights,
+  });
+
   const positiveWeighted =
     nicheMatch * 0.24 +
     audienceFit * 0.18 +
@@ -825,19 +930,14 @@ export function scoreOpportunityCandidate(args: {
     conversationQuality * 0.12 +
     profileClickPotential * 0.16 +
     followConversionPotential * 0.12 +
-    visibilityPotential * 0.08;
+    visibilityPotential * 0.08 +
+    learningFit * 0.1;
   const riskWeighted =
     spamRisk * 0.18 +
     offNicheRisk * 0.38 +
     genericityRisk * 0.24 +
     negativeSignalRisk * 0.2;
   const score = roundScore(positiveWeighted - riskWeighted * 0.58 + 8);
-  const suggestedAngle = pickSuggestedAngle({
-    candidate: args.candidate,
-    strategy: args.strategy,
-    strategyPillar,
-    nicheMatch,
-  });
   const breakdown: ExtensionOpportunityScoringBreakdown = {
     niche_match: nicheMatch,
     audience_fit: audienceFit,
@@ -860,6 +960,7 @@ export function scoreOpportunityCandidate(args: {
     profileClickPotential,
     followConversionPotential,
     visibilityPotential,
+    learningFit,
     score,
     verdict,
   });
@@ -872,6 +973,9 @@ export function scoreOpportunityCandidate(args: {
   const batchNotes = uniqueStrings([
     "Scored against your saved growth context for early-stage follower growth.",
     args.styleCard ? null : "No parsed voice profile was available, so scoring used onboarding context only.",
+    learningFit >= 55 && args.replyInsights?.topIntentAnchors?.[0]?.label
+      ? `Learning bias favored opportunities similar to the recently converting anchor "${args.replyInsights.topIntentAnchors[0].label}".`
+      : null,
     args.strategy.ambiguities[0] || null,
   ]);
   const opportunity: ExtensionOpportunity = {
@@ -910,6 +1014,7 @@ export function rankOpportunityBatch(args: {
   request: ExtensionOpportunityBatchRequest;
   strategy: GrowthStrategySnapshot;
   styleCard: VoiceStyleCard | null;
+  replyInsights?: ReplyInsights | null;
 }) {
   const ranked = args.request.candidates.map((candidate) =>
     scoreOpportunityCandidate({
@@ -918,6 +1023,7 @@ export function rankOpportunityBatch(args: {
       pageUrl: args.request.pageUrl,
       strategy: args.strategy,
       styleCard: args.styleCard,
+      replyInsights: args.replyInsights,
     }),
   );
   const responseNotes = uniqueStrings([
@@ -925,6 +1031,9 @@ export function rankOpportunityBatch(args: {
     args.styleCard
       ? "Reply generation can use your saved voice profile when you select an opportunity."
       : "Reply generation will fall back to onboarding context because no parsed voice profile was found.",
+    args.replyInsights?.topIntentAnchors?.[0]?.label
+      ? `Ranking is biased toward reply patterns similar to "${args.replyInsights.topIntentAnchors[0].label}" because they are converting recently.`
+      : null,
     args.strategy.ambiguities[0] || null,
   ]);
 

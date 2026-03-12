@@ -1,7 +1,11 @@
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
-import { buildReplyIntentPlanForDraft } from "./replyIntent.ts";
+import {
+  buildReplyIntentPlanForDraft,
+  buildReplyLearningNotes,
+} from "./replyIntent.ts";
 import { collectKeywords, normalizeWhitespace, sanitizeReplyText } from "./replyQuality.ts";
+import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionReplyDraftRequest,
   ExtensionReplyDraftResponse,
@@ -133,11 +137,13 @@ function sanitizeReplyOption(args: {
 export function buildExtensionReplyDraft(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
+  replyInsights?: ReplyInsights | null;
 }): ExtensionReplyDraftBuildResult {
   const intentPlan = buildReplyIntentPlanForDraft({
     sourceText: args.request.tweetText,
     goal: args.request.goal,
     strategy: args.strategy,
+    replyInsights: args.replyInsights,
   });
   const strategyPillar = intentPlan.strategyPillar;
   const angleLabel = intentPlan.angleLabel;
@@ -202,6 +208,7 @@ export function buildExtensionReplyDraft(args: {
     `Anchored to: ${strategyPillar}`,
     `Angle: ${angleLabel.replace(/_/g, " ")}`,
     `Intent: ${intentPlan.rationale}`,
+    ...buildReplyLearningNotes(args.replyInsights),
     ...args.strategy.ambiguities.slice(0, 1).map((entry) => `Tentative positioning: ${entry}`),
   ];
 

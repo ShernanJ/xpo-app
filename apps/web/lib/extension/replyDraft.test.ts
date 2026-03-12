@@ -111,3 +111,73 @@ test("buildExtensionReplyDraft records the chosen reply intent in notes", () => 
     true,
   );
 });
+
+test("buildExtensionReplyDraft can bias toward a converting learned reply intent", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_5",
+      tweetText: "How do you make replies worth reading instead of generic agreement?",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/5",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    replyInsights: {
+      topPillars: [
+        {
+          label: "product positioning",
+          generatedCount: 4,
+          selectedCount: 3,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 0.75,
+          postedRate: 0.5,
+        },
+      ],
+      topIntentLabels: [
+        {
+          label: "known_for",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 4,
+          totalFollowerDelta: 2,
+          averageProfileClicks: 2,
+          averageFollowerDelta: 1,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "product positioning",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 4,
+          totalFollowerDelta: 2,
+          averageProfileClicks: 2,
+          averageFollowerDelta: 1,
+        },
+      ],
+      intentAttribution: {
+        generatedIntentCount: 4,
+        copiedIntentCount: 2,
+        observedOutcomeCount: 2,
+        fullyAttributedOutcomeCount: 2,
+      },
+    } as never,
+  });
+
+  assert.equal(result.angleLabel, "known_for");
+  assert.equal(
+    result.response.notes?.some((entry) => entry.toLowerCase().includes("learning bias")),
+    true,
+  );
+});

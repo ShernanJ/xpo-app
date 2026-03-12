@@ -7,6 +7,7 @@ import {
   persistRankedOpportunity,
   rankOpportunityBatch,
 } from "../../../../lib/extension/opportunityBatch.ts";
+import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
 import {
   assertExtensionOpportunityBatchResponseShape,
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
     authenticateExtensionRequest,
     parseExtensionOpportunityBatchRequest,
     loadExtensionUserContext,
+    getReplyInsightsForUser,
     rankOpportunityBatch,
     persistRankedOpportunity,
     assertExtensionOpportunityBatchResponseShape,
