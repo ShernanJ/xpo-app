@@ -283,6 +283,58 @@ test("conversation context builder reuses stored assistant plan, draft, and grou
   assert.equal(context.activeDraft, "xpo should feel like one smart operator, not a pile of routing rules.");
 });
 
+test("conversation context builder prefers standardized context packet refs over legacy top-level fields", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      {
+        id: "assistant_2",
+        role: "assistant",
+        content: "this is the active thread to keep pushing.",
+        data: {
+          contextPacket: {
+            version: "assistant_context_v2",
+            planRef: {
+              objective: "position xpo as a conversational growth agent",
+              angle: "continuity beats brittle routing",
+              targetLane: "original",
+              formatPreference: "thread",
+            },
+            draftRef: {
+              excerpt: "context should survive the turn, not reset every message.",
+              activeDraftVersionId: "ver_2",
+              revisionChainId: "revision-chain-msg_2",
+            },
+            grounding: {
+              mode: "saved_sources",
+              explanation: "Built from stored product and voice context.",
+              sourceTitles: ["Continuity teardown", "Voice profile"],
+            },
+            critique: {
+              issuesFixed: ["Removed generic framing."],
+            },
+            artifacts: {
+              outputShape: "thread_seed",
+              surfaceMode: "generate_full_output",
+              quickReplyCount: 2,
+              hasDraft: true,
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("assistant_plan:"), true);
+  assert.equal(context.recentHistory.includes("assistant_draft:"), true);
+  assert.equal(context.recentHistory.includes("assistant_grounding:"), true);
+  assert.equal(context.recentHistory.includes("assistant_critique:"), true);
+  assert.equal(
+    context.activeDraft,
+    "context should survive the turn, not reset every message.",
+  );
+});
+
 test("route-level context feeds deterministic source transparency attribution", () => {
   const selectedDraftContext = parseSelectedDraftContext({
     messageId: "msg_17",

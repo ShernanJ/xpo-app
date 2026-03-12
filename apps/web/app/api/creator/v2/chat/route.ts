@@ -220,6 +220,8 @@ function buildAssistantContextPacket(args: {
   reply: string;
   plan: StrategyPlan | null;
   draft: string | null;
+  activeDraftVersionId?: string | null;
+  revisionChainId?: string | null;
   outputShape: string;
   surfaceMode: string | null | undefined;
   issuesFixed: string[];
@@ -228,13 +230,18 @@ function buildAssistantContextPacket(args: {
   groundingSources: GroundingPacketSourceMaterial[];
   quickReplies: unknown[];
 }): {
-  version: "assistant_context_v1";
+  version: "assistant_context_v2";
   summary: string;
   planRef: {
     objective: string;
     angle: string;
     targetLane: StrategyPlan["targetLane"];
     formatPreference: StrategyPlan["formatPreference"] | null;
+  } | null;
+  draftRef: {
+    excerpt: string;
+    activeDraftVersionId: string | null;
+    revisionChainId: string | null;
   } | null;
   grounding: {
     mode: string | null;
@@ -264,7 +271,7 @@ function buildAssistantContextPacket(args: {
   ].filter((value): value is string => Boolean(value));
 
   return {
-    version: "assistant_context_v1",
+    version: "assistant_context_v2",
     summary: summaryLines.join("\n"),
     planRef: args.plan
       ? {
@@ -272,6 +279,13 @@ function buildAssistantContextPacket(args: {
           angle: args.plan.angle,
           targetLane: args.plan.targetLane,
           formatPreference: args.plan.formatPreference || null,
+        }
+      : null,
+    draftRef: args.draft
+      ? {
+          excerpt: clipContextLine(args.draft, 220),
+          activeDraftVersionId: args.activeDraftVersionId || null,
+          revisionChainId: args.revisionChainId || null,
         }
       : null,
     grounding: {
@@ -875,6 +889,8 @@ export async function POST(request: NextRequest) {
               }
             : null,
         draft: resolvedPolicyDraft,
+        activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
+        revisionChainId: draftVersionPayload.revisionChainId,
         outputShape: result.outputShape,
         surfaceMode: result.surfaceMode,
         issuesFixed:

@@ -338,6 +338,22 @@ export function buildConversationContextFromHistory(args: {
     return Array.from(new Set(titles)).slice(0, 4);
   };
   const extractDraft = (entry: Record<string, unknown>): string | undefined => {
+    const contextPacket =
+      entry.contextPacket &&
+      typeof entry.contextPacket === "object" &&
+      !Array.isArray(entry.contextPacket)
+        ? (entry.contextPacket as Record<string, unknown>)
+        : null;
+    const draftRef =
+      contextPacket?.draftRef &&
+      typeof contextPacket.draftRef === "object" &&
+      !Array.isArray(contextPacket.draftRef)
+        ? (contextPacket.draftRef as Record<string, unknown>)
+        : null;
+    if (draftRef && typeof draftRef.excerpt === "string" && draftRef.excerpt.trim()) {
+      return draftRef.excerpt.trim();
+    }
+
     if (typeof entry.draft === "string" && entry.draft.trim()) {
       return entry.draft.trim();
     }
@@ -410,16 +426,34 @@ export function buildConversationContextFromHistory(args: {
       contextPacket && typeof contextPacket.summary === "string"
         ? contextPacket.summary.trim()
         : "";
+    const planRef =
+      contextPacket?.planRef &&
+      typeof contextPacket.planRef === "object" &&
+      !Array.isArray(contextPacket.planRef)
+        ? (contextPacket.planRef as Record<string, unknown>)
+        : null;
+    const groundingRef =
+      contextPacket?.grounding &&
+      typeof contextPacket.grounding === "object" &&
+      !Array.isArray(contextPacket.grounding)
+        ? (contextPacket.grounding as Record<string, unknown>)
+        : null;
+    const critiqueRef =
+      contextPacket?.critique &&
+      typeof contextPacket.critique === "object" &&
+      !Array.isArray(contextPacket.critique)
+        ? (contextPacket.critique as Record<string, unknown>)
+        : null;
 
     if (contextSummary) {
       blocks.push(`assistant_context:\n${contextSummary}`);
-      return blocks.join("\n");
     }
 
     const plan =
-      entry.plan && typeof entry.plan === "object" && !Array.isArray(entry.plan)
+      planRef ||
+      (entry.plan && typeof entry.plan === "object" && !Array.isArray(entry.plan)
         ? (entry.plan as Record<string, unknown>)
-        : null;
+        : null);
     if (plan) {
       const planLines = [
         typeof plan.objective === "string" ? `- objective: ${clip(plan.objective, 180)}` : null,
@@ -437,8 +471,18 @@ export function buildConversationContextFromHistory(args: {
     }
 
     const groundingExplanation =
-      typeof entry.groundingExplanation === "string" ? entry.groundingExplanation.trim() : "";
-    const groundingSources = Array.isArray(entry.groundingSources)
+      groundingRef && typeof groundingRef.explanation === "string"
+        ? groundingRef.explanation.trim()
+        : typeof entry.groundingExplanation === "string"
+          ? entry.groundingExplanation.trim()
+          : "";
+    const groundingSources =
+      groundingRef && Array.isArray(groundingRef.sourceTitles)
+        ? groundingRef.sourceTitles
+            .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+            .map((title) => title.trim())
+            .slice(0, 2)
+        : Array.isArray(entry.groundingSources)
       ? entry.groundingSources
           .map((source) =>
             source && typeof source === "object" && typeof (source as Record<string, unknown>).title === "string"
@@ -447,7 +491,7 @@ export function buildConversationContextFromHistory(args: {
           )
           .filter(Boolean)
           .slice(0, 2)
-      : [];
+        : [];
     if (groundingExplanation || groundingSources.length > 0) {
       const groundingLines = [
         groundingExplanation ? `- ${clip(groundingExplanation, 180)}` : null,
@@ -460,11 +504,16 @@ export function buildConversationContextFromHistory(args: {
       }
     }
 
-    const issuesFixed = Array.isArray(entry.issuesFixed)
+    const issuesFixed =
+      critiqueRef && Array.isArray(critiqueRef.issuesFixed)
+        ? critiqueRef.issuesFixed
+            .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+            .slice(0, 3)
+        : Array.isArray(entry.issuesFixed)
       ? entry.issuesFixed
           .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
           .slice(0, 3)
-      : [];
+        : [];
     if (issuesFixed.length > 0) {
       blocks.push(`assistant_critique:\n${issuesFixed.map((issue) => `- ${clip(issue, 160)}`).join("\n")}`);
     }
