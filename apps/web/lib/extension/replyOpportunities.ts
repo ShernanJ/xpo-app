@@ -40,6 +40,13 @@ export interface ReplyInsightsBucket {
   postedRate: number | null;
 }
 
+export interface ReplyOutcomeBucket extends ReplyInsightsBucket {
+  totalProfileClicks: number;
+  totalFollowerDelta: number;
+  averageProfileClicks: number | null;
+  averageFollowerDelta: number | null;
+}
+
 export interface ReplyInsights {
   generatedAt: string;
   totalOpportunities: number;
@@ -49,9 +56,9 @@ export interface ReplyInsights {
   observedRate: number | null;
   topPillars: ReplyInsightsBucket[];
   topAngleLabels: ReplyInsightsBucket[];
-  topIntentLabels: ReplyInsightsBucket[];
-  topIntentAnchors: ReplyInsightsBucket[];
-  topIntentRationales: ReplyInsightsBucket[];
+  topIntentLabels: ReplyOutcomeBucket[];
+  topIntentAnchors: ReplyOutcomeBucket[];
+  topIntentRationales: ReplyOutcomeBucket[];
   topGoals: string[];
   outcomeSnapshot: {
     averageLikes: number | null;
@@ -347,6 +354,24 @@ function getIntentEntries(record: ReplyOpportunityRecord): Array<{
   return next;
 }
 
+function getObservedOutcome(item: ReplyOpportunityRecord): {
+  profileClicks: number;
+  followerDelta: number;
+} {
+  const metrics = isJsonObject(item.observedMetrics) ? item.observedMetrics : null;
+  if (!metrics) {
+    return {
+      profileClicks: 0,
+      followerDelta: 0,
+    };
+  }
+
+  return {
+    profileClicks: asNumber(metrics.profileClicks ?? metrics.profile_clicks) || 0,
+    followerDelta: asNumber(metrics.followerDelta ?? metrics.follower_delta) || 0,
+  };
+}
+
 function createBucketMap(
   items: ReplyOpportunityRecord[],
   selector: (item: ReplyOpportunityRecord) => string | string[] | null,
@@ -421,6 +446,98 @@ function createBucketMap(
     .slice(0, 5);
 }
 
+function createOutcomeBucketMap(
+  items: ReplyOpportunityRecord[],
+  selector: (item: ReplyOpportunityRecord) => string | string[] | null,
+): ReplyOutcomeBucket[] {
+  const buckets = new Map<
+    string,
+    Omit<ReplyOutcomeBucket, "selectionRate" | "postedRate" | "averageProfileClicks" | "averageFollowerDelta">
+  >();
+
+  for (const item of items) {
+    const selected = selector(item);
+    const labels = Array.isArray(selected)
+      ? selected.map((entry) => entry.trim()).filter(Boolean)
+      : typeof selected === "string"
+        ? [selected.trim()].filter(Boolean)
+        : [];
+    if (labels.length === 0) {
+      continue;
+    }
+
+    const observedOutcome = getObservedOutcome(item);
+    for (const label of [...new Set(labels)]) {
+      const current = buckets.get(label) || {
+        label,
+        generatedCount: 0,
+        selectedCount: 0,
+        postedCount: 0,
+        observedCount: 0,
+        totalProfileClicks: 0,
+        totalFollowerDelta: 0,
+      };
+
+      if (item.generatedAt) {
+        current.generatedCount += 1;
+      }
+      if (item.selectedAt) {
+        current.selectedCount += 1;
+      }
+      if (item.postedAt) {
+        current.postedCount += 1;
+      }
+      if (item.observedAt) {
+        current.observedCount += 1;
+        current.totalProfileClicks += observedOutcome.profileClicks;
+        current.totalFollowerDelta += observedOutcome.followerDelta;
+      }
+
+      buckets.set(label, current);
+    }
+  }
+
+  return [...buckets.values()]
+    .map((bucket) => ({
+      ...bucket,
+      selectionRate:
+        bucket.generatedCount > 0
+          ? Number((bucket.selectedCount / bucket.generatedCount).toFixed(2))
+          : null,
+      postedRate:
+        bucket.generatedCount > 0
+          ? Number((bucket.postedCount / bucket.generatedCount).toFixed(2))
+          : null,
+      averageProfileClicks:
+        bucket.observedCount > 0
+          ? Number((bucket.totalProfileClicks / bucket.observedCount).toFixed(2))
+          : null,
+      averageFollowerDelta:
+        bucket.observedCount > 0
+          ? Number((bucket.totalFollowerDelta / bucket.observedCount).toFixed(2))
+          : null,
+    }))
+    .sort((left, right) => {
+      const followerDelta = right.totalFollowerDelta - left.totalFollowerDelta;
+      if (followerDelta !== 0) {
+        return followerDelta;
+      }
+
+      const profileClicks = right.totalProfileClicks - left.totalProfileClicks;
+      if (profileClicks !== 0) {
+        return profileClicks;
+      }
+
+      const postedDelta = right.postedCount - left.postedCount;
+      if (postedDelta !== 0) {
+        return postedDelta;
+      }
+
+      return right.generatedCount - left.generatedCount;
+    })
+    .slice(0, 5);
+}
+
 export async function getReplyInsightsForUser(args: {
   userId: string;
   xHandle?: string | null;
@@ -460,13 +577,13 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
     items,
     (item) => item.selectedAngleLabel || item.generatedAngleLabel,
   );
-  const topIntentLabels = createBucketMap(items, (item) =>
+  const topIntentLabels = createOutcomeBucketMap(items, (item) =>
     getIntentEntries(item).map((entry) => entry.label),
   );
-  const topIntentAnchors = createBucketMap(items, (item) =>
+  const topIntentAnchors = createOutcomeBucketMap(items, (item) =>
     getIntentEntries(item).map((entry) => entry.anchor),
   );
-  const topIntentRationales = createBucketMap(items, (item) =>
+  const topIntentRationales = createOutcomeBucketMap(items, (item) =>
     getIntentEntries(item).map((entry) => entry.rationale),
   );
   const topGoals = [...new Set(items.map((item) => item.goal.trim()).filter(Boolean))].slice(0, 4);
@@ -521,6 +638,18 @@ export function buildReplyInsights(items: ReplyOpportunityRecord[]): ReplyInsigh
   if (topIntentLabels[0]?.postedCount && topIntentLabels[0].postedCount > 0) {
     bestSignals.push(
       `${topIntentLabels[0].label} is the intent label most likely to make it to posting.`,
+    );
+  }
+
+  if (topIntentAnchors[0]?.totalProfileClicks && topIntentAnchors[0].totalProfileClicks > 0) {
+    bestSignals.push(
+      `The intent anchor "${topIntentAnchors[0].label}" has driven ${topIntentAnchors[0].totalProfileClicks} profile-click events so far.`,
+    );
+  }
+
+  if (topIntentLabels[0]?.totalFollowerDelta && topIntentLabels[0].totalFollowerDelta > 0) {
+    bestSignals.push(
+      `${topIntentLabels[0].label} has the strongest observed follower delta so far (${topIntentLabels[0].totalFollowerDelta}).`,
     );
   }
 
@@ -622,6 +751,18 @@ export function buildStrategyAdjustments(args: {
   if (args.replyInsights.topIntentLabels[0]) {
     experiments.push(
       `Test more ${args.replyInsights.topIntentLabels[0].label} reply intents against ${args.replyInsights.topPillars[0]?.label || args.strategySnapshot.contentPillars[0] || "the top pillar"}.`,
+    );
+  }
+
+  if ((args.replyInsights.topIntentAnchors[0]?.totalProfileClicks || 0) > 0) {
+    notes.push(
+      `The leading reply intent anchor has produced ${args.replyInsights.topIntentAnchors[0]?.totalProfileClicks} profile-click events so far.`,
+    );
+  }
+
+  if ((args.replyInsights.topIntentLabels[0]?.totalFollowerDelta || 0) > 0) {
+    notes.push(
+      `The leading reply intent label has produced ${args.replyInsights.topIntentLabels[0]?.totalFollowerDelta} follower delta so far.`,
     );
   }
 

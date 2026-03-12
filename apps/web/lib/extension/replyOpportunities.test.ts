@@ -132,8 +132,14 @@ test("buildReplyInsights summarizes lifecycle and top pillars", () => {
   assert.equal(insights.topPillars[0]?.label, "product positioning");
   assert.equal(insights.topIntentLabels[0]?.label, "nuance");
   assert.equal(insights.topIntentAnchors[0]?.label, "positioning | clarity");
+  assert.equal(insights.topIntentAnchors[0]?.totalProfileClicks, 3);
+  assert.equal(insights.topIntentLabels[0]?.totalFollowerDelta, 1);
   assert.equal(insights.outcomeSnapshot.totalProfileClicks, 3);
   assert.equal(insights.selectionRate, 0.5);
+  assert.equal(
+    insights.bestSignals.some((entry) => entry.toLowerCase().includes("profile-click events")),
+    true,
+  );
 });
 
 test("buildStrategyAdjustments turns reply insights into reinforce and deprioritize cues", () => {
@@ -176,6 +182,10 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
           observedCount: 1,
           selectionRate: 1,
           postedRate: 1,
+          totalProfileClicks: 3,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 3,
+          averageFollowerDelta: 1,
         },
       ],
       topIntentAnchors: [
@@ -187,6 +197,10 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
           observedCount: 1,
           selectionRate: 1,
           postedRate: 1,
+          totalProfileClicks: 3,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 3,
+          averageFollowerDelta: 1,
         },
       ],
       topIntentRationales: [
@@ -198,6 +212,10 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
           observedCount: 1,
           selectionRate: 1,
           postedRate: 1,
+          totalProfileClicks: 3,
+          totalFollowerDelta: 1,
+          averageProfileClicks: 3,
+          averageFollowerDelta: 1,
         },
       ],
       topGoals: ["followers"],
@@ -226,4 +244,8 @@ test("buildStrategyAdjustments turns reply insights into reinforce and depriorit
     true,
   );
   assert.equal(adjustments.deprioritize.includes("broad motivational advice with no niche tie"), true);
+  assert.equal(
+    adjustments.notes.some((entry) => entry.toLowerCase().includes("profile-click events")),
+    true,
+  );
 });
