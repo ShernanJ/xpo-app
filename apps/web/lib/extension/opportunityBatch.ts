@@ -113,6 +113,12 @@ export interface StoredOpportunityNotes {
       anchor: string;
       rationale: string;
     }>;
+    copiedReplyIntent?: {
+      label: ExtensionSuggestedAngle;
+      strategyPillar: string;
+      anchor: string;
+      rationale: string;
+    } | null;
     copiedReplyId?: string | null;
     copiedReplyLabel?: string | null;
     copiedReplyText?: string | null;
@@ -279,6 +285,13 @@ function asReplyIntentArray(
     next.push({ label, strategyPillar, anchor, rationale });
   }
   return next;
+}
+
+function asReplyIntent(
+  value: unknown,
+): NonNullable<StoredOpportunityNotes["analytics"]>["copiedReplyIntent"] {
+  const [first] = asReplyIntentArray(value ? [value] : []);
+  return first || null;
 }
 
 function stringifyScoreTier(score: number) {
@@ -1055,6 +1068,9 @@ export function readStoredOpportunityNotes(record: ReplyOpportunity): StoredOppo
             generatedReplyIntents: asReplyIntentArray(
               (notes.analytics as Record<string, unknown>).generatedReplyIntents,
             ),
+            copiedReplyIntent: asReplyIntent(
+              (notes.analytics as Record<string, unknown>).copiedReplyIntent,
+            ),
             copiedReplyId:
               typeof (notes.analytics as Record<string, unknown>).copiedReplyId === "string"
                 ? ((notes.analytics as Record<string, unknown>).copiedReplyId as string)
@@ -1146,6 +1162,10 @@ export function mergeStoredOpportunityNotes(
       generatedReplyIntents: patch.analytics?.generatedReplyIntents
         ? patch.analytics.generatedReplyIntents
         : current.analytics?.generatedReplyIntents || [],
+      copiedReplyIntent:
+        patch.analytics?.copiedReplyIntent !== undefined
+          ? patch.analytics.copiedReplyIntent
+          : current.analytics?.copiedReplyIntent || null,
     },
   } satisfies StoredOpportunityNotes;
 }

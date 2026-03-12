@@ -1,3 +1,5 @@
+import type { ReplyOpportunity } from "../../../../lib/generated/prisma/client.ts";
+
 interface ExtensionAuthResult {
   user: {
     id: string;
@@ -20,17 +22,24 @@ interface ReplyLogRequest {
   source?: string | null;
   generatedReplyIds?: string[] | null;
   generatedReplyLabels?: string[] | null;
+  generatedReplyIntents?: Array<{
+    label: string;
+    strategyPillar: string;
+    anchor: string;
+    rationale: string;
+  }> | null;
   copiedReplyId?: string | null;
   copiedReplyLabel?: string | null;
   copiedReplyText?: string | null;
+  copiedReplyIntent?: {
+    label: string;
+    strategyPillar: string;
+    anchor: string;
+    rationale: string;
+  } | null;
 }
 
-interface ReplyOpportunityRecord {
-  id: string;
-  selectedOptionId?: string | null;
-  selectedAngleLabel?: string | null;
-  selectedOptionText?: string | null;
-}
+type ReplyOpportunityRecord = ReplyOpportunity;
 
 interface ReplyLogHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
@@ -133,9 +142,11 @@ export async function handleExtensionReplyLogPost(
           source: parsed.data.source ?? null,
           generatedReplyIds: parsed.data.generatedReplyIds ?? undefined,
           generatedReplyLabels: parsed.data.generatedReplyLabels ?? undefined,
+          generatedReplyIntents: parsed.data.generatedReplyIntents ?? undefined,
           copiedReplyId: parsed.data.copiedReplyId ?? null,
           copiedReplyLabel: parsed.data.copiedReplyLabel ?? null,
           copiedReplyText: parsed.data.copiedReplyText ?? null,
+          copiedReplyIntent: parsed.data.copiedReplyIntent ?? null,
           lastLoggedEvent: parsed.data.event,
         },
       });
@@ -146,10 +157,10 @@ export async function handleExtensionReplyLogPost(
           tweetText: parsed.data.postText,
           tweetUrl: parsed.data.postUrl,
           authorHandle: parsed.data.authorHandle.replace(/^@+/, "").toLowerCase(),
-          state: lifecycleUpdate.state,
           ...lifecycleUpdate,
           selectedOptionId: parsed.data.copiedReplyId ?? existing.selectedOptionId,
           selectedAngleLabel:
+            parsed.data.copiedReplyIntent?.label ??
             parsed.data.copiedReplyLabel ??
             parsed.data.angle ??
             existing.selectedAngleLabel,
@@ -168,6 +179,9 @@ export async function handleExtensionReplyLogPost(
         postId: parsed.data.postId,
         verdict: parsed.data.verdict ?? null,
         angle: parsed.data.angle ?? null,
+        intentLabel: parsed.data.copiedReplyIntent?.label ?? null,
+        intentAnchor: parsed.data.copiedReplyIntent?.anchor ?? null,
+        intentStrategyPillar: parsed.data.copiedReplyIntent?.strategyPillar ?? null,
       },
     }).catch((error) =>
       deps.logExtensionRouteFailure({

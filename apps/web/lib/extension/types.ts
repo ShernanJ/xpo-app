@@ -201,7 +201,9 @@ export interface ExtensionReplyLogRequest {
   source?: string | null;
   generatedReplyIds?: string[] | null;
   generatedReplyLabels?: ExtensionSuggestedAngle[] | null;
+  generatedReplyIntents?: ExtensionReplyIntentMetadata[] | null;
   copiedReplyId?: string | null;
   copiedReplyLabel?: ExtensionSuggestedAngle | null;
   copiedReplyText?: string | null;
+  copiedReplyIntent?: ExtensionReplyIntentMetadata | null;
 }

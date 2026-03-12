@@ -35,6 +35,15 @@ export const ExtensionSuggestedAngleSchema = z.enum([
   "known_for",
 ]);
 
+export const ExtensionReplyIntentMetadataSchema = z
+  .object({
+    label: ExtensionSuggestedAngleSchema,
+    strategyPillar: z.string().trim().min(1).max(120),
+    anchor: z.string().trim().min(1).max(240),
+    rationale: z.string().trim().min(1).max(240),
+  })
+  .strict();
+
 export const ExtensionExpectedValueLevelSchema = z.enum(["low", "medium", "high"]);
 
 export const ExtensionOpportunityCandidateSchema = z
@@ -143,15 +152,7 @@ export const ExtensionReplyOptionChoiceSchema = z
     id: z.string().trim().min(1),
     label: ExtensionSuggestedAngleSchema,
     text: z.string().trim().min(1).max(500),
-    intent: z
-      .object({
-        label: ExtensionSuggestedAngleSchema,
-        strategyPillar: z.string().trim().min(1).max(120),
-        anchor: z.string().trim().min(1).max(240),
-        rationale: z.string().trim().min(1).max(240),
-      })
-      .strict()
-      .optional(),
+    intent: ExtensionReplyIntentMetadataSchema.optional(),
   })
   .strict();
 
@@ -187,8 +188,10 @@ export const ExtensionReplyLogRequestSchema = z
     source: z.string().trim().min(1).max(80).nullable().optional(),
     generatedReplyIds: z.array(z.string().trim().min(1)).max(3).nullable().optional(),
     generatedReplyLabels: z.array(ExtensionSuggestedAngleSchema).max(3).nullable().optional(),
+    generatedReplyIntents: z.array(ExtensionReplyIntentMetadataSchema).max(3).nullable().optional(),
     copiedReplyId: z.string().trim().min(1).nullable().optional(),
     copiedReplyLabel: ExtensionSuggestedAngleSchema.nullable().optional(),
     copiedReplyText: z.string().trim().min(1).max(500).nullable().optional(),
+    copiedReplyIntent: ExtensionReplyIntentMetadataSchema.nullable().optional(),
   })
   .strict();

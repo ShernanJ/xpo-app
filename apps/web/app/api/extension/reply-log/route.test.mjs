@@ -22,6 +22,14 @@ const validPayload = {
   source: "remote",
   generatedReplyIds: ["r1", "r2"],
   generatedReplyLabels: ["nuance", "disagree"],
+  generatedReplyIntents: [
+    {
+      label: "nuance",
+      strategyPillar: "product positioning",
+      anchor: "positioning | clarity",
+      rationale: "push past agreement by grounding the point in positioning clarity",
+    },
+  ],
 };
 
 test("parseExtensionReplyLogRequest accepts generated lifecycle payloads", () => {
@@ -45,6 +53,12 @@ test("parseExtensionReplyLogRequest keeps copied reply payloads", () => {
     copiedReplyId: "r1",
     copiedReplyLabel: "nuance",
     copiedReplyText: "the useful nuance is the positioning clarity.",
+    copiedReplyIntent: {
+      label: "nuance",
+      strategyPillar: "product positioning",
+      anchor: "positioning | clarity",
+      rationale: "push past agreement by grounding the point in positioning clarity",
+    },
   });
 
   assert.equal(parsed.ok, true);
