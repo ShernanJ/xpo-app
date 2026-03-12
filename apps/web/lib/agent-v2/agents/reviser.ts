@@ -135,6 +135,17 @@ function buildRevisionChangeGuidance(
   revision: DraftRevisionDirective,
   maxCharacterLimit: number,
 ): string {
+  if (revision.changeKind === "specificity_tune") {
+    return `
+SPECIFICITY MODE:
+- The user wants the draft to feel less generic, not more embellished.
+- Sharpen abstract wording into clearer concrete language only when that wording is already supported by the draft, current user note, recent chat, or grounding packet.
+- Do NOT add invented metrics, outcomes, experiments, customer names, product mechanics, follower spikes, or autobiographical proof to make it sound more specific.
+- If grounded specifics are thin, improve specificity through cleaner verbs, tighter nouns, clearer sequencing, or a more direct point instead of inventing evidence.
+- Keep the same overall angle and structure unless a tiny flow fix is necessary.
+    `.trim();
+  }
+
   if (revision.changeKind === "length_expand") {
     return `
 EXPANSION MODE:

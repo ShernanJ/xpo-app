@@ -5,6 +5,7 @@ export type DraftRevisionChangeKind =
   | "hook_only_edit"
   | "length_trim"
   | "length_expand"
+  | "specificity_tune"
   | "tone_shift"
   | "full_rewrite"
   | "generic";
@@ -120,6 +121,29 @@ export function normalizeDraftRevisionInstruction(
       instruction:
         "expand the current draft with more specificity and detail while preserving the same core angle, staying close to the existing wording, and only elaborating with details that are already grounded in the draft, chat, or session context",
       changeKind: "length_expand",
+      targetText: null,
+    };
+  }
+
+  if (
+    [
+      "more specific",
+      "make it more specific",
+      "be more specific",
+      "less generic",
+      "make it less generic",
+      "less vague",
+      "make it less vague",
+      "sharper",
+      "make this sharper",
+      "add specificity",
+      "tighten the point",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return {
+      instruction:
+        "make the current draft more specific and less generic while preserving the same angle, staying close to the existing structure, and sharpening only with details already present in the draft, user note, chat, or grounding",
+      changeKind: "specificity_tune",
       targetText: null,
     };
   }

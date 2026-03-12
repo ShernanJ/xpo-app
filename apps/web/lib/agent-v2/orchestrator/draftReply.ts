@@ -269,6 +269,21 @@ function looksLikeExplicitExpandRequestMessage(normalized: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+function looksLikeExplicitSpecificityRequestMessage(normalized: string): boolean {
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\bmore\s+specific\b/,
+    /\bless\s+generic\b/,
+    /\bless\s+vague\b/,
+    /\badd\s+specificity\b/,
+    /\bsharper\b/,
+    /\btighten\s+the\s+point\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function buildDraftReply(args: BuildDraftReplyArgs): string {
   const normalized = args.userMessage.trim().toLowerCase();
   const issuesFixed = args.issuesFixed || [];
@@ -286,6 +301,9 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
     args.revisionChangeKind === "length_trim" || looksLikeExplicitTrimRequestMessage(normalized);
   const canUseExpandSpecificCopy =
     args.revisionChangeKind === "length_expand" || looksLikeExplicitExpandRequestMessage(normalized);
+  const canUseSpecificityCopy =
+    args.revisionChangeKind === "specificity_tune" ||
+    looksLikeExplicitSpecificityRequestMessage(normalized);
 
   if (isRevisionRequest) {
     if (mentionsTrim(issuesFixed) && canUseTrimSpecificCopy) {
@@ -355,6 +373,41 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         },
         profile: cadenceProfile,
         seed: `${seed}|rev|expand`,
+      });
+    }
+
+    if (canUseSpecificityCopy) {
+      return buildCadenceReply({
+        action: {
+          blunt: [
+            "sharpened it and made the point clearer.",
+            "made it more specific without changing the angle.",
+          ],
+          balanced: [
+            "sharpened it and made the point clearer.",
+            "made it more specific without changing the angle.",
+          ],
+          warm: [
+            "sharpened it and made the point more concrete without changing the angle.",
+            "made it less generic while keeping the same point.",
+          ],
+        },
+        followUp: {
+          blunt: [
+            "want it even sharper?",
+            "want another pass?",
+          ],
+          balanced: [
+            "want it even sharper?",
+            "does this feel clearer?",
+          ],
+          warm: [
+            "want me to sharpen it one more step?",
+            "does this feel clearer now?",
+          ],
+        },
+        profile: cadenceProfile,
+        seed: `${seed}|rev|specificity`,
       });
     }
 

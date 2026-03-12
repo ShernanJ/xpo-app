@@ -352,6 +352,20 @@ test("edit handoff does not imply trimming when the user asked for a longer draf
   assert.equal(/\?/.test(reply), true);
 });
 
+test("edit handoff uses specificity language for less-generic revision requests", () => {
+  const reply = buildDraftReply({
+    userMessage: "make it more specific and less generic",
+    draftPreference: "balanced",
+    isEdit: true,
+    issuesFixed: [],
+    revisionChangeKind: "specificity_tune",
+  });
+
+  assert.equal(/trimmed|tightened it up so it reads fast|shortened/i.test(reply), false);
+  assert.equal(/specific|clearer|sharpened|less generic/i.test(reply), true);
+  assert.equal(/\?/.test(reply), true);
+});
+
 test("draft handoff adapts to blunt cadence when user prefers direct replies", () => {
   const reply = buildDraftReply({
     userMessage: "looks good write it",
@@ -835,6 +849,17 @@ test("draft revision normalizer recognizes expansion requests", () => {
   assert.equal(directive.changeKind, "length_expand");
   assert.match(directive.instruction, /expand the current draft/i);
   assert.match(directive.instruction, /only elaborating with details that are already grounded/i);
+});
+
+test("draft revision normalizer recognizes specificity requests", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "make it more specific and less generic",
+    "xpo helps people write and grow faster on x",
+  );
+
+  assert.equal(directive.changeKind, "specificity_tune");
+  assert.match(directive.instruction, /more specific and less generic/i);
+  assert.match(directive.instruction, /details already present/i);
 });
 
 test("draft revision normalizer treats 'clean this up' as a tone shift", () => {
