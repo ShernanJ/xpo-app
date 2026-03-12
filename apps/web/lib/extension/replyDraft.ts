@@ -1,8 +1,11 @@
-import {
-  checkDraftClaimsAgainstGrounding,
-} from "../agent-v2/orchestrator/claimChecker.ts";
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import {
+  collectKeywords,
+  normalizeComparable,
+  normalizeWhitespace,
+  sanitizeReplyText,
+} from "./replyQuality.ts";
 import type {
   ExtensionReplyDraftRequest,
   ExtensionReplyDraftResponse,
@@ -10,58 +13,11 @@ import type {
   ExtensionReplyTone,
 } from "./types";
 
-const STOPWORDS = new Set([
-  "a",
-  "about",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "how",
-  "i",
-  "if",
-  "in",
-  "is",
-  "it",
-  "its",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "what",
-  "when",
-  "why",
-  "with",
-]);
-
 export interface ExtensionReplyDraftBuildResult {
   response: ExtensionReplyDraftResponse;
   strategyPillar: string;
   angleLabel: string;
   groundingPacket: GroundingPacket;
-}
-
-function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function normalizeComparable(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function collectKeywords(value: string): string[] {
-  return normalizeComparable(value)
-    .split(" ")
-    .map((token) => token.trim())
-    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
 }
 
 function pickStrategyPillar(args: {
@@ -171,50 +127,6 @@ function buildBoldReply(args: {
   return `${lead} ${focus} is not the hard part. ${lens} is. otherwise this stays interesting but not usable.`;
 }
 
-function looksLowValueReply(value: string): boolean {
-  const normalized = normalizeComparable(value);
-  if (!normalized) {
-    return true;
-  }
-
-  if (/^(great|good|nice|true|agreed|exactly|totally|well said)\b/.test(normalized)) {
-    return true;
-  }
-
-  const wordCount = normalized.split(" ").filter(Boolean).length;
-  if (wordCount < 9) {
-    return true;
-  }
-
-  return !/\b(because|otherwise|difference|layer|hinge|system|proof|usable|reuse|practice)\b/.test(
-    normalized,
-  );
-}
-
-function violatesReplyHardGates(value: string, strategy: GrowthStrategySnapshot): boolean {
-  const normalized = normalizeComparable(value);
-  if (!normalized) {
-    return true;
-  }
-
-  if (/\b(i|i'm|ive|i've|my|we|our|us)\b/.test(normalized)) {
-    return true;
-  }
-
-  if (/\b(we both|like we said|as always|back when)\b/.test(normalized)) {
-    return true;
-  }
-
-  if (/\b\d[\d,.%]*\b/.test(normalized)) {
-    return true;
-  }
-
-  return strategy.offBrandThemes.some((theme) => {
-    const themeKey = normalizeComparable(theme);
-    return themeKey.length > 0 && normalized.includes(themeKey);
-  });
-}
-
 export function buildReplyGroundingPacket(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
@@ -246,23 +158,19 @@ function sanitizeReplyOption(args: {
   fallbackText: string;
   strategy: GrowthStrategySnapshot;
   groundingPacket: GroundingPacket;
+  sourceText: string;
+  strategyPillar: string;
 }) {
-  const initialText = normalizeWhitespace(args.option.text);
-  const candidate = violatesReplyHardGates(initialText, args.strategy)
-    ? args.fallbackText
-    : initialText;
-  const checked = checkDraftClaimsAgainstGrounding({
-    draft: candidate,
-    groundingPacket: args.groundingPacket,
-  });
-  const safeText =
-    checked.draft && !looksLowValueReply(checked.draft) && !violatesReplyHardGates(checked.draft, args.strategy)
-      ? checked.draft
-      : args.fallbackText;
-
   return {
     ...args.option,
-    text: normalizeWhitespace(safeText),
+    text: sanitizeReplyText({
+      candidate: args.option.text,
+      fallbackText: args.fallbackText,
+      sourceText: args.sourceText,
+      strategyPillar: args.strategyPillar,
+      strategy: args.strategy,
+      groundingPacket: args.groundingPacket,
+    }),
   };
 }
 
@@ -303,6 +211,8 @@ export function buildExtensionReplyDraft(args: {
       fallbackText: safeFallback,
       strategy: args.strategy,
       groundingPacket,
+      sourceText: args.request.tweetText,
+      strategyPillar,
     }),
     sanitizeReplyOption({
       option: {
@@ -317,6 +227,8 @@ export function buildExtensionReplyDraft(args: {
       fallbackText: boldFallback,
       strategy: args.strategy,
       groundingPacket,
+      sourceText: args.request.tweetText,
+      strategyPillar,
     }),
   ];
   const notes = [

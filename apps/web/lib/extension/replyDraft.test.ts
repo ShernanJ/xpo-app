@@ -71,3 +71,23 @@ test("buildExtensionReplyDraft does not invent first-person or numeric claims", 
     assert.equal(option.text.length > 20, true);
   }
 });
+
+test("buildExtensionReplyDraft keeps replies anchored instead of generic agreement", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_3",
+      tweetText: "Replies only work when they add a real layer instead of agreement.",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/3",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  for (const option of result.response.options) {
+    assert.equal(/^(great|good|nice|agreed|totally|exactly)\b/i.test(option.text), false);
+    assert.equal(/\b(layer|reply|usable|system|follow-through)\b/i.test(option.text), true);
+  }
+});

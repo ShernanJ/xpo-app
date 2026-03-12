@@ -1,74 +1,18 @@
-import { checkDraftClaimsAgainstGrounding } from "../agent-v2/orchestrator/claimChecker.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
+import {
+  collectKeywords,
+  normalizeComparable,
+  normalizeWhitespace,
+  sanitizeReplyText,
+} from "./replyQuality.ts";
 import type {
   ExtensionOpportunity,
   ExtensionOpportunityCandidate,
   ExtensionReplyOptionsResponse,
   ExtensionSuggestedAngle,
 } from "./types.ts";
-
-const STOPWORDS = new Set([
-  "a",
-  "about",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "but",
-  "by",
-  "for",
-  "from",
-  "how",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "what",
-  "when",
-  "with",
-]);
-
-const UNSUPPORTED_CLAIM_PATTERNS = [
-  /\b(i|i'm|ive|i've|my|me|we|our|us)\b/i,
-  /\bclients?\b/i,
-  /\brevenue\b/i,
-  /\barr\b/i,
-  /\bcustomers?\b/i,
-  /\busers?\b/i,
-  /\bteam\b/i,
-  /\bfounders?\b/i,
-  /\bcase study\b/i,
-  /\bresults?\b/i,
-  /\bgrew\b/i,
-  /\bscaled\b/i,
-  /\bmade\b.*\b(million|k)\b/i,
-  /\b\d[\d,.%]*\b/,
-];
-
-function normalizeWhitespace(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function normalizeComparable(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function collectKeywords(value: string) {
-  return normalizeComparable(value)
-    .split(" ")
-    .map((token) => token.trim())
-    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
-}
 
 function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
   if (!styleCard) {
@@ -116,24 +60,6 @@ function inferConcisePreference(styleCard: VoiceStyleCard | null) {
 function applyVoiceCase(value: string, lowercase: boolean) {
   const normalized = normalizeWhitespace(value);
   return lowercase ? normalized.toLowerCase() : normalized;
-}
-
-function violatesHardGates(value: string, styleCard: VoiceStyleCard | null) {
-  const normalized = normalizeWhitespace(value);
-  if (!normalized) {
-    return true;
-  }
-
-  for (const pattern of UNSUPPORTED_CLAIM_PATTERNS) {
-    if (pattern.test(normalized)) {
-      return true;
-    }
-  }
-
-  const forbiddenPhrases = styleCard?.forbiddenPhrases || [];
-  return forbiddenPhrases.some((phrase) =>
-    normalizeComparable(normalized).includes(normalizeComparable(phrase)),
-  );
 }
 
 function buildPillarLens(pillar: string) {
@@ -273,6 +199,7 @@ export function buildExtensionReplyOptions(args: {
   });
 
   const seen = new Set<string>();
+  const fallback = `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
   const options = labels
     .map((label) => {
       const template = buildTemplate({
@@ -282,14 +209,16 @@ export function buildExtensionReplyOptions(args: {
         strategyPillar: args.strategyPillar,
         concise,
       });
-      const checked = checkDraftClaimsAgainstGrounding({
-        draft: template,
+      const sanitized = sanitizeReplyText({
+        candidate: template,
+        fallbackText: fallback,
+        sourceText: args.post.text,
+        strategyPillar: args.strategyPillar,
+        strategy: args.strategy,
         groundingPacket,
+        styleCard: args.styleCard,
       });
-      const nextText = applyVoiceCase(checked.draft || template, lowercase);
-      if (violatesHardGates(nextText, args.styleCard)) {
-        return null;
-      }
+      const nextText = applyVoiceCase(sanitized, lowercase);
       const dedupeKey = normalizeComparable(nextText);
       if (!dedupeKey || seen.has(dedupeKey)) {
         return null;
@@ -304,14 +233,21 @@ export function buildExtensionReplyOptions(args: {
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option))
     .slice(0, 3);
-
-  const fallback = applyVoiceCase(
-    `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`,
+  const fallbackOption = applyVoiceCase(
+    sanitizeReplyText({
+      candidate: fallback,
+      fallbackText: fallback,
+      sourceText: args.post.text,
+      strategyPillar: args.strategyPillar,
+      strategy: args.strategy,
+      groundingPacket,
+      styleCard: args.styleCard,
+    }),
     lowercase,
   );
 
   return {
-    options: options.length > 0 ? options : [{ id: "nuance-1", label: "nuance", text: fallback }],
+    options: options.length > 0 ? options : [{ id: "nuance-1", label: "nuance", text: fallbackOption }],
     warnings,
     groundingNotes,
   };

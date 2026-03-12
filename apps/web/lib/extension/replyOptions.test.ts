@@ -109,3 +109,83 @@ test("buildExtensionReplyOptions returns 1 to 3 distinct grounded reply options"
   assert.equal(new Set(response.options.map((option) => option.text)).size, response.options.length);
   assert.equal(response.groundingNotes.length > 0, true);
 });
+
+test("buildExtensionReplyOptions avoids generic agreement-only replies", () => {
+  const response = buildExtensionReplyOptions({
+    post: {
+      postId: "post_2",
+      author: {
+        id: "author_2",
+        handle: "builder",
+        name: "Builder",
+        verified: false,
+        followerCount: 4100,
+      },
+      text: "Positioning breaks when the product promise stays too broad.",
+      url: "https://x.com/builder/status/2",
+      createdAtIso: "2026-03-11T11:00:00.000Z",
+      engagement: {
+        replyCount: 2,
+        repostCount: 0,
+        likeCount: 8,
+        quoteCount: 0,
+        viewCount: 300,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_2",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T11:05:00.000Z",
+    },
+    opportunity: {
+      opportunityId: "opp_2",
+      postId: "post_2",
+      score: 77,
+      verdict: "reply",
+      why: ["Strong niche overlap with your positioning pillar."],
+      riskFlags: [],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "medium",
+        followConversion: "medium",
+      },
+      scoringBreakdown: {
+        niche_match: 80,
+        audience_fit: 72,
+        freshness: 78,
+        conversation_quality: 76,
+        profile_click_potential: 75,
+        follow_conversion_potential: 69,
+        visibility_potential: 63,
+        spam_risk: 9,
+        off_niche_risk: 12,
+        genericity_risk: 19,
+        negative_signal_risk: 4,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  for (const option of response.options) {
+    assert.equal(/^(great|good|nice|agreed|totally|exactly)\b/i.test(option.text), false);
+    assert.equal(/\b(positioning|product|usable|clarity)\b/i.test(option.text), true);
+  }
+});
