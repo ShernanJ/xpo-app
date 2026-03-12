@@ -148,6 +148,29 @@ If a detail is missing from this packet, the chat history, or hard grounding, do
   `.trim();
 }
 
+function buildSafeFrameworkFallbackBlock(
+  groundingPacket: GroundingPacket | null | undefined,
+): string | null {
+  if (!groundingPacket) {
+    return null;
+  }
+
+  if (
+    groundingPacket.unknowns.length === 0 ||
+    groundingPacket.allowedFirstPersonClaims.length > 0
+  ) {
+    return null;
+  }
+
+  return `
+SAFE FRAMEWORK FALLBACK MODE:
+- Grounding is too thin for a lived story, proof-heavy claim, or concrete case-study framing.
+- If you can still produce something useful, default to framework, opinion, principle, or plain factual language.
+- Do NOT invent specifics just to make the draft or plan feel complete.
+- If a concrete result, customer, metric, timeline, or first-person proof is missing, leave it out instead of filling it in.
+  `.trim();
+}
+
 function buildCreatorProfileHintsBlock(
   creatorProfileHints: CreatorProfileHints | null | undefined,
 ): string | null {
@@ -212,6 +235,7 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
     activeConstraints: args.activeConstraints,
   });
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
 
   return `
@@ -247,6 +271,7 @@ ${args.activeConstraints.join(" | ") || "None"}
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 
 ${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
+${safeFrameworkFallbackBlock ? `${safeFrameworkFallbackBlock}\n` : ""}
 
 ${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
 
@@ -272,6 +297,7 @@ ${isEditing ? `REQUIREMENTS:
 8a. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 8b. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction / grounding as the source of truth and ignore the older assistant wording.
 9. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT pick a story-led autobiographical angle. Pick a framework, opinion, or plain factual angle instead.
+9a. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
 10. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
 11. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
 12. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
@@ -364,6 +390,7 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     activeConstraints: args.activeConstraints,
   });
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
   const referenceAnchorBlock =
     args.referenceAnchorMode === "reference_hints"
@@ -393,6 +420,7 @@ CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical 
     concreteSceneBlock,
     hardGroundingBlock,
     groundingPacketBlock,
+    safeFrameworkFallbackBlock,
     plainFactualProductBlock,
   ]
     .filter((value): value is string => Boolean(value))
@@ -484,6 +512,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
 12h. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
 13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
+13a. If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
 14a. Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.
 14b. Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.

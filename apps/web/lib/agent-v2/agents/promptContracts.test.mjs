@@ -194,6 +194,7 @@ test("planner and writer prompts surface hard factual grounding for product asks
   );
   assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
   assert.equal(promptBuildersSource.includes("Source material details:"), true);
+  assert.equal(promptBuildersSource.includes("SAFE FRAMEWORK FALLBACK MODE:"), true);
   assert.equal(promptBuildersSource.includes("FACTUAL TRUTH LAYER:"), true);
   assert.equal(promptBuildersSource.includes("STRATEGIC DRAFT PLAN:"), true);
   assert.equal(promptBuildersSource.includes("VOICE / SHAPE LAYER:"), true);
@@ -225,6 +226,12 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptBuildersSource.includes(
       "Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.",
     ),
     true,
   );
