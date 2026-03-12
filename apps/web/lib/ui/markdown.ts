@@ -27,6 +27,7 @@ export function renderMarkdownToHtml(markdown: string): string {
   const html: string[] = [];
   let listType: "ul" | "ol" | null = null;
   let listItems: string[] = [];
+  let paragraphLines: string[] = [];
 
   const flushList = () => {
     if (!listType || listItems.length === 0) {
@@ -40,14 +41,25 @@ export function renderMarkdownToHtml(markdown: string): string {
     listItems = [];
   };
 
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+
+    html.push(`<p>${paragraphLines.join("<br />")}</p>`);
+    paragraphLines = [];
+  };
+
   for (const rawLine of lines) {
     const trimmedLine = rawLine.trim();
     if (!trimmedLine) {
       flushList();
+      flushParagraph();
       continue;
     }
 
     if (/^[-*]\s+/.test(trimmedLine)) {
+      flushParagraph();
       const item = applyInlineMarkdown(trimmedLine.replace(/^[-*]\s+/, ""));
       if (listType !== "ul") {
         flushList();
@@ -58,6 +70,7 @@ export function renderMarkdownToHtml(markdown: string): string {
     }
 
     if (/^\d+\.\s+/.test(trimmedLine)) {
+      flushParagraph();
       const item = applyInlineMarkdown(trimmedLine.replace(/^\d+\.\s+/, ""));
       if (listType !== "ol") {
         flushList();
@@ -70,21 +83,25 @@ export function renderMarkdownToHtml(markdown: string): string {
     flushList();
 
     if (/^###\s+/.test(trimmedLine)) {
+      flushParagraph();
       html.push(`<h3>${applyInlineMarkdown(trimmedLine.replace(/^###\s+/, ""))}</h3>`);
       continue;
     }
 
     if (/^##\s+/.test(trimmedLine)) {
+      flushParagraph();
       html.push(`<h2>${applyInlineMarkdown(trimmedLine.replace(/^##\s+/, ""))}</h2>`);
       continue;
     }
 
     if (/^#\s+/.test(trimmedLine)) {
+      flushParagraph();
       html.push(`<h1>${applyInlineMarkdown(trimmedLine.replace(/^#\s+/, ""))}</h1>`);
       continue;
     }
 
     if (/^>\s+/.test(trimmedLine)) {
+      flushParagraph();
       html.push(
         `<blockquote>${applyInlineMarkdown(trimmedLine.replace(/^>\s+/, ""))}</blockquote>`,
       );
@@ -92,14 +109,16 @@ export function renderMarkdownToHtml(markdown: string): string {
     }
 
     if (/^---+$/.test(trimmedLine)) {
+      flushParagraph();
       html.push("<hr />");
       continue;
     }
 
-    html.push(`<p>${applyInlineMarkdown(rawLine)}</p>`);
+    paragraphLines.push(applyInlineMarkdown(rawLine));
   }
 
   flushList();
+  flushParagraph();
 
   return html.join("");
 }
