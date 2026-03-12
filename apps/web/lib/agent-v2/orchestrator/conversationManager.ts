@@ -1491,6 +1491,11 @@ export async function manageConversationTurn(
       memory.conversationState === "editing",
     unresolvedQuestion: memory.unresolvedQuestion,
     concreteAnswerCount: memory.concreteAnswerCount,
+    pendingPlanSummary: memory.pendingPlan
+      ? [memory.pendingPlan.objective, memory.pendingPlan.angle].filter(Boolean).join(" | ")
+      : null,
+    latestRefinementInstruction: memory.latestRefinementInstruction,
+    lastIdeationAngles: memory.lastIdeationAngles,
   };
   let controllerDecision;
   let classifiedIntent: V2ChatIntent;
