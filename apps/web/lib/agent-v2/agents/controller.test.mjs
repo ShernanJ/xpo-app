@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  buildControllerFallbackDecision,
   mapControllerActionToIntent,
   mapIntentToControllerAction,
   resolveArtifactContinuationAction,
@@ -201,4 +202,27 @@ test("controller prompt contract defines answer ask analyze plan draft revise an
     ),
     true,
   );
+});
+
+test("controller fallback answers direct capability questions", () => {
+  const decision = buildControllerFallbackDecision({
+    userMessage: "what can you do",
+    memory: baseMemory,
+  });
+
+  assert.equal(decision.action, "answer");
+  assert.equal(decision.needs_memory_update, false);
+});
+
+test("controller fallback retrieves when the question is about stored user context", () => {
+  const decision = buildControllerFallbackDecision({
+    userMessage: "what do you know about me",
+    memory: {
+      ...baseMemory,
+      topicSummary: "x growth lessons from building xpo",
+      concreteAnswerCount: 3,
+    },
+  });
+
+  assert.equal(decision.action, "retrieve_then_answer");
 });

@@ -1,4 +1,5 @@
 import {
+  buildControllerFallbackDecision,
   controlTurn,
   mapControllerActionToIntent,
   mapIntentToControllerAction,
@@ -1514,12 +1515,10 @@ export async function manageConversationTurn(
       memory: controllerMemory,
     });
     if (!controllerDecision) {
-      return {
-        mode: "error",
-        outputShape: "coach_question",
-        response: "Failed to control turn.",
-        memory,
-      };
+      controllerDecision = buildControllerFallbackDecision({
+        userMessage,
+        memory: controllerMemory,
+      });
     }
     classifiedIntent = mapControllerActionToIntent({
       action: controllerDecision.action,

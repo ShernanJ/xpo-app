@@ -23,7 +23,7 @@ export const ControllerDecisionSchema = z.object({
 export type ControllerAction = z.infer<typeof ControllerActionSchema>;
 export type ControllerDecision = z.infer<typeof ControllerDecisionSchema>;
 
-interface ControllerMemorySummary {
+export interface ControllerMemorySummary {
   conversationState: ConversationState;
   topicSummary: string | null;
   hasPendingPlan: boolean;
@@ -74,6 +74,52 @@ const CONTROLLER_REVISION_PATTERNS = [
   /\bkeep that\b/,
 ];
 
+const CONTROLLER_DIRECT_QUESTION_PREFIX =
+  /^(?:what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are|am|will)\b/;
+const CONTROLLER_CAPABILITY_PATTERNS = [
+  /\bwhat can you do\b/,
+  /\bhow can you help\b/,
+  /\bwhat do you do\b/,
+  /\bhow do you work\b/,
+  /\bwhat are you good at\b/,
+  /^help\b/,
+];
+const CONTROLLER_ANALYZE_PATTERNS = [
+  /\bwhy (?:is|are|did|does)\b/,
+  /\bunderperform(?:ing)?\b/,
+  /\bwhat'?s wrong\b/,
+  /\bdiagnos(?:e|is)\b/,
+  /\baudit\b/,
+  /\banaly[sz]e\b/,
+  /\bcompare\b/,
+  /\bwhich is stronger\b/,
+  /\bwhat should i focus on\b/,
+];
+const CONTROLLER_PLAN_PATTERNS = [
+  /\bideas?\b/,
+  /\bangles?\b/,
+  /\boptions?\b/,
+  /\boutline\b/,
+  /\bplan\b/,
+  /\bdirection\b/,
+  /\bbrainstorm\b/,
+];
+const CONTROLLER_DRAFT_PATTERNS = [
+  /\b(?:write|draft|compose|generate|create|make)\b.*\b(?:post|thread|reply|tweet|bio|hook|draft)\b/,
+  /\bturn this into\b/,
+];
+const CONTROLLER_RETRIEVE_PATTERNS = [
+  /\bwhat do you know about me\b/,
+  /\bbased on what you know\b/,
+  /\bmy (?:history|voice|style|positioning|profile|preferences|best posts?)\b/,
+  /\b(?:past|previous|prior|best)\s+(?:posts?|threads?|replies?)\b/,
+  /\bour history\b/,
+];
+const CONTROLLER_FACT_THIN_PATTERNS = [
+  /\bmy (?:product|startup|company|app|tool|business|background|story|journey)\b/,
+  /\bour (?:product|startup|company|app|tool|business|story|journey)\b/,
+];
+
 function normalizeControllerMessage(message: string): string {
   return message
     .trim()
@@ -83,6 +129,100 @@ function normalizeControllerMessage(message: string): string {
 
 function looksLikeContinuationRevision(normalized: string): boolean {
   return CONTROLLER_REVISION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeDirectQuestion(normalized: string): boolean {
+  return normalized.includes("?") || CONTROLLER_DIRECT_QUESTION_PREFIX.test(normalized);
+}
+
+export function buildControllerFallbackDecision(args: {
+  userMessage: string;
+  memory: ControllerMemorySummary;
+}): ControllerDecision {
+  const normalized = normalizeControllerMessage(args.userMessage);
+
+  if (
+    CONTROLLER_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    looksLikeDirectQuestion(normalized)
+  ) {
+    if (CONTROLLER_RETRIEVE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return {
+        action: "retrieve_then_answer",
+        needs_memory_update: false,
+        confidence: 0.62,
+        rationale: "fallback retrieve question",
+      };
+    }
+
+    if (CONTROLLER_ANALYZE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return {
+        action: "analyze",
+        needs_memory_update: false,
+        confidence: 0.6,
+        rationale: "fallback analysis question",
+      };
+    }
+
+    return {
+      action: "answer",
+      needs_memory_update: false,
+      confidence: 0.68,
+      rationale: "fallback direct question",
+    };
+  }
+
+  if (looksLikeContinuationRevision(normalized)) {
+    return {
+      action: args.memory.hasActiveDraft ? "revise" : args.memory.hasPendingPlan ? "plan" : "ask",
+      needs_memory_update: false,
+      confidence: 0.58,
+      rationale: "fallback revision follow-up",
+    };
+  }
+
+  if (CONTROLLER_DRAFT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      action:
+        args.memory.hasPendingPlan ||
+        args.memory.hasActiveDraft ||
+        Boolean(args.memory.topicSummary) ||
+        args.memory.concreteAnswerCount > 0
+          ? "draft"
+          : "plan",
+      needs_memory_update: false,
+      confidence: 0.58,
+      rationale: "fallback writing request",
+    };
+  }
+
+  if (CONTROLLER_PLAN_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      action: "plan",
+      needs_memory_update: false,
+      confidence: 0.56,
+      rationale: "fallback planning request",
+    };
+  }
+
+  if (
+    CONTROLLER_FACT_THIN_PATTERNS.some((pattern) => pattern.test(normalized)) &&
+    !args.memory.topicSummary &&
+    args.memory.concreteAnswerCount === 0
+  ) {
+    return {
+      action: "ask",
+      needs_memory_update: false,
+      confidence: 0.55,
+      rationale: "fallback missing product facts",
+    };
+  }
+
+  return {
+    action: "ask",
+    needs_memory_update: false,
+    confidence: 0.5,
+    rationale: "fallback clarification",
+  };
 }
 
 export function resolveArtifactContinuationAction(args: {
@@ -246,13 +386,19 @@ Respond ONLY with valid JSON:
   });
 
   if (!data) {
-    return null;
+    return buildControllerFallbackDecision({
+      userMessage: args.userMessage,
+      memory: args.memory,
+    });
   }
 
   try {
     return ControllerDecisionSchema.parse(data);
   } catch (error) {
     console.error("Controller validation failed", error);
-    return null;
+    return buildControllerFallbackDecision({
+      userMessage: args.userMessage,
+      memory: args.memory,
+    });
   }
 }
