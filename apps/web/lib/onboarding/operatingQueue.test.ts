@@ -89,3 +89,99 @@ test("operating queue prioritizes review when posted drafts are missing observed
   assert.equal(queue[3]?.actionTarget, "open_draft_queue");
   assert.equal(queue[3]?.priority, "high");
 });
+
+test("operating queue review lane surfaces converting reply anchors when attribution exists", () => {
+  const queue = buildOperatingQueue({
+    context: {
+      growthStrategySnapshot: {
+        knownFor: "growth loops for creators",
+        contentPillars: ["growth loops"],
+        replyGoals: ["Add one concrete layer instead of broad agreement."],
+      },
+      performanceModel: {
+        nextActions: ["Use how_to_open hook style in your next 3 posts."],
+      },
+    } as never,
+    profileConversionAudit: {
+      score: 78,
+      headline: "Profile conversion is usable.",
+      gaps: [],
+      recommendedBioEdits: [],
+      recentPostCoherenceNotes: [],
+    } as never,
+    replyInsights: {
+      totalOpportunities: 3,
+      selectionRate: 0.67,
+      postRate: 0.67,
+      observedRate: 1,
+      topPillars: [
+        {
+          label: "growth loops",
+          generatedCount: 3,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 0.67,
+          postedRate: 0.67,
+        },
+      ],
+      topIntentLabels: [
+        {
+          label: "nuance",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 2,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 1,
+        },
+      ],
+      topIntentAnchors: [
+        {
+          label: "positioning | clarity",
+          generatedCount: 2,
+          selectedCount: 2,
+          postedCount: 2,
+          observedCount: 2,
+          selectionRate: 1,
+          postedRate: 1,
+          totalProfileClicks: 5,
+          totalFollowerDelta: 2,
+          averageProfileClicks: 2.5,
+          averageFollowerDelta: 1,
+        },
+      ],
+      topIntentRationales: [],
+      intentAttribution: {
+        generatedIntentCount: 3,
+        copiedIntentCount: 2,
+        observedOutcomeCount: 2,
+        fullyAttributedOutcomeCount: 2,
+      },
+      bestSignals: [],
+      cautionSignals: [],
+      unknowns: [],
+    } as never,
+    strategyAdjustments: {
+      reinforce: ["Lean harder into growth loops in replies."],
+      experiments: ["Test growth loops replies against profile conversion cues."],
+      notes: [],
+      deprioritize: [],
+      unknowns: [],
+    } as never,
+    contentInsights: null,
+    contentAdjustments: null,
+  });
+
+  assert.equal(queue[3]?.lane, "review");
+  assert.equal(queue[3]?.actionTarget, "open_analysis");
+  assert.equal(queue[3]?.rationale.includes("positioning | clarity"), true);
+  assert.equal(
+    queue[3]?.supportingSignals.some((entry) => entry.includes("fully attributed")),
+    true,
+  );
+});

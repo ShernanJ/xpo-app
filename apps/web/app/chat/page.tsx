@@ -5747,6 +5747,40 @@ function ChatPageContent() {
       ]),
     ).slice(0, 5);
   }, [context]);
+  const analysisReplyConversionHighlights = useMemo(() => {
+    if (!context?.replyInsights) {
+      return [] as Array<{ label: string; value: string }>;
+    }
+
+    const topAnchor = context.replyInsights.topIntentAnchors?.[0];
+    const topIntent = context.replyInsights.topIntentLabels?.[0];
+    const fullyAttributed =
+      context.replyInsights.intentAttribution?.fullyAttributedOutcomeCount || 0;
+
+    const raw = [
+      topAnchor?.label ? { label: "Top anchor", value: topAnchor.label } : null,
+      topIntent?.label ? { label: "Top intent", value: topIntent.label } : null,
+      topAnchor && (topAnchor.totalProfileClicks || 0) > 0
+        ? {
+            label: "Profile clicks",
+            value: `${topAnchor.totalProfileClicks} via ${topAnchor.label}`,
+          }
+        : null,
+      topIntent && (topIntent.totalFollowerDelta || 0) > 0
+        ? {
+            label: "Follower delta",
+            value: `${topIntent.totalFollowerDelta} via ${topIntent.label}`,
+          }
+        : null,
+      fullyAttributed > 0
+        ? { label: "Attributed outcomes", value: `${fullyAttributed} end to end` }
+        : null,
+    ].filter((entry): entry is { label: string; value: string } => Boolean(entry));
+
+    return Array.from(
+      new Map(raw.map((entry) => [`${entry.label}:${entry.value}`, entry])).values(),
+    ).slice(0, 4);
+  }, [context]);
 
   useEffect(() => {
     if (!analysisOpen) {
@@ -13189,6 +13223,21 @@ function ChatPageContent() {
                             observed {context.replyInsights?.observedRate ?? "n/a"}
                           </span>
                         </div>
+                        {analysisReplyConversionHighlights.length > 0 ? (
+                          <div className="mt-4 grid gap-2">
+                            {analysisReplyConversionHighlights.map((item) => (
+                              <div
+                                key={`${item.label}-${item.value}`}
+                                className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs"
+                              >
+                                <span className="uppercase tracking-[0.12em] text-zinc-500">
+                                  {item.label}
+                                </span>
+                                <span className="text-right text-zinc-200">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">

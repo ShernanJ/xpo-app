@@ -26,6 +26,35 @@ function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
 
+function buildReplyConversionSignals(replyInsights?: ReplyInsights | null): string[] {
+  if (!replyInsights) {
+    return [];
+  }
+
+  const next: string[] = [];
+  const topAnchor = replyInsights.topIntentAnchors?.[0];
+  const topIntent = replyInsights.topIntentLabels?.[0];
+  const fullyAttributed = replyInsights.intentAttribution?.fullyAttributedOutcomeCount || 0;
+
+  if (topAnchor?.label && (topAnchor.totalProfileClicks || 0) > 0) {
+    next.push(
+      `Winning reply anchor: "${topAnchor.label}" (${topAnchor.totalProfileClicks} profile-click events).`,
+    );
+  }
+
+  if (topIntent?.label && (topIntent.totalFollowerDelta || 0) > 0) {
+    next.push(
+      `Best converting reply intent: ${topIntent.label} (${topIntent.totalFollowerDelta} follower delta).`,
+    );
+  }
+
+  if (fullyAttributed > 0) {
+    next.push(`${fullyAttributed} reply outcomes are fully attributed end to end.`);
+  }
+
+  return next;
+}
+
 function buildProfileItem(args: {
   context: CreatorAgentContext;
   profileConversionAudit: ProfileConversionAudit;
@@ -76,6 +105,7 @@ function buildReplyItem(args: {
 
   const topPillar = args.replyInsights.topPillars[0]?.label;
   const needsCorrection = (args.replyInsights.selectionRate || 0) < 0.25;
+  const conversionSignals = buildReplyConversionSignals(args.replyInsights);
   return {
     id: "reply-focus",
     lane: "reply",
@@ -90,6 +120,7 @@ function buildReplyItem(args: {
     actionLabel: "Open Companion",
     actionTarget: "open_extension",
     supportingSignals: unique([
+      ...conversionSignals,
       ...(args.strategyAdjustments?.reinforce || []),
       ...(args.strategyAdjustments?.experiments || []),
       ...(args.replyInsights.bestSignals || []),
@@ -200,18 +231,21 @@ function buildReviewItem(args: {
     };
   }
 
+  const conversionSignals = buildReplyConversionSignals(args.replyInsights);
   return {
     id: "review-learning",
     lane: "review",
     priority: "low",
     title: "Review what changed from recent learning",
     rationale:
+      conversionSignals[0] ||
       args.strategyAdjustments?.notes[0] ||
       args.contentAdjustments?.notes[0] ||
       "Use the current learning signals to keep the account coherent.",
     actionLabel: "Open Profile Breakdown",
     actionTarget: "open_analysis",
     supportingSignals: unique([
+      ...conversionSignals,
       ...(args.strategyAdjustments?.reinforce || []),
       ...(args.contentAdjustments?.reinforce || []),
       ...(args.replyInsights?.bestSignals || []),
