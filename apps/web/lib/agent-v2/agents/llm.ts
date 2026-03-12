@@ -1,7 +1,14 @@
 import "dotenv/config";
 import Groq from "groq-sdk";
 
-const groq = new Groq();
+let groqClient: Groq | null = null;
+
+function getGroqClient(): Groq {
+  if (!groqClient) {
+    groqClient = new Groq();
+  }
+  return groqClient;
+}
 
 export interface LlmCompletionOptions {
   model: string;
@@ -50,7 +57,7 @@ export async function fetchJsonFromGroq<T>(
 
     console.log(`[LLM] Calling ${options.model} (${isOpenAiModel ? `openai, effort=${params.reasoning_effort}` : "groq-native"})...`);
 
-    const chatCompletion = await groq.chat.completions.create(params);
+    const chatCompletion = await getGroqClient().chat.completions.create(params);
 
     const choice = chatCompletion.choices?.[0];
     if (!choice) {

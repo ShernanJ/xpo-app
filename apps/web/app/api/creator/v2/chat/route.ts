@@ -48,6 +48,7 @@ import {
   buildRecommendedPlaybookSummaries,
   inferCurrentPlaybookStage,
 } from "@/lib/creator/playbooks";
+import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 
 interface CreatorChatRequest extends Record<string, unknown> {
   threadId?: unknown;
@@ -203,6 +204,90 @@ function buildConversationalDiagnosticContext(args: {
     reasons,
     nextActions,
     recommendedPlaybooks: buildRecommendedPlaybookSummaries(args.agentContext, 2),
+  };
+}
+
+function clipContextLine(value: string, maxLength: number): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function buildAssistantContextPacket(args: {
+  reply: string;
+  plan: StrategyPlan | null;
+  draft: string | null;
+  outputShape: string;
+  surfaceMode: string | null | undefined;
+  issuesFixed: string[];
+  groundingMode: string | null;
+  groundingExplanation: string | null;
+  groundingSources: GroundingPacketSourceMaterial[];
+  quickReplies: unknown[];
+}): {
+  version: "assistant_context_v1";
+  summary: string;
+  planRef: {
+    objective: string;
+    angle: string;
+    targetLane: StrategyPlan["targetLane"];
+    formatPreference: StrategyPlan["formatPreference"] | null;
+  } | null;
+  grounding: {
+    mode: string | null;
+    explanation: string | null;
+    sourceTitles: string[];
+  };
+  critique: {
+    issuesFixed: string[];
+  };
+  artifacts: {
+    outputShape: string;
+    surfaceMode: string | null;
+    quickReplyCount: number;
+    hasDraft: boolean;
+  };
+} {
+  const summaryLines = [
+    args.plan
+      ? `plan: ${clipContextLine(args.plan.objective, 100)} | ${clipContextLine(args.plan.angle, 120)}`
+      : null,
+    args.draft ? `draft: ${clipContextLine(args.draft, 220)}` : null,
+    args.groundingExplanation ? `grounding: ${clipContextLine(args.groundingExplanation, 140)}` : null,
+    args.issuesFixed[0] ? `critique: ${clipContextLine(args.issuesFixed[0], 120)}` : null,
+    !args.plan && !args.draft && args.reply
+      ? `reply: ${clipContextLine(args.reply, 180)}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    version: "assistant_context_v1",
+    summary: summaryLines.join("\n"),
+    planRef: args.plan
+      ? {
+          objective: args.plan.objective,
+          angle: args.plan.angle,
+          targetLane: args.plan.targetLane,
+          formatPreference: args.plan.formatPreference || null,
+        }
+      : null,
+    grounding: {
+      mode: args.groundingMode,
+      explanation: args.groundingExplanation,
+      sourceTitles: args.groundingSources.map((source) => source.title).slice(0, 3),
+    },
+    critique: {
+      issuesFixed: args.issuesFixed.slice(0, 5),
+    },
+    artifacts: {
+      outputShape: args.outputShape,
+      surfaceMode: args.surfaceMode || null,
+      quickReplyCount: args.quickReplies.length,
+      hasDraft: Boolean(args.draft),
+    },
   };
 }
 
@@ -405,11 +490,6 @@ export async function POST(request: NextRequest) {
     ]),
   );
 
-  const { recentHistory: recentHistoryStr, activeDraft } =
-    buildConversationContextFromHistory({
-      history: body.history,
-      selectedDraftContext,
-    });
   const effectiveExplicitIntent = resolveEffectiveExplicitIntent({
     intent,
     selectedDraftContext,
@@ -486,14 +566,50 @@ export async function POST(request: NextRequest) {
       idempotencyKey: creditResult.idempotencyKey,
     };
 
+    let recentHistoryStr = "None";
+    let activeDraft: string | undefined;
+
     if (storedThread) {
-      await prisma.chatMessage.create({
+      const createdUserMessage = await prisma.chatMessage.create({
         data: {
           threadId: storedThread.id,
           role: "user",
           content: effectiveMessage,
+          data: {
+            version: "user_context_v1",
+            explicitIntent: effectiveExplicitIntent,
+            formatPreference,
+            threadFramingStyle,
+            selectedDraftContext,
+          } as Prisma.InputJsonValue,
         }
       });
+      const threadMessages = await prisma.chatMessage.findMany({
+        where: { threadId: storedThread.id },
+        orderBy: { createdAt: "desc" },
+        take: 24,
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          data: true,
+          createdAt: true,
+        },
+      });
+      const context = buildConversationContextFromHistory({
+        history: threadMessages.reverse(),
+        selectedDraftContext,
+        excludeMessageId: createdUserMessage.id,
+      });
+      recentHistoryStr = context.recentHistory;
+      activeDraft = context.activeDraft;
+    } else {
+      const context = buildConversationContextFromHistory({
+        history: body.history,
+        selectedDraftContext,
+      });
+      recentHistoryStr = context.recentHistory;
+      activeDraft = context.activeDraft;
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
@@ -736,6 +852,43 @@ export async function POST(request: NextRequest) {
       memory: result.memory,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
       billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
+      contextPacket: buildAssistantContextPacket({
+        reply: normalizedDraftPayload.reply,
+        plan:
+          plan &&
+          typeof plan.objective === "string" &&
+          typeof plan.angle === "string" &&
+          (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
+          Array.isArray(plan.mustInclude) &&
+          Array.isArray(plan.mustAvoid) &&
+          typeof plan.hookType === "string" &&
+          typeof plan.pitchResponse === "string"
+            ? {
+                objective: plan.objective,
+                angle: plan.angle,
+                targetLane: plan.targetLane,
+                mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
+                mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
+                hookType: plan.hookType,
+                pitchResponse: plan.pitchResponse,
+                ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
+              }
+            : null,
+        draft: resolvedPolicyDraft,
+        outputShape: result.outputShape,
+        surfaceMode: result.surfaceMode,
+        issuesFixed:
+          Array.isArray(resultData?.issuesFixed)
+            ? (resultData?.issuesFixed as string[]).filter((value) => typeof value === "string")
+            : [],
+        groundingMode: responseGroundingMode,
+        groundingExplanation: responseGroundingExplanation,
+        groundingSources: responseGroundingSources,
+        quickReplies:
+          responseShapePlan.shouldShowArtifacts && Array.isArray(resultData?.quickReplies)
+            ? (resultData.quickReplies as unknown[])
+            : [],
+      }),
     };
     let createdAssistantMessageId: string | undefined;
 

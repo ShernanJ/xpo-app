@@ -130,6 +130,24 @@ function tryDeterministicEmojiRemoval(args: {
   };
 }
 
+function buildRevisionChangeGuidance(
+  revision: DraftRevisionDirective,
+  maxCharacterLimit: number,
+): string {
+  if (revision.changeKind === "length_expand") {
+    return `
+EXPANSION MODE:
+- The user asked for a fuller version, not a new angle.
+- Add detail by unpacking points already present in the draft, recent chat, topic anchors, or hard grounding.
+- Do NOT introduce new proof points, experiments, tactics, metrics, follower spikes, timelines, product behavior, or first-person claims unless they already appear in grounded context.
+- If the source material is thin, expand through clarity, explanation, sequence, or sharper phrasing instead of inventing specifics.
+- Still stay under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+    `.trim();
+  }
+
+  return "";
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -156,6 +174,10 @@ export async function generateRevisionDraft(args: {
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference = args.options?.formatPreference || "shortform";
   const threadFramingStyle = args.options?.threadFramingStyle || null;
+  const revisionChangeGuidance = buildRevisionChangeGuidance(
+    args.revision,
+    maxCharacterLimit,
+  );
 
   if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
@@ -217,6 +239,8 @@ ${args.topicAnchors.join("\n---") || "None"}
 
 ACTIVE SESSION CONSTRAINTS:
 ${args.activeConstraints.join(" | ") || "None"}
+
+${revisionChangeGuidance ? `${revisionChangeGuidance}\n` : ""}
 
 REQUIREMENTS:
 1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.

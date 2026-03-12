@@ -1,5 +1,6 @@
 import type { DraftPreference } from "../contracts/chat";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import type { DraftRevisionChangeKind } from "./draftRevision";
 
 interface BuildDraftReplyArgs {
   userMessage: string;
@@ -7,6 +8,7 @@ interface BuildDraftReplyArgs {
   isEdit: boolean;
   issuesFixed?: string[];
   styleCard?: VoiceStyleCard | null;
+  revisionChangeKind?: DraftRevisionChangeKind;
 }
 
 type CadenceTone = "blunt" | "balanced" | "warm";
@@ -251,6 +253,22 @@ function looksLikeExplicitTrimRequestMessage(normalized: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+function looksLikeExplicitExpandRequestMessage(normalized: string): boolean {
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\b(?:make|keep)\s+it\s+(?:long|longer|fuller)\b/,
+    /\b(?:expand|elongate|deepen|develop|broaden)\b/,
+    /\bmore\s+detailed\b/,
+    /\badd\s+more\s+detail\b/,
+    /\bflesh\s+it\s+out\b/,
+    /\bopen\s+it\s+up\b/,
+    /\bgo\s+deeper\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function buildDraftReply(args: BuildDraftReplyArgs): string {
   const normalized = args.userMessage.trim().toLowerCase();
   const issuesFixed = args.issuesFixed || [];
@@ -265,7 +283,9 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
   ].join("|");
   const isRevisionRequest = args.isEdit || looksLikeRevisionRequestMessage(normalized);
   const canUseTrimSpecificCopy =
-    args.isEdit || looksLikeExplicitTrimRequestMessage(normalized);
+    args.revisionChangeKind === "length_trim" || looksLikeExplicitTrimRequestMessage(normalized);
+  const canUseExpandSpecificCopy =
+    args.revisionChangeKind === "length_expand" || looksLikeExplicitExpandRequestMessage(normalized);
 
   if (isRevisionRequest) {
     if (mentionsTrim(issuesFixed) && canUseTrimSpecificCopy) {
@@ -300,6 +320,41 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
         },
         profile: cadenceProfile,
         seed: `${seed}|rev|trim`,
+      });
+    }
+
+    if (canUseExpandSpecificCopy) {
+      return buildCadenceReply({
+        action: {
+          blunt: [
+            "opened it up and added detail.",
+            "made it fuller without changing the angle.",
+          ],
+          balanced: [
+            "opened it up and added detail.",
+            "made it longer and kept the angle intact.",
+          ],
+          warm: [
+            "opened it up and added more detail while keeping the same point.",
+            "made it fuller without losing the original angle.",
+          ],
+        },
+        followUp: {
+          blunt: [
+            "want it even fuller?",
+            "want another pass?",
+          ],
+          balanced: [
+            "want it even fuller?",
+            "does this feel closer?",
+          ],
+          warm: [
+            "want me to add another layer of detail?",
+            "does this feel closer to what you wanted?",
+          ],
+        },
+        profile: cadenceProfile,
+        seed: `${seed}|rev|expand`,
       });
     }
 

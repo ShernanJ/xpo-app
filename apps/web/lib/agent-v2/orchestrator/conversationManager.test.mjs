@@ -505,8 +505,7 @@ test("specific thread draft requests auto-draft from the planner path", () => {
     },
   });
 
-  assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
-  assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+  assert.equal(turnPlan, null);
 });
 
 test("memory-grounded multi-draft requests auto-draft from saved context", () => {
@@ -525,8 +524,7 @@ test("memory-grounded multi-draft requests auto-draft from saved context", () =>
     },
   });
 
-  assert.equal(turnPlan?.overrideClassifiedIntent, "draft");
-  assert.equal(turnPlan?.shouldAutoDraftFromPlan, true);
+  assert.equal(turnPlan, null);
 });
 
 test("growth phrasing inside a draft request does not route to coach chat", () => {

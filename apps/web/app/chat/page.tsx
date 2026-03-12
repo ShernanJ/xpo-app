@@ -34,6 +34,7 @@ import {
 } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
+import { renderMarkdownToHtml } from "@/lib/ui/markdown";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -597,6 +598,10 @@ interface CreatorChatSuccess {
       | "revise_and_return"
       | "offer_options"
       | "generate_full_output";
+    contextPacket?: {
+      version: string;
+      summary: string;
+    } | null;
     newThreadId?: string;
     messageId?: string;
     threadTitle?: string;
@@ -767,6 +772,10 @@ interface ChatMessage {
   watchOutFor?: string[];
   outputShape?: CreatorChatSuccess["data"]["outputShape"];
   surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
+  contextPacket?: {
+    version: string;
+    summary: string;
+  } | null;
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
 }
@@ -1280,116 +1289,6 @@ function isSupportedFeedbackFile(file: File): boolean {
     lowerName.endsWith(".jpeg") ||
     lowerName.endsWith(".mp4")
   );
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function applyInlineMarkdown(value: string): string {
-  return value
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>',
-    )
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
-    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
-    .replace(/_([^_\n]+)_/g, "<em>$1</em>")
-    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
-}
-
-function renderFeedbackMarkdownToHtml(markdown: string): string {
-  const source = escapeHtml(markdown).replace(/\r\n/g, "\n");
-  const lines = source.split("\n");
-  const html: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-  let listItems: string[] = [];
-
-  const flushList = () => {
-    if (!listType || listItems.length === 0) {
-      listType = null;
-      listItems = [];
-      return;
-    }
-
-    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
-    listType = null;
-    listItems = [];
-  };
-
-  for (const rawLine of lines) {
-    const trimmedLine = rawLine.trim();
-    if (!trimmedLine) {
-      flushList();
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(trimmedLine)) {
-      const item = applyInlineMarkdown(trimmedLine.replace(/^[-*]\s+/, ""));
-      if (listType !== "ul") {
-        flushList();
-        listType = "ul";
-      }
-      listItems.push(`<li>${item}</li>`);
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(trimmedLine)) {
-      const item = applyInlineMarkdown(trimmedLine.replace(/^\d+\.\s+/, ""));
-      if (listType !== "ol") {
-        flushList();
-        listType = "ol";
-      }
-      listItems.push(`<li>${item}</li>`);
-      continue;
-    }
-
-    flushList();
-
-    if (/^###\s+/.test(trimmedLine)) {
-      html.push(`<h3>${applyInlineMarkdown(trimmedLine.replace(/^###\s+/, ""))}</h3>`);
-      continue;
-    }
-
-    if (/^##\s+/.test(trimmedLine)) {
-      html.push(`<h2>${applyInlineMarkdown(trimmedLine.replace(/^##\s+/, ""))}</h2>`);
-      continue;
-    }
-
-    if (/^#\s+/.test(trimmedLine)) {
-      html.push(`<h1>${applyInlineMarkdown(trimmedLine.replace(/^#\s+/, ""))}</h1>`);
-      continue;
-    }
-
-    if (/^>\s+/.test(trimmedLine)) {
-      html.push(
-        `<blockquote>${applyInlineMarkdown(trimmedLine.replace(/^>\s+/, ""))}</blockquote>`,
-      );
-      continue;
-    }
-
-    if (/^---+$/.test(trimmedLine)) {
-      html.push("<hr />");
-      continue;
-    }
-
-    html.push(`<p>${applyInlineMarkdown(rawLine)}</p>`);
-  }
-
-  flushList();
-
-  if (html.length === 0) {
-    return "<p>Start typing your feedback…</p>";
-  }
-
-  return html.join("");
 }
 
 function extractFeedbackTemplateFields(text: string): Record<string, string> {
@@ -3547,7 +3446,10 @@ function ChatPageContent() {
   const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
   const activeFeedbackConfig = FEEDBACK_CATEGORY_CONFIG[feedbackCategory];
   const feedbackPreviewHtml = useMemo(
-    () => renderFeedbackMarkdownToHtml(activeFeedbackDraft),
+    () =>
+      activeFeedbackDraft.trim()
+        ? renderMarkdownToHtml(activeFeedbackDraft)
+        : "<p>Start typing your feedback…</p>",
     [activeFeedbackDraft],
   );
   const feedbackIdentityHandle = useMemo(
@@ -6984,7 +6886,7 @@ function ChatPageContent() {
 
       let history = (options.historySeed ?? messages)
         .filter((message) => !message.excludeFromHistory)
-        .slice(-6);
+        .slice();
 
       if (options.appendUserMessage) {
         const userMessage: ChatMessage = {
@@ -6998,7 +6900,7 @@ function ChatPageContent() {
         setMessages((current) => [...current, userMessage]);
         scrollThreadToBottom();
         if (options.includeUserMessageInHistory !== false) {
-          history = [...history, userMessage].slice(-6);
+          history = [...history, userMessage];
         }
       }
 
@@ -7245,6 +7147,7 @@ function ChatPageContent() {
             autoSavedSourceMaterials: streamedResult.autoSavedSourceMaterials ?? null,
             outputShape: streamedResult.outputShape,
             surfaceMode: streamedResult.surfaceMode,
+            contextPacket: streamedResult.contextPacket ?? null,
             feedbackValue: null,
             quickReplies:
               streamedResult.quickReplies && streamedResult.quickReplies.length > 0
@@ -9258,23 +9161,26 @@ function ChatPageContent() {
                           {message.role === "assistant" && message.isStreaming ? (
                             <AssistantTypingBubble status={message.content || null} />
                           ) : (
-                            <p className="whitespace-pre-wrap">
-                              {message.role === "assistant" &&
-                                message.id === latestAssistantMessageId ? (
-                                <>
-                                  {message.content.slice(
-                                    0,
-                                    typedAssistantLengths[message.id] ?? 0,
-                                  )}
-                                  {(typedAssistantLengths[message.id] ?? 0) <
-                                    message.content.length ? (
-                                    <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                                  ) : null}
-                                </>
-                              ) : (
-                                message.content
-                              )}
-                            </p>
+                            message.role === "assistant" &&
+                            message.id === latestAssistantMessageId &&
+                            (typedAssistantLengths[message.id] ?? 0) < message.content.length ? (
+                              <p className="whitespace-pre-wrap">
+                                {message.content.slice(
+                                  0,
+                                  typedAssistantLengths[message.id] ?? 0,
+                                )}
+                                <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                              </p>
+                            ) : message.role === "assistant" ? (
+                              <div
+                                className="space-y-2 text-sm leading-7 text-zinc-100 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-3 [&_blockquote]:whitespace-pre-wrap [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_del]:text-zinc-500 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-semibold [&_li]:ml-4 [&_li]:whitespace-pre-wrap [&_ol]:list-decimal [&_p]:text-zinc-100 [&_p]:whitespace-pre-wrap [&_strong]:font-semibold [&_ul]:list-disc"
+                                dangerouslySetInnerHTML={{
+                                  __html: renderMarkdownToHtml(message.content),
+                                }}
+                              />
+                            ) : (
+                              <p className="whitespace-pre-wrap">{message.content}</p>
+                            )
                           )}
 
                           {message.role === "assistant" &&

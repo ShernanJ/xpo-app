@@ -58,6 +58,8 @@ function getRevisionOverlapFloor(changeKind: DraftRevisionChangeKind): number {
   switch (changeKind) {
     case "hook_only_edit":
       return 0.45;
+    case "length_expand":
+      return 0.42;
     case "length_trim":
       return 0.4;
     case "tone_shift":

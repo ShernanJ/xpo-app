@@ -338,6 +338,20 @@ test("trim-specific handoff still appears when the user explicitly asks for a sh
   assert.equal(/\?/.test(reply), true);
 });
 
+test("edit handoff does not imply trimming when the user asked for a longer draft", () => {
+  const reply = buildDraftReply({
+    userMessage: "make it longer and more detailed",
+    draftPreference: "voice_first",
+    isEdit: true,
+    issuesFixed: ["Trimmed to fit the 280-char X limit."],
+    revisionChangeKind: "length_expand",
+  });
+
+  assert.equal(/trimmed|tightened|shortened/i.test(reply), false);
+  assert.equal(/longer|detail|fuller|opened it up/i.test(reply), true);
+  assert.equal(/\?/.test(reply), true);
+});
+
 test("draft handoff adapts to blunt cadence when user prefers direct replies", () => {
   const reply = buildDraftReply({
     userMessage: "looks good write it",
@@ -810,6 +824,17 @@ test("draft revision normalizer recognizes style nudges like less linkedin", () 
 
   assert.equal(directive.changeKind, "tone_shift");
   assert.match(directive.instruction, /adjust the tone of the current draft/i);
+});
+
+test("draft revision normalizer recognizes expansion requests", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "make it longer and more detailed",
+    "been in a rabbit hole this week learning how to grow on x",
+  );
+
+  assert.equal(directive.changeKind, "length_expand");
+  assert.match(directive.instruction, /expand the current draft/i);
+  assert.match(directive.instruction, /only elaborating with details that are already grounded/i);
 });
 
 test("draft revision normalizer treats 'clean this up' as a tone shift", () => {

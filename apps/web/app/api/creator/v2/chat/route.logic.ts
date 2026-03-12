@@ -290,11 +290,32 @@ export function parseSelectedDraftContext(value: unknown): SelectedDraftContext 
 export function buildConversationContextFromHistory(args: {
   history: unknown;
   selectedDraftContext: SelectedDraftContext | null;
+  excludeMessageId?: string | null;
 }): {
   recentHistory: string;
   activeDraft: string | undefined;
 } {
   const rawHistory = Array.isArray(args.history) ? args.history : [];
+  const normalizeEntry = (entry: Record<string, unknown>): Record<string, unknown> => {
+    const data =
+      entry.data && typeof entry.data === "object" && !Array.isArray(entry.data)
+        ? (entry.data as Record<string, unknown>)
+        : {};
+
+    return {
+      ...data,
+      ...entry,
+    };
+  };
+  const trimLine = (value: string): string => value.trim().replace(/\s+/g, " ");
+  const clip = (value: string, maxLength: number): string => {
+    const trimmed = trimLine(value);
+    if (trimmed.length <= maxLength) {
+      return trimmed;
+    }
+
+    return `${trimmed.slice(0, maxLength - 1).trimEnd()}…`;
+  };
   const extractAngleTitles = (entry: Record<string, unknown>): string[] => {
     const rawAngles = Array.isArray(entry.angles) ? entry.angles : [];
     const titles: string[] = [];
@@ -316,38 +337,188 @@ export function buildConversationContextFromHistory(args: {
 
     return Array.from(new Set(titles)).slice(0, 4);
   };
+  const extractDraft = (entry: Record<string, unknown>): string | undefined => {
+    if (typeof entry.draft === "string" && entry.draft.trim()) {
+      return entry.draft.trim();
+    }
+
+    const draftBundle =
+      entry.draftBundle && typeof entry.draftBundle === "object" && !Array.isArray(entry.draftBundle)
+        ? (entry.draftBundle as Record<string, unknown>)
+        : null;
+    if (draftBundle) {
+      const selectedOptionId =
+        typeof draftBundle.selectedOptionId === "string" ? draftBundle.selectedOptionId : null;
+      const options = Array.isArray(draftBundle.options) ? draftBundle.options : [];
+      const selectedOption =
+        options.find(
+          (option) =>
+            option &&
+            typeof option === "object" &&
+            (option as Record<string, unknown>).id === selectedOptionId,
+        ) ||
+        options[0];
+      if (
+        selectedOption &&
+        typeof selectedOption === "object" &&
+        typeof (selectedOption as Record<string, unknown>).content === "string"
+      ) {
+        return ((selectedOption as Record<string, unknown>).content as string).trim();
+      }
+    }
+
+    const draftVersions = Array.isArray(entry.draftVersions) ? entry.draftVersions : [];
+    const activeDraftVersionId =
+      typeof entry.activeDraftVersionId === "string" ? entry.activeDraftVersionId : null;
+    const activeDraftVersion =
+      draftVersions.find(
+        (version) =>
+          version &&
+          typeof version === "object" &&
+          (version as Record<string, unknown>).id === activeDraftVersionId,
+      ) ||
+      draftVersions[draftVersions.length - 1];
+    if (
+      activeDraftVersion &&
+      typeof activeDraftVersion === "object" &&
+      typeof (activeDraftVersion as Record<string, unknown>).content === "string"
+    ) {
+      return ((activeDraftVersion as Record<string, unknown>).content as string).trim();
+    }
+
+    const draftArtifacts = Array.isArray(entry.draftArtifacts) ? entry.draftArtifacts : [];
+    const primaryArtifact = draftArtifacts[0];
+    if (
+      primaryArtifact &&
+      typeof primaryArtifact === "object" &&
+      typeof (primaryArtifact as Record<string, unknown>).content === "string"
+    ) {
+      return ((primaryArtifact as Record<string, unknown>).content as string).trim();
+    }
+
+    return undefined;
+  };
+  const buildAssistantContext = (entry: Record<string, unknown>): string | null => {
+    const blocks: string[] = [];
+    const contextPacket =
+      entry.contextPacket &&
+      typeof entry.contextPacket === "object" &&
+      !Array.isArray(entry.contextPacket)
+        ? (entry.contextPacket as Record<string, unknown>)
+        : null;
+    const contextSummary =
+      contextPacket && typeof contextPacket.summary === "string"
+        ? contextPacket.summary.trim()
+        : "";
+
+    if (contextSummary) {
+      blocks.push(`assistant_context:\n${contextSummary}`);
+      return blocks.join("\n");
+    }
+
+    const plan =
+      entry.plan && typeof entry.plan === "object" && !Array.isArray(entry.plan)
+        ? (entry.plan as Record<string, unknown>)
+        : null;
+    if (plan) {
+      const planLines = [
+        typeof plan.objective === "string" ? `- objective: ${clip(plan.objective, 180)}` : null,
+        typeof plan.angle === "string" ? `- angle: ${clip(plan.angle, 180)}` : null,
+        typeof plan.targetLane === "string" ? `- lane: ${plan.targetLane}` : null,
+      ].filter((value): value is string => Boolean(value));
+      if (planLines.length > 0) {
+        blocks.push(`assistant_plan:\n${planLines.join("\n")}`);
+      }
+    }
+
+    const draft = extractDraft(entry);
+    if (draft) {
+      blocks.push(`assistant_draft:\n${clip(draft, 280)}`);
+    }
+
+    const groundingExplanation =
+      typeof entry.groundingExplanation === "string" ? entry.groundingExplanation.trim() : "";
+    const groundingSources = Array.isArray(entry.groundingSources)
+      ? entry.groundingSources
+          .map((source) =>
+            source && typeof source === "object" && typeof (source as Record<string, unknown>).title === "string"
+              ? ((source as Record<string, unknown>).title as string).trim()
+              : "",
+          )
+          .filter(Boolean)
+          .slice(0, 2)
+      : [];
+    if (groundingExplanation || groundingSources.length > 0) {
+      const groundingLines = [
+        groundingExplanation ? `- ${clip(groundingExplanation, 180)}` : null,
+        groundingSources.length > 0
+          ? `- sources: ${groundingSources.map((title) => clip(title, 80)).join(" | ")}`
+          : null,
+      ].filter((value): value is string => Boolean(value));
+      if (groundingLines.length > 0) {
+        blocks.push(`assistant_grounding:\n${groundingLines.join("\n")}`);
+      }
+    }
+
+    const issuesFixed = Array.isArray(entry.issuesFixed)
+      ? entry.issuesFixed
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .slice(0, 3)
+      : [];
+    if (issuesFixed.length > 0) {
+      blocks.push(`assistant_critique:\n${issuesFixed.map((issue) => `- ${clip(issue, 160)}`).join("\n")}`);
+    }
+
+    const titles = extractAngleTitles(entry);
+    if (titles.length > 0) {
+      blocks.push(`assistant_angles:\n${titles.map((title, index) => `${index + 1}. ${title}`).join("\n")}`);
+    }
+
+    return blocks.length > 0 ? blocks.join("\n") : null;
+  };
+  const isHistoryEntry = (
+    entry: Record<string, unknown> | null,
+  ): entry is Record<string, unknown> => {
+    if (!entry) {
+      return false;
+    }
+
+    return (
+      typeof entry["role"] === "string" &&
+      typeof entry["content"] === "string" &&
+      (!args.excludeMessageId || entry["id"] !== args.excludeMessageId)
+    );
+  };
   const recentHistory = rawHistory
-    .filter(
-      (entry: Record<string, unknown>) =>
-        typeof entry?.role === "string" && typeof entry?.content === "string",
-    )
-    .map((entry: Record<string, unknown>) => {
-      const base = `${entry.role}: ${entry.content}`;
+    .map((entry) => (entry && typeof entry === "object" ? normalizeEntry(entry as Record<string, unknown>) : null))
+    .filter(isHistoryEntry)
+    .map((entry) => {
+      const base = `${entry.role}: ${trimLine(entry.content as string)}`;
       if (entry.role !== "assistant") {
         return base;
       }
 
-      const titles = extractAngleTitles(entry);
-      if (titles.length === 0) {
+      const assistantContext = buildAssistantContext(entry);
+      if (!assistantContext) {
         return base;
       }
 
-      return `${base}\nassistant_angles:\n${titles
-        .map((title, index) => `${index + 1}. ${title}`)
-        .join("\n")}`;
+      return `${base}\n${assistantContext}`;
     })
-    .slice(-10)
+    .slice(-16)
     .join("\n");
 
   const lastDraftEntry = rawHistory
     .slice()
     .reverse()
+    .map((entry) => (entry && typeof entry === "object" ? normalizeEntry(entry as Record<string, unknown>) : null))
     .find(
-      (entry: Record<string, unknown>) =>
-        typeof entry?.draft === "string" && entry.draft.length > 0,
+      (entry) =>
+        Boolean(entry) &&
+        (!args.excludeMessageId || entry?.id !== args.excludeMessageId) &&
+        Boolean(entry && extractDraft(entry)),
     );
-  const historyDraft =
-    typeof lastDraftEntry?.draft === "string" ? lastDraftEntry.draft : undefined;
+  const historyDraft = lastDraftEntry ? extractDraft(lastDraftEntry) : undefined;
   const activeDraft = args.selectedDraftContext?.content || historyDraft;
 
   return {

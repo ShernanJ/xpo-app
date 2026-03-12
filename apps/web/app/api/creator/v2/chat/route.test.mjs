@@ -247,6 +247,42 @@ test("conversation context builder appends assistant angle titles for grounding"
   );
 });
 
+test("conversation context builder reuses stored assistant plan, draft, and grounding context", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      {
+        id: "assistant_1",
+        role: "assistant",
+        content: "this is the cleanest direction.",
+        data: {
+          plan: {
+            objective: "position xpo as a growth agent for x",
+            angle: "the main win is continuity, not generic drafting",
+            targetLane: "original",
+          },
+          draft: "xpo should feel like one smart operator, not a pile of routing rules.",
+          groundingExplanation: "Built from saved stories and proof you've already taught Xpo to reuse.",
+          groundingSources: [
+            {
+              type: "story",
+              title: "routing cleanup",
+              claims: [],
+              snippets: [],
+            },
+          ],
+          issuesFixed: ["Removed vague language."],
+        },
+      },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("assistant_plan:"), true);
+  assert.equal(context.recentHistory.includes("assistant_draft:"), true);
+  assert.equal(context.recentHistory.includes("assistant_grounding:"), true);
+  assert.equal(context.activeDraft, "xpo should feel like one smart operator, not a pile of routing rules.");
+});
+
 test("route-level context feeds deterministic source transparency attribution", () => {
   const selectedDraftContext = parseSelectedDraftContext({
     messageId: "msg_17",
@@ -272,4 +308,28 @@ test("route-level context feeds deterministic source transparency attribution", 
 
   assert.equal(typeof reply, "string");
   assert.equal(/prior message/i.test(reply || ""), true);
+});
+
+test("conversation context builder can exclude the current user turn when thread-backed history is used", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    excludeMessageId: "user_2",
+    history: [
+      { id: "user_1", role: "user", content: "help me figure out what to post" },
+      {
+        id: "assistant_2",
+        role: "assistant",
+        content: "let's keep it on one lane",
+        data: {
+          contextPacket: {
+            summary: "plan: one core lane\nreply: keep it grounded in product-specific proof",
+          },
+        },
+      },
+      { id: "user_2", role: "user", content: "write it now" },
+    ],
+  });
+
+  assert.equal(context.recentHistory.includes("user: write it now"), false);
+  assert.equal(context.recentHistory.includes("assistant_context:"), true);
 });

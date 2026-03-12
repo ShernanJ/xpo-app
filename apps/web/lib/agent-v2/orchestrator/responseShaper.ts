@@ -94,10 +94,6 @@ function shapeBySurfaceMode(response: string, surfaceMode: SurfaceMode): string 
     return removeTrailingFollowUpQuestion(response);
   }
 
-  if (surfaceMode === "generate_full_output") {
-    return removeTrailingFollowUpQuestion(response);
-  }
-
   return response;
 }
 

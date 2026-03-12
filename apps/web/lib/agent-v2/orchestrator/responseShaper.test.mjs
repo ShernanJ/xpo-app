@@ -113,4 +113,12 @@ test("surface mode selector treats thread drafts as full generated output", () =
     shouldAskFollowUp: false,
     maxFollowUps: 0,
   });
+
+  const response = shapeAssistantResponse({
+    response: "drafted a version. tune tone, hook, or length?",
+    outputShape: "thread_seed",
+    plan,
+  });
+
+  assert.equal(response, "drafted a version. tune tone, hook, or length?");
 });

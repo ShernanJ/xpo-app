@@ -4,6 +4,7 @@ export type DraftRevisionChangeKind =
   | "emoji_cleanup"
   | "hook_only_edit"
   | "length_trim"
+  | "length_expand"
   | "tone_shift"
   | "full_rewrite"
   | "generic";
@@ -95,6 +96,30 @@ export function normalizeDraftRevisionInstruction(
       instruction:
         "shorten the current draft while preserving the main idea, tone, and core structure",
       changeKind: "length_trim",
+      targetText: null,
+    };
+  }
+
+  if (
+    [
+      "make it longer",
+      "longer",
+      "make it more detailed",
+      "more detailed",
+      "add more detail",
+      "add details",
+      "expand it",
+      "expand this",
+      "flesh it out",
+      "open it up",
+      "go deeper",
+      "develop this more",
+    ].some((cue) => normalized.includes(cue))
+  ) {
+    return {
+      instruction:
+        "expand the current draft with more specificity and detail while preserving the same core angle, staying close to the existing wording, and only elaborating with details that are already grounded in the draft, chat, or session context",
+      changeKind: "length_expand",
       targetText: null,
     };
   }

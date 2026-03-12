@@ -1,4 +1,8 @@
-import { classifyIntent } from "../agents/classifier";
+import {
+  controlTurn,
+  mapControllerActionToIntent,
+  mapIntentToControllerAction,
+} from "../agents/controller";
 import { generateCoachReply } from "../agents/coach";
 import { generatePlan } from "../agents/planner";
 import { generateIdeasMenu } from "../agents/ideator";
@@ -107,7 +111,6 @@ import {
   isBareDraftRequest,
   isBareIdeationRequest,
   isMultiDraftRequest,
-  resolveConversationMode,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
   shouldUseRevisionDraftPath,
@@ -232,6 +235,7 @@ export interface RoutingTrace {
     overrideClassifiedIntent: string | null;
     shouldAutoDraftFromPlan: boolean;
   } | null;
+  controllerAction: string | null;
   classifiedIntent: string | null;
   resolvedMode: string | null;
   routerState: ConversationRouterState | null;
@@ -276,7 +280,7 @@ type RawOrchestratorResponse = Omit<
 >;
 
 export interface ConversationServices {
-  classifyIntent: typeof classifyIntent;
+  controlTurn: typeof controlTurn;
   generateCoachReply: typeof generateCoachReply;
   generatePlan: typeof generatePlan;
   generateIdeasMenu: typeof generateIdeasMenu;
@@ -367,7 +371,7 @@ function buildDraftGroundingSummary(args: {
 
 export function createDefaultConversationServices(): ConversationServices {
   return {
-    classifyIntent,
+    controlTurn,
     generateCoachReply,
     generatePlan,
     generateIdeasMenu,
@@ -1220,15 +1224,6 @@ function buildPlanPitch(plan: StrategyPlan): string {
       .replace(/\s+/g, " ")
       .replace(/[.?!,;:]+$/, "");
 
-  const toSentence = (value: string): string => {
-    const normalized = normalizeLine(value);
-    if (!normalized) {
-      return "";
-    }
-
-    return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}.`;
-  };
-
   const toLead = (value: string): string => {
     const normalized = value.trim().replace(/\s+/g, " ");
     if (!normalized) {
@@ -1255,30 +1250,31 @@ function buildPlanPitch(plan: StrategyPlan): string {
       seed,
     );
 
-  const angleLine = toSentence(plan.angle);
-  const objectiveLine = toSentence(plan.objective);
+  const details = [
+    plan.angle ? `- angle: ${normalizeLine(plan.angle)}` : null,
+    plan.objective ? `- focus: ${normalizeLine(plan.objective)}` : null,
+    plan.hookType ? `- hook: ${normalizeLine(plan.hookType)}` : null,
+    plan.mustInclude[0]
+      ? `- must include: ${plan.mustInclude.map((value) => normalizeLine(value)).join(" | ")}`
+      : null,
+    plan.mustAvoid[0]
+      ? `- avoid: ${plan.mustAvoid.map((value) => normalizeLine(value)).join(" | ")}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
   const close = pickDeterministic(
     [
-      "if that's the angle, i'll draft it.",
-      "if this direction works, i'll write it from here.",
-      "if you want this angle, i'll run with it.",
+      "if that's the direction, i'll draft it.",
+      "if this is the lane, i'll write it from here.",
+      "if you want this angle, i'll turn it into a post.",
     ],
     `${seed}|close`,
   );
 
-  if (angleLine && objectiveLine && angleLine !== objectiveLine) {
-    return `${lead}\n\n${angleLine}\n\n${objectiveLine}\n\n${close}`;
+  if (details.length === 0) {
+    return `${lead}\n\n${close}`;
   }
 
-  if (angleLine) {
-    return `${lead}\n\n${angleLine}\n\n${close}`;
-  }
-
-  if (objectiveLine) {
-    return `${lead}\n\n${objectiveLine}\n\n${close}`;
-  }
-
-  return `${lead}\n\n${close}`;
+  return `${lead}\n\n${details.join("\n")}\n\n${close}`;
 }
 
 function applyMemoryPatch(
@@ -1465,9 +1461,8 @@ export async function manageConversationTurn(
     ]),
   );
 
-  // V3: deterministic turn planner runs before the LLM classifier.
-  // It catches high-confidence patterns (edit instructions, immediate
-  // draft commands, chat questions) and can short-circuit the classifier.
+  // Narrow deterministic guardrails run before the controller.
+  // They only protect edit safety and impossible draft states.
   const turnPlan = planTurn({
     userMessage,
     recentHistory,
@@ -1484,6 +1479,7 @@ export async function manageConversationTurn(
           shouldAutoDraftFromPlan: turnPlan.shouldAutoDraftFromPlan === true,
         }
       : null,
+    controllerAction: null,
     classifiedIntent: null,
     resolvedMode: null,
     routerState: null,
@@ -1504,33 +1500,59 @@ export async function manageConversationTurn(
     | undefined;
 
   const rawResponse = await (async (): Promise<RawOrchestratorResponse> => {
-  let classification;
+  const controllerMemory = {
+    conversationState: memory.conversationState,
+    topicSummary: memory.topicSummary,
+    hasPendingPlan: Boolean(memory.pendingPlan),
+    hasActiveDraft:
+      Boolean(activeDraft) ||
+      Boolean(memory.currentDraftArtifactId) ||
+      memory.conversationState === "draft_ready" ||
+      memory.conversationState === "editing",
+    unresolvedQuestion: memory.unresolvedQuestion,
+    concreteAnswerCount: memory.concreteAnswerCount,
+  };
+  let controllerDecision;
+  let classifiedIntent: V2ChatIntent;
   if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
-    // Deterministic override — skip LLM classification.
-    classification = {
-      intent: turnPlan.overrideClassifiedIntent,
+    classifiedIntent = turnPlan.overrideClassifiedIntent;
+    controllerDecision = {
+      action: mapIntentToControllerAction(classifiedIntent),
       needs_memory_update: false,
       confidence: 1,
+      rationale: "deterministic guardrail",
     };
   } else if (!explicitIntent) {
-    classification = await services.classifyIntent(userMessage, recentHistory);
-    if (!classification) {
+    controllerDecision = await services.controlTurn({
+      userMessage,
+      recentHistory,
+      memory: controllerMemory,
+    });
+    if (!controllerDecision) {
       return {
         mode: "error",
         outputShape: "coach_question",
-        response: "Failed to classify intent.",
+        response: "Failed to control turn.",
         memory,
       };
     }
+    classifiedIntent = mapControllerActionToIntent({
+      action: controllerDecision.action,
+      memory: controllerMemory,
+    });
   } else {
-    classification = {
-      intent: explicitIntent,
+    classifiedIntent = explicitIntent;
+    controllerDecision = {
+      action: mapIntentToControllerAction(classifiedIntent),
       needs_memory_update: false,
       confidence: 1,
+      rationale: "explicit intent",
     };
   }
 
-  if (classification.needs_memory_update) {
+  routingTrace.controllerAction = controllerDecision.action;
+
+  if (controllerDecision.needs_memory_update) {
     const nextConstraints = Array.from(
       new Set([...memory.activeConstraints, userMessage]),
     );
@@ -1542,13 +1564,8 @@ export async function manageConversationTurn(
     memory = createConversationMemorySnapshot(updated as unknown as Record<string, unknown>);
   }
 
-  let mode = resolveConversationMode({
-    explicitIntent,
-    userMessage,
-    classifiedIntent: classification.intent,
-    activeDraft,
-  }) as V2ChatIntent;
-  routingTrace.classifiedIntent = classification.intent;
+  let mode = classifiedIntent;
+  routingTrace.classifiedIntent = classifiedIntent;
   routingTrace.resolvedMode = mode;
 
   if (
@@ -3286,7 +3303,7 @@ User Profile Summary:
     canAskPlanClarification() &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
-    classification.confidence < 0.7
+    controllerDecision.confidence < 0.7
   ) {
     const branchKey = isLazyDraftRequest(userMessage)
       ? "lazy_request"
@@ -4086,6 +4103,7 @@ User Profile Summary:
             isEdit: true,
             issuesFixed,
             styleCard,
+            revisionChangeKind: revision.changeKind,
           }),
           feedbackMemoryNotice,
         ),
