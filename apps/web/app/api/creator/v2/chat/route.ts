@@ -4,7 +4,9 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
+  createConversationMemorySnapshot,
   createConversationMemory,
+  getConversationMemory,
   updateConversationMemory,
 } from "@/lib/agent-v2/memory/memoryStore";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
@@ -37,6 +39,7 @@ import {
   buildConversationContextFromHistory,
   normalizeDraftPayload,
   parseSelectedDraftContext,
+  resolveSelectedDraftContextFromHistory,
   resolveEffectiveExplicitIntent,
   type SelectedDraftContext,
 } from "./route.logic";
@@ -338,7 +341,7 @@ export async function POST(request: NextRequest) {
   const threadFramingStyle = resolveThreadFramingStyle(body.threadFramingStyle);
   const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
   const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
-  const selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
+  let selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
   const preferenceConstraints = Array.isArray(body.preferenceConstraints)
     ? body.preferenceConstraints
         .filter((value): value is string => typeof value === "string")
@@ -610,8 +613,16 @@ export async function POST(request: NextRequest) {
           createdAt: true,
         },
       });
-      const context = buildConversationContextFromHistory({
+      const storedMemory = createConversationMemorySnapshot(
+        await getConversationMemory({ threadId: storedThread.id }),
+      );
+      selectedDraftContext = resolveSelectedDraftContextFromHistory({
         history: threadMessages.reverse(),
+        selectedDraftContext,
+        activeDraftRef: storedMemory.activeDraftRef,
+      });
+      const context = buildConversationContextFromHistory({
+        history: threadMessages,
         selectedDraftContext,
         excludeMessageId: createdUserMessage.id,
       });

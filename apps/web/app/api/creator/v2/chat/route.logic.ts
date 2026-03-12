@@ -148,6 +148,12 @@ export interface SelectedDraftContext {
   revisionChainId?: string;
 }
 
+interface ActiveDraftLocator {
+  messageId: string;
+  versionId: string;
+  revisionChainId?: string | null;
+}
+
 export function looksLikeDraftHandoff(reply: string): boolean {
   const normalized = reply.trim().toLowerCase();
 
@@ -285,6 +291,188 @@ export function parseSelectedDraftContext(value: unknown): SelectedDraftContext 
     ...(maxCharacterLimit ? { maxCharacterLimit } : {}),
     ...(revisionChainId ? { revisionChainId } : {}),
   };
+}
+
+function normalizeHistoryEntry(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+
+  const record = entry as Record<string, unknown>;
+  const data =
+    record.data && typeof record.data === "object" && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {};
+
+  return {
+    ...data,
+    ...record,
+  };
+}
+
+function buildSelectedDraftContextFromEntry(args: {
+  entry: Record<string, unknown>;
+  versionId?: string | null;
+}): SelectedDraftContext | null {
+  const messageId = typeof args.entry.id === "string" ? args.entry.id.trim() : "";
+  if (!messageId) {
+    return null;
+  }
+
+  const draftVersions = Array.isArray(args.entry.draftVersions) ? args.entry.draftVersions : [];
+  const requestedVersionId = args.versionId?.trim() || null;
+  const activeDraftVersionId =
+    requestedVersionId ||
+    (typeof args.entry.activeDraftVersionId === "string"
+      ? args.entry.activeDraftVersionId.trim()
+      : null);
+
+  const matchingVersion =
+    draftVersions.find(
+      (version) =>
+        version &&
+        typeof version === "object" &&
+        (version as Record<string, unknown>).id === activeDraftVersionId,
+    ) ||
+    draftVersions[draftVersions.length - 1];
+  if (
+    matchingVersion &&
+    typeof matchingVersion === "object" &&
+    typeof (matchingVersion as Record<string, unknown>).id === "string" &&
+    typeof (matchingVersion as Record<string, unknown>).content === "string"
+  ) {
+    const record = matchingVersion as Record<string, unknown>;
+    return parseSelectedDraftContext({
+      messageId,
+      versionId: record.id,
+      content: record.content,
+      source: record.source,
+      createdAt: record.createdAt,
+      maxCharacterLimit: record.maxCharacterLimit,
+      revisionChainId:
+        typeof args.entry.revisionChainId === "string"
+          ? args.entry.revisionChainId
+          : undefined,
+    });
+  }
+
+  const draftBundle =
+    args.entry.draftBundle &&
+    typeof args.entry.draftBundle === "object" &&
+    !Array.isArray(args.entry.draftBundle)
+      ? (args.entry.draftBundle as Record<string, unknown>)
+      : null;
+  if (draftBundle && Array.isArray(draftBundle.options)) {
+    const matchingOption =
+      draftBundle.options.find(
+        (option) =>
+          option &&
+          typeof option === "object" &&
+          (option as Record<string, unknown>).versionId === activeDraftVersionId,
+      ) ||
+      draftBundle.options.find(
+        (option) =>
+          option &&
+          typeof option === "object" &&
+          (option as Record<string, unknown>).id === draftBundle.selectedOptionId,
+      ) ||
+      draftBundle.options[0];
+    if (
+      matchingOption &&
+      typeof matchingOption === "object" &&
+      typeof (matchingOption as Record<string, unknown>).versionId === "string" &&
+      typeof (matchingOption as Record<string, unknown>).content === "string"
+    ) {
+      const record = matchingOption as Record<string, unknown>;
+      return parseSelectedDraftContext({
+        messageId,
+        versionId: record.versionId,
+        content: record.content,
+        revisionChainId:
+          typeof args.entry.revisionChainId === "string"
+            ? args.entry.revisionChainId
+            : undefined,
+      });
+    }
+  }
+
+  const contextPacket =
+    args.entry.contextPacket &&
+    typeof args.entry.contextPacket === "object" &&
+    !Array.isArray(args.entry.contextPacket)
+      ? (args.entry.contextPacket as Record<string, unknown>)
+      : null;
+  const draftRef =
+    contextPacket?.draftRef &&
+    typeof contextPacket.draftRef === "object" &&
+    !Array.isArray(contextPacket.draftRef)
+      ? (contextPacket.draftRef as Record<string, unknown>)
+      : null;
+  if (
+    draftRef &&
+    typeof draftRef.excerpt === "string" &&
+    draftRef.excerpt.trim() &&
+    typeof draftRef.activeDraftVersionId === "string" &&
+    draftRef.activeDraftVersionId.trim() &&
+    (!requestedVersionId || draftRef.activeDraftVersionId === requestedVersionId)
+  ) {
+    return parseSelectedDraftContext({
+      messageId,
+      versionId: draftRef.activeDraftVersionId,
+      content: draftRef.excerpt,
+      revisionChainId:
+        typeof draftRef.revisionChainId === "string" ? draftRef.revisionChainId : undefined,
+    });
+  }
+
+  return null;
+}
+
+export function resolveSelectedDraftContextFromHistory(args: {
+  history: unknown;
+  selectedDraftContext: SelectedDraftContext | null;
+  activeDraftRef?: ActiveDraftLocator | null;
+}): SelectedDraftContext | null {
+  const normalizedEntries = (Array.isArray(args.history) ? args.history : [])
+    .map((entry) => normalizeHistoryEntry(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+
+  if (args.activeDraftRef?.messageId && args.activeDraftRef.versionId) {
+    const preferredEntry = normalizedEntries.find(
+      (entry) => entry.id === args.activeDraftRef?.messageId,
+    );
+    const preferredContext = preferredEntry
+      ? buildSelectedDraftContextFromEntry({
+          entry: preferredEntry,
+          versionId: args.activeDraftRef.versionId,
+        })
+      : null;
+    if (preferredContext) {
+      return preferredContext;
+    }
+  }
+
+  if (args.selectedDraftContext) {
+    const matchingEntry = normalizedEntries.find(
+      (entry) => entry.id === args.selectedDraftContext?.messageId,
+    );
+    const matchingContext = matchingEntry
+      ? buildSelectedDraftContextFromEntry({
+          entry: matchingEntry,
+          versionId: args.selectedDraftContext.versionId,
+        })
+      : null;
+    return matchingContext || args.selectedDraftContext;
+  }
+
+  for (const entry of [...normalizedEntries].reverse()) {
+    const inferredContext = buildSelectedDraftContextFromEntry({ entry });
+    if (inferredContext) {
+      return inferredContext;
+    }
+  }
+
+  return null;
 }
 
 export function buildConversationContextFromHistory(args: {

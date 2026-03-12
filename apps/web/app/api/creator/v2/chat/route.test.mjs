@@ -9,6 +9,7 @@ import {
   looksLikeDraftHandoff,
   normalizeDraftPayload,
   parseSelectedDraftContext,
+  resolveSelectedDraftContextFromHistory,
   resolveDraftArtifactKind,
   resolveEffectiveExplicitIntent,
 } from "./route.logic.ts";
@@ -333,6 +334,69 @@ test("conversation context builder prefers standardized context packet refs over
     context.activeDraft,
     "context should survive the turn, not reset every message.",
   );
+});
+
+test("selected draft resolution prefers the stored active draft ref over stale client selection", () => {
+  const resolved = resolveSelectedDraftContextFromHistory({
+    selectedDraftContext: parseSelectedDraftContext({
+      messageId: "assistant_old",
+      versionId: "ver_old",
+      content: "older selected draft",
+      revisionChainId: "revision-chain-old",
+    }),
+    activeDraftRef: {
+      messageId: "assistant_new",
+      versionId: "ver_new",
+      revisionChainId: "revision-chain-new",
+    },
+    history: [
+      {
+        id: "assistant_old",
+        role: "assistant",
+        data: {
+          draftVersions: [
+            {
+              id: "ver_old",
+              content: "older selected draft",
+              source: "assistant_generated",
+              createdAt: "2026-03-01T00:00:00.000Z",
+              basedOnVersionId: null,
+              weightedCharacterCount: 24,
+              maxCharacterLimit: 280,
+              supportAsset: null,
+            },
+          ],
+          activeDraftVersionId: "ver_old",
+          revisionChainId: "revision-chain-old",
+        },
+      },
+      {
+        id: "assistant_new",
+        role: "assistant",
+        data: {
+          draftVersions: [
+            {
+              id: "ver_new",
+              content: "newest canonical draft",
+              source: "assistant_revision",
+              createdAt: "2026-03-02T00:00:00.000Z",
+              basedOnVersionId: "ver_old",
+              weightedCharacterCount: 23,
+              maxCharacterLimit: 280,
+              supportAsset: null,
+            },
+          ],
+          activeDraftVersionId: "ver_new",
+          revisionChainId: "revision-chain-new",
+        },
+      },
+    ],
+  });
+
+  assert.equal(resolved?.messageId, "assistant_new");
+  assert.equal(resolved?.versionId, "ver_new");
+  assert.equal(resolved?.content, "newest canonical draft");
+  assert.equal(resolved?.revisionChainId, "revision-chain-new");
 });
 
 test("route-level context feeds deterministic source transparency attribution", () => {
