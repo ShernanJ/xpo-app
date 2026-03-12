@@ -40,6 +40,7 @@ import {
   renderMarkdownToHtml,
   renderStreamingMarkdownToHtml,
 } from "@/lib/ui/markdown";
+import { getChatRenderMode } from "@/lib/ui/chatRenderMode";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -9169,24 +9170,38 @@ function ChatPageContent() {
                             message.role === "assistant" &&
                             message.id === latestAssistantMessageId &&
                             (typedAssistantLengths[message.id] ?? 0) < message.content.length ? (
-                              <div className={assistantMarkdownClassName}>
+                              getChatRenderMode("assistant_streaming_preview") === "markdown" ? (
+                                <div className={assistantMarkdownClassName}>
+                                  <div
+                                    dangerouslySetInnerHTML={{
+                                      __html: renderStreamingMarkdownToHtml(
+                                        message.content,
+                                        typedAssistantLengths[message.id] ?? 0,
+                                      ),
+                                    }}
+                                  />
+                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                                </div>
+                              ) : (
+                                <p className="whitespace-pre-wrap">
+                                  {message.content.slice(
+                                    0,
+                                    typedAssistantLengths[message.id] ?? 0,
+                                  )}
+                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
+                                </p>
+                              )
+                            ) : message.role === "assistant" ? (
+                              getChatRenderMode("assistant_message") === "markdown" ? (
                                 <div
+                                  className={assistantMarkdownClassName}
                                   dangerouslySetInnerHTML={{
-                                    __html: renderStreamingMarkdownToHtml(
-                                      message.content,
-                                      typedAssistantLengths[message.id] ?? 0,
-                                    ),
+                                    __html: renderMarkdownToHtml(message.content),
                                   }}
                                 />
-                                <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                              </div>
-                            ) : message.role === "assistant" ? (
-                              <div
-                                className={assistantMarkdownClassName}
-                                dangerouslySetInnerHTML={{
-                                  __html: renderMarkdownToHtml(message.content),
-                                }}
-                              />
+                              ) : (
+                                <p className="whitespace-pre-wrap">{message.content}</p>
+                              )
                             ) : (
                               <p className="whitespace-pre-wrap">{message.content}</p>
                             )
@@ -11034,10 +11049,16 @@ function ChatPageContent() {
                               {activeFeedbackTitle.trim()}
                             </p>
                           ) : null}
-                          <div
-                            className={`mt-3 h-[20rem] overflow-y-auto pr-1 ${mutedMarkdownClassName} md:h-[24rem]`}
-                            dangerouslySetInnerHTML={{ __html: feedbackPreviewHtml }}
-                          />
+                          {getChatRenderMode("feedback_preview") === "markdown" ? (
+                            <div
+                              className={`mt-3 h-[20rem] overflow-y-auto pr-1 ${mutedMarkdownClassName} md:h-[24rem]`}
+                              dangerouslySetInnerHTML={{ __html: feedbackPreviewHtml }}
+                            />
+                          ) : (
+                            <p className="mt-3 h-[20rem] overflow-y-auto whitespace-pre-wrap pr-1 text-sm leading-6 text-zinc-200 md:h-[24rem]">
+                              {activeFeedbackDraft}
+                            </p>
+                          )}
                         </div>
                       </div>
 
