@@ -389,6 +389,45 @@ CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical 
           threadFramingStyle,
         })
       : null;
+  const factualTruthLayer = [
+    concreteSceneBlock,
+    hardGroundingBlock,
+    groundingPacketBlock,
+    plainFactualProductBlock,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n\n");
+  const strategyLayer = `
+STRATEGIC DRAFT PLAN:
+Objective: ${args.plan.objective}
+Angle: ${args.plan.angle}
+Target Lane: ${args.plan.targetLane}
+Hook Type: ${args.plan.hookType}
+Must Include: ${args.plan.mustInclude.join(" | ") || "None"}
+Must Avoid: ${args.plan.mustAvoid.join(" | ") || "None"}
+Active Session Constraints: ${args.activeConstraints.join(" | ") || "None"}
+${creatorHintsBlock ? `\n${creatorHintsBlock}` : ""}
+  `.trim();
+  const voiceShapeLayer = `
+VOICE / SHAPE LAYER:
+${referenceAnchorBlock}
+
+${args.styleCard
+      ? `
+USER'S SPECIFIC WRITING STYLE:
+- Sentence Openings: ${args.styleCard.sentenceOpenings.join(", ")}
+- Sentence Closers: ${args.styleCard.sentenceClosers.join(", ")}
+- Pacing: ${args.styleCard.pacing}
+- Emojis: IF the user rarely uses emojis, DO NOT USE THEM. If they do, use them sparingly. (Pattern: ${args.styleCard.emojiPatterns.join(", ") || "None"})
+- Slang/Vocabulary: ${args.styleCard.slangAndVocabulary.join(", ")}
+- Formatting: ${args.styleCard.formattingRules.join(", ")}
+${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRITICAL): ${args.styleCard.customGuidelines.join(" | ")}` : ""}
+`
+      : "No style card available. Write in a clean, punchy, conversational tone."
+    }
+
+${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
+  `.trim();
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -408,37 +447,12 @@ ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activ
 RECENT CHAT HISTORY (Provides context on what the user is replying to):
 ${args.recentHistory}
 
-STRATEGY PLAN:
-Objective: ${args.plan.objective}
-Angle: ${args.plan.angle}
-Target Lane: ${args.plan.targetLane}
-Hook Type: ${args.plan.hookType}
-Must Include: ${args.plan.mustInclude.join(" | ") || "None"}
-Must Avoid: ${args.plan.mustAvoid.join(" | ") || "None"}
-Active Session Constraints: ${args.activeConstraints.join(" | ") || "None"}
+FACTUAL TRUTH LAYER:
+${factualTruthLayer || "None"}
 
-${referenceAnchorBlock}
+${strategyLayer}
 
-${args.styleCard
-      ? `
-USER'S SPECIFIC WRITING STYLE:
-- Sentence Openings: ${args.styleCard.sentenceOpenings.join(", ")}
-- Sentence Closers: ${args.styleCard.sentenceClosers.join(", ")}
-- Pacing: ${args.styleCard.pacing}
-- Emojis: IF the user rarely uses emojis, DO NOT USE THEM. If they do, use them sparingly. (Pattern: ${args.styleCard.emojiPatterns.join(", ") || "None"})
-- Slang/Vocabulary: ${args.styleCard.slangAndVocabulary.join(", ")}
-- Formatting: ${args.styleCard.formattingRules.join(", ")}
-${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRITICAL): ${args.styleCard.customGuidelines.join(" | ")}` : ""}
-`
-      : "No style card available. Write in a clean, punchy, conversational tone."
-    }
-
-${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
-${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
-${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
-${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
-${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
-${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
+${voiceShapeLayer}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
@@ -471,6 +485,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12h. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
 13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
+14a. Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.
+14b. Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.
+14c. If the strategic angle conflicts with the factual truth layer, keep the factual truth and adjust the framing instead of widening the claim.
 15. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
 16. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
 17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."

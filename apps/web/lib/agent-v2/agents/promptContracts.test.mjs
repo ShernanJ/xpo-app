@@ -194,6 +194,9 @@ test("planner and writer prompts surface hard factual grounding for product asks
   );
   assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
   assert.equal(promptBuildersSource.includes("Source material details:"), true);
+  assert.equal(promptBuildersSource.includes("FACTUAL TRUTH LAYER:"), true);
+  assert.equal(promptBuildersSource.includes("STRATEGIC DRAFT PLAN:"), true);
+  assert.equal(promptBuildersSource.includes("VOICE / SHAPE LAYER:"), true);
   assert.equal(
     promptBuildersSource.includes(
       "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
@@ -210,6 +213,18 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptBuildersSource.includes(
       "Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.",
     ),
     true,
   );
