@@ -15,6 +15,13 @@ export interface ExtensionReplyIntentMetadata {
   rationale: string;
 }
 
+export interface ExtensionObservedReplyMetrics {
+  likeCount: number;
+  replyCount: number;
+  profileClicks?: number;
+  followerDelta?: number;
+}
+
 export interface ExtensionReplyDraftRequest {
   tweetId: string;
   tweetText: string;
@@ -206,4 +213,5 @@ export interface ExtensionReplyLogRequest {
   copiedReplyLabel?: ExtensionSuggestedAngle | null;
   copiedReplyText?: string | null;
   copiedReplyIntent?: ExtensionReplyIntentMetadata | null;
+  observedMetrics?: ExtensionObservedReplyMetrics | null;
 }

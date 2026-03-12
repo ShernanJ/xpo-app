@@ -44,6 +44,15 @@ export const ExtensionReplyIntentMetadataSchema = z
   })
   .strict();
 
+export const ExtensionObservedReplyMetricsSchema = z
+  .object({
+    likeCount: z.number().int().min(0),
+    replyCount: z.number().int().min(0),
+    profileClicks: z.number().int().min(0).optional(),
+    followerDelta: z.number().int().optional(),
+  })
+  .strict();
+
 export const ExtensionExpectedValueLevelSchema = z.enum(["low", "medium", "high"]);
 
 export const ExtensionOpportunityCandidateSchema = z
@@ -193,5 +202,6 @@ export const ExtensionReplyLogRequestSchema = z
     copiedReplyLabel: ExtensionSuggestedAngleSchema.nullable().optional(),
     copiedReplyText: z.string().trim().min(1).max(500).nullable().optional(),
     copiedReplyIntent: ExtensionReplyIntentMetadataSchema.nullable().optional(),
+    observedMetrics: ExtensionObservedReplyMetricsSchema.nullable().optional(),
   })
   .strict();

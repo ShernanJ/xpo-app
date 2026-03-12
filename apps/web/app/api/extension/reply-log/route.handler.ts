@@ -37,6 +37,12 @@ interface ReplyLogRequest {
     anchor: string;
     rationale: string;
   } | null;
+  observedMetrics?: {
+    likeCount: number;
+    replyCount: number;
+    profileClicks?: number;
+    followerDelta?: number;
+  } | null;
 }
 
 type ReplyOpportunityRecord = ReplyOpportunity;
@@ -102,6 +108,61 @@ function jsonError(status: number, field: string, message: string) {
   );
 }
 
+function buildFollowConversionOutcome(args: {
+  parsed: ReplyLogRequest;
+  existing: ReplyOpportunityRecord | null;
+  lifecycleUpdate: { state: string; observedAt?: Date };
+}) {
+  if (!args.parsed.observedMetrics) {
+    return null;
+  }
+
+  const existingAnalytics =
+    args.existing?.notes &&
+    typeof args.existing.notes === "object" &&
+    !Array.isArray(args.existing.notes) &&
+    args.existing.notes !== null &&
+    "analytics" in args.existing.notes &&
+    typeof args.existing.notes.analytics === "object" &&
+    args.existing.notes.analytics !== null &&
+    !Array.isArray(args.existing.notes.analytics)
+      ? (args.existing.notes.analytics as Record<string, unknown>)
+      : null;
+
+  const copiedReplyIntent =
+    args.parsed.copiedReplyIntent ??
+    ((existingAnalytics?.copiedReplyIntent as ReplyLogRequest["copiedReplyIntent"]) || null);
+
+  return {
+    observedAtIso:
+      args.lifecycleUpdate.observedAt?.toISOString() ?? new Date().toISOString(),
+    metrics: {
+      likeCount: args.parsed.observedMetrics.likeCount,
+      replyCount: args.parsed.observedMetrics.replyCount,
+      ...(typeof args.parsed.observedMetrics.profileClicks === "number"
+        ? { profileClicks: args.parsed.observedMetrics.profileClicks }
+        : {}),
+      ...(typeof args.parsed.observedMetrics.followerDelta === "number"
+        ? { followerDelta: args.parsed.observedMetrics.followerDelta }
+        : {}),
+    },
+    intentLabel:
+      copiedReplyIntent?.label ??
+      args.parsed.copiedReplyLabel ??
+      args.parsed.angle ??
+      args.existing?.selectedAngleLabel ??
+      null,
+    intentAnchor: copiedReplyIntent?.anchor ?? null,
+    intentStrategyPillar:
+      copiedReplyIntent?.strategyPillar ?? args.existing?.strategyPillar ?? null,
+    intentRationale: copiedReplyIntent?.rationale ?? null,
+    selectedReplyId:
+      args.parsed.copiedReplyId ?? args.existing?.selectedOptionId ?? null,
+    hasProfileClickSignal: (args.parsed.observedMetrics.profileClicks || 0) > 0,
+    hasFollowConversionSignal: (args.parsed.observedMetrics.followerDelta || 0) > 0,
+  };
+}
+
 export async function handleExtensionReplyLogPost(
   request: Request,
   deps: ReplyLogHandlerDeps,
@@ -132,6 +193,11 @@ export async function handleExtensionReplyLogPost(
 
     if (existing) {
       const lifecycleUpdate = getLifecycleUpdate(parsed.data.event);
+      const followConversionOutcome = buildFollowConversionOutcome({
+        parsed: parsed.data,
+        existing,
+        lifecycleUpdate,
+      });
       const nextNotes = deps.mergeStoredOpportunityNotes(existing, {
         verdict: parsed.data.verdict ?? undefined,
         riskFlags: parsed.data.riskFlags ?? undefined,
@@ -147,6 +213,7 @@ export async function handleExtensionReplyLogPost(
           copiedReplyLabel: parsed.data.copiedReplyLabel ?? null,
           copiedReplyText: parsed.data.copiedReplyText ?? null,
           copiedReplyIntent: parsed.data.copiedReplyIntent ?? null,
+          followConversionOutcome,
           lastLoggedEvent: parsed.data.event,
         },
       });
@@ -165,6 +232,9 @@ export async function handleExtensionReplyLogPost(
             parsed.data.angle ??
             existing.selectedAngleLabel,
           selectedOptionText: parsed.data.copiedReplyText ?? existing.selectedOptionText,
+          ...(parsed.data.observedMetrics
+            ? { observedMetrics: parsed.data.observedMetrics }
+            : {}),
           notes: nextNotes,
         },
       });
@@ -182,6 +252,8 @@ export async function handleExtensionReplyLogPost(
         intentLabel: parsed.data.copiedReplyIntent?.label ?? null,
         intentAnchor: parsed.data.copiedReplyIntent?.anchor ?? null,
         intentStrategyPillar: parsed.data.copiedReplyIntent?.strategyPillar ?? null,
+        profileClicks: parsed.data.observedMetrics?.profileClicks ?? null,
+        followerDelta: parsed.data.observedMetrics?.followerDelta ?? null,
       },
     }).catch((error) =>
       deps.logExtensionRouteFailure({
