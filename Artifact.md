@@ -31,6 +31,11 @@
   - `memoryPolicy.ts` now uses the same salience rules when persistence falls back, so runtime memory shape stays aligned with the persisted shape.
   - The salience layer now keeps hard grounding constraints sticky, trims noisy/transient residue, caps ideation-angle carryover, normalizes rolling summaries, and clamps long-session counters like `concreteAnswerCount`.
   - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/memorySalience.test.ts`.
+- **Memory/constraint salience step 2 landed:**
+  - Turn-scoped memory freshness now lives in `apps/web/lib/agent-v2/memory/turnScopedMemory.ts`.
+  - `turnContextBuilder.ts` now scopes persisted memory per turn before routing/planning/drafting consume it, so stale topic summaries, old refinement instructions, lingering ideation angles, and outdated active-draft state stop dominating when the user clearly switches topics.
+  - Strong local continuation cues like active-draft edit requests still keep the current draft/plan context intact.
+  - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -88,7 +93,7 @@
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
    - test longer-session behavior
-   - Status: in progress. Shared salience policy now exists in `memorySalience.ts` and is applied in `memoryStore.ts` / `memoryPolicy.ts`; next work should refine what decays versus persists in longer sessions and then close with a broader validation sweep.
+   - Status: in progress. Shared salience policy now exists in `memorySalience.ts`, and turn-scoped freshness now lives in `turnScopedMemory.ts`; the last step should be the broader long-session validation pass and any small follow-up tuning it exposes.
 6. **Architecture follow-through (2-3 steps)**
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
@@ -116,4 +121,5 @@
 - **Thread-first Quality Phase Is Done**: Planner, writer, critic, and final-policy layers now reinforce the same thread arc, so the next major focus should shift to memory/constraint salience instead of more thread plumbing.
 - **Memory Salience Is Now Shared**: `apps/web/lib/agent-v2/memory/memorySalience.ts` is now the shared place to decide which constraints, summaries, and ideation residue stay sticky versus decay. If long-session memory gets bloated again, fix the policy there before widening persistence rules elsewhere.
 - **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
+- **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

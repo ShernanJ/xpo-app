@@ -1,6 +1,7 @@
 import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
 import { planTurn } from "./turnPlanner";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
+import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
 import type { ConversationServices, OrchestratorInput } from "./conversationManager";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "./groundingPacket";
@@ -96,9 +97,14 @@ export async function buildTurnContext(
     });
   }
 
-  const memory = createConversationMemorySnapshot(
+  const persistedMemory = createConversationMemorySnapshot(
     memoryRecord as unknown as Record<string, unknown>,
   );
+  const memory = scopeMemoryForCurrentTurn({
+    userMessage,
+    activeDraft,
+    memory: persistedMemory,
+  });
   
   const effectiveActiveConstraints = Array.from(
     new Set([
