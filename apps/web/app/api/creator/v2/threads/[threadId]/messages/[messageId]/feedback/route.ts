@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 interface MessageFeedbackRequest extends Record<string, unknown> {
   value?: unknown;
@@ -22,24 +26,20 @@ async function resolveOwnedAssistantMessage(args: {
   threadId: string;
   messageId: string;
   userId: string;
+  xHandle: string;
 }): Promise<
   | { ok: true; threadId: string; messageId: string }
   | { ok: false; response: NextResponse }
 > {
-  const thread = await prisma.chatThread.findUnique({
-    where: { id: args.threadId },
-    select: { id: true, userId: true },
+  const ownedThread = await resolveOwnedThreadForWorkspace({
+    threadId: args.threadId,
+    userId: args.userId,
+    xHandle: args.xHandle,
   });
-
-  if (!thread || thread.userId !== args.userId) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
-        { status: 404 },
-      ),
-    };
+  if (!ownedThread.ok) {
+    return ownedThread;
   }
+  const thread = ownedThread.thread;
 
   const message = await prisma.chatMessage.findUnique({
     where: { id: args.messageId },
@@ -108,11 +108,20 @@ export async function POST(
   }
 
   try {
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
+    });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
+
     const { threadId, messageId } = await params;
     const ownership = await resolveOwnedAssistantMessage({
       threadId,
       messageId,
       userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
     });
 
     if (!ownership.ok) {
@@ -224,11 +233,20 @@ export async function DELETE(
   }
 
   try {
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request: _request,
+      session,
+    });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
+
     const { threadId, messageId } = await params;
     const ownership = await resolveOwnedAssistantMessage({
       threadId,
       messageId,
       userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
     });
 
     if (!ownership.ok) {

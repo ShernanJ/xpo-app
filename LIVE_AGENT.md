@@ -116,6 +116,16 @@ This section tracks what has already landed so future agents do not accidentally
 - `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements plus the shared grounding/platform prompt contracts so future prompt edits do not silently flatten the planner/writer handoff or reintroduce prompt-copy drift.
 - `finalDraftPolicy.test.mjs` now covers repeated-payoff closes and obviously samey adjacent middle posts so the runtime cleanup stays pinned down.
 - `llm.ts` now retries once when OpenAI-proxied reasoning models return empty content with only reasoning text, which reduces false draft-generation failures.
+- Multi-handle workspace isolation is now explicit for creator/chat flows: the workspace handle is passed per request, persisted in the chat URL as `?xHandle=...`, and no longer inferred from `session.user.activeXHandle` on the backend.
+- Shared handle helpers now live in `apps/web/lib/workspaceHandle.ts` and `apps/web/lib/workspaceHandle.server.ts`.
+- Handle-scoped creator routes now validate both profile-handle access and thread ownership through `ChatThread.xHandle`, which quarantines legacy null-handle threads instead of silently reusing them.
+- `ReplyOpportunity` persistence is now isolated by `userId + xHandle + tweetId`, and the schema migration for that lives in `apps/web/prisma/migrations/20260313170000_reply_opportunity_handle_isolation/migration.sql`.
+- Direct regression coverage now exists in `apps/web/lib/workspaceHandle.test.ts`.
+- Shared memory salience policy now lives in `apps/web/lib/agent-v2/memory/memorySalience.ts`.
+- `memoryStore.ts` now applies that salience policy when persisting conversation memory and when building snapshots, so long-session memory stays compact before it reaches downstream orchestration.
+- `memoryPolicy.ts` now uses the same salience policy for optimistic fallback memory, keeping runtime memory shape aligned with persisted memory shape.
+- The salience layer now keeps hard grounding constraints sticky, trims noisy/transient residue, caps ideation-angle carryover, normalizes rolling summaries, and clamps `concreteAnswerCount`.
+- Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/memorySalience.test.ts`.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -123,7 +133,11 @@ This section tracks what has already landed so future agents do not accidentally
 - Green: `responseShaper.test.mjs`
 - Green: `planPitch.test.mjs`
 - Green: `plannerNormalization.test.mjs`
+- Green: `workspaceHandle.test.ts`
+- Green: `replyOpportunities.test.ts`
+- Green: `memorySalience.test.ts`
 - Green: `eslint lib/agent-v2/orchestrator/draftPipeline.ts`
+- Green: `eslint lib/agent-v2/memory/memorySalience.ts lib/agent-v2/memory/memorySalience.test.ts lib/agent-v2/memory/memoryStore.ts lib/agent-v2/orchestrator/memoryPolicy.ts`
 - Green: `test:v2-response-quality`
 - Green: `test:v2-regressions`
 - Green: `test:v2-orchestrator`
@@ -159,6 +173,9 @@ Bad context assembly can make the assistant feel systemy, repetitive, or over-or
 
 **Current rule:**  
 `recentHistory` should remain natural transcript only. Structured assistant state belongs in `contextPacket`, not in the transcript string.
+
+**Workspace-handle rule:**  
+For creator/chat APIs, the explicit workspace handle is authoritative. `session.user.activeXHandle` is only the last-used default for opening a workspace, not the backend identity key for account-scoped context.
 
 ---
 
@@ -399,10 +416,10 @@ Every meaningful change should update this section.
 
 #### WS-06 — Add memory/constraint salience policy
 - **Description:** Cap, score, and summarize constraints instead of unbounded accumulation
-- **Files touched:** `memoryStore.ts`, `conversationManager.ts`
+- **Files touched:** `memorySalience.ts`, `memoryStore.ts`, `memoryPolicy.ts`
 - **Owner/agent:** Unassigned
-- **Status:** Backlog
-- **Notes:** Good quality safeguard for longer sessions.
+- **Status:** In progress
+- **Notes:** Step 1 is landed: shared salience policy now normalizes persisted/fallback memory, keeps hard grounding sticky, and trims noisy residue. Next work should refine decay rules and close with longer-session validation.
 
 #### WS-07 — Keep orchestrator plumbing aligned with the modular split
 - **Description:** Keep direct tests, imports, and helper boundaries aligned with the current modular orchestrator surface
@@ -415,8 +432,12 @@ Every meaningful change should update this section.
 
 ### In Progress
 
-#### None currently
-- Update this section the moment work begins.
+#### WS-06 — Add memory/constraint salience policy
+- **Description:** Shared salience policy now governs which constraints, summaries, and ideation residue stay sticky in long sessions.
+- **Files touched:** `memorySalience.ts`, `memoryStore.ts`, `memoryPolicy.ts`
+- **Owner/agent:** Unassigned
+- **Status:** In progress
+- **Notes:** One of three steps is complete. Next step is refining what should decay versus persist as the conversation moves away from the active draft/topic.
 
 ---
 
@@ -457,7 +478,7 @@ Every meaningful change should update this section.
 - **Status:** Completed
 - **Date:** 2026-03-13
 
-#### WS-06 — Constraint salience policy
+#### WS-06a — Initial constraint salience policy
 - **Description:** Constraint accumulation now caps at 12 entries, prioritizing hard-grounding (Correction lock / Topic grounding) over generic constraints. Raw user messages only stored as constraints if they match explicit constraint patterns.
 - **Files touched:** `conversationManager.ts`
 - **Owner/agent:** Antigravity
@@ -532,7 +553,14 @@ Do not skip updating this when making meaningful changes.
 - **Reason:** Unbounded constraint accumulation was making long sessions progressively stiffer
 - **Date:** 2026-03-13
 - **Impact:** Sessions should stay flexible longer; hard-grounding entries (corrections, topic locks) are always preserved
-- **Follow-up needed:** No
+- **Follow-up needed:** Yes. The newer salience layer now needs to refine which non-critical memory fields decay over longer sessions.
+
+### Decision D-07
+- **Decision:** Apply one shared salience policy to both persisted and fallback conversation memory
+- **Reason:** Long-session behavior drifts if saved memory and runtime fallback memory are normalized differently
+- **Date:** 2026-03-13
+- **Impact:** Constraint priority, summary trimming, ideation carryover, and concrete-answer counts now stay aligned whether persistence succeeds or not
+- **Follow-up needed:** Yes
 
 ---
 
@@ -653,21 +681,22 @@ Use this checklist after meaningful changes.
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
    - test longer-session behavior
+   - Status: in progress. Step 1 is complete: `memorySalience.ts` now normalizes persisted/fallback memory and keeps hard grounding sticky while trimming noisy residue.
 6. **Architecture follow-through (2-3 steps)**
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
 
 ### Best next change
-Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, and thread-first quality maturation have landed, focus on these targeted fixes:
-1. Start memory/constraint salience follow-through so longer conversations keep the right rules and facts while dropping low-value residue.
-2. Keep the completed planner/writer, grounding, and thread-quality improvements intact while changing persistence behavior.
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and salience step 1 have landed, focus on these targeted fixes:
+1. Refine what should decay versus persist after the first salience pass, especially low-value preferences, stale topic residue, and old refinement instructions.
+2. Keep the completed planner/writer, grounding, and thread-quality improvements intact while tightening longer-session memory behavior.
 3. Preserve specificity and safety while making longer sessions feel less sticky and less repetitive.
 
 ### Safest next implementation step
-Audit persistence and salience behavior across `memoryPolicy.ts`, `conversationMemory.ts`, `turnContextBuilder.ts`, and the rolling-summary / constraint tests:
-- identify which constraints, corrections, and style notes should persist versus decay
-- tighten capping and summarization so high-value facts/corrections survive without letting low-signal preferences dominate
+Audit how normalized memory is consumed across `turnContextBuilder.ts`, context retrieval, and rolling-summary tests:
+- identify which persisted preferences and refinement instructions should decay once the conversation moves to a new topic or draft
+- tighten the read-path usage so high-value corrections survive without letting old stylistic residue dominate retrieval
 - keep the completed planner, grounding, and thread-quality layers intact while improving long-session context quality
 - rerun response/orchestrator suites after each slice
 
@@ -700,6 +729,7 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 22. Thread-first quality step 2 is complete: writer/critic prompts now force stronger role separation in the middle of the thread and reject payoff-as-close endings.
 23. Thread-first quality step 3 is complete: `finalDraftPolicy.ts` now collapses obviously samey adjacent thread posts, including closes that only repeat the payoff.
 24. Thread-first quality step 4 is complete: the planner, writer, critic, and final-policy layers were revalidated together with thread-focused and orchestrator-level regression coverage.
+25. Memory/constraint salience step 1 is complete: `memorySalience.ts` now normalizes persisted and fallback memory, keeping hard grounding sticky while trimming noisy residue, capping ideation carryover, and tightening rolling summaries.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
@@ -757,7 +787,8 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 - Added 7 thread-specific critic checks (T1-T7) to `critic.ts`
 - Added shared `planPitch.ts` and `plannerNormalization.ts` helpers for plan-language and plan-structure cleanup
 - Repaired `draftPipeline.ts` imports/types after the modular helper extraction and brought the file back to lint-clean
-- All changes compile with zero TypeScript errors
+- Added shared `memorySalience.ts` and applied it in `memoryStore.ts` / `memoryPolicy.ts` so persisted and fallback memory now share the same salience rules
+- Targeted validation is green; if full typecheck disagrees later, treat that as separate follow-up instead of assuming this changelog entry reflects current repo-wide type health
 
 ### 2026-03-12
 - Created initial `Live Agent.md`

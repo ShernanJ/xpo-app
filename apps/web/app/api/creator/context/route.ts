@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
+import { hydrateOnboardingProfile } from "@/lib/onboarding/profileHydration";
 import {
   applyCreatorStrategyOverrides,
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategyOverrides";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import { getServerSession } from "@/lib/auth/serverSession";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 interface CreatorAgentContextRequest extends Record<string, unknown> {
   runId?: unknown;
@@ -29,17 +31,25 @@ export async function POST(request: Request) {
   }
 
   const session = await getServerSession();
-  if (!session?.user?.id || !session?.user?.activeXHandle) {
+  if (!session?.user?.id) {
     return NextResponse.json(
       {
         ok: false,
-        errors: [{ field: "auth", message: "Unauthorized or no active handle selected." }],
+        errors: [{ field: "auth", message: "Unauthorized" }],
       },
       { status: 401 },
     );
   }
 
-  const storedRun = await readLatestOnboardingRunByHandle(session.user.id, session.user.activeXHandle);
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const storedRun = await readLatestOnboardingRunByHandle(session.user.id, workspaceHandle.xHandle);
   if (!storedRun) {
     return NextResponse.json(
       {
@@ -71,17 +81,19 @@ export async function POST(request: Request) {
     );
   }
 
-  const onboarding = applyCreatorStrategyOverrides({
-    onboarding: storedRun.result,
-    overrides: extractCreatorStrategyOverrides(body),
-  });
+  const onboarding = await hydrateOnboardingProfile(
+    applyCreatorStrategyOverrides({
+      onboarding: storedRun.result,
+      overrides: extractCreatorStrategyOverrides(body),
+    }),
+  );
   const context = buildCreatorAgentContext({
     runId: storedRun.runId,
     onboarding,
   });
   const growthOs = await buildGrowthOperatingSystemPayload({
     userId: session.user.id,
-    xHandle: session.user.activeXHandle,
+    xHandle: workspaceHandle.xHandle,
     onboarding,
     context,
   });

@@ -8,6 +8,7 @@ import {
   buildDraftArtifact,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 interface CandidatePatchRequest extends Record<string, unknown> {
   action?: unknown;
@@ -166,13 +167,24 @@ export async function PATCH(
   const content = typeof body.content === "string" ? body.content.trim() : "";
   const rejectionReason =
     typeof body.rejectionReason === "string" ? body.rejectionReason.trim() : null;
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
 
   const { candidateId } = await params;
   const candidate = await prisma.draftCandidate.findUnique({
     where: { id: candidateId },
   });
 
-  if (!candidate || candidate.userId !== session.user.id) {
+  if (
+    !candidate ||
+    candidate.userId !== session.user.id ||
+    candidate.xHandle !== workspaceHandle.xHandle
+  ) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "candidateId", message: "Draft candidate not found." }] },
       { status: 404 },

@@ -10,6 +10,7 @@ import {
   getActiveHandle,
   parsePatchSourceMaterialBody,
 } from "../route.logic";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 export async function PATCH(
   request: NextRequest,
@@ -23,12 +24,12 @@ export async function PATCH(
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   let body: { asset?: unknown };
@@ -66,7 +67,7 @@ export async function PATCH(
     throw error;
   }
 
-  if (!existing || existing.userId !== session.user.id || existing.xHandle !== xHandle) {
+  if (!existing || existing.userId !== session.user.id || existing.xHandle !== workspaceHandle.xHandle) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "assetId", message: "Source material not found." }] },
       { status: 404 },
@@ -110,7 +111,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ assetId: string }> },
 ) {
   const session = await getServerSession();
@@ -121,12 +122,12 @@ export async function DELETE(
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   const { assetId } = await params;
@@ -146,7 +147,7 @@ export async function DELETE(
     throw error;
   }
 
-  if (!existing || existing.userId !== session.user.id || existing.xHandle !== xHandle) {
+  if (!existing || existing.userId !== session.user.id || existing.xHandle !== workspaceHandle.xHandle) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "assetId", message: "Source material not found." }] },
       { status: 404 },

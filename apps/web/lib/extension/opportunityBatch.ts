@@ -1060,8 +1060,9 @@ export async function persistRankedOpportunity(args: {
 }) {
   const record = await prisma.replyOpportunity.upsert({
     where: {
-      userId_tweetId: {
+      userId_xHandle_tweetId: {
         userId: args.userId,
+        xHandle: args.xHandle,
         tweetId: args.ranked.candidate.postId,
       },
     },

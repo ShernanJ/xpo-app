@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 interface DraftMessagePatchRequest extends Record<string, unknown> {
   draftVersions?: unknown;
@@ -60,17 +64,23 @@ export async function PATCH(
   }
 
   try {
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
+    });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
+
     const { threadId, messageId } = await params;
 
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
     });
-
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json(
-        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
-        { status: 404 },
-      );
+    if (!ownedThread.ok) {
+      return ownedThread.response;
     }
 
     const message = await prisma.chatMessage.findUnique({

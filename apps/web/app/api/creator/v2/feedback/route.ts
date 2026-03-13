@@ -15,6 +15,7 @@ import {
   evaluateFeedbackSubmissionGuards,
   FEEDBACK_MAX_ATTACHMENTS,
 } from "./route.logic";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 const MAX_LEGACY_BACKFILL_COUNT = 250;
 const MAX_GUARD_LOOKBACK_COUNT = 250;
@@ -45,19 +46,6 @@ const FeedbackStatusUpdateRequestSchema = z.object({
   submissionId: z.string().trim().min(1),
   status: FeedbackSubmissionStatusSchema,
 });
-
-function getActiveHandle(session: {
-  user?: {
-    activeXHandle?: string | null;
-  };
-} | null): string | null {
-  if (!session?.user?.activeXHandle || typeof session.user.activeXHandle !== "string") {
-    return null;
-  }
-
-  const normalized = session.user.activeXHandle.trim();
-  return normalized || null;
-}
 
 function sanitizeFields(fields?: Record<string, string>): Record<string, string> {
   if (!fields) {
@@ -220,7 +208,7 @@ async function backfillLegacyFeedbackSubmissions(args: {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -229,13 +217,15 @@ export async function GET() {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
+
+  const xHandle = workspaceHandle.xHandle;
 
   await backfillLegacyFeedbackSubmissions({
     userId: session.user.id,
@@ -284,13 +274,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
+
+  const xHandle = workspaceHandle.xHandle;
 
   let rawBody: unknown;
   try {
@@ -418,13 +410,15 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
+
+  const xHandle = workspaceHandle.xHandle;
 
   let rawBody: unknown;
   try {

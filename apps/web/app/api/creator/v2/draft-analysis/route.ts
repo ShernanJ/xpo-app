@@ -13,6 +13,10 @@ import {
   ensureBillingEntitlement,
   getBillingStateForUser,
 } from "@/lib/billing/entitlements";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 interface DraftAnalysisRequest extends Record<string, unknown> {
   mode?: unknown;
@@ -100,6 +104,14 @@ export async function POST(request: NextRequest) {
   let debitedCharge: { cost: number; idempotencyKey: string } | null = null;
 
   try {
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
+    });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
+
     const debitIdempotencyKey = `draft-analysis:${session.user.id}:${threadId}:${mode}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const creditResult = await consumeCredits({
       userId: session.user.id,
@@ -164,16 +176,15 @@ export async function POST(request: NextRequest) {
       idempotencyKey: creditResult.idempotencyKey,
     };
 
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
     });
-
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json(
-        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
-        { status: 404 },
-      );
+    if (!ownedThread.ok) {
+      return ownedThread.response;
     }
+    const thread = ownedThread.thread;
 
     const summary = await inspectDraft({
       mode,

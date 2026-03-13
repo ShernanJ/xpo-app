@@ -350,7 +350,7 @@ model ReplyOpportunity {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, tweetId])
+  @@unique([userId, xHandle, tweetId])
   @@index([userId, xHandle, updatedAt])
   @@index([userId, state, updatedAt])
   @@index([xHandle, updatedAt])

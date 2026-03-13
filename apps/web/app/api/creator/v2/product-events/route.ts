@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import { recordProductEvent } from "@/lib/productEvents";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 interface ProductEventRequest extends Record<string, unknown> {
   eventType?: unknown;
@@ -18,6 +19,14 @@ export async function POST(request: NextRequest) {
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
       { status: 401 },
     );
+  }
+
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   let body: ProductEventRequest;
@@ -41,7 +50,7 @@ export async function POST(request: NextRequest) {
 
   await recordProductEvent({
     userId: session.user.id,
-    xHandle: session.user.activeXHandle || null,
+    xHandle: workspaceHandle.xHandle,
     threadId: typeof body.threadId === "string" ? body.threadId : null,
     messageId: typeof body.messageId === "string" ? body.messageId : null,
     candidateId: typeof body.candidateId === "string" ? body.candidateId : null,

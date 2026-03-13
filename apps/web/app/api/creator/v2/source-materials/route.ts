@@ -10,8 +10,9 @@ import {
   getActiveHandle,
   parseCreateSourceMaterialBody,
 } from "./route.logic";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -20,19 +21,19 @@ export async function GET() {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   try {
     const assets = await prisma.sourceMaterialAsset.findMany({
       where: {
         userId: session.user.id,
-        xHandle,
+        xHandle: workspaceHandle.xHandle,
       },
       orderBy: [
         { verified: "desc" },
@@ -68,12 +69,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   let body: { asset?: unknown };
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest) {
     created = await prisma.sourceMaterialAsset.create({
       data: {
         userId: session.user.id,
-        xHandle,
+        xHandle: workspaceHandle.xHandle,
         type: asset.type,
         title: asset.title,
         tags: asset.tags as unknown as Prisma.InputJsonValue,

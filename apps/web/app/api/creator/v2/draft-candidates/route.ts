@@ -9,6 +9,10 @@ import { getXCharacterLimitForAccount } from "@/lib/onboarding/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";
 import { buildInitialDraftVersionPayload } from "../chat/route.logic";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 interface DraftCandidatesRequest extends Record<string, unknown> {
   count?: unknown;
@@ -174,12 +178,29 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const threadId = searchParams.get("threadId");
-  const activeHandle = session.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null;
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  if (threadId) {
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
+    }
+  }
 
   const candidates = await prisma.draftCandidate.findMany({
     where: {
       userId: session.user.id,
-      ...(activeHandle ? { xHandle: activeHandle } : {}),
+      xHandle: workspaceHandle.xHandle,
       ...(threadId ? { threadId } : {}),
     },
     orderBy: { createdAt: "desc" },
@@ -196,7 +217,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession();
-  if (!session?.user?.id || !session.user.activeXHandle) {
+  if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
@@ -211,20 +232,45 @@ export async function POST(request: NextRequest) {
     typeof body.count === "number" && Number.isFinite(body.count)
       ? Math.max(1, Math.min(5, Math.round(body.count)))
       : 4;
-  const activeHandle = session.user.activeXHandle.trim().replace(/^@+/, "").toLowerCase();
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const activeHandle = workspaceHandle.xHandle;
   const threadId = typeof body.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : null;
   const requestedRunId = typeof body.runId === "string" && body.runId.trim() ? body.runId.trim() : null;
 
+  if (threadId) {
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: activeHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
+    }
+  }
+
   const storedRun = requestedRunId
-    ? await prisma.onboardingRun.findUnique({ where: { id: requestedRunId } }).then((run) =>
-        run
-          ? {
-              runId: run.id,
-              input: run.input,
-              result: run.result,
-            }
-          : null,
-      )
+    ? await prisma.onboardingRun.findUnique({ where: { id: requestedRunId } }).then((run) => {
+        const runHandle =
+          run?.input && typeof run.input === "object" && !Array.isArray(run.input)
+            ? (run.input as { account?: string }).account
+            : null;
+        if (!run || run.userId !== session.user.id || runHandle?.trim().replace(/^@+/, "").toLowerCase() !== activeHandle) {
+          return null;
+        }
+
+        return {
+          runId: run.id,
+          input: run.input,
+          result: run.result,
+        };
+      })
     : await readLatestOnboardingRunByHandle(session.user.id, activeHandle);
 
   if (!storedRun) {

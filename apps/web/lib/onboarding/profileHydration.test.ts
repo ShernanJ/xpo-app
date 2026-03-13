@@ -1,0 +1,113 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  hydrateOnboardingProfile,
+  mergeFreshProfileIntoOnboarding,
+} from "./profileHydration.ts";
+
+function createOnboarding(avatarUrl: string | null) {
+  return {
+    account: "stan",
+    source: "scrape",
+    generatedAt: "2026-03-13T00:00:00.000Z",
+    profile: {
+      username: "stan",
+      name: "Stan",
+      bio: "builder",
+      avatarUrl,
+      isVerified: false,
+      followersCount: 1200,
+      followingCount: 200,
+      createdAt: "2020-01-01T00:00:00.000Z",
+    },
+    recentPosts: [],
+    recentReplyPosts: [],
+    recentQuotePosts: [],
+    recentPostSampleCount: 0,
+    replyPostSampleCount: 0,
+    quotePostSampleCount: 0,
+    capturedPostCount: 0,
+    capturedReplyPostCount: 0,
+    capturedQuotePostCount: 0,
+    totalCapturedActivityCount: 0,
+    analysisConfidence: {
+      sampleSize: 0,
+      score: 20,
+      band: "very_low",
+      minimumViableReached: false,
+      recommendedDepthReached: false,
+      backgroundBackfillRecommended: true,
+      targetPostCount: 80,
+      message: "thin sample",
+    },
+    baseline: {
+      averageEngagement: 0,
+      medianEngagement: 0,
+      engagementRate: 0,
+      postingCadencePerWeek: 0,
+      averagePostLength: 0,
+    },
+    growthStage: "1k-10k",
+    contentDistribution: [],
+    hookPatterns: [],
+    bestFormats: [],
+    underperformingFormats: [],
+    strategyState: {
+      growthStage: "1k-10k",
+      goal: "followers",
+      postingCadenceCapacity: "1_per_day",
+      replyBudgetPerDay: "5_15",
+      transformationMode: "preserve",
+      transformationModeSource: "default",
+      recommendedPostsPerWeek: 5,
+      weights: {
+        distribution: 0.35,
+        authority: 0.55,
+        leverage: 0.1,
+      },
+      rationale: "keep compounding authority",
+    },
+    warnings: [],
+  };
+}
+
+test("mergeFreshProfileIntoOnboarding replaces the avatar when X returns a newer one", () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/old_400x400.jpg");
+
+  const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
+    avatarUrl: "https://pbs.twimg.com/profile_images/new_400x400.jpg",
+    isVerified: false,
+  });
+
+  assert.equal(
+    hydrated.profile.avatarUrl,
+    "https://pbs.twimg.com/profile_images/new_400x400.jpg",
+  );
+});
+
+test("mergeFreshProfileIntoOnboarding does not blank an existing avatar when the live fetch has none", () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
+
+  const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
+    avatarUrl: null,
+    isVerified: false,
+  });
+
+  assert.equal(
+    hydrated.profile.avatarUrl,
+    "https://pbs.twimg.com/profile_images/existing_400x400.jpg",
+  );
+  assert.equal(hydrated, onboarding);
+});
+
+test("hydrateOnboardingProfile falls back to the stored profile when the live preview fails", async () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
+
+  const hydrated = await hydrateOnboardingProfile(onboarding, async () => {
+    throw new Error("x preview failed");
+  });
+
+  assert.equal(hydrated.profile.avatarUrl, onboarding.profile.avatarUrl);
+  assert.equal(hydrated, onboarding);
+});

@@ -32,9 +32,14 @@ import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import { recordProductEvent } from "@/lib/productEvents";
 import type { GrowthStrategySnapshot } from "@/lib/onboarding/growthStrategy";
 import type { VoiceStyleCard } from "@/lib/agent-v2/core/styleProfile";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 import {
   buildDraftBundleVersionPayload,
   buildInitialDraftVersionPayload,
@@ -72,7 +77,6 @@ import {
   type ActiveReplyContext,
   type ChatReplyArtifacts,
   type ChatReplyParseEnvelope,
-  type EmbeddedReplyContext,
 } from "./reply.logic";
 
 interface CreatorChatRequest extends Record<string, unknown> {
@@ -524,23 +528,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const activeHandle = workspaceHandle.xHandle;
   let storedThread = null;
-  let storedRun = null;
+  let storedRun: {
+    id: string;
+    input: unknown;
+    result: unknown;
+  } | null = null;
 
   if (threadId) {
-    storedThread = await prisma.chatThread.findUnique({ where: { id: threadId } });
-    if (!storedThread || storedThread.userId !== session.user.id) {
-      return NextResponse.json(
-        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
-        { status: 404 },
-      );
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: activeHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
     }
+    storedThread = ownedThread.thread;
   } else {
-    const xHandle = session.user.activeXHandle || undefined;
     storedThread = await prisma.chatThread.create({
       data: {
         userId: session.user.id,
-        ...(xHandle ? { xHandle } : {}),
+        xHandle: activeHandle,
       }
     });
     console.log("[V2 Chat Checkpoint] New Thread generated:", storedThread.id);
@@ -552,13 +570,37 @@ export async function POST(request: NextRequest) {
   }
 
   if (runId) {
-    storedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-    if (!storedRun) {
+    const matchedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
+    const matchedRunHandle =
+      matchedRun?.input &&
+      typeof matchedRun.input === "object" &&
+      !Array.isArray(matchedRun.input)
+        ? ((matchedRun.input as { account?: string }).account?.trim().replace(/^@+/, "").toLowerCase() ||
+          null)
+        : null;
+    if (!matchedRun || matchedRun.userId !== session.user.id || matchedRunHandle !== activeHandle) {
       return NextResponse.json(
-        { ok: false, errors: [{ field: "runId", message: "Onboarding run not found." }] },
+        {
+          ok: false,
+          errors: [{ field: "runId", message: "Onboarding run not found for this handle." }],
+        },
         { status: 404 },
       );
     }
+    storedRun = {
+      id: matchedRun.id,
+      input: matchedRun.input,
+      result: matchedRun.result,
+    };
+  } else {
+    const latestRun = await readLatestOnboardingRunByHandle(session.user.id, activeHandle);
+    storedRun = latestRun
+      ? {
+          id: latestRun.runId,
+          input: latestRun.input,
+          result: latestRun.result,
+        }
+      : null;
   }
 
   const onboardingResult = (storedRun?.result || null) as
@@ -569,11 +611,6 @@ export async function POST(request: NextRequest) {
       }
     | null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
-  const activeHandleRaw = storedThread?.xHandle || session.user.activeXHandle || null;
-  const activeHandle =
-    typeof activeHandleRaw === "string" && activeHandleRaw.trim()
-      ? activeHandleRaw.trim().replace(/^@+/, "").toLowerCase()
-      : null;
   let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
   let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
   let diagnosticContext: ConversationalDiagnosticContext | null = null;

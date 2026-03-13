@@ -56,6 +56,7 @@ interface ReplyLogHandlerDeps {
     opportunityId?: string | null;
     userId: string;
     postId: string;
+    xHandle: string | null;
   }): Promise<ReplyOpportunityRecord | null>;
   mergeStoredOpportunityNotes(record: ReplyOpportunityRecord, patch: Record<string, unknown>): unknown;
   updateReplyOpportunity(args: {
@@ -185,10 +186,12 @@ export async function handleExtensionReplyLogPost(
   }
 
   try {
+    const activeHandle = auth.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null;
     const existing = await deps.findReplyOpportunity({
       opportunityId: parsed.data.opportunityId,
       userId: auth.user.id,
       postId: parsed.data.postId,
+      xHandle: activeHandle,
     });
 
     if (existing) {
@@ -242,7 +245,7 @@ export async function handleExtensionReplyLogPost(
 
     void deps.recordProductEvent({
       userId: auth.user.id,
-      xHandle: auth.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null,
+      xHandle: activeHandle,
       eventType: `extension_reply_${parsed.data.event}`,
       properties: {
         opportunityId: parsed.data.opportunityId ?? existing?.id ?? null,

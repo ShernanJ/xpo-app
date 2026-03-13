@@ -15,7 +15,7 @@ import {
   serializeSourceMaterialAsset,
   type SourceMaterialAssetInput,
 } from "@/lib/agent-v2/orchestrator/sourceMaterials";
-import { getActiveHandle } from "../route.logic";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 function buildSourceMaterialIdentityKey(
   asset: Pick<SourceMaterialAssetInput, "type" | "title" | "claims" | "snippets">,
@@ -37,7 +37,7 @@ function buildSourceMaterialIdentityKey(
   ].join("::");
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -46,13 +46,15 @@ export async function POST() {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
+
+  const xHandle = workspaceHandle.xHandle;
 
   const storedRun = await readLatestOnboardingRunByHandle(session.user.id, xHandle);
   if (!storedRun) {

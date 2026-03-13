@@ -19,16 +19,26 @@ export async function POST(request: NextRequest) {
             where: {
               id: args.opportunityId,
               userId: args.userId,
+              ...(args.xHandle ? { xHandle: args.xHandle } : { xHandle: null }),
             },
           })
-        : prisma.replyOpportunity.findUnique({
-            where: {
-              userId_tweetId: {
+        : args.xHandle
+          ? prisma.replyOpportunity.findUnique({
+              where: {
+                userId_xHandle_tweetId: {
+                  userId: args.userId,
+                  xHandle: args.xHandle,
+                  tweetId: args.postId,
+                },
+              },
+            })
+          : prisma.replyOpportunity.findFirst({
+              where: {
                 userId: args.userId,
                 tweetId: args.postId,
+                xHandle: null,
               },
-            },
-          }),
+            }),
     mergeStoredOpportunityNotes: (record, patch) =>
       mergeStoredOpportunityNotes(record, patch as never),
     updateReplyOpportunity: async (args) => {

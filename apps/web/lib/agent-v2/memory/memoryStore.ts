@@ -1,5 +1,6 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
+import { applyMemorySaliencePolicy } from "./memorySalience";
 import type {
   ActiveDraftRef,
   ActiveReplyArtifactRef,
@@ -457,17 +458,36 @@ export function createConversationMemorySnapshot(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   memory: Record<string, any> | null | undefined,
 ): V2ConversationMemory {
-  const envelope = parseMemoryEnvelope(memory?.activeConstraints);
-
-  return {
-    conversationState: envelope.conversationState,
-    activeConstraints: envelope.constraints,
+  const parsedEnvelope = parseMemoryEnvelope(memory?.activeConstraints);
+  const salience = applyMemorySaliencePolicy({
     topicSummary: typeof memory?.topicSummary === "string" ? memory.topicSummary : null,
-    lastIdeationAngles: envelope.lastIdeationAngles,
     concreteAnswerCount:
       typeof memory?.concreteAnswerCount === "number" && Number.isFinite(memory.concreteAnswerCount)
         ? memory.concreteAnswerCount
         : 0,
+    envelope: {
+      constraints: parsedEnvelope.constraints,
+      lastIdeationAngles: parsedEnvelope.lastIdeationAngles,
+      rollingSummary: parsedEnvelope.rollingSummary,
+      latestRefinementInstruction: parsedEnvelope.latestRefinementInstruction,
+      unresolvedQuestion: parsedEnvelope.unresolvedQuestion,
+    },
+  });
+  const envelope = {
+    ...parsedEnvelope,
+    constraints: salience.envelope.constraints,
+    lastIdeationAngles: salience.envelope.lastIdeationAngles,
+    rollingSummary: salience.envelope.rollingSummary,
+    latestRefinementInstruction: salience.envelope.latestRefinementInstruction,
+    unresolvedQuestion: salience.envelope.unresolvedQuestion,
+  };
+
+  return {
+    conversationState: envelope.conversationState,
+    activeConstraints: envelope.constraints,
+    topicSummary: salience.topicSummary,
+    lastIdeationAngles: envelope.lastIdeationAngles,
+    concreteAnswerCount: salience.concreteAnswerCount,
     currentDraftArtifactId:
       envelope.activeDraftRef?.versionId ||
       (typeof memory?.lastDraftArtifactId === "string" ? memory.lastDraftArtifactId : null),
@@ -603,12 +623,34 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
           ? existingSnapshot.selectedReplyOptionId
           : args.selectedReplyOptionId,
     };
+    const salience = applyMemorySaliencePolicy({
+      topicSummary:
+        args.topicSummary === undefined ? existingSnapshot.topicSummary : args.topicSummary ?? null,
+      concreteAnswerCount:
+        args.concreteAnswerCount === undefined
+          ? existingSnapshot.concreteAnswerCount
+          : args.concreteAnswerCount,
+      envelope: {
+        constraints: nextEnvelope.constraints,
+        lastIdeationAngles: nextEnvelope.lastIdeationAngles,
+        rollingSummary: nextEnvelope.rollingSummary,
+        latestRefinementInstruction: nextEnvelope.latestRefinementInstruction,
+        unresolvedQuestion: nextEnvelope.unresolvedQuestion,
+      },
+    });
+    nextEnvelope.constraints = salience.envelope.constraints;
+    nextEnvelope.lastIdeationAngles = salience.envelope.lastIdeationAngles;
+    nextEnvelope.rollingSummary = salience.envelope.rollingSummary;
+    nextEnvelope.latestRefinementInstruction = salience.envelope.latestRefinementInstruction;
+    nextEnvelope.unresolvedQuestion = salience.envelope.unresolvedQuestion;
 
     const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {
       activeConstraints: serializeMemoryEnvelope(nextEnvelope),
     };
-    if (args.topicSummary !== undefined) dataToUpdate.topicSummary = args.topicSummary;
-    if (args.concreteAnswerCount !== undefined) dataToUpdate.concreteAnswerCount = args.concreteAnswerCount;
+    if (args.topicSummary !== undefined) dataToUpdate.topicSummary = salience.topicSummary;
+    if (args.concreteAnswerCount !== undefined) {
+      dataToUpdate.concreteAnswerCount = salience.concreteAnswerCount;
+    }
     if (args.lastDraftArtifactId !== undefined) {
       dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
     } else if (args.activeDraftRef !== undefined) {

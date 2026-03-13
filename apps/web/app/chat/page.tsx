@@ -75,6 +75,10 @@ import {
   ObservedMetricsModal,
   type ObservedMetricsFormState,
 } from "./ObservedMetricsModal";
+import {
+  buildChatWorkspaceUrl,
+  buildWorkspaceHandleHeaders,
+} from "@/lib/workspaceHandle";
 
 interface ValidationError {
   field: string;
@@ -2597,13 +2601,37 @@ function ChatPageContent() {
   const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
   const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
 
-  const accountName = session?.user?.activeXHandle ?? null;
+  const accountName = useMemo(() => {
+    const workspaceHandleFromUrl = normalizeAccountHandle(searchParams.get("xHandle") ?? "");
+    if (workspaceHandleFromUrl) {
+      return workspaceHandleFromUrl;
+    }
+
+    const workspaceHandleFromSession = normalizeAccountHandle(session?.user?.activeXHandle ?? "");
+    return workspaceHandleFromSession || null;
+  }, [searchParams, session?.user?.activeXHandle]);
   const requiresXAccountGate = status === "authenticated" && !accountName;
   const sourceMaterialsBootstrapKey = useMemo(() => {
     const normalizedHandle = normalizeAccountHandle(accountName ?? "");
     const accountKey = normalizedHandle || session?.user?.id?.trim() || "default";
     return `xpo:stories-proof-bootstrap:${accountKey}`;
   }, [accountName, session?.user?.id]);
+  const buildWorkspaceHeaders = useCallback(
+    (headers?: HeadersInit) => buildWorkspaceHandleHeaders(accountName, headers),
+    [accountName],
+  );
+  const fetchWorkspace = useCallback(
+    (input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, {
+        ...init,
+        headers: buildWorkspaceHeaders(init?.headers),
+      }),
+    [buildWorkspaceHeaders],
+  );
+  const buildWorkspaceChatHref = useCallback(
+    (threadId?: string | null) => buildChatWorkspaceUrl({ threadId, xHandle: accountName }),
+    [accountName],
+  );
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
@@ -2634,6 +2662,21 @@ function ChatPageContent() {
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
     normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
+
+  useEffect(() => {
+    if (!accountName) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const currentUrlHandle = normalizeAccountHandle(url.searchParams.get("xHandle") ?? "");
+    if (currentUrlHandle === accountName) {
+      return;
+    }
+
+    url.searchParams.set("xHandle", accountName);
+    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+  }, [accountName]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -2772,7 +2815,7 @@ function ChatPageContent() {
     setEditingThreadId(null);
 
     try {
-      await fetch(`/api/creator/v2/threads/${threadId}`, {
+      await fetchWorkspace(`/api/creator/v2/threads/${threadId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: cleanTitle })
@@ -2793,7 +2836,7 @@ function ChatPageContent() {
     const deletingThread = threadToDelete;
 
     try {
-      const response = await fetch(`/api/creator/v2/threads/${deletingThread.id}`, {
+      const response = await fetchWorkspace(`/api/creator/v2/threads/${deletingThread.id}`, {
         method: "DELETE",
       });
       const data = await response.json().catch(() => null);
@@ -2817,7 +2860,7 @@ function ChatPageContent() {
         setErrorMessage(null);
         setIsLeavingHero(false);
 
-        window.history.replaceState({}, "", "/chat");
+        window.history.replaceState({}, "", buildWorkspaceChatHref(null));
       }
     } catch (e) {
       console.error("Failed to delete thread", e);
@@ -2847,7 +2890,7 @@ function ChatPageContent() {
 
       threadTransitionOutTimeoutRef.current = window.setTimeout(() => {
         setActiveThreadId(nextThreadId);
-        window.history.pushState({}, "", `/chat/${nextThreadId}`);
+        window.history.pushState({}, "", buildWorkspaceChatHref(nextThreadId));
         setThreadTransitionPhase("in");
 
         threadTransitionInTimeoutRef.current = window.setTimeout(() => {
@@ -2855,7 +2898,7 @@ function ChatPageContent() {
         }, 280);
       }, 140);
     },
-    [activeThreadId, threadTransitionPhase],
+    [activeThreadId, buildWorkspaceChatHref, threadTransitionPhase],
   );
 
   // Guard against initializeThread re-fetching when we just created a thread in-session
@@ -2950,7 +2993,7 @@ function ChatPageContent() {
 
   useEffect(() => {
     if (!accountName) return;
-    fetch(`/api/creator/v2/threads?xHandle=${encodeURIComponent(accountName)}`)
+    fetchWorkspace("/api/creator/v2/threads")
       .then(res => res.json())
       .then(data => {
         if (data.ok && data.data?.threads) {
@@ -2958,7 +3001,7 @@ function ChatPageContent() {
         }
       })
       .catch(err => console.error("Failed to fetch threads:", err));
-  }, [accountName]);
+  }, [accountName, fetchWorkspace]);
 
   const loadDraftQueue = useCallback(async () => {
     if (!session?.user?.id) {
@@ -2972,7 +3015,7 @@ function ChatPageContent() {
       const query = activeThreadId
         ? `?threadId=${encodeURIComponent(activeThreadId)}`
         : "";
-      const response = await fetch(`/api/creator/v2/draft-candidates${query}`, {
+      const response = await fetchWorkspace(`/api/creator/v2/draft-candidates${query}`, {
         method: "GET",
       });
       const data = (await response.json()) as DraftQueueResponse;
@@ -2991,7 +3034,7 @@ function ChatPageContent() {
     } finally {
       setIsDraftQueueLoading(false);
     }
-  }, [activeThreadId, session?.user?.id]);
+  }, [activeThreadId, fetchWorkspace, session?.user?.id]);
 
   const mutateDraftQueueCandidate = useCallback(
     async (
@@ -3010,7 +3053,7 @@ function ChatPageContent() {
       setDraftQueueError(null);
 
       try {
-        const response = await fetch(
+        const response = await fetchWorkspace(
           `/api/creator/v2/draft-candidates/${encodeURIComponent(candidateId)}`,
           {
             method: "PATCH",
@@ -3051,7 +3094,7 @@ function ChatPageContent() {
         });
       }
     },
-    [],
+    [fetchWorkspace],
   );
 
   const observedMetricsCandidate = useMemo(
@@ -3088,7 +3131,7 @@ function ChatPageContent() {
           ? String(metrics.followerDelta)
           : "",
     });
-  }, []);
+  }, [fetchWorkspace]);
 
   const submitObservedMetrics = useCallback(async () => {
     if (!observedMetricsCandidateId) {
@@ -3186,7 +3229,7 @@ function ChatPageContent() {
           : thread,
       ),
     );
-  }, []);
+  }, [fetchWorkspace]);
 
   const acknowledgePricingModal = useCallback(async () => {
     try {
@@ -3302,8 +3345,8 @@ function ChatPageContent() {
     setErrorMessage(null);
     setIsLeavingHero(false);
 
-    window.history.pushState({}, '', '/chat');
-  }, [accountName]);
+    window.history.pushState({}, '', buildWorkspaceChatHref(null));
+  }, [accountName, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [providerPreference, setProviderPreference] =
@@ -3691,7 +3734,7 @@ function ChatPageContent() {
     setIsFeedbackHistoryLoading(true);
 
     try {
-      const response = await fetch("/api/creator/v2/feedback", {
+      const response = await fetchWorkspace("/api/creator/v2/feedback", {
         method: "GET",
       });
       const result: FeedbackHistoryResponse = await response.json();
@@ -3721,7 +3764,7 @@ function ChatPageContent() {
       setFeedbackSubmitNotice(null);
 
       try {
-        const response = await fetch("/api/creator/v2/feedback", {
+        const response = await fetchWorkspace("/api/creator/v2/feedback", {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -3768,7 +3811,7 @@ function ChatPageContent() {
         });
       }
     },
-    [],
+    [fetchWorkspace],
   );
   const appendFeedbackImageFiles = useCallback((files: File[]) => {
     if (files.length === 0) {
@@ -3907,7 +3950,7 @@ function ChatPageContent() {
           attachments: attachmentPayloads,
         };
 
-        const response = await fetch("/api/creator/v2/feedback", {
+        const response = await fetchWorkspace("/api/creator/v2/feedback", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -3942,6 +3985,7 @@ function ChatPageContent() {
       activeFeedbackTitle,
       activeThreadId,
       feedbackCategory,
+      fetchWorkspace,
       feedbackImages,
       loadFeedbackHistory,
       resetFeedbackDrafts,
@@ -3951,7 +3995,7 @@ function ChatPageContent() {
     setSourceMaterialDraft(buildEmptySourceMaterialDraft());
     setSourceMaterialAdvancedOpen(false);
     setSourceMaterialsLibraryOpen(false);
-  }, []);
+  }, [fetchWorkspace]);
   const selectSourceMaterial = useCallback((asset: SourceMaterialAsset) => {
     const nextDraft = buildSourceMaterialDraftFromAsset(asset);
     setSourceMaterialDraft(nextDraft);
@@ -3963,7 +4007,7 @@ function ChatPageContent() {
     setIsSourceMaterialsLoading(true);
 
     try {
-      const response = await fetch("/api/creator/v2/source-materials");
+      const response = await fetchWorkspace("/api/creator/v2/source-materials");
       const result: SourceMaterialsResponse = await response.json();
       if (!response.ok || !result.ok) {
         const fallbackMessage = result.ok
@@ -4077,7 +4121,7 @@ function ChatPageContent() {
         ? `/api/creator/v2/source-materials/${sourceMaterialDraft.id}`
         : "/api/creator/v2/source-materials";
       const method = isEditing ? "PATCH" : "POST";
-      const response = await fetch(endpoint, {
+      const response = await fetchWorkspace(endpoint, {
         method,
         headers: {
           "Content-Type": "application/json",
@@ -4115,7 +4159,7 @@ function ChatPageContent() {
     } finally {
       setIsSourceMaterialsSaving(false);
     }
-  }, [sourceMaterialDraft]);
+  }, [fetchWorkspace, sourceMaterialDraft]);
   const seedSourceMaterials = useCallback(async (
     options: SourceMaterialSeedOptions = {},
   ): Promise<SourceMaterialAsset[]> => {
@@ -4125,7 +4169,7 @@ function ChatPageContent() {
     }
 
     try {
-      const response = await fetch("/api/creator/v2/source-materials/seed", {
+      const response = await fetchWorkspace("/api/creator/v2/source-materials/seed", {
         method: "POST",
       });
       const result: SourceMaterialsResponse = await response.json();
@@ -4157,7 +4201,7 @@ function ChatPageContent() {
     } finally {
       setIsSourceMaterialsSaving(false);
     }
-  }, [loadSourceMaterials]);
+  }, [fetchWorkspace, loadSourceMaterials]);
   const deleteSourceMaterial = useCallback(async () => {
     if (!sourceMaterialDraft.id) {
       return;
@@ -4173,7 +4217,7 @@ function ChatPageContent() {
     setSourceMaterialsNotice(null);
 
     try {
-      const response = await fetch(`/api/creator/v2/source-materials/${draftId}`, {
+      const response = await fetchWorkspace(`/api/creator/v2/source-materials/${draftId}`, {
         method: "DELETE",
       });
       const result: SourceMaterialsResponse = await response.json();
@@ -4201,7 +4245,7 @@ function ChatPageContent() {
     } finally {
       setIsSourceMaterialsSaving(false);
     }
-  }, [sourceMaterialDraft.id, sourceMaterialDraft.title]);
+  }, [fetchWorkspace, sourceMaterialDraft.id, sourceMaterialDraft.title]);
   const trackProductEvent = useCallback(
     async (params: {
       eventType: string;
@@ -4210,7 +4254,7 @@ function ChatPageContent() {
       properties?: Record<string, unknown>;
     }) => {
       try {
-        await fetch("/api/creator/v2/product-events", {
+        await fetchWorkspace("/api/creator/v2/product-events", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -4228,7 +4272,7 @@ function ChatPageContent() {
         console.error("Failed to record product event:", error);
       }
     },
-    [activeThreadId],
+    [activeThreadId, fetchWorkspace],
   );
   const undoAutoSavedSourceMaterials = useCallback(
     async (
@@ -4250,7 +4294,7 @@ function ChatPageContent() {
         const deletedIds: string[] = [];
 
         for (const asset of deletableAssets) {
-          const response = await fetch(`/api/creator/v2/source-materials/${asset.id}`, {
+          const response = await fetchWorkspace(`/api/creator/v2/source-materials/${asset.id}`, {
             method: "DELETE",
           });
           const result: SourceMaterialsResponse = await response.json();
@@ -4303,7 +4347,7 @@ function ChatPageContent() {
         }));
       }
     },
-    [trackProductEvent],
+    [fetchWorkspace, trackProductEvent],
   );
   useEffect(() => {
     if (!sourceMaterialsOpen) {
@@ -4718,7 +4762,7 @@ function ChatPageContent() {
     let isMounted = true;
     setIsPreferencesLoading(true);
 
-    fetch("/api/creator/v2/preferences")
+    fetchWorkspace("/api/creator/v2/preferences")
       .then((res) => res.json())
       .then((data: PreferencesResponse) => {
         if (!isMounted || !data.ok) {
@@ -4737,14 +4781,14 @@ function ChatPageContent() {
     return () => {
       isMounted = false;
     };
-  }, [accountName, applyPersistedPreferences]);
+  }, [accountName, applyPersistedPreferences, fetchWorkspace]);
 
   const savePreferences = useCallback(async () => {
     setIsPreferencesSaving(true);
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/creator/v2/preferences", {
+      const response = await fetchWorkspace("/api/creator/v2/preferences", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -4769,7 +4813,7 @@ function ChatPageContent() {
     } finally {
       setIsPreferencesSaving(false);
     }
-  }, [applyPersistedPreferences, currentPreferencePayload]);
+  }, [applyPersistedPreferences, currentPreferencePayload, fetchWorkspace]);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
     const normalizedHandle = normalizeAccountHandle(handle);
@@ -4792,7 +4836,7 @@ function ChatPageContent() {
       }
 
       await refreshSession({ activeXHandle: normalizedHandle });
-      window.location.href = "/chat";
+      window.location.href = buildChatWorkspaceUrl({ xHandle: normalizedHandle });
     } catch (err) {
       console.error(err);
       setErrorMessage("Could not switch to account @" + normalizedHandle);
@@ -4824,7 +4868,7 @@ function ChatPageContent() {
     try {
       await refreshSession();
       closeAddAccountModal();
-      window.location.href = "/chat";
+      window.location.href = buildChatWorkspaceUrl({ xHandle: readyAccountHandle });
     } catch (error) {
       console.error(error);
       setErrorMessage(`Could not switch to @${readyAccountHandle}`);
@@ -5016,14 +5060,14 @@ function ChatPageContent() {
         };
 
         const [contextResponse, contractResponse] = await Promise.all([
-          fetch("/api/creator/context", {
+          fetchWorkspace("/api/creator/context", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify(requestBody),
           }),
-          fetch("/api/creator/generation-contract", {
+          fetchWorkspace("/api/creator/generation-contract", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -5115,6 +5159,7 @@ function ChatPageContent() {
     [
       activeStrategyInputs,
       activeToneInputs,
+      fetchWorkspace,
       requiresXAccountGate,
       runMissingOnboardingSetup,
     ],
@@ -5147,7 +5192,7 @@ function ChatPageContent() {
       | { ok: false; data: ProfileScrapeRefreshFailure | null }
     > => {
       try {
-        const response = await fetch("/api/creator/profile/scrape", {
+        const response = await fetchWorkspace("/api/creator/profile/scrape", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -5180,7 +5225,7 @@ function ChatPageContent() {
         return { ok: false, data: null };
       }
     },
-    [loadWorkspace],
+    [fetchWorkspace, loadWorkspace],
   );
 
   const handleManualProfileScrapeRefresh = useCallback(async () => {
@@ -5327,7 +5372,7 @@ function ChatPageContent() {
     setEditingDraftCandidateText("");
     setTypedAssistantLengths({});
     setIsLeavingHero(false);
-  }, [accountName]);
+  }, [accountName, fetchWorkspace]);
 
   useEffect(() => {
     if (!isLeavingHero) {
@@ -6327,8 +6372,8 @@ function ChatPageContent() {
       }));
 
       try {
-        const response = await fetch(
-          `/api/creator/v2/threads/${encodeURIComponent(resolvedThreadId)}/messages/${encodeURIComponent(messageId)}/feedback`,
+          const response = await fetchWorkspace(
+            `/api/creator/v2/threads/${encodeURIComponent(resolvedThreadId)}/messages/${encodeURIComponent(messageId)}/feedback`,
           {
             method: nextValue ? "POST" : "DELETE",
             ...(nextValue
@@ -6395,7 +6440,7 @@ function ChatPageContent() {
         });
       }
     },
-    [activeThreadId, messages],
+    [activeThreadId, fetchWorkspace, messages],
   );
 
   const scrollThreadToBottom = useCallback(() => {
@@ -6466,7 +6511,7 @@ function ChatPageContent() {
       `revision-chain-${selectedDraftMessage.id}`;
 
     try {
-      const response = await fetch(
+      const response = await fetchWorkspace(
         `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/draft-promotions`,
         {
           method: "POST",
@@ -6580,6 +6625,7 @@ function ChatPageContent() {
     activeThreadId,
     editorDraftPosts,
     editorDraftText,
+    fetchWorkspace,
     isSelectedDraftThread,
     selectedDraftArtifact,
     selectedDraftMessage,
@@ -6689,7 +6735,7 @@ function ChatPageContent() {
     }
 
     try {
-      const response = await fetch(
+      const response = await fetchWorkspace(
         `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
         {
           method: "PATCH",
@@ -6716,6 +6762,7 @@ function ChatPageContent() {
   }, [
     activeDraftEditor?.revisionChainId,
     activeThreadId,
+    fetchWorkspace,
     isSelectedDraftThread,
     selectedDraftBundle,
     selectedDraftMessage,
@@ -6815,7 +6862,7 @@ function ChatPageContent() {
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/creator/v2/draft-analysis", {
+      const response = await fetchWorkspace("/api/creator/v2/draft-analysis", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -6909,7 +6956,9 @@ function ChatPageContent() {
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
     draftEditorSerializedContent,
+    fetchWorkspace,
     isViewingHistoricalDraftVersion,
+    isVerifiedAccount,
     latestDraftTimelineEntry,
     selectedDraftVersion,
     scrollThreadToBottom,
@@ -7003,7 +7052,7 @@ function ChatPageContent() {
       setErrorMessage(null);
 
       try {
-        const response = await fetch("/api/creator/v2/chat", {
+        const response = await fetchWorkspace("/api/creator/v2/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -7136,7 +7185,7 @@ function ChatPageContent() {
             const newId = data.data.newThreadId as string;
             setActiveThreadId(newId);
             threadCreatedInSessionRef.current = true;
-            window.history.replaceState({}, '', `/chat/${newId}`);
+            window.history.replaceState({}, '', buildWorkspaceChatHref(newId));
             setChatThreads((current) => {
               // If the thread is already in the list (remapping), update it
               const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
@@ -7287,7 +7336,7 @@ function ChatPageContent() {
           const generatedId = streamedResult.newThreadId;
           setActiveThreadId(generatedId);
           threadCreatedInSessionRef.current = true;
-          window.history.replaceState({}, '', `/chat/${generatedId}`);
+          window.history.replaceState({}, '', buildWorkspaceChatHref(generatedId));
           setChatThreads((current) => {
             const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
             if (exists) {
@@ -7319,9 +7368,11 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
+      buildWorkspaceChatHref,
       contract,
       context,
       currentPreferencePayload,
+      fetchWorkspace,
       isMainChatLocked,
       messages,
       providerPreference,
@@ -7460,7 +7511,7 @@ function ChatPageContent() {
           return;
         }
         try {
-          const res = await fetch(`/api/creator/v2/threads/${activeThreadId}`);
+          const res = await fetchWorkspace(`/api/creator/v2/threads/${activeThreadId}`);
           const data = await res.json();
           if (data.ok && data.data?.messages?.length > 0) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -7514,6 +7565,7 @@ function ChatPageContent() {
     activeToneInputs,
     context,
     contract,
+    fetchWorkspace,
     isSending,
     messages.length,
   ]);

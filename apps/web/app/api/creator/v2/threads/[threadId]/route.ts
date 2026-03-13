@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 export async function GET(
   request: NextRequest,
@@ -12,14 +16,24 @@ export async function GET(
   }
 
   try {
-    const { threadId } = await params;
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
     });
-
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json({ ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized" }] }, { status: 404 });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
     }
+
+    const { threadId } = await params;
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
+    }
+    const thread = ownedThread.thread;
 
     const messages = await prisma.chatMessage.findMany({
       where: { threadId: threadId },
@@ -74,6 +88,14 @@ export async function PATCH(
   }
 
   try {
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
+    });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
+
     const { threadId } = await params;
     const body = await request.json();
     const title = typeof body.title === "string" ? body.title.trim() : null;
@@ -82,12 +104,13 @@ export async function PATCH(
       return NextResponse.json({ ok: false, errors: [{ field: "title", message: "Title must be a valid string." }] }, { status: 400 });
     }
 
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
     });
-
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json({ ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized" }] }, { status: 404 });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
     }
 
     const updatedThread = await prisma.chatThread.update({
@@ -112,13 +135,22 @@ export async function DELETE(
   }
 
   try {
-    const { threadId } = await params;
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
     });
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
+    }
 
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json({ ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized" }] }, { status: 404 });
+    const { threadId } = await params;
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
     }
 
     await prisma.chatThread.delete({

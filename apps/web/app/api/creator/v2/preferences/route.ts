@@ -11,19 +11,7 @@ import {
   DEFAULT_USER_PREFERENCES,
   normalizeUserPreferences,
 } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
-
-function getActiveHandle(session: {
-  user?: {
-    activeXHandle?: string | null;
-  };
-} | null): string | null {
-  if (!session?.user?.activeXHandle || typeof session.user.activeXHandle !== "string") {
-    return null;
-  }
-
-  const normalized = session.user.activeXHandle.trim();
-  return normalized || null;
-}
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 async function readVoiceProfile(userId: string, xHandle: string) {
   return prisma.voiceProfile.findFirst({
@@ -31,7 +19,7 @@ async function readVoiceProfile(userId: string, xHandle: string) {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -40,15 +28,16 @@ export async function GET() {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+    allowSessionFallback: false,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
-  const voiceProfile = await readVoiceProfile(session.user.id, xHandle);
+  const voiceProfile = await readVoiceProfile(session.user.id, workspaceHandle.xHandle);
   const parsedStyleCard = voiceProfile?.styleCard
     ? StyleCardSchema.safeParse(voiceProfile.styleCard)
     : null;
@@ -72,12 +61,12 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const xHandle = getActiveHandle(session);
-  if (!xHandle) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "xHandle", message: "No active X profile selected." }] },
-      { status: 400 },
-    );
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   let body: { preferences?: unknown };
@@ -99,7 +88,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const nextPreferences = normalizeUserPreferences(parsedPreferences.data);
-  const existingProfile = await readVoiceProfile(session.user.id, xHandle);
+  const existingProfile = await readVoiceProfile(session.user.id, workspaceHandle.xHandle);
   const existingStyleCard = existingProfile?.styleCard
     ? StyleCardSchema.safeParse(existingProfile.styleCard)
     : null;
@@ -129,7 +118,7 @@ export async function PATCH(request: NextRequest) {
     : await prisma.voiceProfile.create({
         data: {
           userId: session.user.id,
-          xHandle,
+          xHandle: workspaceHandle.xHandle,
           styleCard: nextStyleCard as unknown as Prisma.InputJsonObject,
         },
       });

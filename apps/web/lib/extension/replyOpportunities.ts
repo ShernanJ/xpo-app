@@ -160,6 +160,10 @@ export async function upsertReplyOpportunityLifecycle(
   const xHandle = normalizeHandle(input.xHandle);
   const authorHandle = normalizeHandle(input.authorHandle);
 
+  if (!xHandle) {
+    throw new Error("xHandle is required for reply opportunity logging.");
+  }
+
   if (!authorHandle) {
     throw new Error("authorHandle is required for reply opportunity logging.");
   }
@@ -264,8 +268,9 @@ export async function upsertReplyOpportunityLifecycle(
 
   return prisma.replyOpportunity.upsert({
     where: {
-      userId_tweetId: {
+      userId_xHandle_tweetId: {
         userId: input.userId,
+        xHandle,
         tweetId: input.tweetId,
       },
     },

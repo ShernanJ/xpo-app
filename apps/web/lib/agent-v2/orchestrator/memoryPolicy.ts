@@ -1,4 +1,5 @@
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
+import { applyMemorySaliencePolicy } from "../memory/memorySalience";
 import {
   rememberFactsOnStyleCard,
   rememberSemanticCorrectionOnStyleCard,
@@ -6,8 +7,6 @@ import {
 } from "../core/styleProfile";
 import { countNewMemoryEntries } from "./feedbackMemoryNotice";
 import {
-  buildSourceMaterialIdentityKey,
-  serializeSourceMaterialAsset,
 } from "./sourceMaterials";
 import type { ConversationServices } from "./conversationManager";
 import type { V2ConversationMemory } from "../contracts/chat";
@@ -67,6 +66,27 @@ export async function saveConversationTurnMemory(args: {
     concreteAnswerCount: patch.concreteAnswerCount ?? memory.concreteAnswerCount,
     currentDraftArtifactId: patch.currentDraftArtifactId ?? memory.currentDraftArtifactId,
   });
+  const optimisticSalience = applyMemorySaliencePolicy({
+    topicSummary: optimistic.topicSummary,
+    concreteAnswerCount: optimistic.concreteAnswerCount,
+    envelope: {
+      constraints: optimistic.activeConstraints,
+      lastIdeationAngles: optimistic.lastIdeationAngles,
+      rollingSummary: optimistic.rollingSummary,
+      latestRefinementInstruction: optimistic.latestRefinementInstruction,
+      unresolvedQuestion: optimistic.unresolvedQuestion,
+    },
+  });
+  const normalizedOptimistic = {
+    ...optimistic,
+    topicSummary: optimisticSalience.topicSummary,
+    concreteAnswerCount: optimisticSalience.concreteAnswerCount,
+    activeConstraints: optimisticSalience.envelope.constraints,
+    lastIdeationAngles: optimisticSalience.envelope.lastIdeationAngles,
+    rollingSummary: optimisticSalience.envelope.rollingSummary,
+    latestRefinementInstruction: optimisticSalience.envelope.latestRefinementInstruction,
+    unresolvedQuestion: optimisticSalience.envelope.unresolvedQuestion,
+  };
 
   const updated = await services.updateConversationMemory({
     runId,
@@ -91,7 +111,7 @@ export async function saveConversationTurnMemory(args: {
 
   return updated
     ? createConversationMemorySnapshot(updated as unknown as Record<string, unknown>)
-    : optimistic;
+    : normalizedOptimistic;
 }
 
 export async function syncStyleProfileMemory(args: {

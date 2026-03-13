@@ -18,6 +18,19 @@
   - `apps/web/lib/onboarding/draftArtifacts.test.mjs` now covers numbered threads without delimiters, single-newline marker threads, `Post/Tweet` labels, and oversized one-block fallbacks capped to six posts.
 - **Verification completed:**
   - Green: `test:v2-route`, `draftArtifacts.test.mjs`, `test:v2-response-quality`, `test:v2-regressions`, `test:v2-orchestrator`, `liveAssistantEval.test.mjs`, `test:v3-orchestrator`.
+- **Per-handle backend isolation landed for multi-account Xpo profiles:**
+  - Shared workspace-handle helpers now live in `apps/web/lib/workspaceHandle.ts` and `apps/web/lib/workspaceHandle.server.ts`.
+  - Handle-scoped creator routes now resolve the effective workspace handle from the explicit request contract instead of treating `session.user.activeXHandle` as backend authority.
+  - `apps/web/app/api/creator/v2/chat/route.ts` now creates/loads threads against the requested workspace handle, validates thread ownership with `ChatThread.xHandle`, and only reads onboarding/profile context for that same handle.
+  - `apps/web/app/chat/page.tsx` now treats the workspace handle as tab state via `?xHandle=...`, sends `X-Xpo-Handle` on creator/chat requests, and preserves that handle across chat/thread navigation.
+  - `ReplyOpportunity` persistence is now isolated by `userId + xHandle + tweetId`, with the migration in `apps/web/prisma/migrations/20260313170000_reply_opportunity_handle_isolation/migration.sql`.
+  - Direct regression coverage now exists in `apps/web/lib/workspaceHandle.test.ts`.
+- **Memory/constraint salience step 1 landed:**
+  - Shared salience policy now lives in `apps/web/lib/agent-v2/memory/memorySalience.ts`.
+  - `memoryStore.ts` now applies salience normalization both when persisting conversation memory and when building snapshots for downstream orchestration.
+  - `memoryPolicy.ts` now uses the same salience rules when persistence falls back, so runtime memory shape stays aligned with the persisted shape.
+  - The salience layer now keeps hard grounding constraints sticky, trims noisy/transient residue, caps ideation-angle carryover, normalizes rolling summaries, and clamps long-session counters like `concreteAnswerCount`.
+  - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/memorySalience.test.ts`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -75,6 +88,7 @@
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
    - test longer-session behavior
+   - Status: in progress. Shared salience policy now exists in `memorySalience.ts` and is applied in `memoryStore.ts` / `memoryPolicy.ts`; next work should refine what decays versus persists in longer sessions and then close with a broader validation sweep.
 6. **Architecture follow-through (2-3 steps)**
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
@@ -91,10 +105,15 @@
 - **Planner Payload Cleanup Is Also Shared**: `core/plannerNormalization.ts` is the right place to dedupe or sanitize planner output structure before it leaks into downstream orchestration.
 - **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
 - **Grounding Now Has Separate Truth vs Voice Context Lanes**: `groundingPacket.ts` now exposes `factualAuthority` plus `voiceContextHints`. Use `factualAuthority` for reusable truth/evidence. Use `voiceContextHints` for territory/framing guidance only.
+- **Workspace Handle Is Now Explicit**: For handle-scoped creator/chat APIs, the request workspace handle is authoritative. The chat UI now persists it in `?xHandle=...` and server routes resolve it from `X-Xpo-Handle` / request input. `session.user.activeXHandle` should only be treated as a last-used default for opening a fresh workspace.
+- **Thread Access Must Stay Handle-Scoped**: `ChatThread.xHandle` is now the ownership boundary for creator chat threads. Use `resolveOwnedThreadForWorkspace(...)` instead of hand-rolling thread lookup logic, and keep null-handle legacy threads quarantined instead of silently reassigning them.
+- **Reply Opportunity Learning Is Handle-Scoped Too**: `ReplyOpportunity` records are now keyed by `userId + xHandle + tweetId`. Do not reintroduce user-level fallback lookups that can blend learning across handles inside the same Xpo profile.
 - **Grounding Prompt Copy Is Now Shared**: If you need to change how factual authority, voice-context hints, unknowns, or source-material detail lines are described to agents, update `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts` instead of duplicating copy across planner/reviser/critic strings.
 - **X Platform Prompt Rules Are Now Shared**: If you need to change thread-framing wording or X-specific markdown / CTA / verification-tone rules, update `apps/web/lib/agent-v2/agents/xPostPromptRules.ts` instead of drifting separate copies in writer, reviser, or critic.
 - **JSON Output Contracts Are Now Shared**: If you need to change parse-critical response schemas, update `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts` instead of editing separate inline JSON blocks in planner, writer, reviser, or critic prompts.
 - **Thread Plan Cadence Now Self-Repairs**: `apps/web/lib/agent-v2/core/plannerNormalization.ts` is now responsible for correcting weak role order, repeated proof beats, and low-signal transitions in thread plans before they reach the writer.
 - **Final Thread Output Also Self-Cleans**: `apps/web/lib/agent-v2/core/finalDraftPolicy.ts` now does a last-pass cleanup for obviously samey adjacent thread posts, so repeated payoff-as-close endings can be removed even if generation slips.
 - **Thread-first Quality Phase Is Done**: Planner, writer, critic, and final-policy layers now reinforce the same thread arc, so the next major focus should shift to memory/constraint salience instead of more thread plumbing.
+- **Memory Salience Is Now Shared**: `apps/web/lib/agent-v2/memory/memorySalience.ts` is now the shared place to decide which constraints, summaries, and ideation residue stay sticky versus decay. If long-session memory gets bloated again, fix the policy there before widening persistence rules elsewhere.
+- **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

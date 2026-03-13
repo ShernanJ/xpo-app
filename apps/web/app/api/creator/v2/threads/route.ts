@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -8,14 +9,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const xHandle = searchParams.get("xHandle");
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
 
   try {
     const threads = await prisma.chatThread.findMany({
       where: {
         userId: session.user.id,
-        ...(xHandle ? { xHandle } : {}) // Filter by specific account context if provided
+        xHandle: workspaceHandle.xHandle,
       },
       orderBy: { updatedAt: "desc" },
       select: {
@@ -38,18 +44,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
-  let body: { xHandle?: string };
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
   }
 
   try {
     const thread = await prisma.chatThread.create({
       data: {
         userId: session.user.id,
-        xHandle: body.xHandle || null,
+        xHandle: workspaceHandle.xHandle,
         title: "New Chat",
       }
     });

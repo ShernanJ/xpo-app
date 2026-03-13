@@ -14,7 +14,10 @@ import {
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
-import { getActiveHandle } from "@/app/api/creator/v2/source-materials/route.logic";
+import {
+  resolveOwnedThreadForWorkspace,
+  resolveWorkspaceHandleForRequest,
+} from "@/lib/workspaceHandle.server";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -284,18 +287,24 @@ export async function POST(
   }
 
   try {
-    const { threadId } = await params;
-
-    const thread = await prisma.chatThread.findUnique({
-      where: { id: threadId },
+    const workspaceHandle = await resolveWorkspaceHandleForRequest({
+      request,
+      session,
     });
-
-    if (!thread || thread.userId !== session.user.id) {
-      return NextResponse.json(
-        { ok: false, errors: [{ field: "threadId", message: "Thread not found or unauthorized." }] },
-        { status: 404 },
-      );
+    if (!workspaceHandle.ok) {
+      return workspaceHandle.response;
     }
+
+    const { threadId } = await params;
+    const ownedThread = await resolveOwnedThreadForWorkspace({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+    });
+    if (!ownedThread.ok) {
+      return ownedThread.response;
+    }
+    const thread = ownedThread.thread;
 
     const versionId = buildVersionId();
     const createdAt = new Date().toISOString();
@@ -394,7 +403,7 @@ export async function POST(
     });
 
     const promotedSourceMaterialAssets = await (async () => {
-      const xHandle = getActiveHandle(session);
+      const xHandle = workspaceHandle.xHandle;
       if (!xHandle || groundingSources.length === 0) {
         return [];
       }
@@ -462,7 +471,7 @@ export async function POST(
 
     void recordProductEvent({
       userId: session.user.id,
-      xHandle: getActiveHandle(session),
+      xHandle: workspaceHandle.xHandle,
       threadId: thread.id,
       messageId: assistantMessage.id,
       eventType: "draft_promoted",

@@ -10,6 +10,7 @@ import {
 import { probeLatestScrapePosts } from "@/lib/onboarding/sources/scrapeBootstrap";
 import type { OnboardingInput } from "@/lib/onboarding/types";
 import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 type RefreshTrigger = "manual" | "daily_login";
 
@@ -106,7 +107,7 @@ function parseRequestError(field: string, message: string): ScrapeRefreshError[]
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession();
-  if (!session?.user?.id || !session?.user?.activeXHandle) {
+  if (!session?.user?.id) {
     return NextResponse.json(
       {
         ok: false,
@@ -134,7 +135,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const normalizedHandle = session.user.activeXHandle.replace(/^@/, "").toLowerCase();
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const normalizedHandle = workspaceHandle.xHandle;
   const latestRun = await readLatestOnboardingRunByHandle(session.user.id, normalizedHandle);
   if (!latestRun) {
     return NextResponse.json(

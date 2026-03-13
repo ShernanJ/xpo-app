@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     where: {
       id: parsed.data.opportunityId,
       userId: auth.user.id,
+      xHandle: userContext.xHandle,
     },
   });
 
