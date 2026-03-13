@@ -2,7 +2,11 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
 import { generateCoachReply } from "../agents/coach.ts";
 import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
-import { getDeterministicChatReply } from "./chatResponderDeterministic";
+import {
+  buildConstraintAcknowledgment,
+  isConstraintDeclaration,
+} from "./constraintAcknowledgment.ts";
+import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
 
 // ---------------------------------------------------------------------------
 // Chat Responder (V3)
@@ -12,52 +16,7 @@ import { getDeterministicChatReply } from "./chatResponderDeterministic";
 // acknowledgment, and general discussion about content strategy.
 // ---------------------------------------------------------------------------
 
-/** Determines whether a message is a constraint declaration (e.g. "no emojis"). */
-export function isConstraintDeclaration(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  if (normalized.length > 80) {
-    return false;
-  }
-
-  const constraintPatterns = [
-    /^no\s+\w+/,
-    /^don'?t\s+(use|say|mention|include|add)\b/,
-    /^never\s+(use|say|mention|include|add)\b/,
-    /^avoid\s+\w+/,
-    /^stop\s+(using|saying|mentioning|adding)\b/,
-    /^keep\s+it\s+(under|short|tight|casual|natural)/,
-    /^(less|more)\s+\w+$/,
-  ];
-
-  return constraintPatterns.some((pattern) => pattern.test(normalized));
-}
-
-/** Build a short acknowledgment for a constraint declaration. */
-export function buildConstraintAcknowledgment(message: string): string {
-  const normalized = message.trim().toLowerCase();
-
-  if (normalized.includes("emoji")) {
-    return "got it — no emojis from here on. anything else you want to adjust?";
-  }
-
-  if (normalized.includes("hashtag")) {
-    return "noted — dropping hashtags. anything else?";
-  }
-
-  if (normalized.includes("cta") || normalized.includes("call to action")) {
-    return "understood — keeping it CTA-free. want me to revise the current draft or keep going?";
-  }
-
-  if (normalized.includes("shorter") || normalized.includes("under")) {
-    return "got it — keeping it tighter. want me to trim the current draft?";
-  }
-
-  if (/\bless\s+\w+/.test(normalized) || /\bmore\s+\w+/.test(normalized)) {
-    return `noted — i'll apply that going forward. want me to revise the current draft with this in mind?`;
-  }
-
-  return `got it — i'll keep that in mind for this thread. anything else to lock in?`;
-}
+export { buildConstraintAcknowledgment, isConstraintDeclaration } from "./constraintAcknowledgment.ts";
 
 /**
  * Respond to a conversational turn without triggering generation.
@@ -83,7 +42,10 @@ export async function respondConversationally(args: {
 }): Promise<string | null> {
   // Short-circuit for constraint declarations — no LLM call needed.
   if (isConstraintDeclaration(args.userMessage)) {
-    return buildConstraintAcknowledgment(args.userMessage);
+    return buildConstraintAcknowledgment({
+      message: args.userMessage,
+      recentHistory: args.recentHistory,
+    });
   }
 
   const deterministicReply = getDeterministicChatReply({

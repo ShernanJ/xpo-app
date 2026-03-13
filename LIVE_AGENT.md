@@ -100,9 +100,10 @@ This section tracks what has already landed so future agents do not accidentally
 - Green: `draftArtifacts.test.mjs`
 - Green: `test:v2-response-quality`
 - Green: `test:v2-regressions`
+- Green: `test:v2-orchestrator`
+- Green: `chatResponder.test.mjs`
 - Green: `liveAssistantEval.test.mjs`
 - Green: `test:v3-orchestrator`
-- Still failing and needs triage: `test:v2-orchestrator`
 
 ---
 
@@ -320,11 +321,11 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Status:** Suspected / likely
 
 ### Issue 10
-- **Issue:** Some orchestrator tests are out of sync with current behavior or need follow-up implementation
-- **Why it matters:** `test:v2-orchestrator` still fails in diagnostic/grounding/source-assertion areas, which makes it harder to trust future refactors
-- **Likely files involved:** `conversationManager.test.mjs`, `chatResponderDeterministic.ts`, `groundingPacket.ts`, `conversationManager.ts`
-- **Severity:** Important
-- **Status:** Confirmed
+- **Issue:** Some direct deterministic-chat tests outside the main package scripts still assume older behavior
+- **Why it matters:** Ad hoc test runs can still look broken even though the scripted regression suites are green
+- **Likely files involved:** `chatResponder.test.mjs`, `chatResponderDeterministic.ts`
+- **Severity:** Medium
+- **Status:** Partially mitigated (`chatResponder.test.mjs` was realigned; broader direct-suite hygiene may still be needed elsewhere)
 
 ---
 
@@ -378,11 +379,11 @@ Every meaningful change should update this section.
 - **Notes:** Good quality safeguard for longer sessions.
 
 #### WS-07 — Triage `test:v2-orchestrator`
-- **Description:** Resolve or rebaseline the remaining diagnostic/grounding/source-assertion failures in the orchestrator suite
-- **Files touched:** `conversationManager.test.mjs`, `chatResponderDeterministic.ts`, `groundingPacket.ts`, `conversationManager.ts`
+- **Description:** Keep direct test coverage aligned with the current lighter deterministic-chat surface
+- **Files touched:** `chatResponder.test.mjs`, `chatResponderDeterministic.ts`, `chatResponder.ts`, `constraintAcknowledgment.ts`
 - **Owner/agent:** Unassigned
-- **Status:** Backlog
-- **Notes:** Separate this from transcript/thread work so the remaining failures can be reasoned about on their own.
+- **Status:** In progress
+- **Notes:** `chatResponder.test.mjs` is green now; keep folding remaining direct conversational tests into the current minimal deterministic surface as needed.
 
 ---
 

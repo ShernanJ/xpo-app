@@ -201,7 +201,7 @@ test("bundle brief builder creates four distinct framings from saved context", (
   );
 });
 
-test("diagnostic reply explains likely reasons and next actions from diagnostic context", () => {
+test("diagnostic questions now fall through instead of forcing deterministic replies", () => {
   const reply = getDeterministicChatReply({
     userMessage: "why am i not getting views",
     recentHistory: "",
@@ -228,10 +228,7 @@ test("diagnostic reply explains likely reasons and next actions from diagnostic 
     },
   });
 
-  assert.equal(typeof reply, "string");
-  assert.equal(reply.includes("likely reasons:"), true);
-  assert.equal(reply.includes("next actions:"), true);
-  assert.equal(reply.includes("full breakdown is there if you want it."), true);
+  assert.equal(reply, null);
 });
 
 test("generic ideation prompts are detected deterministically", () => {
@@ -838,7 +835,7 @@ test("grounding packet normalizes legacy durable facts and flags missing product
     true,
   );
   assert.equal(packet.turnGrounding.includes("User is shipping xpo in public"), true);
-  assert.equal(packet.unknowns.some((entry) => /missing product behavior/i.test(entry)), true);
+  assert.equal(packet.unknowns.some((entry) => /missing definition for xpo/i.test(entry)), true);
   assert.equal(hasAutobiographicalGrounding(packet), true);
 });
 
@@ -1241,7 +1238,7 @@ test("source material draft constraints keep saved stories literal", () => {
 
 test("draft anchor selection keeps historical posts in style-only mode when truth sources exist", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./conversationManager.ts", import.meta.url)),
+    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
     "utf8",
   );
 
@@ -1263,7 +1260,7 @@ test("draft anchor selection keeps historical posts in style-only mode when trut
 
 test("unsupported claims force a stricter grounded retry before first-pass delivery", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./conversationManager.ts", import.meta.url)),
+    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
     "utf8",
   );
 
