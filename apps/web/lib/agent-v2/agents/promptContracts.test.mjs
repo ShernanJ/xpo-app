@@ -123,7 +123,20 @@ test("planner and writer prompts surface hard factual grounding for product asks
     fileURLToPath(new URL("./groundingPromptBlock.ts", import.meta.url)),
     "utf8",
   );
-  const promptSource = [promptBuildersSource, groundingPromptBlockSource].join("\n");
+  const xPostPromptRulesSource = readFileSync(
+    fileURLToPath(new URL("./xPostPromptRules.ts", import.meta.url)),
+    "utf8",
+  );
+  const jsonPromptContractsSource = readFileSync(
+    fileURLToPath(new URL("./jsonPromptContracts.ts", import.meta.url)),
+    "utf8",
+  );
+  const promptSource = [
+    promptBuildersSource,
+    groundingPromptBlockSource,
+    xPostPromptRulesSource,
+    jsonPromptContractsSource,
+  ].join("\n");
 
   assert.equal(promptSource.includes("FACTUAL GROUNDING:"), true);
   assert.equal(
@@ -368,7 +381,20 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
     fileURLToPath(new URL("./groundingPromptBlock.ts", import.meta.url)),
     "utf8",
   );
-  const reviserPromptSource = [reviserSource, groundingPromptBlockSource].join("\n");
+  const xPostPromptRulesSource = readFileSync(
+    fileURLToPath(new URL("./xPostPromptRules.ts", import.meta.url)),
+    "utf8",
+  );
+  const jsonPromptContractsSource = readFileSync(
+    fileURLToPath(new URL("./jsonPromptContracts.ts", import.meta.url)),
+    "utf8",
+  );
+  const reviserPromptSource = [
+    reviserSource,
+    groundingPromptBlockSource,
+    xPostPromptRulesSource,
+    jsonPromptContractsSource,
+  ].join("\n");
 
   assert.equal(reviserSource.includes("CURRENT USER NOTE:"), true);
   assert.equal(
@@ -390,6 +416,96 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
     reviserSource.includes(
       "Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims",
     ),
+    true,
+  );
+});
+
+test("drafting and revision prompts share X-platform rules", () => {
+  const xPostPromptRulesSource = readFileSync(
+    fileURLToPath(new URL("./xPostPromptRules.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.",
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "Verification is not a professionalism signal. Do not make the revision sound more polished or corporate just because the account is verified.",
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.",
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.",
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      `Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return`,
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      `Do NOT introduce empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something concrete in return`,
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      `Do NOT allow empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets a concrete payoff in return.`,
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "Use numbered framing. Prefix each post with a clear marker like 1/5, 2/5, 3/5",
+    ),
+    true,
+  );
+  assert.equal(
+    xPostPromptRulesSource.includes(
+      "If this is a thread revision, preserve or apply numbered framing like 1/5, 2/5, 3/5",
+    ),
+    true,
+  );
+});
+
+test("planner writer reviser and critic share JSON output contracts", () => {
+  const jsonPromptContractsSource = readFileSync(
+    fileURLToPath(new URL("./jsonPromptContracts.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    jsonPromptContractsSource.includes(`"pitchResponse": "Conversational pitch to the user..."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"draft": "The actual post text. If this is a thread, serialize posts using --- separators between each post."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"revisedDraft": "..."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"finalDraft": "The corrected draft text..."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes("Respond ONLY with a valid JSON matching this schema:"),
     true,
   );
 });

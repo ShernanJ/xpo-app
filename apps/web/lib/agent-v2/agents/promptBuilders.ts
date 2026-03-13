@@ -25,7 +25,17 @@ import type {
   GroundingPacket,
 } from "../orchestrator/groundingPacket";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
+import {
+  buildPlannerJsonContract,
+  buildWriterJsonContract,
+} from "./jsonPromptContracts";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
+import {
+  buildEngagementBaitRule,
+  buildMarkdownStylingRule,
+  buildThreadFramingRequirement,
+  buildVerificationProfessionalismRule,
+} from "./xPostPromptRules";
 
 function buildArtifactContextBlock(args: {
   activePlan?: StrategyPlan | null;
@@ -390,33 +400,7 @@ STYLE:
 - No fake certainty if the topic is underspecified.
 - The plan can be structured, but the pitch to the user should feel like a plain next-step DM, not a strategy memo.
 
-${formatPreference === "thread" ? `Respond ONLY with a valid JSON matching this schema:
-{
-  "objective": "...",
-  "angle": "...",
-  "targetLane": "original",
-  "mustInclude": ["specific detail 1"],
-  "mustAvoid": ["generic word 1"],
-  "hookType": "...",
-  "pitchResponse": "Conversational pitch to the user...",
-  "posts": [
-    {
-      "role": "hook",
-      "objective": "Open with...",
-      "proofPoints": ["key point"],
-      "transitionHint": "bridges to next post by..."
-    }
-  ]
-}` : `Respond ONLY with a valid JSON matching this schema:
-{
-  "objective": "...",
-  "angle": "...",
-  "targetLane": "original",
-  "mustInclude": ["specific detail 1"],
-  "mustAvoid": ["generic word 1"],
-  "hookType": "...",
-  "pitchResponse": "Conversational pitch to the user..."
-}`}
+${buildPlannerJsonContract({ isThread: formatPreference === "thread" })}
   `.trim();
 }
 
@@ -638,9 +622,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement(threadFramingStyle)}
+10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}
 10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
-11. Verification is not a professionalism signal. Do not make the writing more polished or corporate just because the account is verified.
+11. ${buildVerificationProfessionalismRule("draft")}
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
 12b. If FACTUAL GROUNDING is present, do NOT invent first-person product usage or testing claims such as "i tried", "i use", "i let it", or "we switched to it" unless the user explicitly said that in the chat.
@@ -656,34 +640,12 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 14a. Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.
 14b. Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.
 14c. If the strategic angle conflicts with the factual truth layer, keep the factual truth and adjust the framing instead of widening the claim.
-15. X does NOT support markdown styling. Do not use bold, italics, headings, or other markdown markers like **text**, __text__, *text*, # heading, or backticks.
-16. Do NOT use empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something specific in return (for example: a DM, a template, a checklist, a link, a copy, or access). If there is no real payoff, use a more natural CTA like asking for their take or asking them to try it and report back.
+15. ${buildMarkdownStylingRule("draft")}
+16. ${buildEngagementBaitRule("draft")}
 17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
 
-Respond ONLY with a valid JSON matching this schema:
-{
-  "angle": "...",
-  "draft": "The actual post text. If this is a thread, serialize posts using --- separators between each post.",
-  "supportAsset": "...",
-  "whyThisWorks": "...",
-  "watchOutFor": "..."
-}
+${buildWriterJsonContract()}
   `.trim();
-}
-
-function buildThreadFramingRequirement(
-  threadFramingStyle: ThreadFramingStyle | null,
-): string {
-  switch (threadFramingStyle) {
-    case "numbered":
-      return " Use numbered framing. Prefix each post with a clear marker like 1/5, 2/5, 3/5 so readers instantly know this is a thread. Even then, keep the opener readable and avoid turning the first post into a credential dump or dense bullet block.";
-    case "soft_signal":
-      return " Use soft thread framing. The first post should make it naturally obvious the reader is entering a thread through a clean opening sentence or short setup paragraph. Do NOT add x/x numbering unless the user explicitly asked for it. Avoid canned prefixes like here's what happened unless they genuinely fit the voice and content. Keep the opener in clean prose, not a dense bullet list or stacked credential block.";
-    case "none":
-      return " Keep the thread natural. Do not add x/x numbering or explicit thread labels unless the user explicitly asked for them. Avoid a list-heavy opener; start with a clean sentence or short paragraph.";
-    default:
-      return "";
-  }
 }
 
 function buildThreadCadenceBlock(args: {

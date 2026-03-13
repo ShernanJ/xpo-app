@@ -20,10 +20,17 @@ import {
   type GroundingPacket,
 } from "../orchestrator/groundingPacket";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
+import { buildReviserJsonContract } from "./jsonPromptContracts";
 import {
   trimToXCharacterLimit,
   type ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts";
+import {
+  buildEngagementBaitRule,
+  buildMarkdownStylingRule,
+  buildThreadFramingRequirement,
+  buildVerificationProfessionalismRule,
+} from "./xPostPromptRules";
 
 export const ReviserOutputSchema = z.object({
   revisedDraft: z.string().describe("The revised draft text"),
@@ -334,19 +341,14 @@ REQUIREMENTS:
 8. Only a full rewrite may substantially restructure the post. If the revision request converts a single post into a thread, you may rebuild the flow across posts instead of mechanically chopping the original draft into fragments.
 9. Keep the draft sounding like the user. Match their casing and pacing.
 10. If the user uses list markers like "-" or ">", preserve that formatting style when the revised draft uses lists.
-11. Verification is not a professionalism signal. Do not make the revision sound more polished or corporate just because the account is verified.
-12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. If this is a thread, keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and do not over-compress verified-account thread posts toward legacy 280-character brevity when a fuller beat would read better.${buildThreadFramingRequirement(threadFramingStyle)}
+11. ${buildVerificationProfessionalismRule("revision")}
+12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. If this is a thread, keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and do not over-compress verified-account thread posts toward legacy 280-character brevity when a fuller beat would read better.${buildThreadFramingRequirement({ threadFramingStyle, mode: "revision" })}
 13. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding.
-14. X does NOT support markdown styling. Remove or avoid bold, italics, headings, or markdown markers like **text**, __text__, *text*, # heading, or backticks.
-15. Do NOT introduce empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets something concrete in return (DM, template, checklist, link, copy, or access). If there is no real payoff, use a more natural CTA.
+14. ${buildMarkdownStylingRule("revision")}
+15. ${buildEngagementBaitRule("revision")}
 16. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the current draft, current user note, or grounding packet.
 
-Respond ONLY with valid JSON:
-{
-  "revisedDraft": "...",
-  "supportAsset": null,
-  "issuesFixed": ["what changed"]
-}
+${buildReviserJsonContract()}
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({
@@ -373,20 +375,5 @@ Respond ONLY with valid JSON:
   } catch (error) {
     console.error("Reviser validation failed", error);
     return null;
-  }
-}
-
-function buildThreadFramingRequirement(
-  threadFramingStyle: ThreadFramingStyle | null,
-): string {
-  switch (threadFramingStyle) {
-    case "numbered":
-      return " If this is a thread revision, preserve or apply numbered framing like 1/5, 2/5, 3/5 across the posts, but keep the opener readable and avoid dense bullet blocks.";
-    case "soft_signal":
-      return " If this is a thread revision, make the opener feel naturally threaded through a clean opening sentence or short setup paragraph. Avoid x/x numbering unless the user explicitly asks for it, and avoid canned prefixes like here's what happened unless they genuinely fit.";
-    case "none":
-      return " If this is a thread revision, keep the framing natural and avoid x/x numbering or explicit thread labels unless the user explicitly asks for them. Avoid a list-heavy opener.";
-    default:
-      return "";
   }
 }

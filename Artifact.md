@@ -29,8 +29,11 @@
   - `promptBuilders.ts` now uses a clearer shared plan-requirements block plus stricter thread-beat guidance so planner prompts ask for fewer catch-all posts and fewer repeated proof points.
   - The writer handoff is now stricter for thread plans: `promptBuilders.ts` tells the writer to preserve beat order, keep post count aligned with the plan when possible, keep proof points in their assigned beat, and carry transition hints into the actual phrasing between posts.
   - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, which removes duplicated factual-authority / voice-context instructions from planner, reviser, and critic prompt strings.
+  - Shared X-platform prompt rules now live in `apps/web/lib/agent-v2/agents/xPostPromptRules.ts`, which centralizes thread-framing guidance plus X-specific markdown / verification-tone / CTA hygiene rules across drafting, revision, and critique.
+  - Shared JSON/output-contract prompt assembly now lives in `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts`, which centralizes parse-critical response schemas across planner, writer, reviser, and critic prompts.
   - `draftPipeline.ts` import/type drift was cleaned up after the modular plan-pitch/planner work: the file now imports from the correct modular sources, uses typed pipeline args instead of `any`, and is lint-clean again.
-  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots both the stronger thread-beat writer requirements and the shared grounding-prompt contract so future prompt edits do not quietly drift by surface refactors.
+  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots both the stronger thread-beat writer requirements and the shared grounding/platform prompt contracts so future prompt edits do not quietly drift by surface refactors.
+  - `apps/web/lib/agent-v2/agents/llm.ts` now retries once when OpenAI-proxied reasoning models return reasoning with empty message content, which reduces false "failed to write draft" errors on otherwise valid turns.
 
 ## 2. What Needs to Be Done (Future Plan)
 1. **Broader P0 quality pass (next major workstream):**
@@ -57,7 +60,7 @@
    - inventory duplicated/conflicting instruction blocks
    - consolidate shared rules/helpers
    - rerun quality/regression coverage
-   - Status: in progress. The first slice is landed: grounding-packet prompt assembly is centralized in `groundingPromptBlock.ts`, and planner/reviser/critic now share that factual-authority/voice-context contract with tests covering the shared helper path.
+   - Status: completed. Shared grounding-packet prompt assembly lives in `groundingPromptBlock.ts`, shared X-platform prompt rules live in `xPostPromptRules.ts`, shared JSON/output contracts live in `jsonPromptContracts.ts`, and the prompt contract plus response/orchestrator suites are green.
 4. **Thread-first quality maturation (4 steps)**
    - refine thread planning quality
    - refine writer execution of thread beats
@@ -84,4 +87,6 @@
 - **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
 - **Grounding Now Has Separate Truth vs Voice Context Lanes**: `groundingPacket.ts` now exposes `factualAuthority` plus `voiceContextHints`. Use `factualAuthority` for reusable truth/evidence. Use `voiceContextHints` for territory/framing guidance only.
 - **Grounding Prompt Copy Is Now Shared**: If you need to change how factual authority, voice-context hints, unknowns, or source-material detail lines are described to agents, update `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts` instead of duplicating copy across planner/reviser/critic strings.
+- **X Platform Prompt Rules Are Now Shared**: If you need to change thread-framing wording or X-specific markdown / CTA / verification-tone rules, update `apps/web/lib/agent-v2/agents/xPostPromptRules.ts` instead of drifting separate copies in writer, reviser, or critic.
+- **JSON Output Contracts Are Now Shared**: If you need to change parse-critical response schemas, update `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts` instead of editing separate inline JSON blocks in planner, writer, reviser, or critic prompts.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

@@ -2,6 +2,11 @@ import { fetchJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
+import { buildCriticJsonContract } from "./jsonPromptContracts";
+import {
+  buildEngagementBaitRule,
+  buildMarkdownStylingRule,
+} from "./xPostPromptRules";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
@@ -125,7 +130,7 @@ ${buildFormatPreferenceBlock(formatPreference, "critic")}
 5. If the draft fails fundamentally, set "approved" to false. Otherwise, return true.
 6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.${formatPreference === "thread" ? ` Keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, but do not force verified-account threads into legacy 280-character brevity if a fuller beat reads better.` : ""}
 6a. If this is NOT a thread, the final draft must be exactly one standalone post. Do NOT use standalone --- separators, thread serialization, or multiple-post formatting.
-7. Do NOT allow empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets a concrete payoff in return. If there is no payoff, rewrite that CTA into something natural and non-gimmicky.
+7. ${buildEngagementBaitRule("critic")}
 ${formatPreference === "thread" ? `
 THREAD-SPECIFIC QUALITY CHECKS (MANDATORY FOR THREADS):
 T1. A thread MUST contain at least 3 posts separated by ---. If fewer, add missing beats.
@@ -146,14 +151,9 @@ ${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MU
 ${options?.voiceTarget ? `\nVOICE TARGET (AUTHORITATIVE FOR THIS TURN): ${options.voiceTarget.summary}\n${options.voiceTarget.rationale.map((line) => `- ${line}`).join("\n")}` : ""}
 ${groundingPromptBlock ? `\n${groundingPromptBlock}` : ""}
 ${concreteSceneBlock ? `\n${concreteSceneBlock}` : ""}
+${`\n${buildMarkdownStylingRule("critic")}`}
 
-Respond ONLY with a valid JSON matching this schema:
-{
-  "approved": boolean,
-  "finalAngle": "...",
-  "finalDraft": "The corrected draft text...",
-  "issues": ["Issue 1 found and fixed", "Issue 2 found and fixed"]
-}
+${buildCriticJsonContract()}
   `.trim();
 
   const data = await fetchJsonFromGroq<unknown>({

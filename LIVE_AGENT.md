@@ -107,8 +107,11 @@ This section tracks what has already landed so future agents do not accidentally
 - Legacy `contextAnchors` are now split inside grounding into factual carryover vs `voiceContextHints`, so style/context memory can guide territory without automatically becoming fact support.
 - Retrieval/effective-context helpers now consume factual context and voice-context hints separately, so the orchestrator no longer flattens those lanes back into one generic "known facts" bucket.
 - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, and planner/reviser/critic now share one factual-authority / voice-context contract instead of carrying drift-prone inline copies.
+- Shared X-platform prompt rules now live in `apps/web/lib/agent-v2/agents/xPostPromptRules.ts`, and writer/reviser/critic now share one thread-framing / markdown / verification-tone / CTA hygiene contract instead of drifting separate inline copies.
+- Shared JSON/output-contract prompt assembly now lives in `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts`, and planner/writer/reviser/critic now share one parse-critical response-schema contract instead of drifting inline JSON blocks.
 - `draftPipeline.ts` was repaired after the modular plan helper changes: imports now point at the right modules, typed pipeline args replaced local `any`s, and the file is lint-clean again.
-- `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements plus the shared grounding-prompt contract so future prompt edits do not silently flatten the planner/writer handoff or reintroduce grounding-copy drift.
+- `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements plus the shared grounding/platform prompt contracts so future prompt edits do not silently flatten the planner/writer handoff or reintroduce prompt-copy drift.
+- `llm.ts` now retries once when OpenAI-proxied reasoning models return empty content with only reasoning text, which reduces false draft-generation failures.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -635,7 +638,7 @@ Use this checklist after meaningful changes.
    - inventory duplicated/conflicting instruction blocks
    - consolidate shared rules/helpers
    - rerun quality/regression suites
-   - Status: in progress. Step 1 is done: the grounding-packet prompt block is shared in `groundingPromptBlock.ts`, and planner/reviser/critic now consume one tested grounding-copy contract.
+   - Status: complete. Shared grounding-packet prompt assembly lives in `groundingPromptBlock.ts`, shared X-platform prompt rules live in `xPostPromptRules.ts`, shared JSON/output contracts live in `jsonPromptContracts.ts`, and validation is green.
 4. **Thread-first quality maturation (4 steps)**
    - refine thread planning quality
    - refine writer execution of thread beats
@@ -652,16 +655,16 @@ Use this checklist after meaningful changes.
 
 ### Best next change
 Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, and the first prompt-layer simplification slice have landed, focus on these targeted fixes:
-1. Continue prompt-layer simplification by centralizing the next duplicated instruction family after grounding-copy.
+1. Start thread-first quality maturation with a focused thread-planning / thread-critic pass.
 2. Keep the completed planner/writer and grounding improvements intact while reducing duplicated instruction load.
 3. Preserve specificity and safety while making the prompt stack easier to reason about.
 
 ### Safest next implementation step
-Audit the remaining duplicated instruction families across `promptBuilders.ts`, `promptHydrator.ts`, `writer.ts`, `critic.ts`, and `reviser.ts`:
-- identify repeated blocks for source-material handling, safe fallback modes, or output-shape rules
-- centralize the next shared block/helper without weakening the current factual-authority contract
-- keep thread-beat and factual-grounding requirements intact while reducing conflicting phrasing
-- rerun prompt contracts plus response/orchestrator suites after each consolidation slice
+Audit the thread path end-to-end across `planner.ts`, `promptBuilders.ts`, `writer.ts`, `critic.ts`, and the thread-specific regressions:
+- identify where planned post roles/proof points still collapse into samey beats
+- tighten critic checks for repeated beats, weak transitions, and soft endings
+- keep the completed grounding/prompt-sharing work intact while improving thread specificity and flow
+- rerun thread-focused regressions plus response/orchestrator suites after each slice
 
 ### Biggest risk
 When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
@@ -685,6 +688,9 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 15. The third grounding-separation step is complete: retrieval/effective-context helpers now keep factual context and voice-context hints separate downstream.
 16. Voice-vs-factual grounding separation is complete; the next active phase is prompt layering simplification.
 17. Prompt-layer simplification step 1 is complete: grounding-packet prompt assembly now lives in `groundingPromptBlock.ts`, and planner/reviser/critic share that tested contract.
+18. Prompt-layer simplification step 2 is complete: X-platform prompt rules now live in `xPostPromptRules.ts`, and writer/reviser/critic share that tested contract.
+19. Prompt-layer simplification step 3 is complete: JSON/output contracts now live in `jsonPromptContracts.ts`, and planner/writer/reviser/critic share that tested contract.
+20. Prompt-layer simplification is complete; the next active phase is thread-first quality maturation.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
