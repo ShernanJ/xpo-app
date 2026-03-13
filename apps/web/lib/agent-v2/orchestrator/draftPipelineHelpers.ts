@@ -1,9 +1,3 @@
-
-import { buildTurnContext } from "./turnContextBuilder";
-import { resolveRoutingPolicy } from "./routingPolicy";
-import { executeDraftPipeline } from "./draftPipeline";
-import { syncStyleProfileMemory, syncAutoSourceMaterials } from "./memoryPolicy";
-
 import {
   buildControllerFallbackDecision,
   controlTurn,
@@ -196,48 +190,7 @@ import type {
 } from "../contracts/chat";
 
 export interface OrchestratorInput {
-  userId: string;
-  xHandle?: string | null;
-  runId?: string;
-  threadId?: string;
-  userMessage: string;
-  recentHistory: string;
-  explicitIntent?: V2ChatIntent | null;
-  activeDraft?: string;
-  formatPreference?: DraftFormatPreference | null;
-  threadFramingStyle?: ThreadFramingStyle | null;
-  preferenceConstraints?: string[];
-  creatorProfileHints?: CreatorProfileHints | null;
-  diagnosticContext?: ConversationalDiagnosticContext | null;
-}
 
-export interface OrchestratorData {
-  angles?: unknown[];
-  plan?: StrategyPlan | null;
-  draft?: string | null;
-  drafts?: string[];
-  draftBundle?: DraftBundleResult | null;
-  supportAsset?: string | null;
-  issuesFixed?: string[];
-  quickReplies?: CreatorChatQuickReply[];
-  voiceTarget?: VoiceTarget | null;
-  noveltyNotes?: string[];
-  threadFramingStyle?: ThreadFramingStyle | null;
-  groundingSources?: GroundingPacketSourceMaterial[];
-  groundingMode?: DraftGroundingMode | null;
-  groundingExplanation?: string | null;
-  autoSavedSourceMaterials?: {
-    count: number;
-    assets: Array<{
-      id: string;
-      title: string;
-      deletable: boolean;
-    }>;
-  };
-  routingTrace?: RoutingTrace;
-}
-
-export interface RoutingTrace {
   turnPlan: {
     userGoal: string;
     overrideClassifiedIntent: string | null;
@@ -282,7 +235,7 @@ export type OrchestratorResponse = {
   memory: V2ConversationMemory;
 };
 
-export type RawOrchestratorResponse = Omit<
+type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
   "surfaceMode" | "responseShapePlan"
 >;
@@ -323,7 +276,7 @@ export interface ConversationServices {
   shouldIncludeRoutingTrace: () => boolean;
 }
 
-function normalizeHandleForContext(value: string | null | undefined): string | null {
+export function normalizeHandleForContext(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -903,7 +856,7 @@ export function inferAbstractTopicSeed(
   return trimmed.replace(/[.?!,]+$/, "") || memory.topicSummary || "this";
 }
 
-function looksLikeUnsafeClarificationSeed(message: string): boolean {
+export function looksLikeUnsafeClarificationSeed(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   if (!normalized) {
     return false;
@@ -943,7 +896,7 @@ export function inferLooseClarificationSeed(
   return trimmed;
 }
 
-function hasConstraintDefinedEntity(
+export function hasConstraintDefinedEntity(
   activeConstraints: string[],
   entityLabel: string,
 ): boolean {
@@ -1159,7 +1112,7 @@ export function withPlanPreferences(
 
   return nextPlan;
 }
-function deterministicIndex(seed: string, modulo: number): number {
+export function deterministicIndex(seed: string, modulo: number): number {
   if (modulo <= 1) {
     return 0;
   }
@@ -1172,11 +1125,11 @@ function deterministicIndex(seed: string, modulo: number): number {
   return hash % modulo;
 }
 
-function pickDeterministic<T>(options: T[], seed: string): T {
+export function pickDeterministic<T>(options: T[], seed: string): T {
   return options[deterministicIndex(seed, options.length)];
 }
 
-function finalizeOrchestratorResponse(
+export function finalizeOrchestratorResponse(
   rawResponse: RawOrchestratorResponse,
 ): OrchestratorResponse {
   const resultData = rawResponse.data as Record<string, unknown> | undefined;
@@ -1264,7 +1217,7 @@ export function buildPlanPitch(plan: StrategyPlan): string {
   return `${lead}\n\n${details.join("\n")}\n\n${close}`;
 }
 
-function applyMemoryPatch(
+export function applyMemoryPatch(
   current: V2ConversationMemory,
   patch: Partial<V2ConversationMemory>,
 ): V2ConversationMemory {
@@ -1376,147 +1329,4 @@ async function maybeCaptureAntiPattern(args: {
       .filter(Boolean),
     remembered: true,
   };
-}
-
-/**
- * The V2 state machine.
- */
-
-export async function manageConversationTurn(
-  input: OrchestratorInput,
-  overrides?: Partial<ConversationServices>,
-): Promise<OrchestratorResponse> {
-  const services = { ...createDefaultConversationServices(), ...overrides } as ConversationServices;
-  const context = await buildTurnContext(input, services);
-  const route = await resolveRoutingPolicy(context, services);
-
-  if (route.isFastReply && route.fastReplyResponse) {
-    return route.fastReplyResponse;
-  }
-
-  // Heavy Orchestration
-  const [extractedRules, extractedFacts, rawSourceMaterialAssets] = await Promise.all([
-    context.userId !== "anonymous"
-      ? services.extractStyleRules(context.userMessage, context.recentHistory)
-      : Promise.resolve(null),
-    context.userId !== "anonymous"
-      ? services.extractCoreFacts(context.userMessage, context.recentHistory)
-      : Promise.resolve(null),
-    context.userId !== "anonymous"
-      ? services.getSourceMaterialAssets({
-          userId: context.userId,
-          xHandle: context.effectiveXHandle,
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const semanticCorrectionDetail =
-    looksLikeSemanticCorrection(context.userMessage) && hasConcreteCorrectionDetail(context.userMessage)
-      ? normalizeRepairDetail(context.userMessage)
-      : null;
-
-  const styleCard = await syncStyleProfileMemory({
-    userId: context.userId,
-    effectiveXHandle: context.effectiveXHandle,
-    styleCard: context.styleCard,
-    extractedRules,
-    extractedFacts,
-    semanticCorrectionDetail,
-    services
-  });
-
-  const autoSourceMaterialInputs =
-    context.userId !== "anonymous"
-      ? extractAutoSourceMaterialInputs({
-          userMessage: context.userMessage,
-          recentHistory: context.recentHistory,
-          extractedFacts,
-        })
-      : [];
-      
-  const newAutoSourceMaterialInputs =
-    autoSourceMaterialInputs.length > 0
-      ? filterNewSourceMaterialInputs({
-          existing: [
-            ...(rawSourceMaterialAssets || []),
-            ...((styleCard?.factLedger?.sourceMaterials || []).map((asset) => ({
-              type: asset.type,
-              title: asset.title,
-              claims: asset.claims,
-              snippets: asset.snippets,
-            })) || []),
-          ],
-          incoming: autoSourceMaterialInputs,
-        })
-      : [];
-
-  const { styleCard: finalStyleCard, assets: sourceMaterialAssets, autoSavedReport } = await syncAutoSourceMaterials({
-    userId: context.userId,
-    effectiveXHandle: context.effectiveXHandle,
-    styleCard,
-    newAutoInputs: newAutoSourceMaterialInputs,
-    existingAssets: rawSourceMaterialAssets,
-    services
-  });
-
-  context.styleCard = finalStyleCard;
-  
-  const antiPatternResult = await maybeCaptureAntiPattern(
-    {
-      userId: context.userId,
-      userMessage: context.userMessage,
-      activeDraft: context.activeDraft,
-      recentHistory: context.recentHistory,
-      styleCard: context.styleCard,
-      xHandle: context.effectiveXHandle,
-    },
-    services,
-  );
-
-  const prevRules = context.styleCard?.customGuidelines || [];
-  const nextRules = finalStyleCard?.customGuidelines || [];
-  const rememberedStyleRuleCount = countNewMemoryEntries(prevRules, nextRules);
-
-  const prevFacts = getDurableFactsFromStyleCard(context.styleCard);
-  const nextFacts = getDurableFactsFromStyleCard(finalStyleCard);
-  const rememberedFactCount = countNewMemoryEntries(prevFacts, nextFacts);
-
-  const rawResponse = await executeDraftPipeline({
-    context,
-    routing: route,
-    services,
-    extractedFacts,
-    extractedRules,
-    sourceMaterialAssets,
-    autoSavedSourceMaterials: autoSavedReport,
-    antiPatternResult,
-    rememberedStyleRuleCount,
-    rememberedFactCount,
-    preloadedRun: context.runId ? await services.getOnboardingRun(context.runId) : null,
-  });
-
-  const shouldIncludeRoutingTrace = (context.diagnosticContext as any)?.includeRoutingTrace === true;
-  const responseWithAutoSavedSources =
-    autoSavedReport
-      ? {
-          ...rawResponse,
-          data: {
-            ...(rawResponse.data || {}),
-            autoSavedSourceMaterials: autoSavedReport,
-          },
-        }
-      : rawResponse;
-
-  const responseWithRoutingTrace =
-    shouldIncludeRoutingTrace
-      ? {
-          ...responseWithAutoSavedSources,
-          data: {
-            ...(responseWithAutoSavedSources.data || {}),
-            routingTrace: route.routingTrace,
-          },
-        }
-      : responseWithAutoSavedSources;
-
-  return finalizeOrchestratorResponse(responseWithRoutingTrace);
 }

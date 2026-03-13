@@ -1,0 +1,213 @@
+import {
+  mapControllerActionToIntent,
+  mapIntentToControllerAction,
+  buildControllerFallbackDecision,
+} from "../agents/controller";
+import { isConstraintDeclaration, respondConversationally } from "./chatResponder";
+import { createConversationMemorySnapshot } from "../memory/memoryStore";
+import type { TurnContext } from "./turnContextBuilder";
+import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager";
+import type { V2ChatIntent } from "../contracts/chat";
+
+export interface RoutingPolicyResult {
+  isFastReply: boolean;
+  classifiedIntent: V2ChatIntent;
+  resolvedMode: V2ChatIntent;
+  routingTrace: RoutingTrace;
+  memory: TurnContext["memory"];
+  fastReplyResponse?: OrchestratorResponse;
+}
+
+function clearClarificationPatch() {
+  return {
+    unresolvedQuestion: null,
+  } as const;
+}
+
+export async function resolveRoutingPolicy(
+  context: TurnContext,
+  services: ConversationServices,
+): Promise<RoutingPolicyResult> {
+  const {
+    userMessage,
+    recentHistory,
+    explicitIntent,
+    activeDraft,
+    memory,
+    turnPlan,
+    runId,
+    threadId,
+    userId,
+    diagnosticContext,
+    styleCard,
+    anchors,
+  } = context;
+
+  const routingTrace: RoutingTrace = {
+    turnPlan: turnPlan
+      ? {
+          userGoal: turnPlan.userGoal,
+          overrideClassifiedIntent: turnPlan.overrideClassifiedIntent || null,
+          shouldAutoDraftFromPlan: turnPlan.shouldAutoDraftFromPlan === true,
+        }
+      : null,
+    controllerAction: null,
+    classifiedIntent: null,
+    resolvedMode: null,
+    routerState: null,
+    planInputSource: null,
+    clarification: null,
+    draftGuard: null,
+    planFailure: null,
+  };
+
+  const controllerMemory = {
+    conversationState: memory.conversationState,
+    topicSummary: memory.topicSummary,
+    hasPendingPlan: Boolean(memory.pendingPlan),
+    hasActiveDraft:
+      Boolean(activeDraft) ||
+      Boolean(memory.currentDraftArtifactId) ||
+      memory.conversationState === "draft_ready" ||
+      memory.conversationState === "editing",
+    unresolvedQuestion: memory.unresolvedQuestion,
+    concreteAnswerCount: memory.concreteAnswerCount,
+    pendingPlanSummary: memory.pendingPlan
+      ? [memory.pendingPlan.objective, memory.pendingPlan.angle].filter(Boolean).join(" | ")
+      : null,
+    latestRefinementInstruction: memory.latestRefinementInstruction,
+    lastIdeationAngles: memory.lastIdeationAngles,
+  };
+
+  let controllerDecision;
+  let classifiedIntent: V2ChatIntent;
+
+  if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
+    classifiedIntent = turnPlan.overrideClassifiedIntent as V2ChatIntent;
+    controllerDecision = {
+      action: mapIntentToControllerAction(classifiedIntent),
+      needs_memory_update: false,
+      confidence: 1,
+      rationale: "deterministic guardrail",
+    };
+  } else if (!explicitIntent) {
+    controllerDecision = await services.controlTurn({
+      userMessage,
+      recentHistory,
+      memory: controllerMemory,
+    });
+    if (!controllerDecision) {
+      controllerDecision = buildControllerFallbackDecision({
+        userMessage,
+        memory: controllerMemory,
+      });
+    }
+    classifiedIntent = mapControllerActionToIntent({
+      action: controllerDecision.action,
+      memory: controllerMemory,
+    });
+  } else {
+    classifiedIntent = explicitIntent;
+    controllerDecision = {
+      action: mapIntentToControllerAction(classifiedIntent),
+      needs_memory_update: false,
+      confidence: 1,
+      rationale: "explicit intent",
+    };
+  }
+
+  routingTrace.controllerAction = controllerDecision.action;
+
+  let currentMemory = memory;
+  if (controllerDecision.needs_memory_update) {
+    const shouldStoreAsConstraint = isConstraintDeclaration(userMessage);
+    let nextConstraints = shouldStoreAsConstraint
+      ? Array.from(new Set([...currentMemory.activeConstraints, userMessage]))
+      : [...currentMemory.activeConstraints];
+
+    const MAX_CONSTRAINT_COUNT = 12;
+    if (nextConstraints.length > MAX_CONSTRAINT_COUNT) {
+      const hardGrounding = nextConstraints.filter(
+        (c) => /^Correction lock:/i.test(c) || /^Topic grounding:/i.test(c),
+      );
+      const softConstraints = nextConstraints.filter(
+        (c) => !/^Correction lock:/i.test(c) && !/^Topic grounding:/i.test(c),
+      );
+      const keepSoft = softConstraints.slice(-(MAX_CONSTRAINT_COUNT - hardGrounding.length));
+      nextConstraints = [...hardGrounding, ...keepSoft];
+    }
+
+    const updated = await services.updateConversationMemory({
+      runId,
+      threadId,
+      activeConstraints: nextConstraints,
+    });
+    currentMemory = createConversationMemorySnapshot(updated as unknown as Record<string, unknown>);
+  }
+
+  const mode = classifiedIntent;
+  routingTrace.classifiedIntent = classifiedIntent;
+  routingTrace.resolvedMode = mode;
+
+  if ((turnPlan && !turnPlan.shouldGenerate) || mode === "answer_question") {
+    // We already have styleCard and anchors from context building!
+    const fastReply = await respondConversationally({
+      userMessage,
+      recentHistory,
+      topicSummary: currentMemory.topicSummary,
+      styleCard,
+      topicAnchors: anchors.topicAnchors,
+      userContextString: "",
+      activeConstraints: currentMemory.activeConstraints,
+      diagnosticContext,
+      options: {
+        conversationState: currentMemory.conversationState,
+      },
+    });
+
+    if (fastReply) {
+      const isConstraint = isConstraintDeclaration(userMessage);
+      const nextConstraints = isConstraint
+        ? Array.from(new Set([...currentMemory.activeConstraints, userMessage.trim()]))
+        : undefined;
+
+      const finalMemoryRecord = await services.updateConversationMemory({
+        runId,
+        threadId,
+        conversationState:
+          currentMemory.pendingPlan && currentMemory.conversationState === "plan_pending_approval"
+            ? "plan_pending_approval"
+            : currentMemory.conversationState === "draft_ready"
+              ? "draft_ready"
+              : "needs_more_context",
+        ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
+        assistantTurnCount: currentMemory.assistantTurnCount + 1,
+        ...clearClarificationPatch(),
+      });
+
+      const finalMemory = createConversationMemorySnapshot(finalMemoryRecord as unknown as Record<string, unknown>);
+
+      return {
+        isFastReply: true,
+        classifiedIntent,
+        resolvedMode: mode,
+        routingTrace,
+        memory: finalMemory,
+        fastReplyResponse: {
+          mode: "coach",
+          outputShape: "coach_question",
+          response: fastReply,
+          memory: finalMemory,
+        } as OrchestratorResponse,
+      };
+    }
+  }
+
+  return {
+    isFastReply: false,
+    classifiedIntent,
+    resolvedMode: mode,
+    routingTrace,
+    memory: currentMemory,
+  };
+}
