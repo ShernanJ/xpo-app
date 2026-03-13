@@ -1,4 +1,7 @@
-import type { GroundingPacket } from "./groundingPacket.ts";
+import {
+  collectGroundingFactualAuthority,
+  type GroundingPacket,
+} from "./groundingPacket.ts";
 
 export interface ClaimCheckResult {
   draft: string;
@@ -100,12 +103,7 @@ function computeSupportScore(candidate: string, sources: string[]): number {
 }
 
 function getGroundingSources(packet: GroundingPacket): string[] {
-  return [
-    ...packet.allowedFirstPersonClaims,
-    ...packet.turnGrounding,
-    ...packet.durableFacts,
-    ...packet.sourceMaterials.flatMap((asset) => [...asset.claims, ...asset.snippets]),
-  ];
+  return collectGroundingFactualAuthority(packet);
 }
 
 function normalizeComparable(value: string): string {

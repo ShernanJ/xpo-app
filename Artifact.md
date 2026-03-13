@@ -24,15 +24,51 @@
   - Shared plan-pitch assembly now lives in `apps/web/lib/agent-v2/core/planPitch.ts`, where workflow-y planner phrasing is sanitized before it reaches the user.
   - Planner outputs now normalize `pitchResponse`, and `buildPlanPitch` prefers the actual plan angle/objective over canned fallback copy when the planner returns low-signal text like `drafting it.`
   - Shared planner payload normalization now lives in `apps/web/lib/agent-v2/core/plannerNormalization.ts`: deduped `mustInclude` / `mustAvoid`, overlap removal between those lists, and cleaned thread post proof points with a hard 6-post cap to match the intended thread planner contract.
+  - Planner guidance now pushes hooks toward real tension / surprise / contradiction from the request instead of generic "thoughts on" framing, and it explicitly forbids meta writing advice from leaking into `mustInclude` / `proofPoints`.
+  - Planner normalization now strips low-signal thread proof points like `be specific`, `make it clear`, or objective-duplicates so thread beats keep concrete evidence instead of meta filler.
   - `promptBuilders.ts` now uses a clearer shared plan-requirements block plus stricter thread-beat guidance so planner prompts ask for fewer catch-all posts and fewer repeated proof points.
+  - The writer handoff is now stricter for thread plans: `promptBuilders.ts` tells the writer to preserve beat order, keep post count aligned with the plan when possible, keep proof points in their assigned beat, and carry transition hints into the actual phrasing between posts.
+  - `draftPipeline.ts` import/type drift was cleaned up after the modular plan-pitch/planner work: the file now imports from the correct modular sources, uses typed pipeline args instead of `any`, and is lint-clean again.
+  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots those stronger thread-beat writer requirements so future prompt edits do not quietly flatten the planner/writer handoff again.
 
 ## 2. What Needs to Be Done (Future Plan)
 1. **Broader P0 quality pass (next major workstream):**
    - **Where:** `chatResponderDeterministic.ts`, `responseShaper.ts`, `planner.ts`, `promptBuilders.ts`, and adjacent controller/orchestrator modules.
    - **Goal:** Continue reducing deterministic / scripted feel, keep tightening pre-draft planning language and thread-beat quality, and keep voice grounding separate from factual grounding.
+   - **Current subfocus:** The first writer-handoff hardening landed; the next step is improving planner substance itself so hook choice, proof selection, and thread beat sharpness improve before the writer executes the plan.
 2. **Continue de-hardcoding conversational fast paths:**
    - **Where:** `apps/web/lib/agent-v2/orchestrator/chatResponder.ts`, `chatResponderDeterministic.ts`, `responseShaper.ts`
    - **Goal:** Keep shrinking canned conversational behavior, especially around constraints and meta chat, without losing safety-critical fallbacks.
+
+## 2.5 Recommended Remaining Phases
+1. **Planner/Writer quality pass (3 steps)**
+   - tighten planner instructions
+   - improve planner-to-writer handoff
+   - verify with response/orchestrator suites
+   - Status: completed. Planner normalization, planner-side hook/proof sharpening, writer-handoff hardening, and validation are all green.
+2. **Voice vs factual grounding separation (4 steps)**
+   - audit current grounding paths
+   - separate style anchors from factual/evidence anchors
+   - update prompt usage and guardrails
+   - verify hallucination regressions stay closed
+   - Status: started. `GroundingPacket` now exposes an explicit `factualAuthority` channel, and prompts/claim-checking use it to keep voice/style references out of the fact layer unless they are separately grounded.
+3. **Prompt layering simplification (3 steps)**
+   - inventory duplicated/conflicting instruction blocks
+   - consolidate shared rules/helpers
+   - rerun quality/regression coverage
+4. **Thread-first quality maturation (4 steps)**
+   - refine thread planning quality
+   - refine writer execution of thread beats
+   - refine critic checks for thread coherence
+   - rerun thread-focused regressions/evals
+5. **Memory/constraint salience follow-through (3 steps)**
+   - decide what should persist vs decay
+   - implement salience/capping/summarization policy
+   - test longer-session behavior
+6. **Architecture follow-through (2-3 steps)**
+   - identify remaining overloaded boundaries
+   - move lingering logic into focused modules
+   - verify behavior stayed stable
 
 ## 3. Important Information for the Next Agent
 - **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
@@ -42,4 +78,7 @@
 - **Constraint Acknowledgments Are Now Isolated**: Constraint detection and acknowledgment live in `constraintAcknowledgment.ts`, which keeps the conversational fast path testable without pulling in the coach stack.
 - **Visible Replies Are Slightly More Compressed Now**: `responseShaper.ts` removes certain low-information opener sentences before the user sees them. Preserve that behavior unless a concrete regression shows it is stripping meaningful content.
 - **Plan Pitching Is Now Shared and Sanitized**: `core/planPitch.ts` is the shared layer for user-visible plan pitches. If planner copy gets workflow-y again, fix it there and in `planner.ts` / `promptBuilders.ts`, not with scattered one-off wrappers.
+- **Planner Payload Cleanup Is Also Shared**: `core/plannerNormalization.ts` is the right place to dedupe or sanitize planner output structure before it leaks into downstream orchestration.
+- **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
+- **Grounding Now Has an Explicit Fact Layer**: `groundingPacket.ts` now exposes `factualAuthority`, which is the reusable truth/evidence channel for prompts and claim checking. Historical posts, creator hints, and voice examples should not be treated as factual support unless they also appear there.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

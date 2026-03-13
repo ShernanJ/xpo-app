@@ -205,6 +205,16 @@ test("planner and writer prompts surface hard factual grounding for product asks
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes("Factual authority:"),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
+    ),
+    true,
+  );
   assert.equal(promptBuildersSource.includes("CREATOR PROFILE HINTS:"), true);
   assert.equal(
     promptBuildersSource.includes(
@@ -215,6 +225,18 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptBuildersSource.includes(
       "Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      'The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.',
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."',
     ),
     true,
   );
@@ -262,13 +284,63 @@ test("planner and writer prompts surface hard factual grounding for product asks
   );
   assert.equal(
     promptBuildersSource.includes(
-      "treat the correction / grounding as the source of truth and ignore the older assistant wording.",
+      "treat the correction as the source of truth and ignore the older assistant wording.",
     ),
     true,
   );
   assert.equal(
     promptBuildersSource.includes(
       "treat that earlier text as superseded and do NOT reuse it.",
+    ),
+    true,
+  );
+});
+
+test("writer prompt binds thread execution to the planned beats", () => {
+  const promptBuildersSource = readFileSync(
+    fileURLToPath(new URL("./promptBuilders.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    promptBuildersSource.includes(
+      "THREAD BEAT PLAN (draft each post from this structure):",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Draft each post to fulfill its assigned role in order. Each post separated by ---.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Keep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Use each post's proof points in that post instead of scattering them across the thread.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "If a transition hint is present, make the handoff felt in the wording between those beats.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      'Proof points must be concrete evidence, scenes, constraints, examples, or sharp claims from the request/grounding. Do NOT use meta reminders like "be specific", "make it clear", or "keep it engaging" as proof points.',
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Use one specific contradiction, surprise, stake, or scene from the source material to earn the hook.",
     ),
     true,
   );

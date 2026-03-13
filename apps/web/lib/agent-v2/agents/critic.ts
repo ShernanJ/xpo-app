@@ -5,7 +5,10 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
-import type { GroundingPacket } from "../orchestrator/groundingPacket";
+import {
+  collectGroundingFactualAuthority,
+  type GroundingPacket,
+} from "../orchestrator/groundingPacket";
 // TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
 // import type { DraftScore } from "../contracts/chat";
 // The CriticOutputSchema could be extended with optional fields:
@@ -101,6 +104,9 @@ export async function critiqueDrafts(
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
   const concreteSceneBlock = buildConcreteSceneCriticBlock(options?.sourceUserMessage);
+  const factualAuthority = options?.groundingPacket
+    ? collectGroundingFactualAuthority(options.groundingPacket)
+    : [];
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
 Your job is to take a draft and ruthlessly enforce constraints.
@@ -134,7 +140,7 @@ ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}
 ${styleCard && styleCard.customGuidelines.length > 0 ? `\nGLOBAL STYLE RULES (MUST OBEY): ${styleCard.customGuidelines.join(" | ")}` : ""}
 ${options?.voiceTarget ? `\nVOICE TARGET (AUTHORITATIVE FOR THIS TURN): ${options.voiceTarget.summary}\n${options.voiceTarget.rationale.map((line) => `- ${line}`).join("\n")}` : ""}
-${options?.groundingPacket ? `\nGROUNDING PACKET (FACT AUTHORITY):\n- Durable facts: ${options.groundingPacket.durableFacts.join(" | ") || "None"}\n- Turn grounding: ${options.groundingPacket.turnGrounding.join(" | ") || "None"}\n- Allowed first-person claims: ${options.groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}\n- Allowed numbers: ${options.groundingPacket.allowedNumbers.join(" | ") || "None"}\nIf a factual detail is not supported here or in the current chat, remove it instead of polishing around it.` : ""}
+${options?.groundingPacket ? `\nGROUNDING PACKET (FACT AUTHORITY):\n- Durable facts: ${options.groundingPacket.durableFacts.join(" | ") || "None"}\n- Turn grounding: ${options.groundingPacket.turnGrounding.join(" | ") || "None"}\n- Allowed first-person claims: ${options.groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}\n- Allowed numbers: ${options.groundingPacket.allowedNumbers.join(" | ") || "None"}\n- Factual authority: ${factualAuthority.join(" | ") || "None"}\nHistorical posts or style examples are not factual support unless that same detail appears in the factual authority.\nIf a factual detail is not supported here or in the current chat, remove it instead of polishing around it.` : ""}
 ${concreteSceneBlock ? `\n${concreteSceneBlock}` : ""}
 
 Respond ONLY with a valid JSON matching this schema:

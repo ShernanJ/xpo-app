@@ -99,7 +99,13 @@ This section tracks what has already landed so future agents do not accidentally
 - Shared plan-pitch assembly now lives in `apps/web/lib/agent-v2/core/planPitch.ts`.
 - Planner `pitchResponse` text is now normalized before storage/use, and user-visible plan pitches prefer the real plan angle/objective over low-signal stubs like `drafting it.`
 - Shared planner payload normalization now lives in `apps/web/lib/agent-v2/core/plannerNormalization.ts`: deduped include/avoid lists, overlap removal, and thread post cleanup capped to 6 posts.
+- Planner requirements now push hook choice toward real tension/surprise/contradiction from the request and explicitly reject meta writing advice as `mustInclude` or thread proof.
+- Planner normalization now strips low-signal/meta proof points and objective-duplicates from thread post plans before the writer sees them.
 - `promptBuilders.ts` now uses a shared requirements block for planning plus sharper thread-beat instructions around per-post proof and transitions.
+- The writer handoff for thread plans is now more binding: the writer prompt preserves beat order, keeps post count aligned with the planned beats when possible, keeps proof points in their assigned post, and uses transition hints as real bridges between posts.
+- `GroundingPacket` now exposes an explicit `factualAuthority` lane, and prompts/claim checking use that as the reusable truth layer instead of implicitly reconstructing evidence from mixed sources.
+- `draftPipeline.ts` was repaired after the modular plan helper changes: imports now point at the right modules, typed pipeline args replaced local `any`s, and the file is lint-clean again.
+- `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements so future prompt edits do not silently flatten the planner/writer handoff.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -107,6 +113,7 @@ This section tracks what has already landed so future agents do not accidentally
 - Green: `responseShaper.test.mjs`
 - Green: `planPitch.test.mjs`
 - Green: `plannerNormalization.test.mjs`
+- Green: `eslint lib/agent-v2/orchestrator/draftPipeline.ts`
 - Green: `test:v2-response-quality`
 - Green: `test:v2-regressions`
 - Green: `test:v2-orchestrator`
@@ -387,12 +394,12 @@ Every meaningful change should update this section.
 - **Status:** Backlog
 - **Notes:** Good quality safeguard for longer sessions.
 
-#### WS-07 — Triage `test:v2-orchestrator`
-- **Description:** Keep direct test coverage aligned with the current lighter deterministic-chat surface
-- **Files touched:** `chatResponder.test.mjs`, `chatResponderDeterministic.ts`, `chatResponder.ts`, `constraintAcknowledgment.ts`
+#### WS-07 — Keep orchestrator plumbing aligned with the modular split
+- **Description:** Keep direct tests, imports, and helper boundaries aligned with the current modular orchestrator surface
+- **Files touched:** `chatResponder.test.mjs`, `chatResponderDeterministic.ts`, `chatResponder.ts`, `constraintAcknowledgment.ts`, `draftPipeline.ts`
 - **Owner/agent:** Unassigned
 - **Status:** In progress
-- **Notes:** `chatResponder.test.mjs` is green now; keep folding remaining direct conversational tests into the current minimal deterministic surface as needed.
+- **Notes:** `chatResponder.test.mjs`, `test:v2-orchestrator`, and `draftPipeline.ts` lint are green now; keep folding stale imports/tests into the current modular surfaces as needed.
 
 ---
 
@@ -427,7 +434,7 @@ Every meaningful change should update this section.
 - **Date:** 2026-03-13
 
 #### WS-09 — Flatten voice shapers
-- **Description:** Removed `stripFluffyLeadIn` from `responseShaper.ts`. The coach LLM is now trusted to open responses naturally instead of having valid conversational openers stripped away.
+- **Description:** Response shaping is now narrower and more selective: low-information formulaic openers are stripped, but substantive natural openings are preserved.
 - **Files touched:** `responseShaper.ts`
 - **Owner/agent:** Antigravity
 - **Status:** Completed
@@ -609,17 +616,48 @@ Use this checklist after meaningful changes.
 ### Current priority
 **Improve planner/prompt quality and keep de-hardcoding visible reply behavior.**
 
+### Remaining phases
+1. **Planner/writer quality pass (3 steps)**
+   - tighten planner instructions
+   - improve planner-to-writer handoff
+   - validate with response/orchestrator tests
+   - Status: complete. Planner normalization, planner-side hook/proof sharpening, writer-handoff hardening, and the validation sweep are green.
+2. **Voice vs factual grounding separation (4 steps)**
+   - audit grounding paths
+   - split style anchors from factual/evidence anchors
+   - update prompt usage and guardrails
+   - verify hallucination regressions
+   - Status: started. The first separation boundary is in place via `GroundingPacket.factualAuthority`; next work should push more style-only memory out of truth/evidence paths.
+3. **Prompt layering simplification (3 steps)**
+   - inventory duplicated/conflicting instruction blocks
+   - consolidate shared rules/helpers
+   - rerun quality/regression suites
+4. **Thread-first quality maturation (4 steps)**
+   - refine thread planning quality
+   - refine writer execution of thread beats
+   - refine critic checks for thread coherence
+   - rerun thread-focused regressions/evals
+5. **Memory/constraint salience follow-through (3 steps)**
+   - decide what should persist vs decay
+   - implement salience/capping/summarization policy
+   - test longer-session behavior
+6. **Architecture follow-through (2-3 steps)**
+   - identify remaining overloaded boundaries
+   - move lingering logic into focused modules
+   - verify behavior stayed stable
+
 ### Best next change
-Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, and plan-pitch sanitization have landed, focus on these targeted fixes:
-1. Tighten planner and prompt-builder instruction blocks so plans are less framework-y and less repetitive.
-2. Improve plan substance before drafting, especially hook choice, proof selection, and thread beat sharpness.
-3. Keep voice grounding and factual grounding separated so specificity improves without invented autobiographical detail.
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, and `draftPipeline.ts` cleanup have landed, focus on these targeted fixes:
+1. Continue voice-vs-factual grounding separation from the new `factualAuthority` boundary.
+2. Keep specificity gains without letting voice memory turn into fake autobiographical fact.
+3. Preserve the now-completed planner/writer quality improvements while moving the grounding split forward.
 
 ### Safest next implementation step
-Audit `apps/web/lib/agent-v2/agents/promptBuilders.ts` and `apps/web/lib/agent-v2/agents/planner.ts` together:
-- remove repeated instruction blocks that say the same thing in different words
-- tighten thread-planning guidance around per-post proof and transitions
-- keep `pitchResponse` as direct direction language rather than process narration
+Audit `apps/web/lib/agent-v2/orchestrator/groundingPacket.ts`, prompt hydration, and the writer/planner grounding usage together:
+- identify where historical voice anchors and factual/evidence anchors are still mixed
+- split style-only memory from reusable truth/evidence paths more explicitly
+- make sure the writer keeps specificity only when the detail is grounded, not just voice-adjacent
+- use the new `factualAuthority` field as the source of truth instead of recreating evidence sets ad hoc in downstream modules
 
 ### Biggest risk
 When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
@@ -633,13 +671,19 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 5. Writer can now selectively reuse user-confirmed facts from historical posts (two-lane policy).
 6. Constraints capped at 12; only explicit declarations stored.
 7. Response shaper now strips only low-information formulaic openers, not substantive natural openings.
-8. Chat latency hotfix implemented to bypass the heavy `Promise.all` memory orchestration for simple conversational turns.
+8. Shared plan-pitch and planner-normalization helpers now clean user-visible plan language and plan structure before downstream orchestration sees them.
+9. `draftPipeline.ts` imports/types were realigned to the modular architecture and lint-cleaned after the helper extraction work.
+10. Writer thread-beat instructions now explicitly preserve beat order, post count, proof placement, and transitions, with prompt contract coverage to keep that handoff stable.
+11. Planner prompts and normalization now push hooks toward real source tension and remove meta proof filler before it reaches the writer.
+12. Planner/writer quality phase is complete; the next active phase is voice-vs-factual grounding separation.
+13. The first grounding-separation step is complete: prompts and claim checking now consume an explicit factual-authority lane.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
 2. `apps/web/lib/agent-v2/agents/promptBuilders.ts`
 3. `apps/web/lib/agent-v2/agents/planner.ts`
 4. `apps/web/lib/agent-v2/core/planPitch.ts`
+5. `apps/web/lib/agent-v2/core/plannerNormalization.ts`
 
 ---
 
@@ -679,7 +723,7 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 
 ### 2026-03-13
 - Gutted `chatResponderDeterministic.ts` (605 → 170 lines, kept only safety-critical paths)
-- Removed `stripFluffyLeadIn` from `responseShaper.ts`
+- Narrowed `responseShaper.ts` to strip only low-information formulaic openers
 - Softened `addGroundingUnknowns` in `groundingPacket.ts` (only fires on short messages < 40 chars)
 - Softened safe-framework fallback in `promptBuilders.ts` (prefers opinionated takes over generic frameworks)
 - Added constraint salience policy in `conversationManager.ts` (cap at 12, only explicit constraints stored)
@@ -688,6 +732,8 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 - Added thread beat plan injection into writer strategy layer in `promptBuilders.ts`
 - Changed evidence policy from blanket "voice-only" to two-lane (voice anchors + evidence anchors) in `promptBuilders.ts`
 - Added 7 thread-specific critic checks (T1-T7) to `critic.ts`
+- Added shared `planPitch.ts` and `plannerNormalization.ts` helpers for plan-language and plan-structure cleanup
+- Repaired `draftPipeline.ts` imports/types after the modular helper extraction and brought the file back to lint-clean
 - All changes compile with zero TypeScript errors
 
 ### 2026-03-12

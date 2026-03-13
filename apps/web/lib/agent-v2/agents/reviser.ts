@@ -16,7 +16,10 @@ import {
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
 import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
-import type { GroundingPacket } from "../orchestrator/groundingPacket";
+import {
+  collectGroundingFactualAuthority,
+  type GroundingPacket,
+} from "../orchestrator/groundingPacket";
 import {
   trimToXCharacterLimit,
   type ThreadFramingStyle,
@@ -210,6 +213,7 @@ function buildRevisionGroundingBlock(
       const snippet = item.snippets[0] ? ` | snippet: ${item.snippets[0]}` : "";
       return `- [${item.type}] ${item.title}${claim}${snippet}`;
     });
+  const factualAuthority = collectGroundingFactualAuthority(groundingPacket);
 
   return `
 GROUNDING PACKET:
@@ -218,9 +222,11 @@ GROUNDING PACKET:
 - Allowed first-person claims: ${groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}
 - Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
 - Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
+- Factual authority: ${factualAuthority.join(" | ") || "None"}
 ${sourceMaterialLines.length > 0 ? `- Source material details:\n${sourceMaterialLines.join("\n")}` : "- Source material details: None"}
 
 Use this packet as the factual boundary for any revision.
+Do not upgrade voice/style examples into proof unless the same detail appears in the factual authority above.
 If a detail is not supported here, in the current draft, or in the current user note, do not add it.
 If the user asks for more specificity but the packet is thin, make the draft clearer or fuller without inventing proof.
   `.trim();

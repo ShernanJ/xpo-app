@@ -24,6 +24,7 @@ import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../orchestrator/groundingPacket";
+import { collectGroundingFactualAuthority } from "../orchestrator/groundingPacket";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
 function buildArtifactContextBlock(args: {
@@ -174,6 +175,7 @@ function buildGroundingPacketBlock(
       const snippetSeed = item.snippets[0] ? ` | snippet seed: ${item.snippets[0]}` : "";
       return `- [${item.type}] ${item.title}${claimSeed}${snippetSeed}`;
     });
+  const factualAuthority = collectGroundingFactualAuthority(groundingPacket);
 
   return `
 GROUNDING PACKET:
@@ -183,9 +185,11 @@ GROUNDING PACKET:
 - Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
 - Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
 - Source materials: ${groundingPacket.sourceMaterials.map((item) => `${item.type}: ${item.title}`).join(" | ") || "None"}
+- Factual authority: ${factualAuthority.join(" | ") || "None"}
 ${sourceMaterialDetailLines.length > 0 ? `- Source material details:\n${sourceMaterialDetailLines.join("\n")}` : ""}
 
 Use this packet as the authority for autobiographical, numeric, and factual specificity.
+Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.
 If source material details are present, prefer their saved claim/snippet seeds over invented framing.
 If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.
 If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.
@@ -282,8 +286,8 @@ function buildPlanRequirementsBlock(args: {
 
   return `REQUIREMENTS:
 1. Pick a compelling, draftable angle for this exact request. If enough context already exists to write from, choose a direction that can be drafted immediately instead of turning the turn into extra discovery.
-2. Choose the right target lane (original / reply / quote) and the strongest hook type for that angle.
-3. Use "mustInclude" for concrete proof, scenes, stakes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns.
+2. Choose the right target lane (original / reply / quote) and the strongest hook type for that angle. The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.
+3. Use "mustInclude" for concrete proof, scenes, stakes, outcomes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns. Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."
 4. Do NOT invent fake metrics, backstory, hidden workflow steps, UI pain points, product behavior, or constraints the user never gave.
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic rather than filling in imagined specifics.
 6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
@@ -316,7 +320,8 @@ Rules for thread planning:
 - 3 to 6 posts. Default to 4 or 5 unless the material clearly earns 6.
 - Each post must carry ONE clear beat, not a compressed summary or catch-all bucket.
 - Each "proofPoints" array should contain 1 to 2 specific points, not every sub-idea from the whole thread.
-- The hook post must open a loop or create tension, NOT summarize.
+- Proof points must be concrete evidence, scenes, constraints, examples, or sharp claims from the request/grounding. Do NOT use meta reminders like "be specific", "make it clear", or "keep it engaging" as proof points.
+- The hook post must open a loop or create tension, NOT summarize. Use one specific contradiction, surprise, stake, or scene from the source material to earn the hook.
 - Every post must advance the thread, not restate the previous beat in new words.
 - transitionHint should explain how the next post earns its place. Use null only for the last post.
 - Do NOT plan an essay that will be chopped into posts.
@@ -569,7 +574,7 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
                 : ""
             }`,
         )
-        .join("\n")}\n\nDraft each post to fulfill its assigned role. Each post separated by ---.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.`
+        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.`
     : null;
 
   const strategyLayer = `

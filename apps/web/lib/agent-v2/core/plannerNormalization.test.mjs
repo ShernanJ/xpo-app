@@ -64,3 +64,41 @@ test("normalizePlannerOutput trims thread plans to six posts and cleans proof po
   assert.equal(result.posts[0].transitionHint, "move to setup");
   assert.equal(result.posts[5].transitionHint, null);
 });
+
+test("normalizePlannerOutput drops meta proof points and objective duplicates", () => {
+  const result = normalizePlannerOutput({
+    objective: "thread objective",
+    angle: "thread angle",
+    targetLane: "original",
+    mustInclude: [],
+    mustAvoid: [],
+    hookType: "direct",
+    pitchResponse: "lead with the real tension",
+    posts: [
+      {
+        role: "hook",
+        objective: "open with the gap between the promise and what actually changed",
+        proofPoints: [
+          "be specific",
+          "open with the gap between the promise and what actually changed",
+          "the launch promise slipped in the first week",
+          "make it clear",
+        ],
+        transitionHint: "move into the reset",
+      },
+      {
+        role: "payoff",
+        objective: "land the actual lesson",
+        proofPoints: ["keep it engaging", "one concrete change fixed the rollout"],
+        transitionHint: null,
+      },
+    ],
+  });
+
+  assert.deepEqual(result.posts[0].proofPoints, [
+    "the launch promise slipped in the first week",
+  ]);
+  assert.deepEqual(result.posts[1].proofPoints, [
+    "one concrete change fixed the rollout",
+  ]);
+});

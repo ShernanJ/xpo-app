@@ -835,6 +835,14 @@ test("grounding packet normalizes legacy durable facts and flags missing product
     true,
   );
   assert.equal(packet.turnGrounding.includes("User is shipping xpo in public"), true);
+  assert.equal(
+    packet.factualAuthority?.includes("User is building xpo"),
+    true,
+  );
+  assert.equal(
+    packet.factualAuthority?.includes("User is shipping xpo in public"),
+    true,
+  );
   assert.equal(packet.unknowns.some((entry) => /missing definition for xpo/i.test(entry)), true);
   assert.equal(hasAutobiographicalGrounding(packet), true);
 });

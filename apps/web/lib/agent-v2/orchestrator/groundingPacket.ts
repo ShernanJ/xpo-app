@@ -15,6 +15,7 @@ export interface GroundingPacket {
   forbiddenClaims: string[];
   unknowns: string[];
   sourceMaterials: GroundingPacketSourceMaterial[];
+  factualAuthority?: string[];
 }
 
 export interface CreatorProfileHints {
@@ -104,6 +105,25 @@ function dedupeLines(values: string[]): string[] {
   }
 
   return next;
+}
+
+export function collectGroundingFactualAuthority(packet: {
+  durableFacts: string[];
+  turnGrounding: string[];
+  allowedFirstPersonClaims: string[];
+  sourceMaterials: Array<{ claims: string[]; snippets: string[] }>;
+  factualAuthority?: string[];
+}): string[] {
+  if (packet.factualAuthority && packet.factualAuthority.length > 0) {
+    return dedupeLines(packet.factualAuthority);
+  }
+
+  return dedupeLines([
+    ...packet.durableFacts,
+    ...packet.turnGrounding,
+    ...packet.allowedFirstPersonClaims,
+    ...packet.sourceMaterials.flatMap((asset) => [...asset.claims, ...asset.snippets]),
+  ]);
 }
 
 function extractConstraintGrounding(activeConstraints: string[]): string[] {
@@ -383,6 +403,12 @@ export function buildGroundingPacket(args: {
     forbiddenClaims,
     unknowns: [],
     sourceMaterials,
+    factualAuthority: collectGroundingFactualAuthority({
+      durableFacts,
+      turnGrounding,
+      allowedFirstPersonClaims,
+      sourceMaterials,
+    }),
   };
 }
 

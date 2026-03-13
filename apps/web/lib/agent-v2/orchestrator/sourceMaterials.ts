@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  collectGroundingFactualAuthority,
   sanitizeGroundingSourceMaterials,
   type GroundingPacket,
 } from "./groundingPacket.ts";
@@ -882,7 +883,7 @@ export function mergeSourceMaterialsIntoGroundingPacket(args: {
       snippets: asset.snippets,
     }));
 
-  return {
+  const nextPacket = {
     ...args.groundingPacket,
     durableFacts: dedupeList([
       ...args.groundingPacket.durableFacts,
@@ -904,5 +905,10 @@ export function mergeSourceMaterialsIntoGroundingPacket(args: {
       ...args.groundingPacket.sourceMaterials,
       ...mergedSourceMaterials,
     ],
+  };
+
+  return {
+    ...nextPacket,
+    factualAuthority: collectGroundingFactualAuthority(nextPacket),
   };
 }
