@@ -185,10 +185,12 @@ GROUNDING PACKET:
 - Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
 - Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
 - Source materials: ${groundingPacket.sourceMaterials.map((item) => `${item.type}: ${item.title}`).join(" | ") || "None"}
+- Voice context hints: ${groundingPacket.voiceContextHints?.join(" | ") || "None"}
 - Factual authority: ${factualAuthority.join(" | ") || "None"}
 ${sourceMaterialDetailLines.length > 0 ? `- Source material details:\n${sourceMaterialDetailLines.join("\n")}` : ""}
 
 Use this packet as the authority for autobiographical, numeric, and factual specificity.
+Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.
 Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.
 If source material details are present, prefer their saved claim/snippet seeds over invented framing.
 If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.

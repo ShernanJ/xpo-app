@@ -16,6 +16,7 @@ export interface GroundingPacket {
   unknowns: string[];
   sourceMaterials: GroundingPacketSourceMaterial[];
   factualAuthority?: string[];
+  voiceContextHints?: string[];
 }
 
 export interface CreatorProfileHints {
@@ -333,15 +334,48 @@ export function sanitizeGroundingSourceMaterials<
     .filter((asset) => asset.claims.length > 0 || asset.snippets.length > 0);
 }
 
-function getDurableFactsFromStyleCard(styleCard: GroundingStyleCard | null | undefined): string[] {
+function looksLikeLegacyFactAnchor(value: string): boolean {
+  const normalized = normalizeLine(value);
+  if (!normalized) {
+    return false;
+  }
+
+  if (looksLikeAutobiographicalClaim(normalized)) {
+    return true;
+  }
+
+  if (/\b\d[\d,./%]*\b/.test(normalized)) {
+    return true;
+  }
+
+  return /\b(?:is|are|was|were|has|have|had|helps|help|lets|let|does|do|works|work|builds|build|built|building|launched|launch|shipping|ship|runs|run|founded|serves|targets|sells|uses|used)\b/i.test(
+    normalized,
+  );
+}
+
+function getGroundingStyleCardFacts(styleCard: GroundingStyleCard | null | undefined): string[] {
   if (!styleCard) {
     return [];
   }
 
   return dedupeLines([
     ...(styleCard.factLedger?.durableFacts || []),
-    ...(styleCard.contextAnchors || []),
+    ...(styleCard.contextAnchors || []).filter(looksLikeLegacyFactAnchor),
   ]);
+}
+
+function getVoiceContextHintsFromStyleCard(styleCard: GroundingStyleCard | null | undefined): string[] {
+  if (!styleCard) {
+    return [];
+  }
+
+  const factualEntries = new Set(
+    getGroundingStyleCardFacts(styleCard).map((entry) => entry.toLowerCase()),
+  );
+
+  return dedupeLines(styleCard.contextAnchors || []).filter(
+    (entry) => !factualEntries.has(entry.toLowerCase()),
+  );
 }
 
 function looksLikeAutobiographicalClaim(value: string): boolean {
@@ -358,8 +392,9 @@ export function buildGroundingPacket(args: {
   activeConstraints: string[];
   extractedFacts?: string[] | null;
 }): GroundingPacket {
+  const voiceContextHints = getVoiceContextHintsFromStyleCard(args.styleCard);
   const rawDurableFacts = dedupeLines([
-    ...getDurableFactsFromStyleCard(args.styleCard),
+    ...getGroundingStyleCardFacts(args.styleCard),
     ...extractConstraintGrounding(args.activeConstraints),
   ]);
   const rawTurnGrounding = dedupeLines([
@@ -403,6 +438,7 @@ export function buildGroundingPacket(args: {
     forbiddenClaims,
     unknowns: [],
     sourceMaterials,
+    voiceContextHints,
     factualAuthority: collectGroundingFactualAuthority({
       durableFacts,
       turnGrounding,

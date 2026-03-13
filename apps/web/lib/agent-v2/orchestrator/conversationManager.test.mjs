@@ -847,6 +847,50 @@ test("grounding packet normalizes legacy durable facts and flags missing product
   assert.equal(hasAutobiographicalGrounding(packet), true);
 });
 
+test("grounding packet keeps voice-only context hints out of factual authority", () => {
+  const packet = buildGroundingPacket({
+    styleCard: {
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      pacing: "direct",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: [],
+      customGuidelines: [],
+      contextAnchors: [
+        "writes about product positioning",
+        "prefers sharp contrarian hooks",
+        "xpo helps people write and grow faster on x",
+      ],
+      factLedger: {
+        durableFacts: ["User is building xpo"],
+        allowedFirstPersonClaims: [],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        sourceMaterials: [],
+      },
+      antiExamples: [],
+    },
+    activeConstraints: [],
+    extractedFacts: null,
+  });
+
+  assert.equal(packet.voiceContextHints?.includes("writes about product positioning"), true);
+  assert.equal(packet.voiceContextHints?.includes("prefers sharp contrarian hooks"), true);
+  assert.equal(
+    packet.factualAuthority?.includes("writes about product positioning"),
+    false,
+  );
+  assert.equal(
+    packet.factualAuthority?.includes("prefers sharp contrarian hooks"),
+    false,
+  );
+  assert.equal(
+    packet.factualAuthority?.includes("xpo helps people write and grow faster on x"),
+    true,
+  );
+});
+
 test("grounding packet lets correction locks override stale positive facts and source material", () => {
   const packet = buildGroundingPacket({
     styleCard: {

@@ -210,6 +210,16 @@ test("planner and writer prompts surface hard factual grounding for product asks
     true,
   );
   assert.equal(
+    promptBuildersSource.includes("Voice context hints:"),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.",
+    ),
+    true,
+  );
+  assert.equal(
     promptBuildersSource.includes(
       "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
     ),

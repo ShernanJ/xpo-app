@@ -51,7 +51,7 @@
    - separate style anchors from factual/evidence anchors
    - update prompt usage and guardrails
    - verify hallucination regressions stay closed
-   - Status: started. `GroundingPacket` now exposes an explicit `factualAuthority` channel, and prompts/claim-checking use it to keep voice/style references out of the fact layer unless they are separately grounded.
+   - Status: in progress. `GroundingPacket` now exposes an explicit `factualAuthority` channel, and legacy `contextAnchors` are split into factual carryover vs `voiceContextHints` so style/context memory no longer gets promoted wholesale into the fact layer.
 3. **Prompt layering simplification (3 steps)**
    - inventory duplicated/conflicting instruction blocks
    - consolidate shared rules/helpers
@@ -80,5 +80,5 @@
 - **Plan Pitching Is Now Shared and Sanitized**: `core/planPitch.ts` is the shared layer for user-visible plan pitches. If planner copy gets workflow-y again, fix it there and in `planner.ts` / `promptBuilders.ts`, not with scattered one-off wrappers.
 - **Planner Payload Cleanup Is Also Shared**: `core/plannerNormalization.ts` is the right place to dedupe or sanitize planner output structure before it leaks into downstream orchestration.
 - **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
-- **Grounding Now Has an Explicit Fact Layer**: `groundingPacket.ts` now exposes `factualAuthority`, which is the reusable truth/evidence channel for prompts and claim checking. Historical posts, creator hints, and voice examples should not be treated as factual support unless they also appear there.
+- **Grounding Now Has Separate Truth vs Voice Context Lanes**: `groundingPacket.ts` now exposes `factualAuthority` plus `voiceContextHints`. Use `factualAuthority` for reusable truth/evidence. Use `voiceContextHints` for territory/framing guidance only.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

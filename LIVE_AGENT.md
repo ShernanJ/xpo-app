@@ -104,6 +104,7 @@ This section tracks what has already landed so future agents do not accidentally
 - `promptBuilders.ts` now uses a shared requirements block for planning plus sharper thread-beat instructions around per-post proof and transitions.
 - The writer handoff for thread plans is now more binding: the writer prompt preserves beat order, keeps post count aligned with the planned beats when possible, keeps proof points in their assigned post, and uses transition hints as real bridges between posts.
 - `GroundingPacket` now exposes an explicit `factualAuthority` lane, and prompts/claim checking use that as the reusable truth layer instead of implicitly reconstructing evidence from mixed sources.
+- Legacy `contextAnchors` are now split inside grounding into factual carryover vs `voiceContextHints`, so style/context memory can guide territory without automatically becoming fact support.
 - `draftPipeline.ts` was repaired after the modular plan helper changes: imports now point at the right modules, typed pipeline args replaced local `any`s, and the file is lint-clean again.
 - `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements so future prompt edits do not silently flatten the planner/writer handoff.
 
@@ -627,7 +628,7 @@ Use this checklist after meaningful changes.
    - split style anchors from factual/evidence anchors
    - update prompt usage and guardrails
    - verify hallucination regressions
-   - Status: started. The first separation boundary is in place via `GroundingPacket.factualAuthority`; next work should push more style-only memory out of truth/evidence paths.
+   - Status: in progress. The first separation boundary is in place via `GroundingPacket.factualAuthority`, and legacy context anchors now split into fact vs voice-context lanes. Next work should push more downstream usage onto that distinction.
 3. **Prompt layering simplification (3 steps)**
    - inventory duplicated/conflicting instruction blocks
    - consolidate shared rules/helpers
@@ -658,6 +659,7 @@ Audit `apps/web/lib/agent-v2/orchestrator/groundingPacket.ts`, prompt hydration,
 - split style-only memory from reusable truth/evidence paths more explicitly
 - make sure the writer keeps specificity only when the detail is grounded, not just voice-adjacent
 - use the new `factualAuthority` field as the source of truth instead of recreating evidence sets ad hoc in downstream modules
+- use `voiceContextHints` for territory/framing help without letting them leak back into proof selection or factual support
 
 ### Biggest risk
 When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
@@ -677,6 +679,7 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 11. Planner prompts and normalization now push hooks toward real source tension and remove meta proof filler before it reaches the writer.
 12. Planner/writer quality phase is complete; the next active phase is voice-vs-factual grounding separation.
 13. The first grounding-separation step is complete: prompts and claim checking now consume an explicit factual-authority lane.
+14. The second grounding-separation step is complete: legacy context anchors now split into `factualAuthority` vs `voiceContextHints`.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
