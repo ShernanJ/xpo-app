@@ -7,6 +7,8 @@ interface BuildIdeationReplyArgs {
   styleCard?: VoiceStyleCard | null;
 }
 
+type IdeationArtifact = "post" | "thread" | null;
+
 function deterministicIndex(seed: string, modulo: number): number {
   if (modulo <= 1) {
     return 0;
@@ -132,6 +134,35 @@ function humanizeIdeaWording(value: string): string {
     .replace(/\bhere are a few angles\b/gi, "here are some ideas i thought of");
 }
 
+function inferRequestedArtifact(userMessage: string): IdeationArtifact {
+  const normalized = userMessage.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\bthread\b/.test(normalized)) {
+    return "thread";
+  }
+
+  if (/\bpost\b|\btweet\b/.test(normalized)) {
+    return "post";
+  }
+
+  return null;
+}
+
+function isLooseDraftIdeationRequest(userMessage: string): boolean {
+  const normalized = userMessage.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /\b(?:write|draft|make|generate|create)\b/.test(normalized) &&
+    /\b(?:post|thread|tweet)\b/.test(normalized)
+  );
+}
+
 function looksRigidAnglePrompt(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
@@ -185,7 +216,16 @@ function pickFirstIdeasLead(args: {
   seed: string;
   concise: boolean;
   warm: boolean;
+  artifact: IdeationArtifact;
 }): string {
+  if (args.artifact === "thread") {
+    return "here are a few thread directions.";
+  }
+
+  if (args.artifact === "post") {
+    return "here are a few post directions.";
+  }
+
   if (args.warm) {
     return pickDeterministic(
       [
@@ -219,7 +259,16 @@ function pickMoreIdeasLead(args: {
   seed: string;
   concise: boolean;
   warm: boolean;
+  artifact: IdeationArtifact;
 }): string {
+  if (args.artifact === "thread") {
+    return "more thread directions below.";
+  }
+
+  if (args.artifact === "post") {
+    return "more post directions below.";
+  }
+
   if (args.warm) {
     return pickDeterministic(
       [
@@ -332,19 +381,21 @@ export function buildIdeationReply(args: BuildIdeationReplyArgs): string {
   const concise = inferConcisePreference(args.styleCard);
   const warm = inferWarmPreference(args.styleCard, args.userMessage);
   const moreIdeasRequest = isMoreIdeasRequest(args.userMessage);
+  const artifact = inferRequestedArtifact(args.userMessage);
   const fallbackClose = pickCasualClose({ seed, concise, warm });
   const closeLine = moreIdeasRequest
     ? pickMoreIdeasClose({ seed, concise, warm })
-    : !close || looksRigidAnglePrompt(close)
+      : !close || looksRigidAnglePrompt(close)
       ? fallbackClose
       : close;
   const shouldRewriteIntro =
     !intro ||
-    looksStiltedIdeationIntro(intro);
+    looksStiltedIdeationIntro(intro) ||
+    isLooseDraftIdeationRequest(args.userMessage);
   const lead = moreIdeasRequest
-    ? pickMoreIdeasLead({ seed, concise, warm })
+    ? pickMoreIdeasLead({ seed, concise, warm, artifact })
     : shouldRewriteIntro
-      ? pickFirstIdeasLead({ seed, concise, warm })
+      ? pickFirstIdeasLead({ seed, concise, warm, artifact })
       : intro;
 
   if (lead) {

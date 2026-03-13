@@ -37,13 +37,13 @@ export function buildLooseDirectionReply(args: {
 }): string {
   if (args.requestedFormatPreference === "thread") {
     return args.almostReady
-      ? "pick one thread direction and i'll build from there."
-      : "pick one thread lane and i'll run with it.";
+      ? "pick one thread direction below and i'll turn it into a draft."
+      : "i can do that. pick a thread direction below and i'll run with it.";
   }
 
   return args.almostReady
-    ? "pick one concrete direction and i'll build from there."
-    : "pick one lane and i'll run with it.";
+    ? "pick one direction below and i'll turn it into a post."
+    : "i can do that. pick one direction below and i'll run with it.";
 }
 
 export function buildCoachFallbackResponse(args: {

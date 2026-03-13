@@ -85,6 +85,8 @@ import { buildIdeationQuickReplies } from "./ideationQuickReplies";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import {
   inferBroadTopicDraftRequest,
+  isOpenEndedWildcardDraftRequest,
+  shouldForceLooseDraftIdeation,
   shouldFastStartGroundedDraft,
 } from "./draftFastStart.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine";
@@ -465,6 +467,23 @@ User Profile Summary:
   });
   let draftInstruction = userMessage;
 
+  function buildLooseDraftIdeationPrompt(args: {
+    formatPreference: DraftFormatPreference;
+    seedTopic?: string | null;
+  }): string {
+    const topic = args.seedTopic?.trim();
+
+    if (args.formatPreference === "thread") {
+      return topic
+        ? `give me 3 grounded thread directions for ${topic}. each should fit a 4 to 6 post x thread, feel native to x, and stay close to what i usually post about.`
+        : "give me 3 grounded thread directions in my usual lane. each should fit a 4 to 6 post x thread, feel native to x, and stay close to what i usually post about.";
+    }
+
+    return topic
+      ? `give me 3 grounded post directions for ${topic}. keep them close to what i usually post about, keep them concrete enough to draft fast, and avoid generic filler.`
+      : "give me 3 grounded post directions in my usual lane. keep them close to what i usually post about, keep them concrete enough to draft fast, and avoid generic filler.";
+  }
+
   async function returnClarificationQuestion(args: {
     question: string;
     reply?: string;
@@ -549,6 +568,13 @@ User Profile Summary:
   }
 
   function buildGroundedProductClarificationQuestion(sourceUserMessage: string): string {
+    if (
+      isBareDraftRequest(sourceUserMessage) ||
+      isOpenEndedWildcardDraftRequest(sourceUserMessage)
+    ) {
+      return "i can do that. what should this pull from: a real story, a product point, or a growth lesson?";
+    }
+
     const normalized = sourceUserMessage.trim().replace(/\s+/g, " ");
     return `i can write this, but i don't want to fake a personal usage story around ${normalized}. should i keep it as a plain product claim, or are you speaking from your own use/build experience?`;
   }
@@ -1613,6 +1639,7 @@ User Profile Summary:
     hasActiveDraft: Boolean(activeDraft),
     memoryTopicSummary: memory.topicSummary,
     hasTopicGrounding: Boolean(groundedTopicDraftInput.grounding),
+    hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
     groundingSourceCount: groundingSourcesForTurn.length,
     turnGroundingCount: groundingPacket.turnGrounding.length,
     creatorHintsAvailable: Boolean(
@@ -1644,6 +1671,21 @@ User Profile Summary:
   routingTrace.routerState = routerState;
   const canAskPlanClarification = (): boolean =>
     routerState === "clarify_before_generation";
+
+  if (
+    shouldForceLooseDraftIdeation({
+      userMessage,
+      explicitIntent,
+      hasActiveDraft: Boolean(activeDraft),
+    })
+  ) {
+    return handleIdeateMode({
+      promptMessage: buildLooseDraftIdeationPrompt({
+        formatPreference: turnFormatPreference,
+      }),
+      topicSummaryOverride: null,
+    });
+  }
 
   if (canAskPlanClarification()) {
     if (
@@ -1710,6 +1752,15 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification()) {
+    if (isOpenEndedWildcardDraftRequest(userMessage)) {
+      return handleIdeateMode({
+        promptMessage: buildLooseDraftIdeationPrompt({
+          formatPreference: turnFormatPreference,
+        }),
+        topicSummaryOverride: null,
+      });
+    }
+
     if (isMultiDraftTurn && !hasReusableGroundingForTurn) {
       return returnClarificationQuestion({
         question: buildNaturalDraftClarificationQuestion({
@@ -1746,12 +1797,15 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification() && isBareDraftRequest(userMessage)) {
-    return returnClarificationQuestion({
-      question: buildNaturalDraftClarificationQuestion({
-        multiple: false,
-        topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+    const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
+      ? null
+      : memory.topicSummary;
+    return handleIdeateMode({
+      promptMessage: buildLooseDraftIdeationPrompt({
+        formatPreference: turnFormatPreference,
+        seedTopic: currentTopicSummary,
       }),
-      topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+      topicSummaryOverride: currentTopicSummary,
     });
   }
 
@@ -1969,10 +2023,20 @@ User Profile Summary:
   // Mode Handlers
   // ---------------------------------------------------------------------------
 
-  async function handleIdeateMode(): Promise<RawOrchestratorResponse> {
+  async function handleIdeateMode(args?: {
+    promptMessage?: string;
+    topicSummaryOverride?: string | null;
+    responseUserMessage?: string;
+  }): Promise<RawOrchestratorResponse> {
+    const ideationPromptMessage = args?.promptMessage || userMessage;
+    const ideationReplyMessage = args?.responseUserMessage || userMessage;
+    const ideationTopicSummary =
+      args?.topicSummaryOverride !== undefined
+        ? args.topicSummaryOverride
+        : memory.topicSummary;
     const ideas = await services.generateIdeasMenu(
-      userMessage,
-      memory.topicSummary,
+      ideationPromptMessage,
+      ideationTopicSummary,
       effectiveContext,
       styleCard,
       relevantTopicAnchors,
@@ -1986,12 +2050,15 @@ User Profile Summary:
     const currentIdeaTitles = extractIdeaTitlesFromIdeas(ideas?.angles);
     const inferredIdeaTopic = inferTopicFromIdeaTitles(currentIdeaTitles);
 
-    const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
+    const currentTopicSummary = looksGenericTopicSummary(ideationTopicSummary)
       ? null
-      : memory.topicSummary;
-    const nextIdeationTopicSummary = isBareIdeationRequest(userMessage)
+      : ideationTopicSummary;
+    const nextIdeationTopicSummary =
+      isBareIdeationRequest(ideationReplyMessage) ||
+      isBareDraftRequest(ideationReplyMessage) ||
+      isOpenEndedWildcardDraftRequest(ideationReplyMessage)
       ? currentTopicSummary || inferredIdeaTopic
-      : userMessage;
+      : ideationPromptMessage;
 
     await writeMemoryLocal({
       ...(nextIdeationTopicSummary !== memory.topicSummary
@@ -2001,6 +2068,7 @@ User Profile Summary:
         ? { lastIdeationAngles: currentIdeaTitles }
         : {}),
       conversationState: "ready_to_ideate",
+      pendingPlan: null,
       clarificationState: null,
       assistantTurnCount: nextAssistantTurnCount,
       rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
@@ -2014,6 +2082,7 @@ User Profile Summary:
           unresolvedQuestion: ideas?.close || null,
         })
         : memory.rollingSummary,
+      latestRefinementInstruction: null,
       ...clearClarificationPatch(),
     });
 
@@ -2024,7 +2093,7 @@ User Profile Summary:
         buildIdeationReply({
           intro: ideas?.intro || "",
           close: ideas?.close || "",
-          userMessage,
+          userMessage: ideationReplyMessage,
           styleCard,
         }),
         feedbackMemoryNotice,

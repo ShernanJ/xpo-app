@@ -44,6 +44,29 @@
   - Shared response finalization now lives in `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts`.
   - `conversationManager.ts`, `draftPipelineHelpers.ts`, and the routing-policy fast-reply path now reuse the same response shaping / `responseShapePlan` assembly instead of carrying separate copies.
   - `apps/web/app/api/creator/v2/chat/route.ts` now has a defensive fallback shape-plan path, which prevents partial orchestrator responses from crashing the route on `responseShapePlan.shouldAskFollowUp`.
+- **Architecture follow-through step 3 landed:**
+  - `conversationManager.ts` now re-exports `ConversationServices` and consumes the shared `createDefaultConversationServices()` implementation instead of carrying its own duplicate service contract / factory.
+  - The unused local `applyMemoryPatch` copy is gone, and direct anti-pattern/source-material helpers are imported only where `conversationManager.ts` still uses them.
+  - `pnpm build` is green after the cleanup, so the reduced boundary is ship-safe rather than just test-safe.
+- **Thread handoff copy is now thread-native:**
+  - `apps/web/app/api/creator/v2/chat/route.logic.ts` now makes fallback draft handoff copy output-shape aware, so thread rewrites say `thread` and offer thread-native tweak prompts instead of generic post wording.
+  - Direct regression coverage now exists in `apps/web/app/api/creator/v2/chat/route.test.mjs`.
+  - `pnpm build`, the route tests, and `test:v2-orchestrator` are all green after the change.
+- **Generic draft asks now ideate naturally instead of overfitting to product claims:**
+  - `draftFastStart.ts` no longer fast-starts open-ended asks like `write a post about anything`, and bare draft requests no longer skip straight into grounded drafting even when saved context exists.
+  - `draftPipeline.ts` now sends those vague asks through generated ideation directions instead of random drafting or stiff clarification copy.
+- **Bare draft asks now show generated post/thread directions instead of auto-drafting:**
+  - A plain `write a post` or `write a thread` now returns `ideation_angles`, so the UI shows numbered idea directions plus chips instead of jumping straight into a low-context draft.
+  - `draftPipeline.ts` now builds a loose ideation prompt in the user’s lane and preserves only real inferred topic summaries, rather than storing generic request text like `write a post`.
+  - `ideationReply.ts` now makes the visible lead explicit (`here are a few post directions.` / `here are a few thread directions.`), which makes the list underneath easier to understand on the actual chat surface.
+  - The intercept now runs before the router’s `hasEnoughContextToAct` shortcut, so stale topic summaries or old pending-plan state can no longer turn a fresh bare ask like `write a post` into an immediate draft about the previous topic.
+  - `conversationManagerLogic.ts` now explicitly treats the exact phrase `write a post` as a bare draft request, which was the missing matcher keeping the earlier fix from firing on the real app input.
+- **Abrupt draft endings now get cleaned up before delivery:**
+  - `apps/web/lib/agent-v2/agents/draftCompletion.ts` now trims common dangling conjunction fragments like `..., and sugge` before the critic returns the final draft.
+  - The same cleanup now trims short broken tail clauses after commas or dashes, so fragments like `algorithms shift, noise r` get clipped before delivery too.
+  - Standalone posts now also strip thread-style lead labels like `thread:` / `post 1:` / `tweet 1:` before delivery, which stops shortform drafts from looking serialized when the writer leaks thread framing into the opener.
+  - Direct regression coverage now exists in `apps/web/lib/agent-v2/agents/critic.test.mjs`.
+  - `test:v2-orchestrator`, `test:v2-response-quality`, and `pnpm build` are green after the change.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -106,7 +129,7 @@
   - identify remaining overloaded boundaries
   - move lingering logic into focused modules
   - verify behavior stayed stable
-  - Status: in progress. Step 1 removed duplicated draft-pipeline helper logic from `conversationManager.ts`, and step 2 centralized response finalization in `responseEnvelope.ts`; one small cleanup pass may still remain for residual broad imports / boundaries, but the highest-risk duplication is now gone.
+  - Status: completed. Step 1 removed duplicated draft-pipeline helper logic from `conversationManager.ts`, step 2 centralized response finalization in `responseEnvelope.ts`, and step 3 removed the duplicated service/factory surface so `conversationManager.ts` now rides the shared helper boundary with `pnpm build` green.
 
 ## 3. Important Information for the Next Agent
 - **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).

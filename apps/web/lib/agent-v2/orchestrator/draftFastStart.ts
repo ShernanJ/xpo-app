@@ -1,6 +1,36 @@
 import type { V2ChatIntent } from "../contracts/chat.ts";
 import { isBareDraftRequest, isMultiDraftRequest } from "./conversationManagerLogic.ts";
 
+export function isOpenEndedWildcardDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    "write a post about anything",
+    "write me a post about anything",
+    "draft a post about anything",
+    "draft me a post about anything",
+    "make a post about anything",
+    "make me a post about anything",
+    "write a thread about anything",
+    "write me a thread about anything",
+    "write about anything",
+    "draft about anything",
+    "write anything",
+    "just write anything",
+    "anything is fine",
+    "whatever works",
+    "write a post about something",
+    "write me a post about something",
+    "write about something",
+  ].includes(normalized)
+    || /\b(?:about|on)\s+(?:anything|something|whatever)\b/.test(normalized)
+    || /\b(?:anything|whatever)\s+is\s+fine\b/.test(normalized);
+}
+
 export function inferBroadTopicDraftRequest(message: string): string | null {
   const normalized = message.trim().toLowerCase();
   const isDraftRequest = [
@@ -71,7 +101,9 @@ export function inferBroadTopicDraftRequest(message: string): string | null {
     normalizedTopic.length < 3 ||
     normalizedTopic === "it" ||
     normalizedTopic === "this" ||
-    normalizedTopic === "something"
+    normalizedTopic === "something" ||
+    normalizedTopic === "anything" ||
+    normalizedTopic === "whatever"
   ) {
     return null;
   }
@@ -86,6 +118,7 @@ export function shouldFastStartGroundedDraft(args: {
   hasActiveDraft: boolean;
   memoryTopicSummary?: string | null;
   hasTopicGrounding: boolean;
+  hasAutobiographicalGrounding: boolean;
   groundingSourceCount: number;
   turnGroundingCount: number;
   creatorHintsAvailable: boolean;
@@ -94,9 +127,18 @@ export function shouldFastStartGroundedDraft(args: {
     return false;
   }
 
+  if (isOpenEndedWildcardDraftRequest(args.userMessage)) {
+    return false;
+  }
+
   const broadTopic = inferBroadTopicDraftRequest(args.userMessage);
   const bareDraftRequest = isBareDraftRequest(args.userMessage);
   const multiDraftRequest = isMultiDraftRequest(args.userMessage);
+
+  if (bareDraftRequest && !multiDraftRequest && !broadTopic) {
+    return false;
+  }
+
   const wantsDraft =
     bareDraftRequest ||
     multiDraftRequest ||
@@ -125,4 +167,19 @@ export function shouldFastStartGroundedDraft(args: {
       (bareDraftRequest || multiDraftRequest));
 
   return hasTopicOrProfileContext;
+}
+
+export function shouldForceLooseDraftIdeation(args: {
+  userMessage: string;
+  explicitIntent?: V2ChatIntent | null;
+  hasActiveDraft: boolean;
+}): boolean {
+  if (args.explicitIntent || args.hasActiveDraft) {
+    return false;
+  }
+
+  return (
+    isOpenEndedWildcardDraftRequest(args.userMessage) ||
+    isBareDraftRequest(args.userMessage)
+  );
 }

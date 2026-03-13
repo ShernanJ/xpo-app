@@ -23,6 +23,7 @@ import {
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
 import { applyFinalDraftPolicyWithReport } from "../core/finalDraftPolicy";
+import { repairAbruptEnding, stripThreadishLeadLabel } from "./draftCompletion";
 import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
@@ -183,7 +184,7 @@ ${buildCriticJsonContract()}
       maxCharacterLimit,
       threadFramingStyle: options?.threadFramingStyle,
     });
-    const styleAlignedDraft = policyResult.draft;
+    let styleAlignedDraft = policyResult.draft;
     let nextIssues = wasTrimmed
       ? [...parsed.issues, `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`]
       : parsed.issues;
@@ -210,6 +211,24 @@ ${buildCriticJsonContract()}
         ...nextIssues,
         `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`,
       ];
+    }
+    const repairedAbruptEndingDraft = repairAbruptEnding(styleAlignedDraft);
+    if (repairedAbruptEndingDraft !== styleAlignedDraft) {
+      styleAlignedDraft = repairedAbruptEndingDraft;
+      nextIssues = [
+        ...nextIssues,
+        "Cleaned up an abrupt ending.",
+      ];
+    }
+    if (formatPreference !== "thread") {
+      const strippedThreadishLeadDraft = stripThreadishLeadLabel(styleAlignedDraft);
+      if (strippedThreadishLeadDraft !== styleAlignedDraft) {
+        styleAlignedDraft = strippedThreadishLeadDraft;
+        nextIssues = [
+          ...nextIssues,
+          "Removed thread-style labeling from a standalone post.",
+        ];
+      }
     }
     let approved =
       parsed.approved &&

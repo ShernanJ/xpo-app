@@ -97,6 +97,15 @@ const DRAFT_HANDOFF_REPLIES = new Set([
   "drafted a version for you. what do you want to tweak?",
   "here's one take. should we tune tone, hook, or length?",
   "put together a draft you can use. does this feel on-brand for you?",
+  "turned it into a thread. want to tighten the opener, pacing, or close?",
+  "made it a thread. should we sharpen the hook, middle, or ending?",
+  "here's the thread version. want to tweak the opener, flow, or close?",
+  "turned it into a thread.",
+  "made it a thread.",
+  "reworked it as a thread.",
+  "here's the thread.",
+  "put together the thread.",
+  "ran with that angle as a thread.",
 ]);
 
 function deterministicIndex(seed: string, modulo: number): number {
@@ -114,11 +123,30 @@ function deterministicIndex(seed: string, modulo: number): number {
 
 function buildDefaultDraftHandoffReply(args: {
   seed: string;
+  outputShape: string;
   surfaceMode?: SurfaceMode;
   shouldAskFollowUp?: boolean;
 }): string {
-  const options =
-    args.shouldAskFollowUp === false
+  const isThread = args.outputShape === "thread_seed";
+  const options = isThread
+    ? args.shouldAskFollowUp === false
+      ? args.surfaceMode === "revise_and_return"
+        ? [
+            "turned it into a thread.",
+            "made it a thread.",
+            "reworked it as a thread.",
+          ]
+        : [
+            "here's the thread.",
+            "put together the thread.",
+            "ran with that angle as a thread.",
+          ]
+      : [
+          "turned it into a thread. want to tighten the opener, pacing, or close?",
+          "made it a thread. should we sharpen the hook, middle, or ending?",
+          "here's the thread version. want to tweak the opener, flow, or close?",
+        ]
+    : args.shouldAskFollowUp === false
       ? args.surfaceMode === "revise_and_return"
         ? [
             "updated it.",
@@ -225,6 +253,7 @@ export function normalizeDraftPayload(args: {
       drafts = [trimmedReply];
       reply = buildDefaultDraftHandoffReply({
         seed: trimmedReply,
+        outputShape: args.outputShape,
         surfaceMode: args.surfaceMode,
         shouldAskFollowUp: args.shouldAskFollowUp,
       });
@@ -234,6 +263,7 @@ export function normalizeDraftPayload(args: {
       if (!trimmedReply || trimmedReply === draft || replyLooksLikeDraft) {
         reply = buildDefaultDraftHandoffReply({
           seed: draft || trimmedReply || "draft",
+          outputShape: args.outputShape,
           surfaceMode: args.surfaceMode,
           shouldAskFollowUp: args.shouldAskFollowUp,
         });

@@ -135,6 +135,19 @@ This section tracks what has already landed so future agents do not accidentally
 - Shared response-envelope finalization now lives in `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts`.
 - `conversationManager.ts`, `draftPipelineHelpers.ts`, and the fast-reply path in `routingPolicy.ts` now reuse the same response shaping / `responseShapePlan` assembly instead of carrying separate copies.
 - `apps/web/app/api/creator/v2/chat/route.ts` now has a defensive response-shape fallback, so partial orchestrator responses no longer crash the route on `responseShapePlan.shouldAskFollowUp`.
+- `conversationManager.ts` now re-exports `ConversationServices` and consumes the shared `createDefaultConversationServices()` implementation from `draftPipelineHelpers.ts` instead of keeping a second service contract / factory block.
+- The unused local `applyMemoryPatch` copy is gone, and the remaining direct anti-pattern/source-material helpers in `conversationManager.ts` are now explicit, which lets `pnpm build` verify the slimmer boundary end to end.
+- Fallback draft handoff copy in `apps/web/app/api/creator/v2/chat/route.logic.ts` is now output-shape aware, so thread rewrites use thread-native handoff text instead of generic post wording.
+- Direct regression coverage for that thread-native handoff copy now lives in `apps/web/app/api/creator/v2/chat/route.test.mjs`, with `pnpm build` and `test:v2-orchestrator` green after the change.
+- Open-ended asks like `write a post about anything` no longer fast-start into grounded drafting, and bare draft requests now stay off the direct draft path even when saved context exists.
+- `apps/web/lib/agent-v2/agents/draftCompletion.ts` now trims common abrupt dangling endings before delivery, and direct regression coverage lives in `apps/web/lib/agent-v2/agents/critic.test.mjs`.
+- That abrupt-ending cleanup now also trims short broken clause tails after commas or dashes, so fragments like `algorithms shift, noise r` get clipped before the user sees them.
+- Standalone posts now also strip thread-style lead labels like `thread:` / `post 1:` / `tweet 1:` before delivery, so shortform drafts cannot look like serialized threads when the writer leaks thread framing into the opener.
+- A plain `write a post` or `write a thread` without a concrete direction now routes into generated ideation directions instead of auto-drafting from saved context, so the UI gets numbered idea options plus chips instead of a random low-context draft.
+- `draftPipeline.ts` now builds loose ideation prompts in the user's lane for those generic asks and avoids storing generic request text like `write a post` as the topic summary.
+- `ideationReply.ts` now makes the visible lead explicit (`here are a few post directions.` / `here are a few thread directions.`), which makes the numbered ideas easier to scan on the actual app surface.
+- That intercept now runs before the router’s `hasEnoughContextToAct` shortcut, so stale topic summaries or pending-plan state cannot silently force a draft when the user starts a fresh vague ask.
+- `conversationManagerLogic.ts` now explicitly matches the exact phrase `write a post` as a bare draft request, which was the missing real-app phrase that kept earlier ideation guards from firing.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -706,14 +719,10 @@ Use this checklist after meaningful changes.
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
-   - Status: in progress. Step 1 removed duplicate helper logic from `conversationManager.ts`, and step 2 centralized response finalization plus fast-reply shaping in `responseEnvelope.ts`. One smaller cleanup pass may still remain, but the highest-risk response-envelope drift is now closed.
+   - Status: completed. Step 1 removed duplicate helper logic from `conversationManager.ts`, step 2 centralized response finalization plus fast-reply shaping in `responseEnvelope.ts`, and step 3 removed the duplicate service/factory boundary so the architecture pass now closes with `pnpm build` green.
 
 ### Best next change
-Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and memory/constraint salience follow-through have landed, focus on these targeted fixes:
-1. Reduce the remaining warning-heavy import/service surface in `conversationManager.ts`, especially pieces that are now only there because the file still knows too much about lower-level helpers.
-2. Keep future response-shaping changes inside `responseEnvelope.ts` instead of reintroducing local envelope builders or one-off fast-reply shaping in route/orchestrator files.
-3. Move the next cohesive boundary into a focused module without re-centralizing behavior back into `conversationManager.ts`.
-4. Preserve the completed product-quality gains while making future changes safer and easier.
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, memory/constraint salience follow-through, and architecture follow-through have landed, focus on targeted bugs, product polish, or new capability work rather than more structural cleanup by default.
 
 ### Safest next implementation step
 Audit the remaining orchestrator-heavy surfaces and helper boundaries:

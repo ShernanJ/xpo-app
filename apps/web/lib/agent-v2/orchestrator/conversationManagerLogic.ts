@@ -116,6 +116,7 @@ export function isBareDraftRequest(message: string): boolean {
   const normalized = normalizeDraftIntentMessage(message);
   if ([
     "write me a post",
+    "write a post",
     "write a post for me",
     "write me a post for me",
     "write me a thread",

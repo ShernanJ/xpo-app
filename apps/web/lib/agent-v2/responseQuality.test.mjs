@@ -27,6 +27,7 @@ import {
 } from "./orchestrator/feedbackMemoryNotice.ts";
 import {
   buildComparisonRelationshipQuestion,
+  buildLooseDirectionReply,
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
 } from "./orchestrator/assistantReplyStyle.ts";
@@ -248,6 +249,16 @@ test("assistant fallback questions stay direct without helper prefixes", () => {
       target: "x",
     }).startsWith("quick check:"),
     false,
+  );
+});
+
+test("loose direction reply reads like a normal sentence and points at the chips", () => {
+  assert.equal(
+    buildLooseDirectionReply({
+      almostReady: false,
+      requestedFormatPreference: null,
+    }),
+    "i can do that. pick one direction below and i'll run with it.",
   );
 });
 
@@ -572,6 +583,29 @@ test("ideation reply humanizes 'here are some angles' phrasing", () => {
     reply.toLowerCase().includes("here are some ideas i thought of"),
     true,
   );
+});
+
+test("bare post draft ideation reply names post directions clearly", () => {
+  const reply = buildIdeationReply({
+    intro: "based on what i know, there are a few lanes this could take.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "write a post",
+    styleCard: null,
+  });
+
+  assert.equal(reply.toLowerCase().includes("post directions"), true);
+  assert.equal(/pick one and i'll draft it|which one should i draft first|if one works, i'll draft it/i.test(reply), true);
+});
+
+test("bare thread draft ideation reply names thread directions clearly", () => {
+  const reply = buildIdeationReply({
+    intro: "based on what i know, there are a few lanes this could take.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "write a thread",
+    styleCard: null,
+  });
+
+  assert.equal(reply.toLowerCase().includes("thread directions"), true);
 });
 
 test("correction repair catches fabrication pushback phrasing", () => {

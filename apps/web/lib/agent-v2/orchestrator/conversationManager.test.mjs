@@ -7,7 +7,10 @@ import fc from "fast-check";
 import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
-import { shouldFastStartGroundedDraft } from "./draftFastStart.ts";
+import {
+  shouldFastStartGroundedDraft,
+  shouldForceLooseDraftIdeation,
+} from "./draftFastStart.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine.ts";
 import {
   applyCreatorProfileHintsToPlan,
@@ -60,6 +63,7 @@ import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
   assert.equal(isBareDraftRequest("write me a post"), true);
+  assert.equal(isBareDraftRequest("write a post"), true);
   assert.equal(isBareDraftRequest("write a thread i would use"), true);
   assert.equal(isBareDraftRequest("write me a thread"), true);
   assert.equal(isBareDraftRequest("give me a random post I would use"), true);
@@ -583,7 +587,7 @@ test("planner failure replies preserve the captured reason", () => {
   );
 });
 
-test("fast-start draft path triggers for bare requests with saved grounded sources", () => {
+test("fast-start draft path does not trigger for bare requests without an active topic", () => {
   assert.equal(
     shouldFastStartGroundedDraft({
       userMessage: "write me a post",
@@ -592,11 +596,12 @@ test("fast-start draft path triggers for bare requests with saved grounded sourc
       hasActiveDraft: false,
       memoryTopicSummary: null,
       hasTopicGrounding: false,
+      hasAutobiographicalGrounding: true,
       groundingSourceCount: 2,
       turnGroundingCount: 0,
       creatorHintsAvailable: true,
     }),
-    true,
+    false,
   );
 });
 
@@ -609,11 +614,30 @@ test("fast-start draft path triggers for topical requests with recent grounded f
       hasActiveDraft: false,
       memoryTopicSummary: null,
       hasTopicGrounding: true,
+      hasAutobiographicalGrounding: false,
       groundingSourceCount: 0,
       turnGroundingCount: 1,
       creatorHintsAvailable: false,
     }),
     true,
+  );
+});
+
+test("fast-start draft path does not trigger for bare requests even when an active topic exists", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write me a post",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: "x growth consistency",
+      hasTopicGrounding: false,
+      hasAutobiographicalGrounding: true,
+      groundingSourceCount: 2,
+      turnGroundingCount: 0,
+      creatorHintsAvailable: true,
+    }),
+    false,
   );
 });
 
@@ -626,9 +650,81 @@ test("fast-start draft path does not trigger without grounding", () => {
       hasActiveDraft: false,
       memoryTopicSummary: null,
       hasTopicGrounding: false,
+      hasAutobiographicalGrounding: false,
       groundingSourceCount: 0,
       turnGroundingCount: 0,
       creatorHintsAvailable: true,
+    }),
+    false,
+  );
+});
+
+test("fast-start draft path does not trigger for bare requests without autobiographical grounding", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write me a post",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: null,
+      hasTopicGrounding: false,
+      hasAutobiographicalGrounding: false,
+      groundingSourceCount: 2,
+      turnGroundingCount: 0,
+      creatorHintsAvailable: true,
+    }),
+    false,
+  );
+});
+
+test("fast-start draft path does not trigger for open-ended anything requests", () => {
+  assert.equal(
+    shouldFastStartGroundedDraft({
+      userMessage: "write a post about anything",
+      mode: "plan",
+      explicitIntent: null,
+      hasActiveDraft: false,
+      memoryTopicSummary: null,
+      hasTopicGrounding: false,
+      hasAutobiographicalGrounding: true,
+      groundingSourceCount: 2,
+      turnGroundingCount: 0,
+      creatorHintsAvailable: true,
+    }),
+    false,
+  );
+});
+
+test("bare draft requests force loose ideation before stale topic memory can auto-generate", () => {
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write a post",
+      explicitIntent: null,
+      hasActiveDraft: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write a thread",
+      explicitIntent: null,
+      hasActiveDraft: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write me a post about xpo onboarding",
+      explicitIntent: null,
+      hasActiveDraft: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write a post",
+      explicitIntent: null,
+      hasActiveDraft: true,
     }),
     false,
   );

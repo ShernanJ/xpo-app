@@ -90,6 +90,34 @@ test("normalizeDraftPayload can emit a non-question revision handoff", () => {
   assert.equal(result.reply.length > 0, true);
 });
 
+test("normalizeDraftPayload emits thread-native handoff copy for thread drafts", () => {
+  const result = normalizeDraftPayload({
+    reply: "",
+    draft: "post 1\\n\\npost 2",
+    drafts: ["post 1\\n\\npost 2"],
+    outputShape: "thread_seed",
+    surfaceMode: "generate_full_output",
+    shouldAskFollowUp: true,
+  });
+
+  assert.equal(result.reply.toLowerCase().includes("thread"), true);
+  assert.equal(result.reply.toLowerCase().includes("post?"), false);
+});
+
+test("normalizeDraftPayload emits thread-native non-question copy for thread revisions", () => {
+  const result = normalizeDraftPayload({
+    reply: "",
+    draft: "post 1\\n\\npost 2",
+    drafts: ["post 1\\n\\npost 2"],
+    outputShape: "thread_seed",
+    surfaceMode: "revise_and_return",
+    shouldAskFollowUp: false,
+  });
+
+  assert.equal(result.reply.toLowerCase().includes("thread"), true);
+  assert.equal(result.reply.includes("?"), false);
+});
+
 test("long_form_post remains a valid route draft kind", () => {
   assert.equal(resolveDraftArtifactKind("long_form_post"), "long_form_post");
   assert.equal(resolveDraftArtifactKind("planning_outline"), null);
