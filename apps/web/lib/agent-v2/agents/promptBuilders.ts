@@ -24,7 +24,7 @@ import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../orchestrator/groundingPacket";
-import { collectGroundingFactualAuthority } from "../orchestrator/groundingPacket";
+import { buildGroundingPromptBlock } from "./groundingPromptBlock";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 
 function buildArtifactContextBlock(args: {
@@ -164,38 +164,21 @@ PLAIN FACTUAL PRODUCT MODE:
 function buildGroundingPacketBlock(
   groundingPacket: GroundingPacket | null | undefined,
 ): string | null {
-  if (!groundingPacket) {
-    return null;
-  }
-
-  const sourceMaterialDetailLines = groundingPacket.sourceMaterials
-    .slice(0, 2)
-    .map((item) => {
-      const claimSeed = item.claims[0] ? ` | claim seed: ${item.claims[0]}` : "";
-      const snippetSeed = item.snippets[0] ? ` | snippet seed: ${item.snippets[0]}` : "";
-      return `- [${item.type}] ${item.title}${claimSeed}${snippetSeed}`;
-    });
-  const factualAuthority = collectGroundingFactualAuthority(groundingPacket);
-
-  return `
-GROUNDING PACKET:
-- Durable facts: ${groundingPacket.durableFacts.join(" | ") || "None"}
-- Turn grounding: ${groundingPacket.turnGrounding.join(" | ") || "None"}
-- Allowed first-person claims: ${groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}
-- Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
-- Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
-- Source materials: ${groundingPacket.sourceMaterials.map((item) => `${item.type}: ${item.title}`).join(" | ") || "None"}
-- Voice context hints: ${groundingPacket.voiceContextHints?.join(" | ") || "None"}
-- Factual authority: ${factualAuthority.join(" | ") || "None"}
-${sourceMaterialDetailLines.length > 0 ? `- Source material details:\n${sourceMaterialDetailLines.join("\n")}` : ""}
-
-Use this packet as the authority for autobiographical, numeric, and factual specificity.
-Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.
-Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.
-If source material details are present, prefer their saved claim/snippet seeds over invented framing.
-If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.
-If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.
-  `.trim();
+  return buildGroundingPromptBlock({
+    groundingPacket,
+    title: "GROUNDING PACKET",
+    sourceMaterialLimit: 2,
+    claimLabel: "claim seed",
+    snippetLabel: "snippet seed",
+    guidanceLines: [
+      "Use this packet as the authority for autobiographical, numeric, and factual specificity.",
+      "Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.",
+      "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
+      "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
+      "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.",
+      "If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.",
+    ],
+  });
 }
 
 function buildSafeFrameworkFallbackBlock(

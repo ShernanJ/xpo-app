@@ -17,9 +17,9 @@ import {
 } from "../prompts/promptHydrator";
 import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
 import {
-  collectGroundingFactualAuthority,
   type GroundingPacket,
 } from "../orchestrator/groundingPacket";
+import { buildGroundingPromptBlock } from "./groundingPromptBlock";
 import {
   trimToXCharacterLimit,
   type ThreadFramingStyle,
@@ -202,36 +202,23 @@ GENERIC EDIT MODE:
 function buildRevisionGroundingBlock(
   groundingPacket: GroundingPacket | null | undefined,
 ): string {
-  if (!groundingPacket) {
-    return "";
-  }
-
-  const sourceMaterialLines = groundingPacket.sourceMaterials
-    .slice(0, 3)
-    .map((item) => {
-      const claim = item.claims[0] ? ` | claim: ${item.claims[0]}` : "";
-      const snippet = item.snippets[0] ? ` | snippet: ${item.snippets[0]}` : "";
-      return `- [${item.type}] ${item.title}${claim}${snippet}`;
-    });
-  const factualAuthority = collectGroundingFactualAuthority(groundingPacket);
-
-  return `
-GROUNDING PACKET:
-- Durable facts: ${groundingPacket.durableFacts.join(" | ") || "None"}
-- Turn grounding: ${groundingPacket.turnGrounding.join(" | ") || "None"}
-- Allowed first-person claims: ${groundingPacket.allowedFirstPersonClaims.join(" | ") || "None"}
-- Allowed numbers: ${groundingPacket.allowedNumbers.join(" | ") || "None"}
-- Unknowns: ${groundingPacket.unknowns.join(" | ") || "None"}
-- Voice context hints: ${groundingPacket.voiceContextHints?.join(" | ") || "None"}
-- Factual authority: ${factualAuthority.join(" | ") || "None"}
-${sourceMaterialLines.length > 0 ? `- Source material details:\n${sourceMaterialLines.join("\n")}` : "- Source material details: None"}
-
-Use this packet as the factual boundary for any revision.
-Voice context hints can shape emphasis or lane, but they are not factual support by themselves.
-Do not upgrade voice/style examples into proof unless the same detail appears in the factual authority above.
-If a detail is not supported here, in the current draft, or in the current user note, do not add it.
-If the user asks for more specificity but the packet is thin, make the draft clearer or fuller without inventing proof.
-  `.trim();
+  return (
+    buildGroundingPromptBlock({
+      groundingPacket,
+      title: "GROUNDING PACKET",
+      sourceMaterialLimit: 3,
+      claimLabel: "claim",
+      snippetLabel: "snippet",
+      sourceMaterialFallbackLine: "- Source material details: None",
+      guidanceLines: [
+        "Use this packet as the factual boundary for any revision.",
+        "Voice context hints can shape emphasis or lane, but they are not factual support by themselves.",
+        "Do not upgrade voice/style examples into proof unless the same detail appears in the factual authority above.",
+        "If a detail is not supported here, in the current draft, or in the current user note, do not add it.",
+        "If the user asks for more specificity but the packet is thin, make the draft clearer or fuller without inventing proof.",
+      ],
+    }) || ""
+  );
 }
 
 export async function generateRevisionDraft(args: {

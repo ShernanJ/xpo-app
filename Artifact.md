@@ -28,8 +28,9 @@
   - Planner normalization now strips low-signal thread proof points like `be specific`, `make it clear`, or objective-duplicates so thread beats keep concrete evidence instead of meta filler.
   - `promptBuilders.ts` now uses a clearer shared plan-requirements block plus stricter thread-beat guidance so planner prompts ask for fewer catch-all posts and fewer repeated proof points.
   - The writer handoff is now stricter for thread plans: `promptBuilders.ts` tells the writer to preserve beat order, keep post count aligned with the plan when possible, keep proof points in their assigned beat, and carry transition hints into the actual phrasing between posts.
+  - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, which removes duplicated factual-authority / voice-context instructions from planner, reviser, and critic prompt strings.
   - `draftPipeline.ts` import/type drift was cleaned up after the modular plan-pitch/planner work: the file now imports from the correct modular sources, uses typed pipeline args instead of `any`, and is lint-clean again.
-  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots those stronger thread-beat writer requirements so future prompt edits do not quietly flatten the planner/writer handoff again.
+  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots both the stronger thread-beat writer requirements and the shared grounding-prompt contract so future prompt edits do not quietly drift by surface refactors.
 
 ## 2. What Needs to Be Done (Future Plan)
 1. **Broader P0 quality pass (next major workstream):**
@@ -51,11 +52,12 @@
    - separate style anchors from factual/evidence anchors
    - update prompt usage and guardrails
    - verify hallucination regressions stay closed
-   - Status: in progress. `GroundingPacket` now exposes an explicit `factualAuthority` channel, and legacy `contextAnchors` are split into factual carryover vs `voiceContextHints` so style/context memory no longer gets promoted wholesale into the fact layer.
+   - Status: completed. `GroundingPacket` now exposes an explicit `factualAuthority` channel, legacy `contextAnchors` split into factual carryover vs `voiceContextHints`, and downstream retrieval/effective-context helpers carry those lanes separately with regression coverage staying green.
 3. **Prompt layering simplification (3 steps)**
    - inventory duplicated/conflicting instruction blocks
    - consolidate shared rules/helpers
    - rerun quality/regression coverage
+   - Status: in progress. The first slice is landed: grounding-packet prompt assembly is centralized in `groundingPromptBlock.ts`, and planner/reviser/critic now share that factual-authority/voice-context contract with tests covering the shared helper path.
 4. **Thread-first quality maturation (4 steps)**
    - refine thread planning quality
    - refine writer execution of thread beats
@@ -81,4 +83,5 @@
 - **Planner Payload Cleanup Is Also Shared**: `core/plannerNormalization.ts` is the right place to dedupe or sanitize planner output structure before it leaks into downstream orchestration.
 - **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
 - **Grounding Now Has Separate Truth vs Voice Context Lanes**: `groundingPacket.ts` now exposes `factualAuthority` plus `voiceContextHints`. Use `factualAuthority` for reusable truth/evidence. Use `voiceContextHints` for territory/framing guidance only.
+- **Grounding Prompt Copy Is Now Shared**: If you need to change how factual authority, voice-context hints, unknowns, or source-material detail lines are described to agents, update `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts` instead of duplicating copy across planner/reviser/critic strings.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

@@ -237,7 +237,10 @@ export async function executeDraftPipeline(args: {
       evaluateDraftContextSlots({
         userMessage: sourceText,
         topicSummary: memory.topicSummary,
-        contextAnchors: nextPacket.durableFacts,
+        contextAnchors: [
+          ...(nextPacket.factualAuthority || nextPacket.durableFacts),
+          ...(nextPacket.voiceContextHints || []),
+        ],
       }),
       sourceText.trim().length,
     );
@@ -246,6 +249,9 @@ export async function executeDraftPipeline(args: {
     effectiveActiveConstraints,
     userMessage,
   );
+  const factualContext = groundingPacket.factualAuthority || groundingPacket.durableFacts;
+  const voiceContextHints = groundingPacket.voiceContextHints || [];
+  const slotContextAnchors = [...factualContext, ...voiceContextHints];
   const groundingSourcesForTurn = groundingPacket.sourceMaterials.slice(0, 2);
   if (selectedSourceMaterials.length > 0) {
     services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error: unknown) =>
@@ -255,14 +261,15 @@ export async function executeDraftPipeline(args: {
   const turnDraftContextSlots = evaluateDraftContextSlots({
     userMessage,
     topicSummary: memory.topicSummary,
-    contextAnchors: groundingPacket.durableFacts,
+    contextAnchors: slotContextAnchors,
   });
   const relevantTopicAnchors = retrieveRelevantContext({
     userMessage,
     topicSummary: memory.topicSummary,
     rollingSummary: memory.rollingSummary,
     topicAnchors: anchors.topicAnchors,
-    contextAnchors: groundingPacket.durableFacts,
+    factualContext,
+    voiceContextHints,
     activeConstraints: effectiveActiveConstraints,
   });
   const shouldForceNoFabricationGuardrailForTurn = shouldForceNoFabricationPlanGuardrail({
@@ -286,14 +293,18 @@ export async function executeDraftPipeline(args: {
   const strategyState = onboardingResult?.strategyState as Record<string, unknown> | undefined;
   const goal = typeof strategyState?.goal === "string" ? strategyState.goal : "Audience growth";
   const contextAnchorsStr =
-    groundingPacket.durableFacts.length > 0
-      ? `\n- Known Facts: ${groundingPacket.durableFacts.join(" | ")}`
+    factualContext.length > 0
+      ? `\n- Known Facts: ${factualContext.join(" | ")}`
+      : "";
+  const voiceHintsStr =
+    voiceContextHints.length > 0
+      ? `\n- Voice/Territory Hints: ${voiceContextHints.join(" | ")}`
       : "";
 
   const userContextString = `
 User Profile Summary:
 - Stage: ${stage}
-- Primary Goal: ${goal}${contextAnchorsStr}
+- Primary Goal: ${goal}${contextAnchorsStr}${voiceHintsStr}
   `.trim();
 
   const writeMemoryLocal = async (
@@ -423,7 +434,7 @@ User Profile Summary:
     const sourceSlots = evaluateDraftContextSlots({
       userMessage: args.sourceText,
       topicSummary: memory.topicSummary,
-      contextAnchors: groundingPacket.durableFacts,
+      contextAnchors: slotContextAnchors,
     });
 
     return sourceSlots.isProductLike;
@@ -445,7 +456,8 @@ User Profile Summary:
     recentHistory,
     rollingSummary: memory.rollingSummary,
     relevantTopicAnchors: modelReferenceAnchors,
-    contextAnchors: groundingPacket.durableFacts,
+    factualContext,
+    voiceContextHints,
     activeConstraints: effectiveActiveConstraints,
     ...(useFactSafeReferenceHintsForTurn
       ? { referenceLabel: "REFERENCE HINTS" }
@@ -662,7 +674,8 @@ User Profile Summary:
             topicSummary: memory.topicSummary,
             rollingSummary: memory.rollingSummary,
             topicAnchors: mergedAnchors,
-            contextAnchors: groundingPacket.durableFacts,
+            factualContext,
+            voiceContextHints,
             activeConstraints: args.activeConstraints,
           }),
       retrievalReasons: retrieval.rankedAnchors
@@ -1775,7 +1788,7 @@ User Profile Summary:
       activeDraft: null,
       referenceText: memory.lastIdeationAngles.join(" "),
       recentHistory,
-      contextAnchors: groundingPacket.durableFacts,
+      contextAnchors: factualContext,
     });
 
     if (sourceTransparencyReply) {
@@ -1882,7 +1895,7 @@ User Profile Summary:
       activeDraft,
       referenceText: memory.lastIdeationAngles.join(" "),
       recentHistory,
-      contextAnchors: groundingPacket.durableFacts,
+      contextAnchors: factualContext,
     });
 
     if (sourceTransparencyReply) {

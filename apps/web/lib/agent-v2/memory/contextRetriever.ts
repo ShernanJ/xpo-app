@@ -47,7 +47,8 @@ export function retrieveRelevantContext(args: {
   topicSummary: string | null;
   rollingSummary: string | null;
   topicAnchors: string[];
-  contextAnchors?: string[];
+  factualContext?: string[];
+  voiceContextHints?: string[];
   activeConstraints?: string[];
 }): string[] {
   const weightedTerms = [
@@ -58,10 +59,11 @@ export function retrieveRelevantContext(args: {
     ...collectTerms(args.topicSummary || ""),
     ...collectTerms(args.rollingSummary || ""),
     ...collectTerms(args.rollingSummary || ""),
-    ...((args.contextAnchors || []).flatMap((anchor) => [
+    ...((args.factualContext || []).flatMap((anchor) => [
       ...collectTerms(anchor),
       ...collectTerms(anchor),
     ])),
+    ...((args.voiceContextHints || []).flatMap((anchor) => collectTerms(anchor))),
     ...collectCorrectionLockTerms(args.activeConstraints || []),
     ...collectCorrectionLockTerms(args.activeConstraints || []),
   ];
@@ -86,7 +88,8 @@ export function buildEffectiveContext(args: {
   recentHistory: string;
   rollingSummary: string | null;
   relevantTopicAnchors: string[];
-  contextAnchors?: string[];
+  factualContext?: string[];
+  voiceContextHints?: string[];
   activeConstraints?: string[];
   referenceLabel?: string;
 }): string {
@@ -102,12 +105,18 @@ export function buildEffectiveContext(args: {
     .filter(Boolean)
     .slice(-2);
   const knownFacts = Array.from(
-    new Set([...(args.contextAnchors || []).slice(0, 3), ...factualLocks]),
+    new Set([...(args.factualContext || []).slice(0, 3), ...factualLocks]),
   ).filter(Boolean);
+  const voiceHints = Array.from(new Set((args.voiceContextHints || []).slice(0, 3))).filter(
+    Boolean,
+  );
 
   const sections = [
     knownFacts.length > 0
       ? `FACTS YOU ALREADY KNOW:\n${knownFacts.join("\n")}`
+      : null,
+    voiceHints.length > 0
+      ? `VOICE / TERRITORY HINTS (NOT FACTS):\n${voiceHints.join("\n")}`
       : null,
     args.rollingSummary ? `ROLLING SUMMARY:\n${args.rollingSummary}` : null,
     recentLines.length > 0 ? `RECENT TURNS:\n${recentLines.join("\n")}` : null,

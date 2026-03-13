@@ -119,187 +119,190 @@ test("planner and writer prompts surface hard factual grounding for product asks
     fileURLToPath(new URL("./promptBuilders.ts", import.meta.url)),
     "utf8",
   );
+  const groundingPromptBlockSource = readFileSync(
+    fileURLToPath(new URL("./groundingPromptBlock.ts", import.meta.url)),
+    "utf8",
+  );
+  const promptSource = [promptBuildersSource, groundingPromptBlockSource].join("\n");
 
-  assert.equal(promptBuildersSource.includes("FACTUAL GROUNDING:"), true);
+  assert.equal(promptSource.includes("FACTUAL GROUNDING:"), true);
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growth hack',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Do NOT widen them into adjacent mechanics, categories, or claims",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT invent first-person usage, personal testing, rollout history, or "i use / i tried / i let it" claims',
     ),
     true,
   );
-  assert.equal(promptBuildersSource.includes("PLAIN FACTUAL PRODUCT MODE:"), true);
+  assert.equal(promptSource.includes("PLAIN FACTUAL PRODUCT MODE:"), true);
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT open with universal claims like "every tool", "most tools", "most people", "everyone", "just another tool"',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT invent launch language, proof points, or promo CTA copy unless the user explicitly gave them.',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "If the grounding already contains clear usable wording, stay close to it instead of rewriting it into new marketing language or synonyms.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT add an invented before-state or pain-point setup like "tired of...", "stopped overthinking...", or similar framing unless the user actually gave that setup.',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT restate the same grounded benefit a second time with a new synonym. If the grounding already says "without the mental load", do not add another line like "no extra thinking required."',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes("SAFE REFERENCE HINTS (VOICE/SHAPE ONLY):"),
+    promptSource.includes("SAFE REFERENCE HINTS (VOICE/SHAPE ONLY):"),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Do NOT turn them into facts, product mechanics, timelines, anecdotes, or proof claims.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'The "draft" field must contain only the final X post text.',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels',
     ),
     true,
   );
-  assert.equal(promptBuildersSource.includes("GROUNDING PACKET:"), true);
-  assert.equal(promptBuildersSource.includes("Source material details:"), true);
-  assert.equal(promptBuildersSource.includes("SAFE FRAMEWORK FALLBACK MODE:"), true);
-  assert.equal(promptBuildersSource.includes("FACTUAL TRUTH LAYER:"), true);
-  assert.equal(promptBuildersSource.includes("STRATEGIC DRAFT PLAN:"), true);
-  assert.equal(promptBuildersSource.includes("VOICE / SHAPE LAYER:"), true);
-  assert.equal(promptBuildersSource.includes("ACTIVE ARTIFACT CONTEXT:"), true);
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes('args.title || "GROUNDING PACKET"') ||
+      promptSource.includes("GROUNDING PACKET:"),
+    true,
+  );
+  assert.equal(promptSource.includes("Source material details:"), true);
+  assert.equal(promptSource.includes("SAFE FRAMEWORK FALLBACK MODE:"), true);
+  assert.equal(promptSource.includes("FACTUAL TRUTH LAYER:"), true);
+  assert.equal(promptSource.includes("STRATEGIC DRAFT PLAN:"), true);
+  assert.equal(promptSource.includes("VOICE / SHAPE LAYER:"), true);
+  assert.equal(promptSource.includes("ACTIVE ARTIFACT CONTEXT:"), true);
+  assert.equal(
+    promptSource.includes(
       "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
     ),
     true,
   );
+  assert.equal(promptSource.includes("Factual authority:"), true);
+  assert.equal(promptSource.includes("Voice context hints:"), true);
   assert.equal(
-    promptBuildersSource.includes("Factual authority:"),
-    true,
-  );
-  assert.equal(
-    promptBuildersSource.includes("Voice context hints:"),
-    true,
-  );
-  assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
     ),
     true,
   );
-  assert.equal(promptBuildersSource.includes("CREATOR PROFILE HINTS:"), true);
+  assert.equal(promptSource.includes("CREATOR PROFILE HINTS:"), true);
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       'Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."',
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Use this block to continue the current plan/draft/idea set even if the latest user turn is short.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Treat this artifact context as more reliable than vague transcript wording when they conflict.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Every draft or reply must clearly map to at least one current content pillar or learning signal.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "Reject broad motivational filler, generic praise-only replies, and off-brand side quests even if they sound polished.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "treat the correction as the source of truth and ignore the older assistant wording.",
     ),
     true,
   );
   assert.equal(
-    promptBuildersSource.includes(
+    promptSource.includes(
       "treat that earlier text as superseded and do NOT reuse it.",
     ),
     true,
@@ -361,15 +364,24 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
     fileURLToPath(new URL("./reviser.ts", import.meta.url)),
     "utf8",
   );
+  const groundingPromptBlockSource = readFileSync(
+    fileURLToPath(new URL("./groundingPromptBlock.ts", import.meta.url)),
+    "utf8",
+  );
+  const reviserPromptSource = [reviserSource, groundingPromptBlockSource].join("\n");
 
   assert.equal(reviserSource.includes("CURRENT USER NOTE:"), true);
-  assert.equal(reviserSource.includes("GROUNDING PACKET:"), true);
+  assert.equal(
+    reviserPromptSource.includes('args.title || "GROUNDING PACKET"') ||
+      reviserPromptSource.includes("GROUNDING PACKET:"),
+    true,
+  );
   assert.equal(reviserSource.includes("HOOK EDIT MODE:"), true);
   assert.equal(reviserSource.includes("TONE SHIFT MODE:"), true);
   assert.equal(reviserSource.includes("GENERIC EDIT MODE:"), true);
   assert.equal(reviserSource.includes("FULL REWRITE MODE:"), true);
   assert.equal(
-    reviserSource.includes(
+    reviserPromptSource.includes(
       "If a detail is not supported here, in the current draft, or in the current user note, do not add it.",
     ),
     true,

@@ -929,6 +929,8 @@ test("context retrieval prioritizes correction locks and builds fact-first conte
       "general internship grind with no specific interview context",
       "xpo build in public update",
     ],
+    factualContext: ["taiv is a real interview checkpoint"],
+    voiceContextHints: ["likes candid internship reflections"],
     activeConstraints: ["Correction lock: taiv requested an interview"],
   });
 
@@ -938,13 +940,16 @@ test("context retrieval prioritizes correction locks and builds fact-first conte
     recentHistory: "user: make it shorter\nassistant: here's a tighter version.",
     rollingSummary: "Current topic: internship hunt",
     relevantTopicAnchors: relevant,
-    contextAnchors: ["taiv is a real interview checkpoint"],
+    factualContext: ["taiv is a real interview checkpoint"],
+    voiceContextHints: ["likes candid internship reflections"],
     activeConstraints: ["Correction lock: taiv requested an interview"],
   });
 
   assert.match(effectiveContext, /FACTS YOU ALREADY KNOW:/);
   assert.match(effectiveContext, /taiv is a real interview checkpoint/);
   assert.match(effectiveContext, /taiv requested an interview/);
+  assert.match(effectiveContext, /VOICE \/ TERRITORY HINTS \(NOT FACTS\):/);
+  assert.match(effectiveContext, /likes candid internship reflections/);
 });
 
 test("fact-safe reference hints replace raw topic anchors in strict factual turns", () => {
@@ -964,7 +969,8 @@ test("fact-safe reference hints replace raw topic anchors in strict factual turn
     rollingSummary: null,
     relevantTopicAnchors: hints,
     referenceLabel: "REFERENCE HINTS",
-    contextAnchors: [],
+    factualContext: [],
+    voiceContextHints: [],
     activeConstraints: ["Topic grounding: stanley helps people write and grow faster on x"],
   });
 
