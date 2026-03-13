@@ -257,7 +257,7 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Why it matters:** Hidden interactions make behavior brittle and hard to improve safely
 - **Likely files involved:** `conversationManager.ts`
 - **Severity:** Important
-- **Status:** Confirmed
+- **Status:** Completed (Refactored into policy modules)
 
 ### Issue 6
 - **Issue:** Internal assistant context may be injected into transcript/history in ways that hurt naturalness
@@ -355,6 +355,13 @@ Every meaningful change should update this section.
 ---
 
 ### Completed
+
+#### WS-00 — Decouple conversationManager God File
+- **Description:** Refactored the monolithic `conversationManager.ts` file into smaller policy modules (`turnContextBuilder.ts`, `routingPolicy.ts`, `draftPipeline.ts`, `memoryPolicy.ts`). This addresses Issue 5 and prepares for WS-05.
+- **Files touched:** `conversationManager.ts`, `turnContextBuilder.ts`, `routingPolicy.ts`, `draftPipeline.ts`, `memoryPolicy.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
 
 #### WS-01 — Reduce hardcoded chat feel
 - **Description:** Gutted `chatResponderDeterministic.ts` from 605 to ~170 lines. Removed all greeting, small talk, capability question, meta-assistant, diagnostic, and performance handlers. Only safety-critical paths remain: missing draft edit, failure explanation, user knowledge.
@@ -544,42 +551,37 @@ Use this checklist after meaningful changes.
 ## 10. Next agent start here
 
 ### Current priority
-**Reduce hardcoded conversational feel and improve thread generation structure.**
+**Reduce transcript pollution and improve thread formatting resilience.**
 
 ### Best next change
-Start with the fastest visible win:
-1. reduce deterministic chat response coverage
-2. inspect where repeated canned phrasing is injected
-3. stop flattening model replies unnecessarily
+Now that the massive orchestrator has been modularized, focus on these targeted fixes:
+1. Stop injecting internal `assistant_context` blocks into the `recentHistory` string in the route layer (Phase 3 item - WS-05).
+2. Add deterministic thread segmentation fallback in `draftArtifacts.ts` if delimiter compliance fails (Issue 8).
 
 ### Safest next implementation step
-Audit and simplify:
-- `chatResponderDeterministic.ts`
-- `chatResponder.ts`
-- `responseShaper.ts`
-
-Then evaluate whether the agent feels less robotic before doing deeper architecture changes.
+Audit and fix the transcript injection:
+- `apps/web/app/api/agent-v2/route.logic.ts`
+- Separate the display artifacts from the raw text sent to the LLM.
 
 ### Biggest risk
-Accidentally making the system more natural **but less trustworthy**, or simplifying prompts in ways that reintroduce hallucinated autobiographical content.
+When solving transcript injection (WS-05), ensure that the model still receives necessary metadata about previous turns without polluting the conversational tone.
 
 ### What just changed (2026-03-13)
-1. Most deterministic chat replies removed — greetings, small talk, capability questions now go through coach LLM
-2. Thread planning now uses per-post beat schemas (hook/setup/proof/turn/payoff/close)
-3. Critic has 7 thread-specific quality checks (T1-T7)
-4. Safe-framework mode only triggers on very short messages; fallback language softened
-5. Writer can now selectively reuse user-confirmed facts from historical posts (two-lane policy)
-6. Constraints capped at 12; only explicit declarations stored
-7. Response shaper no longer strips natural conversation openers
+0. Refactored the `conversationManager.ts` god file into discrete policy modules (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
+1. Most deterministic chat replies removed — greetings, small talk, capability questions now go through coach LLM.
+2. Thread planning now uses per-post beat schemas (hook/setup/proof/turn/payoff/close).
+3. Critic has 7 thread-specific quality checks (T1-T7).
+4. Safe-framework mode only triggers on very short messages; fallback language softened.
+5. Writer can now selectively reuse user-confirmed facts from historical posts (two-lane policy).
+6. Constraints capped at 12; only explicit declarations stored.
+7. Response shaper no longer strips natural conversation openers.
+8. Chat latency hotfix implemented to bypass the heavy `Promise.all` memory orchestration for simple conversational turns.
 
 ### Read first
-1. `conversationManager.ts`
-2. `promptBuilders.ts`
-3. `route.logic.ts`
-4. `chatResponderDeterministic.ts`
-5. `writer.ts`
-6. `planner.ts`
-7. `critic.ts`
+1. `massive-rework.md` (to review the remaining 5 priorities)
+2. `apps/web/app/api/agent-v2/route.logic.ts`
+3. `conversationManager.ts`
+4. `draftArtifacts.ts`
 
 ---
 
@@ -612,6 +614,10 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 ---
 
 ## 12. Change log
+
+### 2026-03-13 (Conversation Manager Refactor)
+- Refactored `conversationManager.ts` into smaller, testable policy modules: `turnContextBuilder.ts`, `routingPolicy.ts`, `draftPipeline.ts`, `memoryPolicy.ts`.
+- Fixed minor TypeScript and import issues with `createDefaultConversationServices`.
 
 ### 2026-03-13
 - Gutted `chatResponderDeterministic.ts` (605 → 170 lines, kept only safety-critical paths)
