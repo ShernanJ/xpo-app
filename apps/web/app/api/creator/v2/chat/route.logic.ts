@@ -769,12 +769,7 @@ export function buildConversationContextFromHistory(args: {
         return base;
       }
 
-      const assistantContext = buildAssistantContext(entry);
-      if (!assistantContext) {
-        return base;
-      }
-
-      return `${base}\n${assistantContext}`;
+      return base;
     })
     .slice(-16)
     .join("\n");

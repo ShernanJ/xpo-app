@@ -440,27 +440,10 @@ function splitDraftIntoThreadPosts(
     )
     .filter(Boolean);
 
-  const posts: string[] = [];
-  let current = "";
-
-  for (const chunk of chunks) {
-    const candidate = current ? `${current}\n\n${chunk}` : chunk;
-    if (computeXWeightedCharacterCount(candidate) <= threadPostMaxCharacterLimit) {
-      current = candidate;
-      continue;
-    }
-
-    if (current) {
-      posts.push(current);
-    }
-    current = chunk;
-  }
-
-  if (current) {
-    posts.push(current);
-  }
-
-  return posts.slice(0, THREAD_DEFAULT_POST_COUNT).map((post) =>
+  // Instead of packing paragraphs together up to the limit (which destroys
+  // the per-post ThreadPlan pacing), we map each distinct paragraph/chunk directly 
+  // to a post. This preserves the beat-by-beat structure when the explicit --- delimiter is missing.
+  return chunks.slice(0, THREAD_DEFAULT_POST_COUNT).map((post) =>
     trimToXCharacterLimit(post, threadPostMaxCharacterLimit),
   );
 }
