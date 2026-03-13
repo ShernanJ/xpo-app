@@ -370,6 +370,28 @@ test("writer prompt binds thread execution to the planned beats", () => {
     ),
     true,
   );
+  assert.equal(
+    promptBuildersSource.includes(
+      "CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "If two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes("Default role cadence:"),
+    true,
+  );
+  assert.equal(
+    promptBuildersSource.includes(
+      "The close must feel like a distinct ending move. Do NOT use the close to simply restate the payoff with slightly different wording.",
+    ),
+    true,
+  );
 });
 
 test("reviser prompt keeps grounded revision boundaries for edit requests", () => {
@@ -477,6 +499,26 @@ test("drafting and revision prompts share X-platform rules", () => {
   assert.equal(
     xPostPromptRulesSource.includes(
       "If this is a thread revision, preserve or apply numbered framing like 1/5, 2/5, 3/5",
+    ),
+    true,
+  );
+});
+
+test("critic prompt rejects flat middle beats and payoff-as-close endings in threads", () => {
+  const criticSource = readFileSync(
+    fileURLToPath(new URL("./critic.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(
+    criticSource.includes(
+      "Middle posts must introduce new information or movement. If a setup/proof/turn post mainly rephrases the previous beat, rewrite it to add a distinct reason to exist.",
+    ),
+    true,
+  );
+  assert.equal(
+    criticSource.includes(
+      "The final post must add a fresh closing move. If it only restates the payoff in slightly different words, rewrite it into a sharper ending.",
     ),
     true,
   );

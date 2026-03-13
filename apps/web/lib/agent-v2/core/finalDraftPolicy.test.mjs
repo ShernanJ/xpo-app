@@ -240,3 +240,42 @@ test("numbered threads preserve numbering markers", () => {
   assert.equal(result.includes("1/5"), true);
   assert.equal(result.includes("2/5"), true);
 });
+
+test("thread policy drops an adjacent close that only repeats the payoff", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "1/4 The first hiring system broke the moment volume showed up.",
+      "2/4 We fixed it by making candidates show the work before the resume mattered.",
+      "3/4 That one change made the pipeline cleaner and the signal stronger.",
+      "4/4 The pipeline got cleaner and the signal got stronger because of that one change.",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "numbered",
+  });
+
+  const posts = result.split(/\n\s*---\s*\n/g).map((post) => post.trim()).filter(Boolean);
+  assert.equal(posts.length, 3);
+  assert.equal(posts.some((post) => post.startsWith("4/4")), false);
+});
+
+test("thread policy drops obviously samey adjacent middle beats", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "The hiring market looked healthy from the outside.",
+      "Under the hood, our pipeline was mostly noise and weak signals.",
+      "Most of the pipeline was noise under the hood, so the signal stayed weak.",
+      "The fix was forcing a small public demo before the resume screen.",
+    ].join("\n\n---\n\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: true,
+    threadFramingStyle: "soft_signal",
+  });
+
+  const posts = result.split(/\n\s*---\s*\n/g).map((post) => post.trim()).filter(Boolean);
+  assert.equal(posts.length, 3);
+  assert.equal(
+    posts.some((post) => /pipeline was mostly noise under the hood/i.test(post)),
+    false,
+  );
+});

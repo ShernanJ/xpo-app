@@ -109,8 +109,12 @@ This section tracks what has already landed so future agents do not accidentally
 - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, and planner/reviser/critic now share one factual-authority / voice-context contract instead of carrying drift-prone inline copies.
 - Shared X-platform prompt rules now live in `apps/web/lib/agent-v2/agents/xPostPromptRules.ts`, and writer/reviser/critic now share one thread-framing / markdown / verification-tone / CTA hygiene contract instead of drifting separate inline copies.
 - Shared JSON/output-contract prompt assembly now lives in `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts`, and planner/writer/reviser/critic now share one parse-critical response-schema contract instead of drifting inline JSON blocks.
+- Thread planning now has stronger default cadence repair in `plannerNormalization.ts`: duplicate/missing thread roles get normalized into a cleaner arc, repeated proof points are deduped across posts, and low-signal transition hints get upgraded before the writer sees the plan.
+- Thread writer/critic guidance is stricter too: the writer prompt now forces each role to earn a distinct slot, and the critic explicitly rejects flat middle beats plus closes that only paraphrase the payoff.
+- `finalDraftPolicy.ts` now adds a last-pass thread cleanup that can collapse obviously samey adjacent posts before delivery, which helps remove repeated middle beats and close posts that only restate the payoff.
 - `draftPipeline.ts` was repaired after the modular plan helper changes: imports now point at the right modules, typed pipeline args replaced local `any`s, and the file is lint-clean again.
 - `promptContracts.test.mjs` now snapshots the stronger thread-beat writer requirements plus the shared grounding/platform prompt contracts so future prompt edits do not silently flatten the planner/writer handoff or reintroduce prompt-copy drift.
+- `finalDraftPolicy.test.mjs` now covers repeated-payoff closes and obviously samey adjacent middle posts so the runtime cleanup stays pinned down.
 - `llm.ts` now retries once when OpenAI-proxied reasoning models return empty content with only reasoning text, which reduces false draft-generation failures.
 
 ### Verification snapshot
@@ -620,7 +624,7 @@ Use this checklist after meaningful changes.
 ## 10. Next agent start here
 
 ### Current priority
-**Improve planner/prompt quality and keep de-hardcoding visible reply behavior.**
+**Improve memory/constraint salience without undoing the planner/grounding/thread-quality gains.**
 
 ### Remaining phases
 1. **Planner/writer quality pass (3 steps)**
@@ -644,6 +648,7 @@ Use this checklist after meaningful changes.
    - refine writer execution of thread beats
    - refine critic checks for thread coherence
    - rerun thread-focused regressions/evals
+   - Status: complete. Planner-side thread normalization repairs samey beat chains and weak transitions before they reach the writer, writer/critic prompts enforce distinct middle beats plus a real closing move, `finalDraftPolicy.ts` collapses obviously samey adjacent posts in the final output, and the thread-focused validation sweep is green.
 5. **Memory/constraint salience follow-through (3 steps)**
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
@@ -654,17 +659,17 @@ Use this checklist after meaningful changes.
    - verify behavior stayed stable
 
 ### Best next change
-Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, and the first prompt-layer simplification slice have landed, focus on these targeted fixes:
-1. Start thread-first quality maturation with a focused thread-planning / thread-critic pass.
-2. Keep the completed planner/writer and grounding improvements intact while reducing duplicated instruction load.
-3. Preserve specificity and safety while making the prompt stack easier to reason about.
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, and thread-first quality maturation have landed, focus on these targeted fixes:
+1. Start memory/constraint salience follow-through so longer conversations keep the right rules and facts while dropping low-value residue.
+2. Keep the completed planner/writer, grounding, and thread-quality improvements intact while changing persistence behavior.
+3. Preserve specificity and safety while making longer sessions feel less sticky and less repetitive.
 
 ### Safest next implementation step
-Audit the thread path end-to-end across `planner.ts`, `promptBuilders.ts`, `writer.ts`, `critic.ts`, and the thread-specific regressions:
-- identify where planned post roles/proof points still collapse into samey beats
-- tighten critic checks for repeated beats, weak transitions, and soft endings
-- keep the completed grounding/prompt-sharing work intact while improving thread specificity and flow
-- rerun thread-focused regressions plus response/orchestrator suites after each slice
+Audit persistence and salience behavior across `memoryPolicy.ts`, `conversationMemory.ts`, `turnContextBuilder.ts`, and the rolling-summary / constraint tests:
+- identify which constraints, corrections, and style notes should persist versus decay
+- tighten capping and summarization so high-value facts/corrections survive without letting low-signal preferences dominate
+- keep the completed planner, grounding, and thread-quality layers intact while improving long-session context quality
+- rerun response/orchestrator suites after each slice
 
 ### Biggest risk
 When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
@@ -691,6 +696,10 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 18. Prompt-layer simplification step 2 is complete: X-platform prompt rules now live in `xPostPromptRules.ts`, and writer/reviser/critic share that tested contract.
 19. Prompt-layer simplification step 3 is complete: JSON/output contracts now live in `jsonPromptContracts.ts`, and planner/writer/reviser/critic share that tested contract.
 20. Prompt-layer simplification is complete; the next active phase is thread-first quality maturation.
+21. Thread-first quality step 1 is complete: planner-side thread normalization now repairs duplicate beat chains, dedupes proof points across posts, and upgrades weak transition hints before the writer sees the plan.
+22. Thread-first quality step 2 is complete: writer/critic prompts now force stronger role separation in the middle of the thread and reject payoff-as-close endings.
+23. Thread-first quality step 3 is complete: `finalDraftPolicy.ts` now collapses obviously samey adjacent thread posts, including closes that only repeat the payoff.
+24. Thread-first quality step 4 is complete: the planner, writer, critic, and final-policy layers were revalidated together with thread-focused and orchestrator-level regression coverage.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)

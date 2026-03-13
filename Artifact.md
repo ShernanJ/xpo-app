@@ -31,8 +31,12 @@
   - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, which removes duplicated factual-authority / voice-context instructions from planner, reviser, and critic prompt strings.
   - Shared X-platform prompt rules now live in `apps/web/lib/agent-v2/agents/xPostPromptRules.ts`, which centralizes thread-framing guidance plus X-specific markdown / verification-tone / CTA hygiene rules across drafting, revision, and critique.
   - Shared JSON/output-contract prompt assembly now lives in `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts`, which centralizes parse-critical response schemas across planner, writer, reviser, and critic prompts.
+  - Thread planning now has a stronger default cadence contract: `plannerNormalization.ts` repairs duplicate/missing thread roles into a cleaner arc, dedupes proof points across posts, and upgrades low-signal transition hints so the writer gets more distinct beats.
+  - Thread writer/critic guidance is stricter now: the writer prompt explicitly tells each role to earn its slot, forbids close posts from just paraphrasing the payoff, and the critic now rejects flat middle beats plus payoff-as-close endings.
+  - Final thread output now has a runtime cleanup pass in `apps/web/lib/agent-v2/core/finalDraftPolicy.ts`: obviously samey adjacent posts can be collapsed before delivery, which helps remove repeated middle beats and close posts that only restate the payoff.
   - `draftPipeline.ts` import/type drift was cleaned up after the modular plan-pitch/planner work: the file now imports from the correct modular sources, uses typed pipeline args instead of `any`, and is lint-clean again.
   - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots both the stronger thread-beat writer requirements and the shared grounding/platform prompt contracts so future prompt edits do not quietly drift by surface refactors.
+  - `apps/web/lib/agent-v2/core/finalDraftPolicy.test.mjs` now covers repeated-payoff closes and obviously samey adjacent middle posts so the final output cleanup stays locked in.
   - `apps/web/lib/agent-v2/agents/llm.ts` now retries once when OpenAI-proxied reasoning models return reasoning with empty message content, which reduces false "failed to write draft" errors on otherwise valid turns.
 
 ## 2. What Needs to Be Done (Future Plan)
@@ -66,6 +70,7 @@
    - refine writer execution of thread beats
    - refine critic checks for thread coherence
    - rerun thread-focused regressions/evals
+   - Status: completed. Planner-side normalization now repairs weak thread arcs before writing, writer/critic prompts enforce distinct middle beats plus real closes, `finalDraftPolicy.ts` removes obviously samey adjacent posts at delivery time, and the thread-focused regression sweep is green end to end.
 5. **Memory/constraint salience follow-through (3 steps)**
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
@@ -89,4 +94,7 @@
 - **Grounding Prompt Copy Is Now Shared**: If you need to change how factual authority, voice-context hints, unknowns, or source-material detail lines are described to agents, update `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts` instead of duplicating copy across planner/reviser/critic strings.
 - **X Platform Prompt Rules Are Now Shared**: If you need to change thread-framing wording or X-specific markdown / CTA / verification-tone rules, update `apps/web/lib/agent-v2/agents/xPostPromptRules.ts` instead of drifting separate copies in writer, reviser, or critic.
 - **JSON Output Contracts Are Now Shared**: If you need to change parse-critical response schemas, update `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts` instead of editing separate inline JSON blocks in planner, writer, reviser, or critic prompts.
+- **Thread Plan Cadence Now Self-Repairs**: `apps/web/lib/agent-v2/core/plannerNormalization.ts` is now responsible for correcting weak role order, repeated proof beats, and low-signal transitions in thread plans before they reach the writer.
+- **Final Thread Output Also Self-Cleans**: `apps/web/lib/agent-v2/core/finalDraftPolicy.ts` now does a last-pass cleanup for obviously samey adjacent thread posts, so repeated payoff-as-close endings can be removed even if generation slips.
+- **Thread-first Quality Phase Is Done**: Planner, writer, critic, and final-policy layers now reinforce the same thread arc, so the next major focus should shift to memory/constraint salience instead of more thread plumbing.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

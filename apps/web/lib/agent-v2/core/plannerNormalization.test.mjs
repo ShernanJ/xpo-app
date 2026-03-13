@@ -61,7 +61,7 @@ test("normalizePlannerOutput trims thread plans to six posts and cleans proof po
   assert.equal(result.posts.length, 6);
   assert.deepEqual(result.posts[0].proofPoints, ["point a", "point b"]);
   assert.deepEqual(result.posts[3].proofPoints, ["fact 3", "fact 4"]);
-  assert.equal(result.posts[0].transitionHint, "move to setup");
+  assert.equal(result.posts[0].transitionHint, "set up context");
   assert.equal(result.posts[5].transitionHint, null);
 });
 
@@ -101,4 +101,57 @@ test("normalizePlannerOutput drops meta proof points and objective duplicates", 
   assert.deepEqual(result.posts[1].proofPoints, [
     "one concrete change fixed the rollout",
   ]);
+});
+
+test("normalizePlannerOutput repairs duplicate thread beats into a clean arc", () => {
+  const result = normalizePlannerOutput({
+    objective: "thread objective",
+    angle: "thread angle",
+    targetLane: "original",
+    mustInclude: [],
+    mustAvoid: [],
+    hookType: "direct",
+    pitchResponse: "lead with the real shift",
+    posts: [
+      {
+        role: "hook",
+        objective: "open on the first leadership shift",
+        proofPoints: ["the first team handoff changed everything"],
+        transitionHint: "next proof",
+      },
+      {
+        role: "proof",
+        objective: "show the same shift again",
+        proofPoints: ["the first team handoff changed everything", "the first sprint changed the pace"],
+        transitionHint: "proof",
+      },
+      {
+        role: "proof",
+        objective: "show the same shift again",
+        proofPoints: ["the next delegation unlocked focus"],
+        transitionHint: "payoff",
+      },
+      {
+        role: "payoff",
+        objective: "show the same shift again",
+        proofPoints: ["delegation became the growth lever"],
+        transitionHint: "close",
+      },
+      {
+        role: "payoff",
+        objective: "show the same shift again",
+        proofPoints: ["ask what they still own"],
+        transitionHint: "close",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.posts.map((post) => post.role),
+    ["hook", "setup", "proof", "payoff", "close"],
+  );
+  assert.deepEqual(result.posts[1].proofPoints, ["the first sprint changed the pace"]);
+  assert.equal(result.posts[1].transitionHint, "show the next delegation unlocked focus");
+  assert.equal(result.posts[4].transitionHint, null);
+  assert.match(result.posts[4].objective, /close on/i);
 });

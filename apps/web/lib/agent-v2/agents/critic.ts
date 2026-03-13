@@ -137,8 +137,10 @@ T1. A thread MUST contain at least 3 posts separated by ---. If fewer, add missi
 T2. REJECT "chopped essay" pattern: each post must carry a DISTINCT beat (hook, setup, proof, turn, payoff, close). If two consecutive posts say nearly the same thing with different wording, merge or rewrite.
 T3. The first post (hook) must create curiosity or tension. It must NOT summarize the entire thread.
 T4. Check for transitions: there should be a clear connection between consecutive posts. If a post feels disconnected, add a bridge.
+T4a. Middle posts must introduce new information or movement. If a setup/proof/turn post mainly rephrases the previous beat, rewrite it to add a distinct reason to exist.
 T5. Check for repeated hooks: the opening framing should NOT reappear verbatim in later posts.
 T6. The final post must feel like a deliberate ending (takeaway, punchline, or call to action), not a trail-off.
+T6a. The final post must add a fresh closing move. If it only restates the payoff in slightly different words, rewrite it into a sharper ending.
 T7. Each post should be self-contained enough to make sense on its own in a timeline, while still advancing the thread narrative.
 ` : ""}
 

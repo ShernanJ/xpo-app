@@ -603,6 +603,78 @@ function normalizeThreadDraftFormatting(
   return normalizedPosts.join("\n\n---\n\n");
 }
 
+function normalizeThreadComparisonText(value: string): string {
+  return stripThreadNumberingMarker(value)
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function computeThreadPostSimilarity(left: string, right: string): number {
+  const leftTokens = Array.from(
+    new Set(
+      normalizeThreadComparisonText(left)
+        .split(" ")
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 4),
+    ),
+  );
+  const rightTokens = Array.from(
+    new Set(
+      normalizeThreadComparisonText(right)
+        .split(" ")
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 4),
+    ),
+  );
+
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+
+  const rightTokenSet = new Set(rightTokens);
+  const overlap = leftTokens.filter((token) => rightTokenSet.has(token)).length;
+  return overlap / Math.max(1, Math.min(leftTokens.length, rightTokens.length));
+}
+
+function collapseSameyThreadPosts(draft: string): string {
+  const posts = draft
+    .split(/\n\s*---\s*\n/g)
+    .map((post) => post.trim())
+    .filter(Boolean);
+
+  if (posts.length <= 3) {
+    return draft.trim();
+  }
+
+  const keptPosts: string[] = [];
+
+  for (const post of posts) {
+    const previous = keptPosts[keptPosts.length - 1];
+    if (!previous) {
+      keptPosts.push(post);
+      continue;
+    }
+
+    const similarity = computeThreadPostSimilarity(previous, post);
+    const isNearDuplicate = similarity >= 0.7;
+
+    if (isNearDuplicate && keptPosts.length >= 2) {
+      continue;
+    }
+
+    keptPosts.push(post);
+  }
+
+  if (keptPosts.length <= 1) {
+    return draft.trim();
+  }
+
+  return keptPosts.join("\n\n---\n\n").trim();
+}
+
 function normalizeNonThreadSerializedDraft(
   draft: string,
   formatPreference: "shortform" | "longform",
@@ -718,7 +790,11 @@ export function applyFinalDraftPolicyWithReport(args: {
     formatPreference === "thread"
       ? normalizeThreadDraftFormatting(withStyle, args.threadFramingStyle)
       : withStyle;
-  const finalDraft = trimToXCharacterLimit(withThreadFormatting, shortformFirstLimit);
+  const withThreadDeduped =
+    formatPreference === "thread"
+      ? collapseSameyThreadPosts(withThreadFormatting)
+      : withThreadFormatting;
+  const finalDraft = trimToXCharacterLimit(withThreadDeduped, shortformFirstLimit);
 
   return {
     draft: finalDraft,
@@ -727,7 +803,7 @@ export function applyFinalDraftPolicyWithReport(args: {
       engagementAdjusted: withBetterCta !== withResolvedFormat,
       styleAdjusted:
         withResolvedFormat !== withNoMarkdown || withThreadFormatting !== withCasing,
-      trimmed: finalDraft !== withThreadFormatting,
+      trimmed: finalDraft !== withThreadDeduped,
     },
   };
 }

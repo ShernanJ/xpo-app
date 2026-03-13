@@ -313,6 +313,11 @@ Roles to choose from:
 
 Rules for thread planning:
 - 3 to 6 posts. Default to 4 or 5 unless the material clearly earns 6.
+- Default role cadence:
+  - 3 posts: hook -> proof -> close
+  - 4 posts: hook -> setup -> payoff -> close
+  - 5 posts: hook -> setup -> proof -> payoff -> close
+  - 6 posts: hook -> setup -> proof -> turn -> payoff -> close
 - Each post must carry ONE clear beat, not a compressed summary or catch-all bucket.
 - Each "proofPoints" array should contain 1 to 2 specific points, not every sub-idea from the whole thread.
 - Proof points must be concrete evidence, scenes, constraints, examples, or sharp claims from the request/grounding. Do NOT use meta reminders like "be specific", "make it clear", or "keep it engaging" as proof points.
@@ -321,6 +326,7 @@ Rules for thread planning:
 - transitionHint should explain how the next post earns its place. Use null only for the last post.
 - Do NOT plan an essay that will be chopped into posts.
 - Do NOT repeat the same proof point, hook framing, or payoff line across multiple posts.
+- The close must feel like a distinct ending move. Do NOT use the close to simply restate the payoff with slightly different wording.
 `.trim();
 }
 
@@ -543,7 +549,7 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
                 : ""
             }`,
         )
-        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.`
+        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nRole execution rules:\n- HOOK: open a loop with one real tension, contradiction, stake, or scene. Do NOT summarize the full thread.\n- SETUP: frame the context or problem so the next post earns its place.\n- PROOF: introduce a new fact, example, observation, or consequence. Do NOT restate the previous post with fresher wording.\n- TURN: change the frame, reveal the catch, or sharpen the contrast.\n- PAYOFF: land the earned takeaway the reader came for. It should feel more decisive than the earlier posts.\n- CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.\nIf two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.`
     : null;
 
   const strategyLayer = `
