@@ -64,9 +64,26 @@
 - **Abrupt draft endings now get cleaned up before delivery:**
   - `apps/web/lib/agent-v2/agents/draftCompletion.ts` now trims common dangling conjunction fragments like `..., and sugge` before the critic returns the final draft.
   - The same cleanup now trims short broken tail clauses after commas or dashes, so fragments like `algorithms shift, noise r` get clipped before delivery too.
+  - The abrupt-ending cleanup now also trims unfinished trailing question stubs like `what habit gives you`, while preserving the punctuation on the last complete sentence.
+  - The critic now strips unfinished prompt-echo tails when a post starts parroting the selected idea/question back into the ending, such as a draft tail like `what's the toughest` after a selected-angle prompt.
   - Standalone posts now also strip thread-style lead labels like `thread:` / `post 1:` / `tweet 1:` before delivery, which stops shortform drafts from looking serialized when the writer leaks thread framing into the opener.
   - Direct regression coverage now exists in `apps/web/lib/agent-v2/agents/critic.test.mjs`.
   - `test:v2-orchestrator`, `test:v2-response-quality`, and `pnpm build` are green after the change.
+- **Selected ideation picks now flow into post drafting more cleanly:**
+  - `apps/web/app/api/creator/v2/chat/route.ts` now passes the chosen angle text itself into the backend instead of wrapping it in `Turn the following angle into a draft: ...`.
+  - `draftPipeline.ts` now uses cleaner clarification wording for question-shaped selected angles, so the no-fabrication follow-up asks whether to ground it in build experience or keep it as a plain product point instead of echoing synthetic prompt wrappers back to the user.
+  - `promptBuilders.ts` now explicitly tells the writer to treat question briefs as problems to answer, not as text to paste back into the draft or trail off from.
+- **Selected ideation picks now carry a stronger hidden drafting brief:**
+  - `apps/web/lib/agent-v2/orchestrator/selectedAnglePrompt.ts` now builds internal prompts for chosen angles, so question-shaped picks become briefs like `draft a post that directly answers this question...` instead of going into the generator as raw question text.
+  - `apps/web/app/chat/page.tsx` now sends that richer hidden prompt while still rendering the visible user turn as the quoted chosen angle, which preserves the UX but gives the planner/writer more context to reason over before drafting.
+  - The same shared helper also strips those wrappers back out for user-facing clarification copy and prompt-echo cleanup, so better internal prompting does not leak synthetic phrasing back into the chat.
+- **Typed turn normalization now sits in front of reply parsing and orchestration:**
+  - Shared turn-contract types now live in `apps/web/lib/agent-v2/contracts/turnContract.ts`.
+  - `apps/web/app/api/creator/v2/chat/turnNormalization.ts` now converts overloaded request fields into a normalized turn contract before any reply parsing or orchestration runs.
+  - Structured UI actions now send explicit `turnSource` / `artifactContext` payloads from `apps/web/app/chat/page.tsx` for ideation picks, draft actions, and reply option selections.
+  - Selected-angle reasoning now happens server-side: the client no longer fabricates hidden drafting prompts, and the route now passes a clean user-facing `userMessage` plus separate internal `planSeedMessage` into the orchestrator.
+  - Reply parsing now only runs for normalized `free_text` turns, while ideation picks, draft actions, and structured reply actions bypass it by contract instead of scattered special cases.
+  - Routing diagnostics now include normalized turn metadata (`turnSource`, `artifactKind`, `planSeedSource`, `replyHandlingBypassedReason`, `resolvedWorkflow`) through `RoutingTrace`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -155,6 +172,8 @@
 - **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
 - **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
 - **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
+- **Turn normalization is now the chat boundary to preserve**: `turnNormalization.ts` is the first place to extend when you add a new structured UI action. Do not reintroduce route-level workflow guessing from raw `message` if a new action can be modeled as `turnSource + artifactContext`.
+- **Legacy request shims are temporary**: The route still accepts `selectedAngle` / `selectedDraftContext` during migration, but those fields are normalized immediately and should not be the shape new UI actions rely on.
 - **Draft-Pipeline Helper Logic Is Now Shared Again**: `conversationManager.ts` now consumes the helper cluster from `draftPipelineHelpers.ts` instead of keeping a second copy. If you need to change clarification/topic-seed/draft-preference heuristics, update the shared helper module rather than reintroducing logic into `conversationManager.ts`.
 - **Response Finalization Is Now Shared Too**: `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts` is now the single place to compute `surfaceMode`, `responseShapePlan`, and shaped fast-reply envelopes. If a route crashes on missing response metadata again, fix that shared helper first instead of patching duplicate local finalizers.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

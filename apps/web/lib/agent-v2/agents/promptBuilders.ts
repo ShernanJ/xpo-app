@@ -650,6 +650,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 15. ${buildMarkdownStylingRule("draft")}
 16. ${buildEngagementBaitRule("draft")}
 17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
+17a. If the source brief is phrased as a question, treat it as the problem the post should answer, not as text to paste back into the draft. If you use it as a hook, write the full hook cleanly and answer it. Never end on an unfinished fragment of the source question.
 
 ${buildWriterJsonContract()}
   `.trim();

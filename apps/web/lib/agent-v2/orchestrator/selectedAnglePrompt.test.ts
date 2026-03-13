@@ -1,0 +1,42 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  buildSelectedAngleDraftPrompt,
+  stripSelectedAnglePromptPrefix,
+} from "./selectedAnglePrompt.ts";
+
+test("buildSelectedAngleDraftPrompt frames question angles as answer-the-question briefs", () => {
+  assert.equal(
+    buildSelectedAngleDraftPrompt({
+      angle: "what's the biggest friction you hit when launching a growth tool?",
+      formatHint: "post",
+    }),
+    "draft a post that directly answers this question in the user's voice: what's the biggest friction you hit when launching a growth tool?",
+  );
+});
+
+test("buildSelectedAngleDraftPrompt frames non-question angles as chosen directions", () => {
+  assert.equal(
+    buildSelectedAngleDraftPrompt({
+      angle: "the most underrated part of x growth is consistency",
+      formatHint: "thread",
+    }),
+    "draft a thread from this chosen direction in the user's voice: the most underrated part of x growth is consistency",
+  );
+});
+
+test("stripSelectedAnglePromptPrefix removes legacy and current selected-angle wrappers", () => {
+  assert.equal(
+    stripSelectedAnglePromptPrefix(
+      "draft a post that directly answers this question in the user's voice: what's the biggest friction you hit when launching a growth tool?",
+    ),
+    "what's the biggest friction you hit when launching a growth tool?",
+  );
+  assert.equal(
+    stripSelectedAnglePromptPrefix(
+      "Turn the following angle into a draft: where does this break down in practice?",
+    ),
+    "where does this break down in practice?",
+  );
+});

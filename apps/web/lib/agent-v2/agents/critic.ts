@@ -23,7 +23,11 @@ import {
   trimToXCharacterLimit,
 } from "../../onboarding/draftArtifacts";
 import { applyFinalDraftPolicyWithReport } from "../core/finalDraftPolicy";
-import { repairAbruptEnding, stripThreadishLeadLabel } from "./draftCompletion";
+import {
+  repairAbruptEnding,
+  stripThreadishLeadLabel,
+  stripTrailingPromptEcho,
+} from "./draftCompletion";
 import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
@@ -218,6 +222,17 @@ ${buildCriticJsonContract()}
       nextIssues = [
         ...nextIssues,
         "Cleaned up an abrupt ending.",
+      ];
+    }
+    const promptEchoStrippedDraft = stripTrailingPromptEcho(
+      styleAlignedDraft,
+      options?.sourceUserMessage,
+    );
+    if (promptEchoStrippedDraft !== styleAlignedDraft) {
+      styleAlignedDraft = promptEchoStrippedDraft;
+      nextIssues = [
+        ...nextIssues,
+        "Removed a trailing prompt echo from the draft.",
       ];
     }
     if (formatPreference !== "thread") {

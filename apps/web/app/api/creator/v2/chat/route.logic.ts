@@ -1,4 +1,9 @@
 import type { SurfaceMode } from "../../../../../lib/agent-v2/contracts/chat.ts";
+import type {
+  ChatArtifactContext,
+  ChatTurnSource,
+  SelectedDraftContextPayload,
+} from "../../../../../lib/agent-v2/contracts/turnContract.ts";
 import { buildDraftArtifact, buildDraftArtifactTitle, computeXWeightedCharacterCount, type DraftArtifactDetails } from "../../../../../lib/onboarding/draftArtifacts.ts";
 import type { DraftBundleResult } from "../../../../../lib/agent-v2/orchestrator/draftBundles.ts";
 
@@ -166,15 +171,7 @@ function buildDefaultDraftHandoffReply(args: {
   return options[deterministicIndex(args.seed, options.length)];
 }
 
-export interface SelectedDraftContext {
-  messageId: string;
-  versionId: string;
-  content: string;
-  source?: DraftVersionSource;
-  createdAt?: string;
-  maxCharacterLimit?: number;
-  revisionChainId?: string;
-}
+export interface SelectedDraftContext extends SelectedDraftContextPayload {}
 
 interface ActiveDraftLocator {
   messageId: string;
@@ -702,8 +699,18 @@ export function resolveEffectiveExplicitIntent(args: {
 }
 
 export function shouldBypassEmbeddedReplyHandling(args: {
-  selectedDraftContext: SelectedDraftContext | null;
+  selectedDraftContext?: SelectedDraftContext | null;
+  turnSource?: ChatTurnSource | null;
+  artifactContext?: ChatArtifactContext | null;
 }): boolean {
+  if (args.turnSource && args.turnSource !== "free_text") {
+    return true;
+  }
+
+  if (args.artifactContext) {
+    return true;
+  }
+
   return Boolean(args.selectedDraftContext);
 }
 

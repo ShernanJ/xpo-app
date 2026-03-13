@@ -15,8 +15,14 @@ export interface TurnContext {
   runId: string | undefined;
   threadId: string | undefined;
   userMessage: string;
+  planSeedMessage: string | null;
   recentHistory: string;
   activeDraft: string | undefined;
+  turnSource: OrchestratorInput["turnSource"];
+  artifactContext: OrchestratorInput["artifactContext"];
+  planSeedSource: OrchestratorInput["planSeedSource"];
+  resolvedWorkflow: OrchestratorInput["resolvedWorkflow"];
+  replyHandlingBypassedReason: OrchestratorInput["replyHandlingBypassedReason"];
   formatPreference: OrchestratorInput["formatPreference"];
   threadFramingStyle: OrchestratorInput["threadFramingStyle"];
   explicitIntent: OrchestratorInput["explicitIntent"];
@@ -50,9 +56,15 @@ export async function buildTurnContext(
     runId,
     threadId,
     userMessage,
+    planSeedMessage,
     recentHistory,
     explicitIntent,
     activeDraft,
+    turnSource,
+    artifactContext,
+    planSeedSource,
+    resolvedWorkflow,
+    replyHandlingBypassedReason,
     formatPreference,
     threadFramingStyle,
     creatorProfileHints: inputCreatorProfileHints,
@@ -137,8 +149,14 @@ export async function buildTurnContext(
     runId,
     threadId,
     userMessage,
+    planSeedMessage: planSeedMessage ?? null,
     recentHistory,
     activeDraft,
+    turnSource,
+    artifactContext,
+    planSeedSource,
+    resolvedWorkflow,
+    replyHandlingBypassedReason,
     formatPreference,
     threadFramingStyle,
     explicitIntent,

@@ -34,6 +34,11 @@ export async function resolveRoutingPolicy(
     recentHistory,
     explicitIntent,
     activeDraft,
+    turnSource,
+    artifactContext,
+    planSeedSource,
+    resolvedWorkflow,
+    replyHandlingBypassedReason,
     memory,
     turnPlan,
     runId,
@@ -45,6 +50,13 @@ export async function resolveRoutingPolicy(
   } = context;
 
   const routingTrace: RoutingTrace = {
+    normalizedTurn: {
+      turnSource: turnSource || "free_text",
+      artifactKind: artifactContext?.kind || null,
+      planSeedSource: planSeedSource || null,
+      replyHandlingBypassedReason: replyHandlingBypassedReason || null,
+      resolvedWorkflow: resolvedWorkflow || null,
+    },
     turnPlan: turnPlan
       ? {
           userGoal: turnPlan.userGoal,

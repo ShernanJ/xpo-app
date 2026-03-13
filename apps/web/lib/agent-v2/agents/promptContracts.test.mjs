@@ -206,6 +206,12 @@ test("planner and writer prompts surface hard factual grounding for product asks
   );
   assert.equal(
     promptSource.includes(
+      "If the source brief is phrased as a question, treat it as the problem the post should answer, not as text to paste back into the draft.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
       'Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels',
     ),
     true,

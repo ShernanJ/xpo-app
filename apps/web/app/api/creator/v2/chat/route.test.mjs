@@ -14,6 +14,7 @@ import {
   resolveEffectiveExplicitIntent,
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
+import { normalizeChatTurn } from "./turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
 
@@ -42,6 +43,27 @@ test("selected draft revisions bypass embedded reply handling", () => {
   assert.equal(
     shouldBypassEmbeddedReplyHandling({
       selectedDraftContext,
+    }),
+    true,
+  );
+});
+
+test("structured ideation picks bypass embedded reply handling by turn source instead of draft context", () => {
+  const normalized = normalizeChatTurn({
+    body: {
+      turnSource: "ideation_pick",
+      artifactContext: {
+        kind: "selected_angle",
+        angle: "what's one habit that changed your x growth?",
+        formatHint: "post",
+      },
+    },
+  });
+
+  assert.equal(
+    shouldBypassEmbeddedReplyHandling({
+      turnSource: normalized.source,
+      artifactContext: normalized.artifactContext,
     }),
     true,
   );

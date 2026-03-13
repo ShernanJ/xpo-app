@@ -32,6 +32,11 @@ import {
   buildDraftReviewLoadingLabel,
   buildDraftReviewPrompt,
 } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
+import type {
+  ChatArtifactContext,
+  ChatTurnSource,
+  SelectedAngleFormatHint,
+} from "@/lib/agent-v2/contracts/turnContract";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
@@ -6970,7 +6975,8 @@ function ChatPageContent() {
       appendUserMessage: boolean;
       displayUserMessage?: string;
       includeUserMessageInHistory?: boolean;
-      selectedAngle?: string | null;
+      turnSource?: ChatTurnSource;
+      artifactContext?: ChatArtifactContext | null;
       intent?: ChatIntent;
       formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
       threadFramingStyleOverride?: ThreadFramingStyle | null;
@@ -7005,6 +7011,16 @@ function ChatPageContent() {
         selectedDraftContext && trimmedPrompt
           ? inferSelectedDraftAction(trimmedPrompt)
           : "ignore";
+      const effectiveTurnSource =
+        options.turnSource ??
+        (options.artifactContext?.kind === "selected_angle"
+          ? "ideation_pick"
+          : options.artifactContext?.kind === "draft_selection"
+            ? "draft_action"
+            : options.artifactContext?.kind === "reply_option_select" ||
+                options.artifactContext?.kind === "reply_confirmation"
+              ? "reply_action"
+              : "free_text");
       const effectiveIntent =
         options.intent ??
         (selectedDraftContext && selectedDraftAction === "revise" ? "edit" : undefined);
@@ -7012,12 +7028,13 @@ function ChatPageContent() {
         options.selectedDraftContextOverride !== undefined
           ? options.selectedDraftContextOverride
           : selectedDraftContext &&
-            !options.selectedAngle &&
+            options.artifactContext?.kind !== "selected_angle" &&
             (effectiveIntent === "edit" || effectiveIntent === "review")
             ? selectedDraftContext
             : null;
       const hasStructuredIntent =
-        !!options.selectedAngle ||
+        effectiveTurnSource !== "free_text" ||
+        !!options.artifactContext ||
         (effectiveIntent === "coach" &&
           (!trimmedPrompt || !!resolvedContentFocus)) ||
         ((effectiveIntent === "ideate" || effectiveIntent === "coach") &&
@@ -7064,6 +7081,10 @@ function ChatPageContent() {
             history,
             provider: providerPreference,
             stream: true,
+            turnSource: effectiveTurnSource,
+            ...(options.artifactContext
+              ? { artifactContext: options.artifactContext }
+              : {}),
             intent: effectiveIntent,
             ...(options.formatPreferenceOverride
               ? { formatPreference: options.formatPreferenceOverride }
@@ -7072,7 +7093,6 @@ function ChatPageContent() {
               ? { threadFramingStyle: options.threadFramingStyleOverride }
               : {}),
             ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
-            selectedAngle: options.selectedAngle ?? null,
             ...(effectiveSelectedDraftContext
               ? { selectedDraftContext: effectiveSelectedDraftContext }
               : {}),
@@ -7145,7 +7165,7 @@ function ChatPageContent() {
                   ? data.data.quickReplies
                   : current.length === 0 &&
                     !trimmedPrompt &&
-                    !options.selectedAngle
+                    options.artifactContext?.kind !== "selected_angle"
                     ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                     : undefined,
             },
@@ -7301,7 +7321,7 @@ function ChatPageContent() {
                 ? streamedResult.quickReplies
                 : current.length === 0 &&
                   !trimmedPrompt &&
-                  !options.selectedAngle
+                  options.artifactContext?.kind !== "selected_angle"
                   ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
                   : undefined,
           },
@@ -7424,6 +7444,20 @@ function ChatPageContent() {
       await requestAssistantReply({
         prompt,
         appendUserMessage: true,
+        turnSource: "draft_action",
+        artifactContext: {
+          kind: "draft_selection",
+          action: "edit",
+          selectedDraftContext: {
+            messageId,
+            versionId: selectedVersion.id,
+            content: selectedVersion.content,
+            source: selectedVersion.source,
+            createdAt: selectedVersion.createdAt,
+            maxCharacterLimit: selectedVersion.maxCharacterLimit,
+            revisionChainId,
+          },
+        },
         intent: "edit",
         ...(threadFramingStyleOverride || currentThreadFramingStyle
           ? {
@@ -7470,6 +7504,20 @@ function ChatPageContent() {
       await requestAssistantReply({
         prompt: buildThreadFramingRevisionPrompt(style),
         appendUserMessage: true,
+        turnSource: "draft_action",
+        artifactContext: {
+          kind: "draft_selection",
+          action: "edit",
+          selectedDraftContext: {
+            messageId: selectedDraftMessage.id,
+            versionId: selectedDraftVersion.id,
+            content: selectedDraftVersion.content,
+            source: selectedDraftVersion.source,
+            createdAt: selectedDraftVersion.createdAt,
+            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+            revisionChainId,
+          },
+        },
         intent: "edit",
         threadFramingStyleOverride: style,
         selectedDraftContextOverride: {
@@ -7571,7 +7619,7 @@ function ChatPageContent() {
   ]);
 
   const handleAngleSelect = useCallback(
-    async (angle: string) => {
+    async (angle: string, formatHint: SelectedAngleFormatHint) => {
       if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
         return;
       }
@@ -7580,9 +7628,13 @@ function ChatPageContent() {
         prompt: "",
         displayUserMessage: `> ${angle}`,
         includeUserMessageInHistory: false,
-        selectedAngle: angle,
+        turnSource: "ideation_pick",
+        artifactContext: {
+          kind: "selected_angle",
+          angle,
+          formatHint,
+        },
         appendUserMessage: true,
-        intent: "draft",
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
         contentFocusOverride: activeContentFocus,
@@ -7604,9 +7656,14 @@ function ChatPageContent() {
       }
 
       await requestAssistantReply({
-        prompt: `go with option ${optionIndex + 1}`,
+        prompt: "",
         displayUserMessage: `> option ${optionIndex + 1}`,
         includeUserMessageInHistory: false,
+        turnSource: "reply_action",
+        artifactContext: {
+          kind: "reply_option_select",
+          optionIndex,
+        },
         appendUserMessage: true,
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
@@ -7675,6 +7732,7 @@ function ChatPageContent() {
     await requestAssistantReply({
       prompt: trimmedInput,
       appendUserMessage: true,
+      turnSource: "free_text",
       strategyInputOverride: activeStrategyInputs,
       toneInputOverride: activeToneInputs,
       contentFocusOverride: activeContentFocus,
@@ -7707,6 +7765,7 @@ function ChatPageContent() {
       await requestAssistantReply({
         prompt: trimmedPrompt,
         appendUserMessage: true,
+        turnSource: "free_text",
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,
         contentFocusOverride: activeContentFocus,
@@ -9541,11 +9600,14 @@ function ChatPageContent() {
                                 const premise = isStructured ? (angle as Record<string, string>).premise : null;
                                 const format = isStructured ? (angle as Record<string, string>).format : null;
 
+                                const selectedAngleFormatHint: SelectedAngleFormatHint =
+                                  /\bthread directions\b/i.test(message.content) ? "thread" : "post";
+
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      void handleAngleSelect(title);
+                                      void handleAngleSelect(title, selectedAngleFormatHint);
                                     }}
                                     key={`${message.id}-angle-${index}`}
                                     className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"

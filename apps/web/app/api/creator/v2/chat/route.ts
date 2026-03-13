@@ -48,10 +48,9 @@ import {
   normalizeDraftPayload,
   parseSelectedDraftContext,
   resolveSelectedDraftContextFromHistory,
-  resolveEffectiveExplicitIntent,
-  shouldBypassEmbeddedReplyHandling,
   type SelectedDraftContext,
 } from "./route.logic";
+import { normalizeChatTurn } from "./turnNormalization";
 import type { DraftBundleResult } from "@/lib/agent-v2/orchestrator/draftBundles";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
@@ -86,6 +85,8 @@ interface CreatorChatRequest extends Record<string, unknown> {
   runId?: unknown;
   message?: unknown;
   history?: unknown;
+  turnSource?: unknown;
+  artifactContext?: unknown;
   intent?: unknown;
   selectedAngle?: unknown;
   contentFocus?: unknown;
@@ -472,9 +473,7 @@ export async function POST(request: NextRequest) {
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
   // If no threadId or runId, we will automatically generate a thread below.
 
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-
-  const intent = typeof body.intent === "string" ? body.intent.trim() : "";
+  const normalizedTurn = normalizeChatTurn({ body });
   const formatPreference =
     body.formatPreference === "shortform" ||
     body.formatPreference === "longform" ||
@@ -482,9 +481,8 @@ export async function POST(request: NextRequest) {
       ? body.formatPreference
       : null;
   const threadFramingStyle = resolveThreadFramingStyle(body.threadFramingStyle);
-  const selectedAngle = typeof body.selectedAngle === "string" ? body.selectedAngle.trim() : "";
-  const contentFocus = typeof body.contentFocus === "string" ? body.contentFocus.trim() : "";
-  let selectedDraftContext = parseSelectedDraftContext(body.selectedDraftContext);
+  let selectedDraftContext =
+    normalizedTurn.selectedDraftContext ?? parseSelectedDraftContext(body.selectedDraftContext);
   const structuredReplyContext =
     body.replyContext && typeof body.replyContext === "object" && !Array.isArray(body.replyContext)
       ? (body.replyContext as {
@@ -503,25 +501,12 @@ export async function POST(request: NextRequest) {
     body.preferenceSettings && typeof body.preferenceSettings === "object" && !Array.isArray(body.preferenceSettings)
       ? (body.preferenceSettings as Partial<UserPreferences>)
       : null;
-
-  const effectiveMessage = (() => {
-    if (message) return message;
-    if (intent === "draft" && selectedAngle) {
-      return `Turn the following angle into a draft: ${selectedAngle}`;
-    }
-    if (intent === "coach" || intent === "ideate") {
-      if (contentFocus) {
-        return `I want to focus on ${contentFocus}. Help me find one concrete moment worth turning into a post.`;
-      }
-      if (intent === "coach") {
-        return "Help me find one concrete moment worth turning into a post.";
-      }
-    }
-    if (selectedAngle) {
-      return `Use the selected angle as the primary direction: ${selectedAngle}`;
-    }
-    return "";
-  })();
+  const routeUserMessage =
+    normalizedTurn.message ||
+    (normalizedTurn.artifactContext?.kind === "selected_angle"
+      ? normalizedTurn.artifactContext.angle
+      : normalizedTurn.transcriptMessage);
+  const effectiveMessage = normalizedTurn.orchestrationMessage;
 
   if (!effectiveMessage) {
     return NextResponse.json(
@@ -691,10 +676,7 @@ export async function POST(request: NextRequest) {
     ]),
   );
 
-  const effectiveExplicitIntent = resolveEffectiveExplicitIntent({
-    intent,
-    selectedDraftContext,
-  });
+  const effectiveExplicitIntent = normalizedTurn.explicitIntent;
   const turnCreditCost = resolveChatTurnCreditCost({
     explicitIntent: effectiveExplicitIntent,
     message: effectiveMessage,
@@ -783,15 +765,18 @@ export async function POST(request: NextRequest) {
         data: {
           threadId: storedThread.id,
           role: "user",
-          content: effectiveMessage,
+          content: normalizedTurn.transcriptMessage || routeUserMessage,
           data: {
-            version: "user_context_v1",
+            version: "user_context_v2",
             explicitIntent: effectiveExplicitIntent,
+            turnSource: normalizedTurn.source,
+            artifactContext: normalizedTurn.artifactContext,
+            routingDiagnostics: normalizedTurn.diagnostics,
             formatPreference,
             threadFramingStyle,
             selectedDraftContext,
             replyContext: structuredReplyContext,
-          } as Prisma.InputJsonValue,
+          } as unknown as Prisma.InputJsonValue,
         }
       });
       threadMessages = await prisma.chatMessage.findMany({
@@ -844,21 +829,32 @@ export async function POST(request: NextRequest) {
       growthPayloadForReply
         ? growthPayloadForReply.replyInsights
         : null;
-    const shouldBypassReplyHandling = shouldBypassEmbeddedReplyHandling({
-      selectedDraftContext,
-    });
+    const shouldBypassReplyHandling = !normalizedTurn.shouldAllowReplyHandling;
     const replyParseResult = shouldBypassReplyHandling
       ? { classification: "plain_chat" as const, context: null }
       : parseEmbeddedReplyRequest({
           message: effectiveMessage,
           replyContext: structuredReplyContext,
         });
-    const replyContinuation = shouldBypassReplyHandling
-      ? null
-      : resolveReplyContinuation({
-          userMessage: effectiveMessage,
-          activeReplyContext: storedMemory.activeReplyContext,
-        });
+    const structuredReplyContinuation =
+      normalizedTurn.artifactContext?.kind === "reply_option_select"
+        ? {
+            type: "select_option" as const,
+            optionIndex: normalizedTurn.artifactContext.optionIndex,
+          }
+        : normalizedTurn.artifactContext?.kind === "reply_confirmation"
+          ? normalizedTurn.artifactContext.decision === "confirm"
+            ? ({ type: "confirm" as const })
+            : ({ type: "decline" as const })
+          : null;
+    const replyContinuation =
+      structuredReplyContinuation ||
+      (shouldBypassReplyHandling
+        ? null
+        : resolveReplyContinuation({
+            userMessage: effectiveMessage,
+            activeReplyContext: storedMemory.activeReplyContext,
+          }));
     const defaultReplyStage = resolveChatReplyStage(creatorAgentContext);
     const defaultReplyTone = resolveChatReplyTone(body.toneRisk);
     const defaultReplyGoal = resolveChatReplyGoal(body.goal);
@@ -908,6 +904,7 @@ export async function POST(request: NextRequest) {
         outputShape: args.outputShape,
         surfaceMode: args.surfaceMode,
         memory: nextMemory,
+        routingDiagnostics: normalizedTurn.diagnostics,
         threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
         billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
         replyArtifacts: args.replyArtifacts || null,
@@ -1244,10 +1241,17 @@ export async function POST(request: NextRequest) {
       xHandle: storedThread?.xHandle || null, // Pipeline context isolation
       threadId: storedThread?.id,
       runId: storedRun?.id,
-      userMessage: effectiveMessage,
+      userMessage: routeUserMessage,
+      planSeedMessage:
+        effectiveMessage !== routeUserMessage ? effectiveMessage : null,
       recentHistory: recentHistoryStr || "None",
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
+      turnSource: normalizedTurn.source,
+      artifactContext: normalizedTurn.artifactContext,
+      planSeedSource: normalizedTurn.diagnostics.planSeedSource,
+      resolvedWorkflow: normalizedTurn.diagnostics.resolvedWorkflow,
+      replyHandlingBypassedReason: normalizedTurn.diagnostics.replyHandlingBypassedReason,
       formatPreference,
       threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
@@ -1487,6 +1491,7 @@ export async function POST(request: NextRequest) {
       outputShape: result.outputShape,
       surfaceMode: result.surfaceMode,
       memory: result.memory,
+      routingDiagnostics: normalizedTurn.diagnostics,
       replyArtifacts: null,
       replyParse: null,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,

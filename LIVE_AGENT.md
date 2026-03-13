@@ -142,12 +142,26 @@ This section tracks what has already landed so future agents do not accidentally
 - Open-ended asks like `write a post about anything` no longer fast-start into grounded drafting, and bare draft requests now stay off the direct draft path even when saved context exists.
 - `apps/web/lib/agent-v2/agents/draftCompletion.ts` now trims common abrupt dangling endings before delivery, and direct regression coverage lives in `apps/web/lib/agent-v2/agents/critic.test.mjs`.
 - That abrupt-ending cleanup now also trims short broken clause tails after commas or dashes, so fragments like `algorithms shift, noise r` get clipped before the user sees them.
+- That same cleanup now trims unfinished trailing question stubs like `what habit gives you` while preserving the punctuation on the last complete sentence.
+- The critic now also strips unfinished prompt-echo tails when a post starts parroting the selected idea/question back into the ending, such as `what's the toughest` after a selected-angle prompt.
 - Standalone posts now also strip thread-style lead labels like `thread:` / `post 1:` / `tweet 1:` before delivery, so shortform drafts cannot look like serialized threads when the writer leaks thread framing into the opener.
 - A plain `write a post` or `write a thread` without a concrete direction now routes into generated ideation directions instead of auto-drafting from saved context, so the UI gets numbered idea options plus chips instead of a random low-context draft.
 - `draftPipeline.ts` now builds loose ideation prompts in the user's lane for those generic asks and avoids storing generic request text like `write a post` as the topic summary.
 - `ideationReply.ts` now makes the visible lead explicit (`here are a few post directions.` / `here are a few thread directions.`), which makes the numbered ideas easier to scan on the actual app surface.
 - That intercept now runs before the router’s `hasEnoughContextToAct` shortcut, so stale topic summaries or pending-plan state cannot silently force a draft when the user starts a fresh vague ask.
 - `conversationManagerLogic.ts` now explicitly matches the exact phrase `write a post` as a bare draft request, which was the missing real-app phrase that kept earlier ideation guards from firing.
+- Selected ideation picks now flow into drafting with the raw angle text instead of the synthetic wrapper `Turn the following angle into a draft: ...`, which keeps downstream clarification and planning copy cleaner.
+- `draftPipeline.ts` now uses cleaner clarification wording for question-shaped selected angles, asking whether the draft should come from build experience or stay as a plain product point instead of echoing synthetic prompt wrappers back to the user.
+- `promptBuilders.ts` now explicitly tells the writer to answer question briefs instead of pasting them back into the post or trailing off into a fragment of the source question.
+- `apps/web/lib/agent-v2/orchestrator/selectedAnglePrompt.ts` now builds richer hidden drafting briefs for chosen ideation angles, so question-shaped picks go into planning/writing as `draft a post that directly answers this question...` instead of as raw question text.
+- `apps/web/app/chat/page.tsx` now sends that richer hidden prompt while keeping the visible user turn as the quoted chosen angle, which improves internal reasoning without changing the chat UX.
+- That same shared selected-angle helper is now reused by draft cleanup / clarification sanitization, so stronger internal prompts do not leak synthetic wrapper phrasing back into the visible chat.
+- Shared turn-contract types now live in `apps/web/lib/agent-v2/contracts/turnContract.ts`.
+- `apps/web/app/api/creator/v2/chat/turnNormalization.ts` now normalizes overloaded request payloads into one typed turn contract before reply parsing or orchestration runs.
+- The chat client now sends explicit `turnSource` / `artifactContext` payloads for ideation picks, draft actions, and reply option selections instead of trying to encode those actions only through raw text.
+- Selected-angle reasoning is now fully server-side: the route passes a clean user-facing `userMessage` plus a separate internal `planSeedMessage` into the orchestrator.
+- Reply parsing now only runs for normalized `free_text` turns; ideation picks, draft actions, and structured reply actions bypass it by contract instead of by scattered route exceptions.
+- `RoutingTrace` now includes normalized turn diagnostics (`turnSource`, `artifactKind`, `planSeedSource`, `replyHandlingBypassedReason`, `resolvedWorkflow`) so debugging can see workflow ownership from one place.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -179,7 +193,9 @@ This is the current high-level model future agents should use before changing an
 
 ### High-level flow
 User message  
-→ frontend/API assembles request + history + draft context  
+→ frontend/API normalizes UI action into `turnSource + artifactContext`  
+→ route builds one normalized chat turn  
+→ reply parsing only if the normalized turn is literal `free_text`  
 → orchestrator routes the turn  
 → planning / coaching / drafting / revising / critique logic runs  
 → output is shaped / normalized  
@@ -190,7 +206,7 @@ User message
 #### A. API / frontend request assembly
 Responsible for:
 - building recent history
-- assembling prompt context
+- assembling the normalized turn contract
 - passing active draft / previous plan / structured assistant state
 - shaping what the model sees as “conversation”
 
@@ -199,6 +215,9 @@ Bad context assembly can make the assistant feel systemy, repetitive, or over-or
 
 **Current rule:**  
 `recentHistory` should remain natural transcript only. Structured assistant state belongs in `contextPacket`, not in the transcript string.
+
+**Current turn-contract rule:**  
+Literal user text belongs in `message`. Structured UI actions should use `turnSource + artifactContext` and be normalized immediately in `turnNormalization.ts`. Do not reintroduce hidden client-generated prompts as the main workflow signal.
 
 **Workspace-handle rule:**  
 For creator/chat APIs, the explicit workspace handle is authoritative. `session.user.activeXHandle` is only the last-used default for opening a workspace, not the backend identity key for account-scoped context.

@@ -89,6 +89,7 @@ import {
   shouldForceLooseDraftIdeation,
   shouldFastStartGroundedDraft,
 } from "./draftFastStart.ts";
+import { stripSelectedAnglePromptPrefix } from "./selectedAnglePrompt.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine";
 import { evaluateDraftContextSlots } from "./draftContextSlots";
 import {
@@ -181,6 +182,7 @@ export async function executeDraftPipeline(args: {
   const {
     userId,
     userMessage,
+    planSeedMessage,
     recentHistory,
     activeDraft,
     styleCard,
@@ -465,7 +467,7 @@ User Profile Summary:
       ? { referenceLabel: "REFERENCE HINTS" }
       : {}),
   });
-  let draftInstruction = userMessage;
+  let draftInstruction = planSeedMessage || userMessage;
 
   function buildLooseDraftIdeationPrompt(args: {
     formatPreference: DraftFormatPreference;
@@ -567,6 +569,10 @@ User Profile Summary:
     return `i can write this, but i don't want to make up a lesson around ${anchorSummary}. do you want it to land as the funny loss itself, or tie to a takeaway you actually want to make?`;
   }
 
+  function normalizeDraftSourceForUserFacingCopy(sourceUserMessage: string): string {
+    return stripSelectedAnglePromptPrefix(sourceUserMessage);
+  }
+
   function buildGroundedProductClarificationQuestion(sourceUserMessage: string): string {
     if (
       isBareDraftRequest(sourceUserMessage) ||
@@ -575,7 +581,10 @@ User Profile Summary:
       return "i can do that. what should this pull from: a real story, a product point, or a growth lesson?";
     }
 
-    const normalized = sourceUserMessage.trim().replace(/\s+/g, " ");
+    const normalized = normalizeDraftSourceForUserFacingCopy(sourceUserMessage);
+    if (/^(?:what|why|how|when|where|who|which)\b/i.test(normalized) || normalized.endsWith("?")) {
+      return "i can write this, but i need one thing first: should this come from your own build experience, or should i keep it as a plain product point?";
+    }
     return `i can write this, but i don't want to fake a personal usage story around ${normalized}. should i keep it as a plain product claim, or are you speaking from your own use/build experience?`;
   }
 

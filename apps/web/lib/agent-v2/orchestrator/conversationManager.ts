@@ -70,6 +70,12 @@ import type {
   V2ChatOutputShape,
   V2ConversationMemory,
 } from "../contracts/chat";
+import type {
+  ChatArtifactContext,
+  ChatPlanSeedSource,
+  ChatResolvedWorkflow,
+  ChatTurnSource,
+} from "../contracts/turnContract";
 
 export interface OrchestratorInput {
   userId: string;
@@ -77,9 +83,15 @@ export interface OrchestratorInput {
   runId?: string;
   threadId?: string;
   userMessage: string;
+  planSeedMessage?: string | null;
   recentHistory: string;
   explicitIntent?: V2ChatIntent | null;
   activeDraft?: string;
+  turnSource?: ChatTurnSource;
+  artifactContext?: ChatArtifactContext | null;
+  planSeedSource?: ChatPlanSeedSource | null;
+  resolvedWorkflow?: ChatResolvedWorkflow | null;
+  replyHandlingBypassedReason?: string | null;
   formatPreference?: DraftFormatPreference | null;
   threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
@@ -114,6 +126,13 @@ export interface OrchestratorData {
 }
 
 export interface RoutingTrace {
+  normalizedTurn: {
+    turnSource: ChatTurnSource;
+    artifactKind: ChatArtifactContext["kind"] | null;
+    planSeedSource: ChatPlanSeedSource | null;
+    replyHandlingBypassedReason: string | null;
+    resolvedWorkflow: ChatResolvedWorkflow | null;
+  };
   turnPlan: {
     userGoal: string;
     overrideClassifiedIntent: string | null;
