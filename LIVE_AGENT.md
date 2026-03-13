@@ -94,10 +94,19 @@ This section tracks what has already landed so future agents do not accidentally
   3. blank-line paragraph grouping
   4. sentence/word chunking
 - Thread framing inference now recognizes the same numbered marker families used by the fallback splitter.
+- Constraint acknowledgments are isolated in `constraintAcknowledgment.ts` and only offer draft revision when an active draft appears to be in play.
+- `responseShaper.ts` now strips short formulaic opener sentences like `love that.` and `got it.` when they only front-load the real reply.
+- Shared plan-pitch assembly now lives in `apps/web/lib/agent-v2/core/planPitch.ts`.
+- Planner `pitchResponse` text is now normalized before storage/use, and user-visible plan pitches prefer the real plan angle/objective over low-signal stubs like `drafting it.`
+- Shared planner payload normalization now lives in `apps/web/lib/agent-v2/core/plannerNormalization.ts`: deduped include/avoid lists, overlap removal, and thread post cleanup capped to 6 posts.
+- `promptBuilders.ts` now uses a shared requirements block for planning plus sharper thread-beat instructions around per-post proof and transitions.
 
 ### Verification snapshot
 - Green: `test:v2-route`
 - Green: `draftArtifacts.test.mjs`
+- Green: `responseShaper.test.mjs`
+- Green: `planPitch.test.mjs`
+- Green: `plannerNormalization.test.mjs`
 - Green: `test:v2-response-quality`
 - Green: `test:v2-regressions`
 - Green: `test:v2-orchestrator`
@@ -338,10 +347,10 @@ Every meaningful change should update this section.
 
 #### WS-01 — Reduce hardcoded chat feel
 - **Description:** Narrow deterministic responses and shift more conversational turns to model-driven behavior
-- **Files touched:** `chatResponderDeterministic.ts`, `chatResponder.ts`, `conversationManager.ts`, `responseShaper.ts`
+- **Files touched:** `chatResponderDeterministic.ts`, `chatResponder.ts`, `constraintAcknowledgment.ts`, `conversationManager.ts`, `responseShaper.ts`
 - **Owner/agent:** Unassigned
-- **Status:** Backlog
-- **Notes:** High ROI. Likely fastest visible product win.
+- **Status:** In progress
+- **Notes:** Constraint acknowledgments, visible reply shaping, plan-pitch sanitization, and planner payload normalization have landed; the next high-leverage layer is still planner/prompt language and deeper plan-detail quality.
 
 #### WS-02 — Make threads first-class
 - **Description:** Add thread-specific planning, per-post roles, transitions, and thread-aware critique
@@ -598,20 +607,22 @@ Use this checklist after meaningful changes.
 ## 10. Next agent start here
 
 ### Current priority
-**Reduce transcript pollution and improve thread formatting resilience.**
+**Improve planner/prompt quality and keep de-hardcoding visible reply behavior.**
 
 ### Best next change
-Now that the massive orchestrator has been modularized, focus on these targeted fixes:
-1. Stop injecting internal `assistant_context` blocks into the `recentHistory` string in the route layer (Phase 3 item - WS-05).
-2. Add deterministic thread segmentation fallback in `draftArtifacts.ts` if delimiter compliance fails (Issue 8).
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, and plan-pitch sanitization have landed, focus on these targeted fixes:
+1. Tighten planner and prompt-builder instruction blocks so plans are less framework-y and less repetitive.
+2. Improve plan substance before drafting, especially hook choice, proof selection, and thread beat sharpness.
+3. Keep voice grounding and factual grounding separated so specificity improves without invented autobiographical detail.
 
 ### Safest next implementation step
-Audit and fix the transcript injection:
-- `apps/web/app/api/agent-v2/route.logic.ts`
-- Separate the display artifacts from the raw text sent to the LLM.
+Audit `apps/web/lib/agent-v2/agents/promptBuilders.ts` and `apps/web/lib/agent-v2/agents/planner.ts` together:
+- remove repeated instruction blocks that say the same thing in different words
+- tighten thread-planning guidance around per-post proof and transitions
+- keep `pitchResponse` as direct direction language rather than process narration
 
 ### Biggest risk
-When solving transcript injection (WS-05), ensure that the model still receives necessary metadata about previous turns without polluting the conversational tone.
+When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
 
 ### What just changed (2026-03-13)
 0. Refactored the `conversationManager.ts` god file into discrete policy modules (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
@@ -621,14 +632,14 @@ When solving transcript injection (WS-05), ensure that the model still receives 
 4. Safe-framework mode only triggers on very short messages; fallback language softened.
 5. Writer can now selectively reuse user-confirmed facts from historical posts (two-lane policy).
 6. Constraints capped at 12; only explicit declarations stored.
-7. Response shaper no longer strips natural conversation openers.
+7. Response shaper now strips only low-information formulaic openers, not substantive natural openings.
 8. Chat latency hotfix implemented to bypass the heavy `Promise.all` memory orchestration for simple conversational turns.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
-2. `apps/web/app/api/agent-v2/route.logic.ts`
-3. `conversationManager.ts`
-4. `draftArtifacts.ts`
+2. `apps/web/lib/agent-v2/agents/promptBuilders.ts`
+3. `apps/web/lib/agent-v2/agents/planner.ts`
+4. `apps/web/lib/agent-v2/core/planPitch.ts`
 
 ---
 
