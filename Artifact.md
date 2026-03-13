@@ -36,6 +36,10 @@
   - `turnContextBuilder.ts` now scopes persisted memory per turn before routing/planning/drafting consume it, so stale topic summaries, old refinement instructions, lingering ideation angles, and outdated active-draft state stop dominating when the user clearly switches topics.
   - Strong local continuation cues like active-draft edit requests still keep the current draft/plan context intact.
   - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
+- **Architecture follow-through step 1 landed:**
+  - `conversationManager.ts` no longer carries its own duplicate copies of the draft-pipeline helper cluster.
+  - Shared helper behavior such as topic-seed inference, clarification-question building, draft-preference inference, and thread-framing resolution now comes from `apps/web/lib/agent-v2/orchestrator/draftPipelineHelpers.ts` for both the manager and the draft pipeline.
+  - The diagnostic routing-trace flag is now typed on `ConversationalDiagnosticContext` instead of using an `any` escape hatch in `conversationManager.ts`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -98,6 +102,7 @@
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
+   - Status: in progress. Step 1 is complete: duplicated helper logic was removed from `conversationManager.ts` in favor of `draftPipelineHelpers.ts`; the next step should shrink the remaining broad import/service surface in `conversationManager.ts` without changing behavior.
 
 ## 3. Important Information for the Next Agent
 - **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
@@ -123,4 +128,5 @@
 - **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
 - **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
 - **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
+- **Draft-Pipeline Helper Logic Is Now Shared Again**: `conversationManager.ts` now consumes the helper cluster from `draftPipelineHelpers.ts` instead of keeping a second copy. If you need to change clarification/topic-seed/draft-preference heuristics, update the shared helper module rather than reintroducing logic into `conversationManager.ts`.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

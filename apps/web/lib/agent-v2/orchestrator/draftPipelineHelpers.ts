@@ -190,7 +190,48 @@ import type {
 } from "../contracts/chat";
 
 export interface OrchestratorInput {
+  userId: string;
+  xHandle?: string | null;
+  runId?: string;
+  threadId?: string;
+  userMessage: string;
+  recentHistory: string;
+  explicitIntent?: V2ChatIntent | null;
+  activeDraft?: string;
+  formatPreference?: DraftFormatPreference | null;
+  threadFramingStyle?: ThreadFramingStyle | null;
+  preferenceConstraints?: string[];
+  creatorProfileHints?: CreatorProfileHints | null;
+  diagnosticContext?: ConversationalDiagnosticContext | null;
+}
 
+export interface OrchestratorData {
+  angles?: unknown[];
+  plan?: StrategyPlan | null;
+  draft?: string | null;
+  drafts?: string[];
+  draftBundle?: DraftBundleResult | null;
+  supportAsset?: string | null;
+  issuesFixed?: string[];
+  quickReplies?: CreatorChatQuickReply[];
+  voiceTarget?: VoiceTarget | null;
+  noveltyNotes?: string[];
+  threadFramingStyle?: ThreadFramingStyle | null;
+  groundingSources?: GroundingPacketSourceMaterial[];
+  groundingMode?: DraftGroundingMode | null;
+  groundingExplanation?: string | null;
+  autoSavedSourceMaterials?: {
+    count: number;
+    assets: Array<{
+      id: string;
+      title: string;
+      deletable: boolean;
+    }>;
+  };
+  routingTrace?: RoutingTrace;
+}
+
+export interface RoutingTrace {
   turnPlan: {
     userGoal: string;
     overrideClassifiedIntent: string | null;

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import Groq from "groq-sdk";
+import type { ChatCompletionCreateParamsNonStreaming } from "groq-sdk/resources/chat/completions";
 
 let groqClient: Groq | null = null;
 
@@ -34,8 +35,8 @@ function buildParams(
     messages?: LlmCompletionOptions["messages"];
     reasoningEffort?: LlmCompletionOptions["reasoning_effort"];
   },
-): Record<string, unknown> {
-  const params: Record<string, unknown> = {
+): ChatCompletionCreateParamsNonStreaming {
+  const params: ChatCompletionCreateParamsNonStreaming = {
     model: options.model,
     messages: overrides?.messages || options.messages,
     temperature: options.temperature ?? 1,

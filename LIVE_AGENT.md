@@ -130,6 +130,8 @@ This section tracks what has already landed so future agents do not accidentally
 - `turnContextBuilder.ts` now scopes persisted memory per turn before routing/planning/drafting consume it, which drops stale topic summaries, old refinement instructions, lingering ideation angles, and outdated active-draft state when the user clearly switches topics.
 - The freshness gate preserves local continuation cues for active draft/plan follow-ups, so short revision requests like `make it shorter` do not lose the draft context they still depend on.
 - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
+- `conversationManager.ts` no longer keeps its own duplicate copies of the draft-pipeline helper cluster; shared topic-seed, clarification, draft-preference, and thread-framing logic now comes from `apps/web/lib/agent-v2/orchestrator/draftPipelineHelpers.ts`.
+- `ConversationalDiagnosticContext` now explicitly types the optional `includeRoutingTrace` flag, which removes the `any` escape hatch from `conversationManager.ts`.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -432,7 +434,7 @@ Every meaningful change should update this section.
 - **Files touched:** `chatResponder.test.mjs`, `chatResponderDeterministic.ts`, `chatResponder.ts`, `constraintAcknowledgment.ts`, `draftPipeline.ts`
 - **Owner/agent:** Unassigned
 - **Status:** In progress
-- **Notes:** `chatResponder.test.mjs`, `test:v2-orchestrator`, and `draftPipeline.ts` lint are green now; keep folding stale imports/tests into the current modular surfaces as needed.
+- **Notes:** `chatResponder.test.mjs`, `test:v2-orchestrator`, and `draftPipeline.ts` lint are green now. `conversationManager.ts` also dropped its duplicated draft-pipeline helper cluster in favor of `draftPipelineHelpers.ts`; next cleanup should reduce the remaining warning-heavy import/service surface there.
 
 ---
 
@@ -699,17 +701,18 @@ Use this checklist after meaningful changes.
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
+   - Status: in progress. Step 1 is complete: `conversationManager.ts` now reuses `draftPipelineHelpers.ts` instead of keeping duplicate helper logic. Next step should shrink the remaining broad import/service surface in `conversationManager.ts` without changing behavior.
 
 ### Best next change
 Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and memory/constraint salience follow-through have landed, focus on these targeted fixes:
-1. Identify the remaining overloaded boundaries where behavior is still too centralized or hard to reason about.
-2. Move lingering logic into focused modules without re-centralizing behavior back into `conversationManager.ts`.
+1. Reduce the remaining warning-heavy import/service surface in `conversationManager.ts`, especially pieces that are now only there because the file still knows too much about lower-level helpers.
+2. Move the next cohesive boundary into a focused module without re-centralizing behavior back into `conversationManager.ts`.
 3. Preserve the completed product-quality gains while making future changes safer and easier.
 
 ### Safest next implementation step
 Audit the remaining orchestrator-heavy surfaces and helper boundaries:
-- identify logic that still feels misplaced, duplicated, or too broad in `conversationManager.ts`, `draftPipeline.ts`, `routingPolicy.ts`, or adjacent controller helpers
-- choose one focused extraction or cleanup that improves maintainability without changing behavior
+- identify the next cohesive slice inside `conversationManager.ts` that can be removed or rehomed without affecting runtime behavior
+- prefer changes that reduce the current unused-import / oversized-service-surface warnings instead of widening the module boundary again
 - keep the completed planner, grounding, thread-quality, workspace-handle, and memory-salience layers intact while making the architecture safer for future work
 
 ### Biggest risk
@@ -744,6 +747,7 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 25. Memory/constraint salience step 1 is complete: `memorySalience.ts` now normalizes persisted and fallback memory, keeping hard grounding sticky while trimming noisy residue, capping ideation carryover, and tightening rolling summaries.
 26. Memory/constraint salience step 2 is complete: `turnScopedMemory.ts` plus `turnContextBuilder.ts` now drop stale topic-bound residue on strong topic shifts while keeping local draft/plan continuation cues intact.
 27. Memory/constraint salience step 3 is complete: the broader validation sweep stayed green across `test:v2-response-quality`, `test:v2-orchestrator`, and `test:v3-orchestrator`, so the salience/freshness split is now closed out.
+28. Architecture follow-through step 1 is complete: `conversationManager.ts` now reuses the shared helper cluster from `draftPipelineHelpers.ts` instead of keeping duplicate implementations, and the diagnostic routing-trace flag is typed instead of cast through `any`.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)
@@ -803,6 +807,7 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 - Repaired `draftPipeline.ts` imports/types after the modular helper extraction and brought the file back to lint-clean
 - Added shared `memorySalience.ts` and applied it in `memoryStore.ts` / `memoryPolicy.ts` so persisted and fallback memory now share the same salience rules
 - Added shared `turnScopedMemory.ts` and wired it into `turnContextBuilder.ts` so routing/planning/drafting consume fresher per-turn memory instead of blindly inheriting stale topic-bound state
+- Removed the duplicated draft-pipeline helper cluster from `conversationManager.ts` in favor of the shared `draftPipelineHelpers.ts` implementation and typed `includeRoutingTrace` on `ConversationalDiagnosticContext`
 - Targeted validation is green; if full typecheck disagrees later, treat that as separate follow-up instead of assuming this changelog entry reflects current repo-wide type health
 
 ### 2026-03-12

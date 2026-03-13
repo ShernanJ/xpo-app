@@ -124,6 +124,15 @@ function hasConsecutiveDuplicateRoles(posts: NormalizedThreadPostPlan[]): boolea
 }
 
 function resolveTargetThreadRoles(length: number): NormalizedThreadPostPlan["role"][] {
+  const canonicalRoles: NormalizedThreadPostPlan["role"][] = [
+    "hook",
+    "setup",
+    "proof",
+    "turn",
+    "payoff",
+    "close",
+  ];
+
   switch (length) {
     case 3:
       return ["hook", "proof", "close"];
@@ -132,7 +141,7 @@ function resolveTargetThreadRoles(length: number): NormalizedThreadPostPlan["rol
     case 5:
       return ["hook", "setup", "proof", "payoff", "close"];
     default:
-      return ["hook", "setup", "proof", "turn", "payoff", "close"].slice(0, length);
+      return canonicalRoles.slice(0, length);
   }
 }
 

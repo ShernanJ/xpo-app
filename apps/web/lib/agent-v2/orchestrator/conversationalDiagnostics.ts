@@ -10,4 +10,5 @@ export interface ConversationalDiagnosticContext {
   reasons: string[];
   nextActions: string[];
   recommendedPlaybooks?: RecommendedPlaybookSummary[];
+  includeRoutingTrace?: boolean;
 }
