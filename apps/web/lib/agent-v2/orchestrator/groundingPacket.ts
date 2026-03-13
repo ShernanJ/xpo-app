@@ -389,10 +389,17 @@ export function buildGroundingPacket(args: {
 export function addGroundingUnknowns(
   packet: GroundingPacket,
   slots: DraftContextSlots,
+  userMessageLength?: number,
 ): GroundingPacket {
   const unknowns = [...packet.unknowns];
 
+  // Only flag unknowns when the user message is very short and genuinely
+  // lacks detail. Longer messages with any context signal should be draftable
+  // without triggering safe-framework mode.
+  const isVeryThinContext = (userMessageLength ?? 100) < 40;
+
   if (
+    isVeryThinContext &&
     (slots.domainHint === "product" || slots.domainHint === "career") &&
     !slots.behaviorKnown
   ) {
@@ -404,6 +411,7 @@ export function addGroundingUnknowns(
   }
 
   if (
+    isVeryThinContext &&
     (slots.domainHint === "product" || slots.domainHint === "career") &&
     !slots.stakesKnown
   ) {

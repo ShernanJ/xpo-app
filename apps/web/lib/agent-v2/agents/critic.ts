@@ -116,6 +116,16 @@ ${buildFormatPreferenceBlock(formatPreference, "critic")}
 6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.${formatPreference === "thread" ? ` Keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, but do not force verified-account threads into legacy 280-character brevity if a fuller beat reads better.` : ""}
 6a. If this is NOT a thread, the final draft must be exactly one standalone post. Do NOT use standalone --- separators, thread serialization, or multiple-post formatting.
 7. Do NOT allow empty engagement-bait CTAs like "reply 'FOCUS'" or "comment 'X'" unless the reader clearly gets a concrete payoff in return. If there is no payoff, rewrite that CTA into something natural and non-gimmicky.
+${formatPreference === "thread" ? `
+THREAD-SPECIFIC QUALITY CHECKS (MANDATORY FOR THREADS):
+T1. A thread MUST contain at least 3 posts separated by ---. If fewer, add missing beats.
+T2. REJECT "chopped essay" pattern: each post must carry a DISTINCT beat (hook, setup, proof, turn, payoff, close). If two consecutive posts say nearly the same thing with different wording, merge or rewrite.
+T3. The first post (hook) must create curiosity or tension. It must NOT summarize the entire thread.
+T4. Check for transitions: there should be a clear connection between consecutive posts. If a post feels disconnected, add a bridge.
+T5. Check for repeated hooks: the opening framing should NOT reappear verbatim in later posts.
+T6. The final post must feel like a deliberate ending (takeaway, punchline, or call to action), not a trail-off.
+T7. Each post should be self-contained enough to make sense on its own in a timeline, while still advancing the thread narrative.
+` : ""}
 
 DRAFT TO REVIEW:
 ${writerOutput.draft}

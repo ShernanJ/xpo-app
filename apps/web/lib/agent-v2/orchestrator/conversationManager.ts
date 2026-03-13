@@ -1537,9 +1537,29 @@ export async function manageConversationTurn(
   routingTrace.controllerAction = controllerDecision.action;
 
   if (controllerDecision.needs_memory_update) {
-    const nextConstraints = Array.from(
-      new Set([...memory.activeConstraints, userMessage]),
-    );
+    // Only store the user message as a constraint if it looks like an explicit
+    // constraint declaration (e.g. "no emojis", "avoid buzzwords"). Raw
+    // conversational messages should not accumulate as constraints.
+    const shouldStoreAsConstraint = isConstraintDeclaration(userMessage);
+    let nextConstraints = shouldStoreAsConstraint
+      ? Array.from(new Set([...memory.activeConstraints, userMessage]))
+      : [...memory.activeConstraints];
+
+    // Cap active constraints at 12 to prevent over-constraining.
+    // Keep hard-grounding entries (Correction lock / Topic grounding) and
+    // the most recent generic constraints.
+    const MAX_CONSTRAINT_COUNT = 12;
+    if (nextConstraints.length > MAX_CONSTRAINT_COUNT) {
+      const hardGrounding = nextConstraints.filter(
+        (c) => /^Correction lock:/i.test(c) || /^Topic grounding:/i.test(c),
+      );
+      const softConstraints = nextConstraints.filter(
+        (c) => !/^Correction lock:/i.test(c) && !/^Topic grounding:/i.test(c),
+      );
+      const keepSoft = softConstraints.slice(-(MAX_CONSTRAINT_COUNT - hardGrounding.length));
+      nextConstraints = [...hardGrounding, ...keepSoft];
+    }
+
     const updated = await services.updateConversationMemory({
       runId,
       threadId,
@@ -1755,6 +1775,7 @@ export async function manageConversationTurn(
         topicSummary: memory.topicSummary,
         contextAnchors: nextPacket.durableFacts,
       }),
+      sourceText.trim().length,
     );
   };
   let groundingPacket = buildGroundingPacketForContext(

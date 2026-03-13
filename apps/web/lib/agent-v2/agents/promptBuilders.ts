@@ -209,9 +209,10 @@ function buildSafeFrameworkFallbackBlock(
   return `
 SAFE FRAMEWORK FALLBACK MODE:
 - Grounding is too thin for a lived story, proof-heavy claim, or concrete case-study framing.
-- If you can still produce something useful, default to framework, opinion, principle, or plain factual language.
+- Prefer an opinionated take with honest hedging over a generic framework. If you have a real angle, write it with confidence on the parts you know and honest uncertainty on the parts you don't.
 - Do NOT invent specifics just to make the draft or plan feel complete.
 - If a concrete result, customer, metric, timeline, or first-person proof is missing, leave it out instead of filling it in.
+- A strong opinion post with "i think" or "here's what i've seen" is better than a templated "3 things about X" framework.
   `.trim();
 }
 
@@ -357,6 +358,29 @@ ${isEditing ? `REQUIREMENTS:
 12. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
 13. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
 
+${formatPreference === "thread" ? `
+THREAD BEAT PLANNING:
+Since this is a thread, you MUST include a "posts" array in your output.
+Each post object has: role, objective, proofPoints, transitionHint.
+
+Roles to choose from:
+- "hook": Opens curiosity or stakes. Must NOT summarize the whole thread.
+- "setup": Defines the context, frames the problem or question.
+- "proof": Delivers a distinct beat — one fact, example, or argument.
+- "turn": Introduces a twist, counterpoint, or shift in perspective.
+- "payoff": Delivers the core insight or takeaway the reader came for.
+- "close": Wraps up with a clear ending — call to action, reflection, or punchline.
+
+Rules for thread planning:
+- 3 to 6 posts. Never fewer than 3.
+- Each post must carry ONE clear beat, not a compressed summary.
+- The hook post must open a loop or create tension, NOT summarize.
+- Every post must advance the thread, not repeat the previous beat.
+- transitionHint connects to the next post. Null for the last post.
+- Do NOT plan an essay that will be chopped into posts.
+- Do NOT repeat the same proof point across multiple posts.
+` : ""}
+
 STYLE:
 - No internal workflow language.
 - No consultant tone.
@@ -364,16 +388,33 @@ STYLE:
 - No fake certainty if the topic is underspecified.
 - The plan can be structured, but the pitch to the user should feel like a smart DM, not a strategy memo.
 
-Respond ONLY with a valid JSON matching this schema:
+${formatPreference === "thread" ? `Respond ONLY with a valid JSON matching this schema:
 {
   "objective": "...",
   "angle": "...",
-  "targetLane": "original", // or "reply" or "quote"
+  "targetLane": "original",
+  "mustInclude": ["specific detail 1"],
+  "mustAvoid": ["generic word 1"],
+  "hookType": "...",
+  "pitchResponse": "Conversational pitch to the user...",
+  "posts": [
+    {
+      "role": "hook",
+      "objective": "Open with...",
+      "proofPoints": ["key point"],
+      "transitionHint": "bridges to next post by..."
+    }
+  ]
+}` : `Respond ONLY with a valid JSON matching this schema:
+{
+  "objective": "...",
+  "angle": "...",
+  "targetLane": "original",
   "mustInclude": ["specific detail 1"],
   "mustAvoid": ["generic word 1"],
   "hookType": "...",
   "pitchResponse": "Conversational pitch to the user..."
-}
+}`}
   `.trim();
 }
 
@@ -464,9 +505,14 @@ Use these only for cadence, structure, and thematic fit.
 Do NOT turn them into facts, product mechanics, timelines, anecdotes, or proof claims.
 `.trim()
       : `
-USER'S HISTORICAL POSTS (FOR VOICE AND THEMATIC REFERENCE):
+USER'S HISTORICAL POSTS (TWO-LANE REFERENCE POLICY):
 ${args.topicAnchors.join("\n---") || "None"}
-CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical posts into the new draft. Use them to understand the user's voice, pacing, and recurring thematic territory only.
+
+VOICE ANCHORS (always safe): Use these posts to match the user's voice, pacing, sentence shape, vocabulary, and recurring thematic territory.
+
+EVIDENCE ANCHORS (selective reuse): If a fact, metric, story, or claim from these posts is ALSO confirmed in the GROUNDING PACKET (durable facts, source materials, or allowed first-person claims), you MAY reuse it for specificity. If it is NOT confirmed in the grounding packet, treat it as voice-only and do NOT copy it as a factual claim.
+
+This means: user-owned facts CAN make drafts more specific and "earned" when grounding confirms them. But unconfirmed details from old posts must stay out of the new draft.
 `.trim();
   const threadCadenceBlock =
     formatPreference === "thread"
@@ -488,6 +534,33 @@ CRITICAL: DO NOT copy facts, metrics, or personal stories from these historical 
   ]
     .filter((value): value is string => Boolean(value))
     .join("\n\n");
+  // Build thread beat plan if available from the planner
+  const threadBeatPlan = formatPreference === "thread" && "posts" in args.plan && Array.isArray((args.plan as Record<string, unknown>).posts)
+    ? (args.plan as Record<string, unknown>).posts as Array<{
+        role: string;
+        objective: string;
+        proofPoints: string[];
+        transitionHint: string | null;
+      }>
+    : null;
+
+  const threadBeatBlock = threadBeatPlan
+    ? `\nTHREAD BEAT PLAN (draft each post from this structure):\n${threadBeatPlan
+        .map(
+          (post, index) =>
+            `Post ${index + 1} [${post.role.toUpperCase()}]: ${post.objective}${
+              post.proofPoints.length > 0
+                ? `\n  Proof: ${post.proofPoints.join(" | ")}`
+                : ""
+            }${
+              post.transitionHint
+                ? `\n  → bridges to next: ${post.transitionHint}`
+                : ""
+            }`,
+        )
+        .join("\n")}\n\nDraft each post to fulfill its assigned role. Each post separated by ---.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.`
+    : null;
+
   const strategyLayer = `
 STRATEGIC DRAFT PLAN:
 Objective: ${args.plan.objective}
@@ -498,6 +571,7 @@ Must Include: ${args.plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${args.plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${args.activeConstraints.join(" | ") || "None"}
 ${creatorHintsBlock ? `\n${creatorHintsBlock}` : ""}
+${threadBeatBlock ? `\n${threadBeatBlock}` : ""}
   `.trim();
   const voiceShapeLayer = `
 VOICE / SHAPE LAYER:

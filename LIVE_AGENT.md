@@ -2,7 +2,7 @@
 
 **Project:** Xpo  
 **Purpose:** Shared working memory + handoff doc for coding agents  
-**Last updated:** 2026-03-12  
+**Last updated:** 2026-03-13  
 **Status:** Active  
 **Owner:** Shernan Javier
 
@@ -356,6 +356,48 @@ Every meaningful change should update this section.
 
 ### Completed
 
+#### WS-01 — Reduce hardcoded chat feel
+- **Description:** Gutted `chatResponderDeterministic.ts` from 605 to ~170 lines. Removed all greeting, small talk, capability question, meta-assistant, diagnostic, and performance handlers. Only safety-critical paths remain: missing draft edit, failure explanation, user knowledge.
+- **Files touched:** `chatResponderDeterministic.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
+#### WS-09 — Flatten voice shapers
+- **Description:** Removed `stripFluffyLeadIn` from `responseShaper.ts`. The coach LLM is now trusted to open responses naturally instead of having valid conversational openers stripped away.
+- **Files touched:** `responseShaper.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
+#### WS-03a — Soften safe-framework mode
+- **Description:** `addGroundingUnknowns` now only fires missing-detail unknowns for very short messages (< 40 chars). Safe-framework fallback language changed from generic frameworks to opinionated takes with honest hedging.
+- **Files touched:** `groundingPacket.ts`, `promptBuilders.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
+#### WS-06 — Constraint salience policy
+- **Description:** Constraint accumulation now caps at 12 entries, prioritizing hard-grounding (Correction lock / Topic grounding) over generic constraints. Raw user messages only stored as constraints if they match explicit constraint patterns.
+- **Files touched:** `conversationManager.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
+#### WS-02 — Thread-first planning and critique
+- **Description:** Added `ThreadPlanSchema` with per-post beat modeling (role/objective/proofPoints/transitionHint). 6 structural roles: hook, setup, proof, turn, payoff, close. Writer prompt now injects thread beat plans. Critic has 7 thread-specific quality checks (T1-T7).
+- **Files touched:** `planner.ts`, `promptBuilders.ts`, `critic.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
+#### WS-04 — Two-lane evidence policy
+- **Description:** Changed the writer's historical post reference from blanket "voice-only" to a two-lane policy: voice anchors (always safe for style) + evidence anchors (selective fact reuse when confirmed in grounding packet).
+- **Files touched:** `promptBuilders.ts`
+- **Owner/agent:** Antigravity
+- **Status:** Completed
+- **Date:** 2026-03-13
+
 #### Initial repo audit conclusions captured
 - **Description:** Captured current known architecture, quality problems, and likely high-ROI workstreams
 - **Files touched:** `Live Agent.md`
@@ -397,6 +439,20 @@ Do not skip updating this when making meaningful changes.
 - **Date:** 2026-03-12
 - **Impact:** Grounding logic should become more nuanced, not weaker
 - **Follow-up needed:** Yes
+
+### Decision D-05
+- **Decision:** Two-lane evidence policy — allow selective fact reuse from historical posts when grounding confirms them
+- **Reason:** Blanket "voice-only" policy was killing specificity and making all drafts generic
+- **Date:** 2026-03-13
+- **Impact:** Drafts can now reference user-confirmed facts for stronger, more specific posts
+- **Follow-up needed:** Monitor for any increase in hallucinated claims
+
+### Decision D-06
+- **Decision:** Cap active constraints at 12, only store explicit constraint declarations
+- **Reason:** Unbounded constraint accumulation was making long sessions progressively stiffer
+- **Date:** 2026-03-13
+- **Impact:** Sessions should stay flexible longer; hard-grounding entries (corrections, topic locks) are always preserved
+- **Follow-up needed:** No
 
 ---
 
@@ -507,6 +563,15 @@ Then evaluate whether the agent feels less robotic before doing deeper architect
 ### Biggest risk
 Accidentally making the system more natural **but less trustworthy**, or simplifying prompts in ways that reintroduce hallucinated autobiographical content.
 
+### What just changed (2026-03-13)
+1. Most deterministic chat replies removed — greetings, small talk, capability questions now go through coach LLM
+2. Thread planning now uses per-post beat schemas (hook/setup/proof/turn/payoff/close)
+3. Critic has 7 thread-specific quality checks (T1-T7)
+4. Safe-framework mode only triggers on very short messages; fallback language softened
+5. Writer can now selectively reuse user-confirmed facts from historical posts (two-lane policy)
+6. Constraints capped at 12; only explicit declarations stored
+7. Response shaper no longer strips natural conversation openers
+
 ### Read first
 1. `conversationManager.ts`
 2. `promptBuilders.ts`
@@ -547,6 +612,19 @@ Do not do major rewrites unless moderate refactors clearly cannot solve the core
 ---
 
 ## 12. Change log
+
+### 2026-03-13
+- Gutted `chatResponderDeterministic.ts` (605 → 170 lines, kept only safety-critical paths)
+- Removed `stripFluffyLeadIn` from `responseShaper.ts`
+- Softened `addGroundingUnknowns` in `groundingPacket.ts` (only fires on short messages < 40 chars)
+- Softened safe-framework fallback in `promptBuilders.ts` (prefers opinionated takes over generic frameworks)
+- Added constraint salience policy in `conversationManager.ts` (cap at 12, only explicit constraints stored)
+- Added `ThreadPlanSchema` to `planner.ts` with per-post beats and 6 structural roles
+- Added thread beat planning instructions and JSON schema to `promptBuilders.ts`
+- Added thread beat plan injection into writer strategy layer in `promptBuilders.ts`
+- Changed evidence policy from blanket "voice-only" to two-lane (voice anchors + evidence anchors) in `promptBuilders.ts`
+- Added 7 thread-specific critic checks (T1-T7) to `critic.ts`
+- All changes compile with zero TypeScript errors
 
 ### 2026-03-12
 - Created initial `Live Agent.md`
