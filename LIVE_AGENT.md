@@ -665,7 +665,7 @@ Use this checklist after meaningful changes.
 ## 10. Next agent start here
 
 ### Current priority
-**Improve memory/constraint salience without undoing the planner/grounding/thread-quality gains.**
+**Do architecture follow-through without undoing the planner/grounding/thread-quality and memory-salience gains.**
 
 ### Remaining phases
 1. **Planner/writer quality pass (3 steps)**
@@ -694,24 +694,23 @@ Use this checklist after meaningful changes.
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
    - test longer-session behavior
-   - Status: in progress. Step 1 is complete in `memorySalience.ts`, and step 2 is complete in `turnScopedMemory.ts` / `turnContextBuilder.ts`; the final step is the broader long-session validation pass.
+   - Status: complete. `memorySalience.ts` normalizes persisted/fallback memory, `turnScopedMemory.ts` / `turnContextBuilder.ts` scope topic-bound memory per turn, and the long-session validation sweep is green.
 6. **Architecture follow-through (2-3 steps)**
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
 
 ### Best next change
-Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and salience step 1 have landed, focus on these targeted fixes:
-1. Run the broader long-session validation sweep now that saved-memory salience and turn-scoped freshness are both in place.
-2. Tune only the small edge cases that validation exposes; do not widen the freshness gate unless tests/runtime behavior clearly need it.
-3. Preserve specificity and safety while making longer sessions feel less sticky and less repetitive.
+Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and memory/constraint salience follow-through have landed, focus on these targeted fixes:
+1. Identify the remaining overloaded boundaries where behavior is still too centralized or hard to reason about.
+2. Move lingering logic into focused modules without re-centralizing behavior back into `conversationManager.ts`.
+3. Preserve the completed product-quality gains while making future changes safer and easier.
 
 ### Safest next implementation step
-Run the long-session validation sweep across response quality, orchestrator routing, and any targeted follow-up chat fixtures:
-- confirm stale topic summaries and refinement residue now fall away on clear topic shifts
-- confirm short draft/plan follow-ups still preserve the active artifact context
-- confirm hard correction locks and stable preferences still survive across longer chats
-- keep the completed planner, grounding, and thread-quality layers intact while validating the new salience/freshness split
+Audit the remaining orchestrator-heavy surfaces and helper boundaries:
+- identify logic that still feels misplaced, duplicated, or too broad in `conversationManager.ts`, `draftPipeline.ts`, `routingPolicy.ts`, or adjacent controller helpers
+- choose one focused extraction or cleanup that improves maintainability without changing behavior
+- keep the completed planner, grounding, thread-quality, workspace-handle, and memory-salience layers intact while making the architecture safer for future work
 
 ### Biggest risk
 When tightening planner/prompt language, do not accidentally strip away the hard factual grounding rules that prevent invented product behavior or fake first-person claims.
@@ -744,6 +743,7 @@ When tightening planner/prompt language, do not accidentally strip away the hard
 24. Thread-first quality step 4 is complete: the planner, writer, critic, and final-policy layers were revalidated together with thread-focused and orchestrator-level regression coverage.
 25. Memory/constraint salience step 1 is complete: `memorySalience.ts` now normalizes persisted and fallback memory, keeping hard grounding sticky while trimming noisy residue, capping ideation carryover, and tightening rolling summaries.
 26. Memory/constraint salience step 2 is complete: `turnScopedMemory.ts` plus `turnContextBuilder.ts` now drop stale topic-bound residue on strong topic shifts while keeping local draft/plan continuation cues intact.
+27. Memory/constraint salience step 3 is complete: the broader validation sweep stayed green across `test:v2-response-quality`, `test:v2-orchestrator`, and `test:v3-orchestrator`, so the salience/freshness split is now closed out.
 
 ### Read first
 1. `massive-rework.md` (to review the remaining 5 priorities)

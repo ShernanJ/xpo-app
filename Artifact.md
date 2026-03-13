@@ -93,7 +93,7 @@
    - decide what should persist vs decay
    - implement salience/capping/summarization policy
    - test longer-session behavior
-   - Status: in progress. Shared salience policy now exists in `memorySalience.ts`, and turn-scoped freshness now lives in `turnScopedMemory.ts`; the last step should be the broader long-session validation pass and any small follow-up tuning it exposes.
+   - Status: completed. Shared salience policy now exists in `memorySalience.ts`, turn-scoped freshness lives in `turnScopedMemory.ts`, and the broader long-session validation sweep is green across response quality plus orchestrator regressions.
 6. **Architecture follow-through (2-3 steps)**
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
@@ -122,4 +122,5 @@
 - **Memory Salience Is Now Shared**: `apps/web/lib/agent-v2/memory/memorySalience.ts` is now the shared place to decide which constraints, summaries, and ideation residue stay sticky versus decay. If long-session memory gets bloated again, fix the policy there before widening persistence rules elsewhere.
 - **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
 - **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
+- **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.
