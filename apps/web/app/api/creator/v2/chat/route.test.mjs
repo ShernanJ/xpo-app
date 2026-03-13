@@ -231,7 +231,7 @@ test("conversation context builder keeps recent history and prefers selected dra
   assert.equal(context.recentHistory.includes("assistant: reply"), true);
 });
 
-test("conversation context builder appends assistant angle titles for grounding", () => {
+test("conversation context builder keeps assistant metadata out of transcript history", () => {
   const context = buildConversationContextFromHistory({
     selectedDraftContext: null,
     history: [
@@ -242,14 +242,11 @@ test("conversation context builder appends assistant angle titles for grounding"
     ],
   });
 
-  assert.equal(context.recentHistory.includes("assistant_angles:"), true);
-  assert.equal(
-    context.recentHistory.includes("1. how does the tone shift when you move a linkedin post to x?"),
-    true,
-  );
+  assert.equal(context.recentHistory, "assistant: here are some ideas");
+  assert.equal(context.recentHistory.includes("assistant_angles:"), false);
 });
 
-test("conversation context builder reuses stored assistant plan, draft, and grounding context", () => {
+test("conversation context builder keeps transcript natural while reusing stored draft context", () => {
   const context = buildConversationContextFromHistory({
     selectedDraftContext: null,
     history: [
@@ -279,13 +276,12 @@ test("conversation context builder reuses stored assistant plan, draft, and grou
     ],
   });
 
-  assert.equal(context.recentHistory.includes("assistant_plan:"), true);
-  assert.equal(context.recentHistory.includes("assistant_draft:"), true);
-  assert.equal(context.recentHistory.includes("assistant_grounding:"), true);
+  assert.equal(context.recentHistory, "assistant: this is the cleanest direction.");
+  assert.equal(context.recentHistory.includes("assistant_"), false);
   assert.equal(context.activeDraft, "xpo should feel like one smart operator, not a pile of routing rules.");
 });
 
-test("conversation context builder reuses stored assistant reply artifact context", () => {
+test("conversation context builder keeps reply artifact metadata out of transcript history", () => {
   const context = buildConversationContextFromHistory({
     selectedDraftContext: null,
     history: [
@@ -317,9 +313,9 @@ test("conversation context builder reuses stored assistant reply artifact contex
     ],
   });
 
-  assert.equal(context.recentHistory.includes("assistant_reply:"), true);
-  assert.equal(context.recentHistory.includes("source: most people optimize for approval first"), true);
-  assert.equal(context.recentHistory.includes("options: nuance | example | translate"), true);
+  assert.equal(context.recentHistory, "assistant: pulled 3 grounded reply directions from that post.");
+  assert.equal(context.recentHistory.includes("assistant_reply:"), false);
+  assert.equal(context.activeDraft, undefined);
 });
 
 test("conversation context builder prefers standardized context packet refs over legacy top-level fields", () => {
@@ -359,15 +355,14 @@ test("conversation context builder prefers standardized context packet refs over
               hasDraft: true,
             },
           },
+          draft: "legacy draft should not win",
         },
       },
     ],
   });
 
-  assert.equal(context.recentHistory.includes("assistant_plan:"), true);
-  assert.equal(context.recentHistory.includes("assistant_draft:"), true);
-  assert.equal(context.recentHistory.includes("assistant_grounding:"), true);
-  assert.equal(context.recentHistory.includes("assistant_critique:"), true);
+  assert.equal(context.recentHistory, "assistant: this is the active thread to keep pushing.");
+  assert.equal(context.recentHistory.includes("assistant_"), false);
   assert.equal(
     context.activeDraft,
     "context should survive the turn, not reset every message.",
@@ -473,7 +468,8 @@ test("continuity stack routes option picks into plan from stored ideation angles
     ],
   });
 
-  assert.equal(context.recentHistory.includes("assistant_angles:"), true);
+  assert.equal(context.recentHistory, "assistant: here are a few directions");
+  assert.equal(context.recentHistory.includes("assistant_angles:"), false);
   const action = resolveArtifactContinuationAction({
     userMessage: "go with option 2",
     memory: {
@@ -621,5 +617,6 @@ test("conversation context builder can exclude the current user turn when thread
   });
 
   assert.equal(context.recentHistory.includes("user: write it now"), false);
-  assert.equal(context.recentHistory.includes("assistant_context:"), true);
+  assert.equal(context.recentHistory.includes("assistant: let's keep it on one lane"), true);
+  assert.equal(context.recentHistory.includes("assistant_context:"), false);
 });

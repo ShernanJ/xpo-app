@@ -433,19 +433,76 @@ function splitDraftIntoThreadPosts(
     );
   }
 
-  const chunks = normalized
-    .split(/\n{2,}/)
-    .flatMap((paragraph) =>
-      splitChunkToThreadUnits(paragraph.trim(), threadPostMaxCharacterLimit),
-    )
-    .filter(Boolean);
+  const markerSplit = splitDraftByThreadMarkers(normalized, threadPostMaxCharacterLimit);
+  if (markerSplit.length > 1) {
+    return markerSplit;
+  }
 
-  // Instead of packing paragraphs together up to the limit (which destroys
-  // the per-post ThreadPlan pacing), we map each distinct paragraph/chunk directly 
-  // to a post. This preserves the beat-by-beat structure when the explicit --- delimiter is missing.
-  return chunks.slice(0, THREAD_DEFAULT_POST_COUNT).map((post) =>
-    trimToXCharacterLimit(post, threadPostMaxCharacterLimit),
-  );
+  const paragraphSplit = normalized
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  if (paragraphSplit.length > 1) {
+    return paragraphSplit
+      .flatMap((paragraph) =>
+        splitChunkToThreadUnits(paragraph, threadPostMaxCharacterLimit),
+      )
+      .filter(Boolean)
+      .slice(0, THREAD_DEFAULT_POST_COUNT)
+      .map((post) => trimToXCharacterLimit(post, threadPostMaxCharacterLimit));
+  }
+
+  return splitChunkToThreadUnits(normalized, threadPostMaxCharacterLimit)
+    .filter(Boolean)
+    .slice(0, THREAD_DEFAULT_POST_COUNT)
+    .map((post) => trimToXCharacterLimit(post, threadPostMaxCharacterLimit));
+}
+
+function splitDraftByThreadMarkers(
+  value: string,
+  threadPostMaxCharacterLimit: number,
+): string[] {
+  const lines = value.split(/\r?\n/);
+  const firstNonEmptyLineIndex = lines.findIndex((line) => line.trim().length > 0);
+  if (firstNonEmptyLineIndex < 0) {
+    return [];
+  }
+
+  const boundaryIndexes = lines.reduce<number[]>((indexes, line, index) => {
+    if (isThreadBoundaryLine(line)) {
+      indexes.push(index);
+    }
+    return indexes;
+  }, []);
+
+  if (
+    boundaryIndexes.length < 2 ||
+    boundaryIndexes[0] !== firstNonEmptyLineIndex
+  ) {
+    return [];
+  }
+
+  const posts = boundaryIndexes
+    .map((startIndex, index) => {
+      const endIndex = boundaryIndexes[index + 1] ?? lines.length;
+      return lines.slice(startIndex, endIndex).join("\n").trim();
+    })
+    .filter(Boolean)
+    .flatMap((post) => splitChunkToThreadUnits(post, threadPostMaxCharacterLimit))
+    .filter(Boolean)
+    .slice(0, THREAD_DEFAULT_POST_COUNT)
+    .map((post) => trimToXCharacterLimit(post, threadPostMaxCharacterLimit));
+
+  return posts.length > 1 ? posts : [];
+}
+
+function isThreadBoundaryLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return /^(?:\d{1,2}\/\d{1,2}\b|\d{1,2}[.)]\s+|(?:post|tweet)\s+\d{1,2}\s*:)/i.test(trimmed);
 }
 
 function splitChunkToThreadUnits(
@@ -579,7 +636,7 @@ function cleanReplySeed(value: string): string {
 
 function isNumberedThreadPost(value: string): boolean {
   const normalized = value.trim().toLowerCase();
-  return /^(?:\d{1,2}\/\d{1,2}\s+|(?:part|post)\s+\d{1,2}\s*(?:\/|of)\s*\d{1,2}\s+)/.test(
+  return /^(?:\d{1,2}\/\d{1,2}\b|\d{1,2}[.)]\s+|(?:part|post)\s+\d{1,2}\s*(?:\/|of)\s*\d{1,2}\b|(?:post|tweet)\s+\d{1,2}\s*:)/.test(
     normalized,
   );
 }

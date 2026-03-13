@@ -80,6 +80,32 @@ These are the current highest-priority product goals.
 
 ---
 
+## 2.5 Current implementation status
+
+This section tracks what has already landed so future agents do not accidentally undo it.
+
+### Landed on 2026-03-13
+- `recentHistory` is now a clean transcript-only string in `apps/web/app/api/creator/v2/chat/route.logic.ts`.
+- Structured assistant state still lives in persisted `contextPacket` message data and should stay there.
+- Route tests were updated to enforce transcript continuity plus `activeDraft` carryover without relying on `assistant_*` markers in history.
+- `apps/web/lib/onboarding/draftArtifacts.ts` now uses deterministic thread segmentation fallbacks in this order:
+  1. explicit `---`
+  2. strong post markers like `1/5`, `1.`, `2)`, `Post 2:`, `Tweet 2:`
+  3. blank-line paragraph grouping
+  4. sentence/word chunking
+- Thread framing inference now recognizes the same numbered marker families used by the fallback splitter.
+
+### Verification snapshot
+- Green: `test:v2-route`
+- Green: `draftArtifacts.test.mjs`
+- Green: `test:v2-response-quality`
+- Green: `test:v2-regressions`
+- Green: `liveAssistantEval.test.mjs`
+- Green: `test:v3-orchestrator`
+- Still failing and needs triage: `test:v2-orchestrator`
+
+---
+
 ## 3. Codebase mental model
 
 This is the current high-level model future agents should use before changing anything.
@@ -103,6 +129,9 @@ Responsible for:
 
 **Why it matters:**  
 Bad context assembly can make the assistant feel systemy, repetitive, or over-orchestrated before generation even starts.
+
+**Current rule:**  
+`recentHistory` should remain natural transcript only. Structured assistant state belongs in `contextPacket`, not in the transcript string.
 
 ---
 
@@ -196,6 +225,9 @@ Responsible for:
 - storing / parsing / shaping draft artifacts
 - likely thread segmentation / draft handling support
 
+**Current rule:**  
+Thread parsing now has explicit fallback order and should stay conservative. Preserve numbering tokens inside posts, and avoid marker-based splitting unless at least two credible post boundaries are present.
+
 ---
 
 ## 4. Important files to inspect first
@@ -236,7 +268,7 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Why it matters:** Threads can become chopped-up essays or disconnected posts
 - **Likely files involved:** `planner.ts`, `writer.ts`, `critic.ts`, `promptBuilders.ts`, `conversationManager.ts`
 - **Severity:** Critical
-- **Status:** Confirmed
+- **Status:** Partially mitigated (`draftArtifacts.ts` fallback parsing improved; broader planner/writer quality work still open)
 
 ### Issue 3
 - **Issue:** Prompt stack may be too long, rigid, and constraint-heavy
@@ -264,7 +296,7 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Why it matters:** Makes the model behave like it is reading a system log instead of a chat
 - **Likely files involved:** `route.logic.ts`, `conversationManager.ts`
 - **Severity:** Important
-- **Status:** Confirmed
+- **Status:** Completed (`recentHistory` is transcript-only; structured state stays in `contextPacket`)
 
 ### Issue 7
 - **Issue:** Constraint and style accumulation may over-constrain future outputs
@@ -278,7 +310,7 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Why it matters:** Broken thread artifacts degrade UX and final quality
 - **Likely files involved:** `draftArtifacts.ts`, `writer.ts`, `conversationManager.ts`
 - **Severity:** Important
-- **Status:** Suspected / likely
+- **Status:** Partially mitigated (`draftArtifacts.ts` fallback parsing improved; upstream writer/planner quality still open)
 
 ### Issue 9
 - **Issue:** Output shaping may flatten tone too aggressively
@@ -286,6 +318,13 @@ This section should be updated whenever a new meaningful issue is discovered.
 - **Likely files involved:** `responseShaper.ts`, `route.logic.ts`
 - **Severity:** Important
 - **Status:** Suspected / likely
+
+### Issue 10
+- **Issue:** Some orchestrator tests are out of sync with current behavior or need follow-up implementation
+- **Why it matters:** `test:v2-orchestrator` still fails in diagnostic/grounding/source-assertion areas, which makes it harder to trust future refactors
+- **Likely files involved:** `conversationManager.test.mjs`, `chatResponderDeterministic.ts`, `groundingPacket.ts`, `conversationManager.ts`
+- **Severity:** Important
+- **Status:** Confirmed
 
 ---
 
@@ -328,8 +367,8 @@ Every meaningful change should update this section.
 - **Description:** Stop mixing internal assistant context into user-visible conversational history
 - **Files touched:** `route.logic.ts`, `conversationManager.ts`
 - **Owner/agent:** Unassigned
-- **Status:** Backlog
-- **Notes:** Good medium-depth cleanup with likely quality upside.
+- **Status:** Completed
+- **Notes:** `recentHistory` is now transcript-only and route tests were updated to enforce the contract.
 
 #### WS-06 — Add memory/constraint salience policy
 - **Description:** Cap, score, and summarize constraints instead of unbounded accumulation
@@ -337,6 +376,13 @@ Every meaningful change should update this section.
 - **Owner/agent:** Unassigned
 - **Status:** Backlog
 - **Notes:** Good quality safeguard for longer sessions.
+
+#### WS-07 — Triage `test:v2-orchestrator`
+- **Description:** Resolve or rebaseline the remaining diagnostic/grounding/source-assertion failures in the orchestrator suite
+- **Files touched:** `conversationManager.test.mjs`, `chatResponderDeterministic.ts`, `groundingPacket.ts`, `conversationManager.ts`
+- **Owner/agent:** Unassigned
+- **Status:** Backlog
+- **Notes:** Separate this from transcript/thread work so the remaining failures can be reasoned about on their own.
 
 ---
 

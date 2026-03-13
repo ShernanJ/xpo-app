@@ -1,27 +1,36 @@
 # Agent Plan and Artifact Hand-off
 
-## Phase: Refactoring & Architecture Stabilization
-**Current Status:** Completed Core Orchestrator Extraction.
+## Phase: Transcript Contract Cleanup & Thread Resilience
+**Current Status:** Completed.
 
 ## 1. What Has Been Done (Current Plan Executed)
-- **Monolithic `conversationManager.ts` decoupled:**
-  - Logic regarding context assembly was moved into `turnContextBuilder.ts`.
-  - The routing logic determining intent (isFastReply vs heavy pipeline) was isolated into `routingPolicy.ts`.
-  - The complex main execution loop involving drafting, constraint merging, and planning was moved to `draftPipeline.ts`.
-  - Profile state and fact ledge syncing was explicitly managed in `memoryPolicy.ts`.
-- **TypeScript & Import Stabilization:**
-  - Standardized service injection using `createDefaultConversationServices()` to resolve import matching errors in `conversationManager.ts`.
+- **Transcript contract stabilized in `apps/web/app/api/creator/v2/chat/route.logic.ts`:**
+  - `recentHistory` is now explicitly transcript-only and stays limited to natural `user:` / `assistant:` turns.
+  - Dead `assistant_context` / `assistant_plan` / `assistant_draft` / `assistant_grounding` / `assistant_reply` / `assistant_angles` history assembly code was removed.
+  - `activeDraft` resolution still comes from structured state such as `contextPacket`, draft bundles, draft versions, and draft artifacts.
+- **Route tests realigned to the new contract:**
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now checks transcript continuity, exclusion behavior, and `activeDraft` carryover instead of expecting `assistant_*` markers in model history.
+- **Thread artifact parsing hardened in `apps/web/lib/onboarding/draftArtifacts.ts`:**
+  - Fallback order is now: explicit `---` delimiters, strong marker lines (`1/5`, `1.`, `2)`, `Post 2:`, `Tweet 2:`), blank-line paragraph grouping, then sentence/word chunking.
+  - Marker-based splitting preserves numbering tokens in each post and only activates when at least two credible boundaries are present.
+  - Numbered thread detection now recognizes the same marker families used by the fallback splitter.
+- **Regression coverage expanded:**
+  - `apps/web/lib/onboarding/draftArtifacts.test.mjs` now covers numbered threads without delimiters, single-newline marker threads, `Post/Tweet` labels, and oversized one-block fallbacks capped to six posts.
+- **Verification completed:**
+  - Green: `test:v2-route`, `draftArtifacts.test.mjs`, `test:v2-response-quality`, `test:v2-regressions`, `liveAssistantEval.test.mjs`, `test:v3-orchestrator`.
 
 ## 2. What Needs to Be Done (Future Plan)
-*These map to the high-priority workstreams (WS-05 and Issue 8).*
-1. **Reduce Transcript Pollution (WS-05)**:
-   - **Where:** `apps/web/app/api/agent-v2/route.logic.ts`
-   - **Goal:** Stop mixing internal `assistant_context` blocks into the `recentHistory` string sent to the LLM, making the model behave more naturally rather than like it's reading system logs.
-2. **Improve Thread formatting Resilience (Issue 8)**:
-   - **Where:** `draftArtifacts.ts`
-   - **Goal:** Add deterministic thread segmentation fallback for instances where the LLM fails to comply properly with expected delimiters, improving thread generation stability.
+1. **Broader P0 quality pass (next major workstream):**
+   - **Where:** `chatResponderDeterministic.ts`, `responseShaper.ts`, `planner.ts`, `promptBuilders.ts`, and adjacent controller/orchestrator modules.
+   - **Goal:** Reduce deterministic / scripted feel, improve pre-draft planning quality, and keep voice grounding separate from factual grounding.
+2. **Triage remaining `test:v2-orchestrator` failures:**
+   - **Where:** `apps/web/lib/agent-v2/orchestrator/conversationManager.test.mjs`
+   - **Current failing areas:** diagnostic reply expectations, grounding packet expectations, and source-string assertions tied to `conversationManager.ts`.
+   - **Goal:** Determine whether these are stale tests from earlier refactors or real regressions that need implementation work.
 
 ## 3. Important Information for the Next Agent
 - **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
-- **Transcript Pollution**: When editing `route.logic.ts`, make sure to separate display artifacts from raw text. Ensure that whatever the model reads as "history" looks exactly like a natural user-assistant chat.
+- **Transcript Contract Is Cleaned Up**: Do not put structured assistant state back into `recentHistory`. The model should only read natural transcript turns there.
+- **`contextPacket` Is Still Canonical**: Machine-readable assistant state should continue to live in persisted message data, not in the transcript string.
+- **Thread Fallbacks Are Now Ordered and Conservative**: If you extend the splitter, preserve marker tokens in post content and keep the "at least two credible boundaries" rule so normal prose is not over-segmented.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.
