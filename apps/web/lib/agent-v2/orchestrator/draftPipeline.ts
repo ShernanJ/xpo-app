@@ -1,5 +1,5 @@
-import { buildFactSafeReferenceHints, inferDraftFormatPreference, resolveRequestedThreadFramingStyle, buildFactSafeReferenceHints, inferTopicFromIdeaTitles } from "./conversationManager";
-import { buildFactSafeReferenceHints, buildGroundedTopicDraftInput,
+import {
+  buildGroundedTopicDraftInput,
   inferDraftPreference,
   extractPriorUserTurn,
   buildPlanPitch,
@@ -11,82 +11,48 @@ import { buildFactSafeReferenceHints, buildGroundedTopicDraftInput,
   inferLooseClarificationSeed,
   inferAbstractTopicSeed,
   extractIdeaTitlesFromIdeas,
+  inferTopicFromIdeaTitles,
   withPlanPreferences,
   looksGenericTopicSummary,
   buildDraftGroundingSummary,
-  RawOrchestratorResponse,
-  OrchestratorData } from "./conversationManager";
-import { buildFactSafeReferenceHints, buildPlanFailureResponse,
-  hasStrongDraftCommand,
-  inferExplicitDraftFormatPreference,
+  inferDraftFormatPreference,
+  resolveRequestedThreadFramingStyle,
+  type ConversationServices,
+  type OrchestratorResponse,
+} from "./draftPipelineHelpers";
+import {
+  buildPlanFailureResponse,
   isBareDraftRequest,
   isBareIdeationRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
-  shouldUseRevisionDraftPath } from "./conversationManagerLogic";
-import {
-  buildControllerFallbackDecision,
-  controlTurn,
-  mapControllerActionToIntent,
-  mapIntentToControllerAction,
-} from "../agents/controller";
-import { buildFactSafeReferenceHints, generateCoachReply } from "../agents/coach";
-import { buildFactSafeReferenceHints, generatePlan } from "../agents/planner";
-import { buildFactSafeReferenceHints, generateIdeasMenu } from "../agents/ideator";
-import { buildFactSafeReferenceHints, generateDrafts } from "../agents/writer";
-import { buildFactSafeReferenceHints, critiqueDrafts } from "../agents/critic";
+  shouldUseRevisionDraftPath,
+} from "./conversationManagerLogic";
 import type { WriterOutput } from "../agents/writer";
 import type { CriticOutput } from "../agents/critic";
-import { buildFactSafeReferenceHints, generateRevisionDraft } from "../agents/reviser";
-import { buildFactSafeReferenceHints, extractStyleRules } from "../agents/styleExtractor";
-import { buildFactSafeReferenceHints, extractCoreFacts } from "../agents/factExtractor";
-import {
-  extractAntiPattern,
-  looksLikeMechanicalEdit,
-  looksLikeNegativeFeedback,
-} from "../agents/antiPatternExtractor";
-import {
-  createConversationMemorySnapshot,
-  getConversationMemory,
-  createConversationMemory,
-  updateConversationMemory,
-} from "../memory/memoryStore";
 import {
   buildEffectiveContext,
+  buildFactSafeReferenceHints,
   retrieveRelevantContext,
 } from "../memory/contextRetriever";
 import {
   buildRollingSummary,
   shouldRefreshRollingSummary,
 } from "../memory/summaryManager";
-import { buildFactSafeReferenceHints, retrieveAnchors } from "../core/retrieval";
-import {
-  generateStyleProfile,
-  saveStyleProfile,
-  getDurableFactsFromStyleCard,
-  rememberFactsOnStyleCard,
-  rememberSemanticCorrectionOnStyleCard,
-} from "../core/styleProfile";
-import { buildFactSafeReferenceHints, checkDeterministicNovelty } from "../core/noveltyGate";
-import { buildFactSafeReferenceHints, resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
+import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
 import {
   getXCharacterLimitForFormat,
   getXCharacterLimitForAccount,
-  inferThreadFramingStyleFromPosts,
-  inferThreadFramingStyleFromPrompt,
-  type DraftGroundingMode,
   type ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts";
-import { buildFactSafeReferenceHints, prisma } from "../../db";
-import { buildFactSafeReferenceHints, Prisma } from "../../generated/prisma/client";
-import { buildFactSafeReferenceHints, buildClarificationTree } from "./clarificationTree";
-import { buildFactSafeReferenceHints, buildPlannerQuickReplies } from "./plannerQuickReplies";
+import { prisma } from "../../db";
+import { buildClarificationTree } from "./clarificationTree";
+import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
   buildSemanticCorrectionAcknowledgment,
   buildSemanticRepairDirective,
   buildSemanticRepairState,
-  extractTopicGrounding,
   hasConcreteCorrectionDetail,
   inferCorrectionRepairQuestion,
   inferIdeationRationaleReply,
@@ -96,9 +62,8 @@ import {
   looksLikePostReferenceRequest,
   looksLikeSourceTransparencyRequest,
   looksLikeSemanticCorrection,
-  normalizeRepairDetail,
 } from "./correctionRepair";
-import { buildFactSafeReferenceHints, normalizeDraftRevisionInstruction } from "./draftRevision";
+import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
   assessGroundedProductDrift,
   assessConcreteSceneDrift,
@@ -106,50 +71,24 @@ import {
   buildUnsupportedClaimRetryConstraint,
   buildConcreteSceneRetryConstraint,
   extractConcreteSceneAnchors,
-  isConcreteAnecdoteDraftRequest,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
 } from "./draftGrounding";
-import { buildFactSafeReferenceHints, planTurn } from "./turnPlanner";
-import { buildFactSafeReferenceHints, respondConversationally, isConstraintDeclaration } from "./chatResponder";
-import { buildFactSafeReferenceHints, buildDraftReply } from "./draftReply";
+import { isConstraintDeclaration } from "./chatResponder";
+import { buildDraftReply } from "./draftReply";
 import {
   buildFeedbackMemoryNotice,
-  countNewMemoryEntries,
   prependFeedbackMemoryNotice,
 } from "./feedbackMemoryNotice";
-import { buildFactSafeReferenceHints, buildIdeationReply } from "./ideationReply";
-import { buildFactSafeReferenceHints, buildIdeationQuickReplies } from "./ideationQuickReplies";
-import { buildFactSafeReferenceHints, interpretPlannerFeedback } from "./plannerFeedback";
-import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
-import {
-  buildComparisonRelationshipQuestion,
-  buildProblemStakeQuestion,
-  buildProductCapabilityQuestion,
-} from "./assistantReplyStyle";
-import {
-  isMissingDraftCandidateTableError,
-  isMissingSourceMaterialAssetTableError,
-} from "./prismaGuards";
+import { buildIdeationReply } from "./ideationReply";
+import { buildIdeationQuickReplies } from "./ideationQuickReplies";
+import { interpretPlannerFeedback } from "./plannerFeedback";
 import {
   inferBroadTopicDraftRequest,
   shouldFastStartGroundedDraft,
 } from "./draftFastStart.ts";
-import {
-  resolveConversationRouterState,
-  type ConversationRouterState,
-} from "./conversationRouterMachine";
-import {
-  getTurnRelationContext,
-  isContextDependentFollowUp,
-} from "./turnRelation.ts";
-import {
-  evaluateDraftContextSlots,
-  hasFunctionalDetail,
-  hasProblemDetail,
-  hasRelationshipDetail,
-  inferComparisonReference,
-} from "./draftContextSlots";
+import { resolveConversationRouterState } from "./conversationRouterMachine";
+import { evaluateDraftContextSlots } from "./draftContextSlots";
 import {
   appendNoFabricationConstraint,
   buildDraftMeaningResponse,
@@ -163,64 +102,77 @@ import {
   buildGroundingPacket,
   buildSafeFrameworkConstraint,
   hasAutobiographicalGrounding,
-  type CreatorProfileHints,
   type GroundingPacket,
-  type GroundingPacketSourceMaterial,
 } from "./groundingPacket";
-import { buildFactSafeReferenceHints, buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
 import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy";
-import { buildFactSafeReferenceHints, checkDraftClaimsAgainstGrounding } from "./claimChecker";
-import { buildFactSafeReferenceHints, applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
-import { buildFactSafeReferenceHints, buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
+import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
+import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
+import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
 import {
-  buildSourceMaterialIdentityKey,
-  extractAutoSourceMaterialInputs,
-  filterNewSourceMaterialInputs,
   mergeSourceMaterialsIntoGroundingPacket,
   selectRelevantSourceMaterials,
-  serializeSourceMaterialAsset,
-  type SourceMaterialAssetInput,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
 import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles";
-import { buildFactSafeReferenceHints, selectResponseShapePlan } from "./surfaceModeSelector";
-import { buildFactSafeReferenceHints, shapeAssistantResponse } from "./responseShaper";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
   DraftPreference,
-  ResponseShapePlan,
-  SurfaceMode,
   StrategyPlan,
-  V2ChatIntent,
-  V2ChatOutputShape,
   V2ConversationMemory,
 } from "../contracts/chat";
 import type { TurnContext } from "./turnContextBuilder";
 import type { RoutingPolicyResult } from "./routingPolicy";
-import { buildFactSafeReferenceHints, saveConversationTurnMemory } from "./memoryPolicy";
+import { saveConversationTurnMemory } from "./memoryPolicy";
+
+type RawOrchestratorResponse = Omit<
+  OrchestratorResponse,
+  "surfaceMode" | "responseShapePlan"
+>;
 
 export async function executeDraftPipeline(args: {
   context: TurnContext;
   routing: RoutingPolicyResult;
-  services: any;
-  extractedFacts: any;
-  extractedRules: any;
-  sourceMaterialAssets: any;
-  autoSavedSourceMaterials: any;
-  antiPatternResult: any;
+  services: ConversationServices;
+  extractedFacts: string[] | null;
+  extractedRules: string[] | null;
+  sourceMaterialAssets: SourceMaterialAssetRecord[];
+  autoSavedSourceMaterials:
+    | {
+        count: number;
+        assets: Array<{
+          id: string;
+          title: string;
+          deletable: boolean;
+        }>;
+      }
+    | undefined;
+  antiPatternResult: {
+    antiPatterns: string[];
+    remembered: boolean;
+  };
   rememberedStyleRuleCount: number;
   rememberedFactCount: number;
   feedbackMemoryNotice?: string;
-  preloadedRun?: any;
+  preloadedRun?: Awaited<ReturnType<ConversationServices["getOnboardingRun"]>>;
 }): Promise<RawOrchestratorResponse> {
-  const { context, routing, services, extractedFacts, extractedRules, sourceMaterialAssets, autoSavedSourceMaterials, antiPatternResult, preloadedRun, rememberedStyleRuleCount, rememberedFactCount } = args;
+  const {
+    context,
+    routing,
+    services,
+    extractedFacts,
+    sourceMaterialAssets,
+    antiPatternResult,
+    preloadedRun,
+    rememberedStyleRuleCount,
+    rememberedFactCount,
+  } = args;
   
   // Destructure context
   let { memory } = context;
@@ -235,7 +187,6 @@ export async function executeDraftPipeline(args: {
     effectiveActiveConstraints,
     formatPreference,
     creatorProfileHints,
-    diagnosticContext,
     runId,
     threadId,
     turnPlan,
@@ -243,7 +194,7 @@ export async function executeDraftPipeline(args: {
     threadFramingStyle
   } = context;
 
-  const { resolvedMode, routingTrace } = routing;
+  const { routingTrace } = routing;
   let mode = routing.resolvedMode; // resolvedMode;
 
   // We rewrite writeMemory locally to call saveConversationTurnMemory
@@ -291,13 +242,13 @@ export async function executeDraftPipeline(args: {
       sourceText.trim().length,
     );
   };
-  let groundingPacket = buildGroundingPacketForContext(
+  const groundingPacket = buildGroundingPacketForContext(
     effectiveActiveConstraints,
     userMessage,
   );
   const groundingSourcesForTurn = groundingPacket.sourceMaterials.slice(0, 2);
   if (selectedSourceMaterials.length > 0) {
-    services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error: any) =>
+    services.markSourceMaterialAssetsUsed(selectedSourceMaterials.map((asset) => asset.id)).catch((error: unknown) =>
       console.error("Failed to update source material last-used timestamps:", error),
     );
   }
@@ -345,7 +296,9 @@ User Profile Summary:
 - Primary Goal: ${goal}${contextAnchorsStr}
   `.trim();
 
-  const writeMemoryLocal = async (patch: any) => {
+  const writeMemoryLocal = async (
+    patch: Parameters<typeof saveConversationTurnMemory>[0]["patch"],
+  ) => {
     memory = await saveConversationTurnMemory({
       memory,
       patch,
@@ -714,7 +667,7 @@ User Profile Summary:
           }),
       retrievalReasons: retrieval.rankedAnchors
         .slice(0, 3)
-        .map((anchor: any) => anchor.reason)
+        .map((anchor) => anchor.reason)
         .concat(referenceModeReason ? [referenceModeReason] : [])
         .filter(Boolean),
       referenceAnchorMode: useFactSafeReferenceHintsForPlan
@@ -732,7 +685,7 @@ User Profile Summary:
         (args.noveltyCheck
           ? `Max similarity against recent history: ${Math.round(args.noveltyCheck.maxSimilarity * 100)}%.`
           : null),
-      ...(args.retrievalReasons || []).map((reason: any) => `Grounded on ${reason}.`),
+      ...(args.retrievalReasons || []).map((reason) => `Grounded on ${reason}.`),
     ].filter(Boolean) as string[];
 
     return Array.from(new Set(notes)).slice(0, 3);
@@ -1793,7 +1746,7 @@ User Profile Summary:
     canAskPlanClarification() &&
     !memory.topicSummary &&
     memory.concreteAnswerCount < 2 &&
-    routingTrace.controllerAction.confidence < 0.7
+    routing.classifiedIntent === "plan"
   ) {
     const branchKey = isLazyDraftRequest(userMessage)
       ? "lazy_request"
@@ -2128,7 +2081,7 @@ User Profile Summary:
         voiceTarget: baseVoiceTarget,
         groundingPacket: planGroundingPacket,
         creatorProfileHints,
-        onFailureReason: (reason: any) => {
+        onFailureReason: (reason: string) => {
           planFailureReason = reason;
         },
       },
@@ -2648,7 +2601,7 @@ User Profile Summary:
         voiceTarget: baseVoiceTarget,
         groundingPacket,
         creatorProfileHints,
-        onFailureReason: (reason: any) => {
+        onFailureReason: (reason: string) => {
           planFailureReason = reason;
         },
       },
@@ -2840,7 +2793,7 @@ User Profile Summary:
         : memory.clarificationQuestionsAsked,
     });
 
-    let finalResponse =
+    const finalResponse =
       coachReply?.response ||
       "i can help with ideas, drafts, revisions, or figuring out what to post.";
 

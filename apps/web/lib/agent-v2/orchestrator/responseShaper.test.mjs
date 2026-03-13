@@ -49,6 +49,48 @@ test("response shaper strips fluffy lead-ins from visible replies", () => {
   assert.equal(response, "i can help with post ideas, drafts, or revisions.");
 });
 
+test("response shaper strips short canned acknowledgments before substantive replies", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "got it. the sharper move is to lead with the contradiction instead of the feature list.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: "got it. the sharper move is to lead with the contradiction instead of the feature list.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "the sharper move is to lead with the contradiction instead of the feature list.");
+});
+
+test("response shaper keeps standalone short acknowledgments when there is nothing else to say", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "got it.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: "got it.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "got it.");
+});
+
 test("surface mode selector marks draft revisions as revise_and_return", () => {
   const plan = selectResponseShapePlan({
     outputShape: "short_form_post",

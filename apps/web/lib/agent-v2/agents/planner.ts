@@ -7,6 +7,7 @@ import type {
   StrategyPlan,
 } from "../contracts/chat";
 import type { VoiceTarget } from "../core/voiceTarget";
+import { normalizePlannerOutput } from "../core/plannerNormalization";
 import type {
   CreatorProfileHints,
   GroundingPacket,
@@ -56,7 +57,7 @@ export const PlannerOutputSchema = z.object({
   mustInclude: z.array(z.string()),
   mustAvoid: z.array(z.string()),
   hookType: z.string(),
-  pitchResponse: z.string().describe("A conversational message pitching this outline to the user before we write it. e.g. 'I'm thinking we do an original post focusing on X. Sound good?'")
+  pitchResponse: z.string().describe("A short plain-language description of the direction itself. e.g. 'lead with the contradiction between the promise and what actually changed'")
 });
 
 /**
@@ -86,7 +87,7 @@ export const ThreadPlanSchema = z.object({
   mustInclude: z.array(z.string()),
   mustAvoid: z.array(z.string()),
   hookType: z.string(),
-  pitchResponse: z.string(),
+  pitchResponse: z.string().describe("A short plain-language description of the thread direction itself."),
   posts: z.array(ThreadPostPlanSchema).min(3).max(8).describe("Per-post beat plan for the thread"),
 });
 
@@ -154,11 +155,11 @@ export async function generatePlan(
     if (isThread) {
       const threadResult = ThreadPlanSchema.safeParse(data);
       if (threadResult.success) {
-        return threadResult.data as PlannerOutput;
+        return normalizePlannerOutput(threadResult.data as PlannerOutput);
       }
     }
 
-    return PlannerOutputSchema.parse(data);
+    return normalizePlannerOutput(PlannerOutputSchema.parse(data));
   } catch (err) {
     if (err instanceof z.ZodError) {
       options?.onFailureReason?.(summarizePlannerSchemaFailure(err));

@@ -269,6 +269,61 @@ export interface BuildPlanInstructionArgs {
   };
 }
 
+function buildPlanRequirementsBlock(args: {
+  isEditing: boolean;
+}): string {
+  if (args.isEditing) {
+    return `REQUIREMENTS:
+1. Identify EXACTLY what needs to change in the existing draft to satisfy the user's request.
+2. Keep the core angle intact unless the user explicitly asks to change it.
+3. Put additions in "mustInclude" and removals in "mustAvoid".
+4. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.`;
+  }
+
+  return `REQUIREMENTS:
+1. Pick a compelling, draftable angle for this exact request. If enough context already exists to write from, choose a direction that can be drafted immediately instead of turning the turn into extra discovery.
+2. Choose the right target lane (original / reply / quote) and the strongest hook type for that angle.
+3. Use "mustInclude" for concrete proof, scenes, stakes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns.
+4. Do NOT invent fake metrics, backstory, hidden workflow steps, UI pain points, product behavior, or constraints the user never gave.
+5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic rather than filling in imagined specifics.
+6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
+7. If FACTUAL GROUNDING or hard grounding is present, use it as the source of truth. Do NOT broaden the product into a nearby category, implied mechanic, market comparison, or first-person usage story that was not explicitly grounded.
+8. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
+9. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
+10. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead.
+11. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
+12. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
+13. Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.
+14. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
+15. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
+}
+
+function buildThreadBeatPlanningBlock(): string {
+  return `
+THREAD BEAT PLANNING:
+Since this is a thread, you MUST include a "posts" array in your output.
+Each post object has: role, objective, proofPoints, transitionHint.
+
+Roles to choose from:
+- "hook": Opens curiosity or stakes. Must NOT summarize the whole thread.
+- "setup": Defines the context, frames the problem or question.
+- "proof": Delivers a distinct beat - one fact, example, observation, or argument.
+- "turn": Introduces a twist, counterpoint, or shift in perspective.
+- "payoff": Delivers the core insight or takeaway the reader came for.
+- "close": Wraps up with a clear ending - call to action, reflection, or punchline.
+
+Rules for thread planning:
+- 3 to 6 posts. Default to 4 or 5 unless the material clearly earns 6.
+- Each post must carry ONE clear beat, not a compressed summary or catch-all bucket.
+- Each "proofPoints" array should contain 1 to 2 specific points, not every sub-idea from the whole thread.
+- The hook post must open a loop or create tension, NOT summarize.
+- Every post must advance the thread, not restate the previous beat in new words.
+- transitionHint should explain how the next post earns its place. Use null only for the last post.
+- Do NOT plan an essay that will be chopped into posts.
+- Do NOT repeat the same proof point, hook framing, or payoff line across multiple posts.
+`.trim();
+}
+
 export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const isEditing = !!args.activeDraft;
   const goal = args.options?.goal || "audience growth";
@@ -334,59 +389,16 @@ ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 
-${isEditing ? `REQUIREMENTS:
-1. Identify EXACTLY what needs to change in the existing draft to satisfy the user's request.
-2. Keep the core angle intact unless the user explicitly asks to change it.
-3. If they ask to remove something (e.g. emojis), put that in "mustAvoid".
-4. If they ask to add something, put that in "mustInclude".
-5. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.` :
-      `REQUIREMENTS:
-1. Identify a compelling, non-obvious angle for this topic.
-2. Choose a target lane (is this an original thought, or pushing back on common advice?)
-3. Determine what must be included (proof points) and avoided (cliches).
-4. CRITICAL: DO NOT invent fake metrics, backstory, or constraints that the user hasn't provided (e.g., if they say they built a tool, do not add "cut manual steps by 30%").
-5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic. Do NOT invent hidden workflow steps, UI pain points, or product behavior.
-6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
-7. If FACTUAL GROUNDING is present, use it as the source of truth for the plan. Do NOT broaden the product into a nearby category or implied mechanic that is not explicitly in that grounding.
-8. If FACTUAL GROUNDING is present, do NOT add first-person product usage, adoption stories, or market comparisons unless the user explicitly gave them.
-8a. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
-8b. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction / grounding as the source of truth and ignore the older assistant wording.
-9. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT pick a story-led autobiographical angle. Pick a framework, opinion, or plain factual angle instead.
-9a. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
-10. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
-11. If enough context already exists to write from, choose a direction that can be drafted immediately. Do not ask the user to do extra thinking unless a missing fact truly blocks the post.
-12. Specify the best hook type (e.g., "Counter-narrative", "Direct Action", "Framework").
-13. Keep "pitchResponse" short, lowercase, natural, and collaborator-like. It should feel plain and useful, not warm or salesy. Never start with "got it", "let's", "here's the plan", or corporate framing.`}
+${buildPlanRequirementsBlock({ isEditing })}
 
-${formatPreference === "thread" ? `
-THREAD BEAT PLANNING:
-Since this is a thread, you MUST include a "posts" array in your output.
-Each post object has: role, objective, proofPoints, transitionHint.
-
-Roles to choose from:
-- "hook": Opens curiosity or stakes. Must NOT summarize the whole thread.
-- "setup": Defines the context, frames the problem or question.
-- "proof": Delivers a distinct beat — one fact, example, or argument.
-- "turn": Introduces a twist, counterpoint, or shift in perspective.
-- "payoff": Delivers the core insight or takeaway the reader came for.
-- "close": Wraps up with a clear ending — call to action, reflection, or punchline.
-
-Rules for thread planning:
-- 3 to 6 posts. Never fewer than 3.
-- Each post must carry ONE clear beat, not a compressed summary.
-- The hook post must open a loop or create tension, NOT summarize.
-- Every post must advance the thread, not repeat the previous beat.
-- transitionHint connects to the next post. Null for the last post.
-- Do NOT plan an essay that will be chopped into posts.
-- Do NOT repeat the same proof point across multiple posts.
-` : ""}
+${formatPreference === "thread" ? `${buildThreadBeatPlanningBlock()}\n` : ""}
 
 STYLE:
 - No internal workflow language.
 - No consultant tone.
 - No fluff or performative friendliness.
 - No fake certainty if the topic is underspecified.
-- The plan can be structured, but the pitch to the user should feel like a smart DM, not a strategy memo.
+- The plan can be structured, but the pitch to the user should feel like a plain next-step DM, not a strategy memo.
 
 ${formatPreference === "thread" ? `Respond ONLY with a valid JSON matching this schema:
 {
@@ -457,7 +469,6 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
     args.options?.formatPreference || args.plan.formatPreference || "shortform";
   const threadFramingStyle = args.options?.threadFramingStyle ?? null;
   const {
-    noFabricatedAnecdotesGuardrail,
     sceneSource,
     concreteSceneMode,
     hardFactualGrounding,

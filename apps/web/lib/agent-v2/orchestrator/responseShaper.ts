@@ -34,6 +34,43 @@ function stripFeedbackNotice(response: string): string {
   return parts.slice(1).join("\n\n").trim();
 }
 
+const FORMULAIC_LEAD_INS = [
+  "love that.",
+  "love this.",
+  "got it.",
+  "noted.",
+  "makes sense.",
+  "fair.",
+  "fair enough.",
+  "sounds good.",
+  "that works.",
+  "good call.",
+  "totally.",
+  "yep.",
+  "yeah.",
+];
+
+function stripFormulaicLeadIn(response: string): string {
+  const trimmed = response.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const leadIn = FORMULAIC_LEAD_INS.find((candidate) =>
+    trimmed.toLowerCase().startsWith(candidate),
+  );
+  if (!leadIn) {
+    return trimmed;
+  }
+
+  const remainder = trimmed.slice(leadIn.length).trimStart();
+  if (!remainder) {
+    return trimmed;
+  }
+
+  return remainder;
+}
+
 function removeTrailingFollowUpQuestion(response: string): string {
   const trimmed = response.trim();
   if (!trimmed.includes("?")) {
@@ -85,6 +122,7 @@ function shapeBySurfaceMode(response: string, surfaceMode: SurfaceMode): string 
 export function shapeAssistantResponse(args: ShapeResponseArgs): string {
   let nextResponse = normalizeWhitespace(args.response);
   nextResponse = stripFeedbackNotice(nextResponse);
+  nextResponse = stripFormulaicLeadIn(nextResponse);
   nextResponse = removeAutomaticDraftPrompt(nextResponse);
   nextResponse = shapeBySurfaceMode(nextResponse, args.plan.surfaceMode);
 

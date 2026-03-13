@@ -1129,6 +1129,8 @@ export function pickDeterministic<T>(options: T[], seed: string): T {
   return options[deterministicIndex(seed, options.length)];
 }
 
+export { buildPlanPitch } from "../core/planPitch";
+
 export function finalizeOrchestratorResponse(
   rawResponse: RawOrchestratorResponse,
 ): OrchestratorResponse {
@@ -1155,66 +1157,6 @@ export function finalizeOrchestratorResponse(
     surfaceMode: responseShapePlan.surfaceMode,
     responseShapePlan,
   };
-}
-
-export function buildPlanPitch(plan: StrategyPlan): string {
-  const normalizeLine = (value: string): string =>
-    value
-      .trim()
-      .replace(/\s+/g, " ")
-      .replace(/[.?!,;:]+$/, "");
-
-  const toLead = (value: string): string => {
-    const normalized = value.trim().replace(/\s+/g, " ");
-    if (!normalized) {
-      return "";
-    }
-
-    const base = `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
-    return /[.?!]$/.test(base) ? base : `${base}.`;
-  };
-
-  const seed = [plan.objective, plan.angle, plan.hookType, plan.targetLane]
-    .join("|")
-    .toLowerCase();
-  const lead =
-    toLead(plan.pitchResponse || "") ||
-    pickDeterministic(
-      [
-        "this direction works best",
-        "this is the cleanest angle",
-        "i'd run with this angle",
-        "this framing is the strongest",
-        "this gives you the clearest payoff",
-      ].map((entry) => toLead(entry)),
-      seed,
-    );
-
-  const details = [
-    plan.angle ? `- angle: ${normalizeLine(plan.angle)}` : null,
-    plan.objective ? `- focus: ${normalizeLine(plan.objective)}` : null,
-    plan.hookType ? `- hook: ${normalizeLine(plan.hookType)}` : null,
-    plan.mustInclude[0]
-      ? `- must include: ${plan.mustInclude.map((value) => normalizeLine(value)).join(" | ")}`
-      : null,
-    plan.mustAvoid[0]
-      ? `- avoid: ${plan.mustAvoid.map((value) => normalizeLine(value)).join(" | ")}`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-  const close = pickDeterministic(
-    [
-      "if that's the direction, i'll draft it.",
-      "if this is the lane, i'll write it from here.",
-      "if you want this angle, i'll turn it into a post.",
-    ],
-    `${seed}|close`,
-  );
-
-  if (details.length === 0) {
-    return `${lead}\n\n${close}`;
-  }
-
-  return `${lead}\n\n${details.join("\n")}\n\n${close}`;
 }
 
 export function applyMemoryPatch(
