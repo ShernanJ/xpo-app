@@ -95,6 +95,34 @@ function hasShortContinuationCue(normalized: string): boolean {
   );
 }
 
+function isLikelyClarificationAnswer(args: {
+  userMessage: string;
+  memory: V2ConversationMemory;
+}): boolean {
+  const normalized = args.userMessage.trim().toLowerCase();
+  if (!args.memory.unresolvedQuestion?.trim()) {
+    return false;
+  }
+
+  if (!normalized || normalized.length < 8) {
+    return false;
+  }
+
+  if (normalized.includes("?") || /^(?:hello|hi|hey)\b/.test(normalized)) {
+    return false;
+  }
+
+  if (
+    /\b(?:instead|new topic|switch gears|switching gears|different topic|something else)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function isLikelyArtifactContinuation(args: {
   userMessage: string;
   activeDraft?: string;
@@ -122,6 +150,10 @@ function isStrongTopicShift(args: {
   activeDraft?: string;
 }): boolean {
   if (isLikelyArtifactContinuation(args)) {
+    return false;
+  }
+
+  if (isLikelyClarificationAnswer(args)) {
     return false;
   }
 

@@ -12,6 +12,7 @@ import {
   resolveSelectedDraftContextFromHistory,
   resolveDraftArtifactKind,
   resolveEffectiveExplicitIntent,
+  shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
@@ -29,6 +30,21 @@ test("selectedDraftContext defaults route intent to edit when explicit intent is
   });
 
   assert.equal(nextIntent, "edit");
+});
+
+test("selected draft revisions bypass embedded reply handling", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_1",
+    versionId: "ver_1",
+    content: "current draft",
+  });
+
+  assert.equal(
+    shouldBypassEmbeddedReplyHandling({
+      selectedDraftContext,
+    }),
+    true,
+  );
 });
 
 test("normalizeDraftPayload moves actual draft text out of reply", () => {

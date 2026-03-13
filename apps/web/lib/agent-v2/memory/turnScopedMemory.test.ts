@@ -104,3 +104,31 @@ test("scopeMemoryForCurrentTurn keeps same-topic memory when the user stays in l
   assert.notEqual(result.pendingPlan, null);
   assert.equal(result.latestRefinementInstruction, memory.latestRefinementInstruction);
 });
+
+test("scopeMemoryForCurrentTurn preserves clarification state for substantive answers", () => {
+  const memory = buildMemory({
+    conversationState: "editing",
+    topicSummary: "ampm thread",
+    clarificationState: {
+      branchKey: "semantic_repair",
+      stepKey: "await_exact_fix",
+      seedTopic: "ampm thread",
+      options: [],
+    },
+    unresolvedQuestion:
+      "what core takeaway do you want readers to walk away with?",
+    currentDraftArtifactId: "draft_thread_1",
+  });
+
+  const result = scopeMemoryForCurrentTurn({
+    userMessage: "growing on x is consistency",
+    activeDraft: "thread draft body",
+    memory,
+  });
+
+  assert.equal(result.conversationState, "editing");
+  assert.equal(result.topicSummary, "ampm thread");
+  assert.equal(result.unresolvedQuestion, memory.unresolvedQuestion);
+  assert.deepEqual(result.clarificationState, memory.clarificationState);
+  assert.equal(result.currentDraftArtifactId, "draft_thread_1");
+});

@@ -2,12 +2,14 @@ import {
   mapControllerActionToIntent,
   mapIntentToControllerAction,
   buildControllerFallbackDecision,
-} from "../agents/controller";
-import { isConstraintDeclaration, respondConversationally } from "./chatResponder";
-import { createConversationMemorySnapshot } from "../memory/memoryStore";
-import type { TurnContext } from "./turnContextBuilder";
-import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager";
-import type { V2ChatIntent } from "../contracts/chat";
+} from "../agents/controller.ts";
+import { isConstraintDeclaration, respondConversationally } from "./chatResponder.ts";
+import { shapeAssistantResponse } from "./responseShaper.ts";
+import { selectResponseShapePlan } from "./surfaceModeSelector.ts";
+import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
+import type { TurnContext } from "./turnContextBuilder.ts";
+import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager.ts";
+import type { V2ChatIntent } from "../contracts/chat.ts";
 
 export interface RoutingPolicyResult {
   isFastReply: boolean;
@@ -22,6 +24,35 @@ function clearClarificationPatch() {
   return {
     unresolvedQuestion: null,
   } as const;
+}
+
+export function buildFastReplyOrchestratorResponse(args: {
+  response: string;
+  memory: TurnContext["memory"];
+}): OrchestratorResponse {
+  const responseShapePlan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: args.response,
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: args.memory.conversationState,
+    preferredSurfaceMode: args.memory.preferredSurfaceMode,
+  });
+
+  return {
+    mode: "coach",
+    outputShape: "coach_question",
+    response: shapeAssistantResponse({
+      response: args.response,
+      outputShape: "coach_question",
+      plan: responseShapePlan,
+    }),
+    surfaceMode: responseShapePlan.surfaceMode,
+    responseShapePlan,
+    memory: args.memory,
+  };
 }
 
 export async function resolveRoutingPolicy(
@@ -193,12 +224,10 @@ export async function resolveRoutingPolicy(
         resolvedMode: mode,
         routingTrace,
         memory: finalMemory,
-        fastReplyResponse: {
-          mode: "coach",
-          outputShape: "coach_question",
+        fastReplyResponse: buildFastReplyOrchestratorResponse({
           response: fastReply,
           memory: finalMemory,
-        } as OrchestratorResponse,
+        }),
       };
     }
   }

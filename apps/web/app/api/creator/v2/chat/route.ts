@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { selectResponseShapePlan } from "@/lib/agent-v2/orchestrator/surfaceModeSelector";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
   createConversationMemorySnapshot,
@@ -48,6 +49,7 @@ import {
   parseSelectedDraftContext,
   resolveSelectedDraftContextFromHistory,
   resolveEffectiveExplicitIntent,
+  shouldBypassEmbeddedReplyHandling,
   type SelectedDraftContext,
 } from "./route.logic";
 import type { DraftBundleResult } from "@/lib/agent-v2/orchestrator/draftBundles";
@@ -842,14 +844,21 @@ export async function POST(request: NextRequest) {
       growthPayloadForReply
         ? growthPayloadForReply.replyInsights
         : null;
-    const replyParseResult = parseEmbeddedReplyRequest({
-      message: effectiveMessage,
-      replyContext: structuredReplyContext,
+    const shouldBypassReplyHandling = shouldBypassEmbeddedReplyHandling({
+      selectedDraftContext,
     });
-    const replyContinuation = resolveReplyContinuation({
-      userMessage: effectiveMessage,
-      activeReplyContext: storedMemory.activeReplyContext,
-    });
+    const replyParseResult = shouldBypassReplyHandling
+      ? { classification: "plain_chat" as const, context: null }
+      : parseEmbeddedReplyRequest({
+          message: effectiveMessage,
+          replyContext: structuredReplyContext,
+        });
+    const replyContinuation = shouldBypassReplyHandling
+      ? null
+      : resolveReplyContinuation({
+          userMessage: effectiveMessage,
+          activeReplyContext: storedMemory.activeReplyContext,
+        });
     const defaultReplyStage = resolveChatReplyStage(creatorAgentContext);
     const defaultReplyTone = resolveChatReplyTone(body.toneRisk);
     const defaultReplyGoal = resolveChatReplyGoal(body.goal);
@@ -1289,7 +1298,18 @@ export async function POST(request: NextRequest) {
               : null,
         })
       : null;
-    const responseShapePlan = result.responseShapePlan;
+    const responseShapePlan =
+      result.responseShapePlan ??
+      selectResponseShapePlan({
+        outputShape: result.outputShape,
+        response: result.response,
+        hasQuickReplies: Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
+        hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
+        hasPlan: Boolean(resultData?.plan),
+        hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
+        conversationState: result.memory.conversationState,
+        preferredSurfaceMode: result.memory.preferredSurfaceMode,
+      });
     const rawDraftBundle =
       resultData &&
       typeof resultData === "object" &&
@@ -1307,7 +1327,7 @@ export async function POST(request: NextRequest) {
         rawDraftBundle?.options.map((option) => option.draft) ??
         (resultData?.draft ? [resultData.draft as string] : []),
       outputShape: result.outputShape,
-      surfaceMode: result.surfaceMode,
+      surfaceMode: result.surfaceMode ?? responseShapePlan.surfaceMode,
       shouldAskFollowUp:
         responseShapePlan.shouldAskFollowUp && responseShapePlan.maxFollowUps > 0,
     });

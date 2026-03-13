@@ -671,6 +671,12 @@ export function resolveEffectiveExplicitIntent(args: {
       : null;
 }
 
+export function shouldBypassEmbeddedReplyHandling(args: {
+  selectedDraftContext: SelectedDraftContext | null;
+}): boolean {
+  return Boolean(args.selectedDraftContext);
+}
+
 export function buildDraftVersionMetadata(args: {
   selectedDraftContext: SelectedDraftContext | null;
 }): {
