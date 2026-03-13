@@ -33,6 +33,16 @@ export interface EmbeddedReplyParseResult {
   context: EmbeddedReplyContext | null;
 }
 
+export type ReplyContinuationResult =
+  | { type: "confirm" }
+  | { type: "decline" }
+  | { type: "select_option"; optionIndex: number }
+  | {
+      type: "revise_draft";
+      tone: "dry" | "bold" | "builder" | "warm";
+      length: "same" | "shorter" | "longer";
+    };
+
 export interface ChatReplyParseEnvelope {
   detected: boolean;
   confidence: EmbeddedReplyConfidence;
@@ -380,12 +390,7 @@ function resolveReplyOptionIndex(
 export function resolveReplyContinuation(args: {
   userMessage: string;
   activeReplyContext: ActiveReplyContext | null | undefined;
-}):
-  | { type: "confirm" }
-  | { type: "decline" }
-  | { type: "select_option"; optionIndex: number }
-  | { type: "revise_draft"; tone: "dry" | "bold" | "builder" | "warm"; length: "same" | "shorter" | "longer" }
-  | null {
+}): ReplyContinuationResult | null {
   const context = args.activeReplyContext;
   if (!context) {
     return null;
@@ -439,6 +444,27 @@ export function resolveReplyContinuation(args: {
   }
 
   return null;
+}
+
+export function shouldClearReplyWorkflow(args: {
+  activeReplyContext: ActiveReplyContext | null | undefined;
+  turnSource: "free_text" | "ideation_pick" | "quick_reply" | "draft_action" | "reply_action";
+  replyParseResult: EmbeddedReplyParseResult;
+  replyContinuation: ReplyContinuationResult | null;
+}): boolean {
+  if (!args.activeReplyContext) {
+    return false;
+  }
+
+  if (args.turnSource !== "free_text") {
+    return true;
+  }
+
+  if (args.replyContinuation) {
+    return false;
+  }
+
+  return args.replyParseResult.classification === "plain_chat";
 }
 
 export function createEmptyActiveReplyContext(args: {

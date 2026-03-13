@@ -84,6 +84,11 @@
   - Selected-angle reasoning now happens server-side: the client no longer fabricates hidden drafting prompts, and the route now passes a clean user-facing `userMessage` plus separate internal `planSeedMessage` into the orchestrator.
   - Reply parsing now only runs for normalized `free_text` turns, while ideation picks, draft actions, and structured reply actions bypass it by contract instead of scattered special cases.
   - Routing diagnostics now include normalized turn metadata (`turnSource`, `artifactKind`, `planSeedSource`, `replyHandlingBypassedReason`, `resolvedWorkflow`) through `RoutingTrace`.
+- **Reply workflow ownership is now stricter:**
+  - `reply.logic.ts` now exposes `shouldClearReplyWorkflow(...)`, which deterministically clears stale reply state whenever a turn is not actually continuing the reply workflow.
+  - `turnScopedMemory.ts` now drops persisted `activeReplyContext` / `activeReplyArtifactRef` / `selectedReplyOptionId` before orchestration on non-reply workflows, so normal ideation/drafting/chat turns are not biased by old reply state.
+  - `apps/web/app/api/creator/v2/chat/route.ts` now persists that cleanup after ordinary assistant turns, so stale reply context cannot silently revive on later free-text messages.
+  - Direct regression coverage now exists in `apps/web/app/api/creator/v2/chat/reply.logic.test.mjs` and `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -174,6 +179,7 @@
 - **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
 - **Turn normalization is now the chat boundary to preserve**: `turnNormalization.ts` is the first place to extend when you add a new structured UI action. Do not reintroduce route-level workflow guessing from raw `message` if a new action can be modeled as `turnSource + artifactContext`.
 - **Legacy request shims are temporary**: The route still accepts `selectedAngle` / `selectedDraftContext` during migration, but those fields are normalized immediately and should not be the shape new UI actions rely on.
+- **Reply workflow now has explicit ownership rules**: stale `activeReplyContext` should be cleared on non-reply turns instead of lingering in memory and competing with normal chat/draft flows. If a new reply UX is added, wire it through the normalized turn contract and `reply.logic.ts` ownership helpers instead of relying on generic free-text continuation.
 - **Draft-Pipeline Helper Logic Is Now Shared Again**: `conversationManager.ts` now consumes the helper cluster from `draftPipelineHelpers.ts` instead of keeping a second copy. If you need to change clarification/topic-seed/draft-preference heuristics, update the shared helper module rather than reintroducing logic into `conversationManager.ts`.
 - **Response Finalization Is Now Shared Too**: `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts` is now the single place to compute `surfaceMode`, `responseShapePlan`, and shaped fast-reply envelopes. If a route crashes on missing response metadata again, fix that shared helper first instead of patching duplicate local finalizers.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

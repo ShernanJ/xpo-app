@@ -162,6 +162,7 @@ This section tracks what has already landed so future agents do not accidentally
 - Selected-angle reasoning is now fully server-side: the route passes a clean user-facing `userMessage` plus a separate internal `planSeedMessage` into the orchestrator.
 - Reply parsing now only runs for normalized `free_text` turns; ideation picks, draft actions, and structured reply actions bypass it by contract instead of by scattered route exceptions.
 - `RoutingTrace` now includes normalized turn diagnostics (`turnSource`, `artifactKind`, `planSeedSource`, `replyHandlingBypassedReason`, `resolvedWorkflow`) so debugging can see workflow ownership from one place.
+- Reply workflow ownership is now stricter too: `reply.logic.ts` exposes `shouldClearReplyWorkflow(...)`, `turnScopedMemory.ts` drops stale reply state on non-reply workflows before orchestration, and `route.ts` persists that cleanup after ordinary assistant turns so old reply context cannot silently revive later.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -218,6 +219,9 @@ Bad context assembly can make the assistant feel systemy, repetitive, or over-or
 
 **Current turn-contract rule:**  
 Literal user text belongs in `message`. Structured UI actions should use `turnSource + artifactContext` and be normalized immediately in `turnNormalization.ts`. Do not reintroduce hidden client-generated prompts as the main workflow signal.
+
+**Current reply-ownership rule:**  
+Reply parsing / continuation only belongs to actual reply workflow turns. If a turn is not continuing reply work, stale `activeReplyContext` should be cleared instead of lingering in memory and competing with ideation, drafting, or normal chat.
 
 **Workspace-handle rule:**  
 For creator/chat APIs, the explicit workspace handle is authoritative. `session.user.activeXHandle` is only the last-used default for opening a workspace, not the backend identity key for account-scoped context.

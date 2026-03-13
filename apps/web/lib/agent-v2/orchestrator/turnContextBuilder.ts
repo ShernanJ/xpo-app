@@ -116,6 +116,7 @@ export async function buildTurnContext(
     userMessage,
     activeDraft,
     memory: persistedMemory,
+    resolvedWorkflow,
   });
   
   const effectiveActiveConstraints = Array.from(

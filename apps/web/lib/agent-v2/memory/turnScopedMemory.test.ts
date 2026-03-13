@@ -132,3 +132,40 @@ test("scopeMemoryForCurrentTurn preserves clarification state for substantive an
   assert.deepEqual(result.clarificationState, memory.clarificationState);
   assert.equal(result.currentDraftArtifactId, "draft_thread_1");
 });
+
+test("scopeMemoryForCurrentTurn clears stale reply workflow state on non-reply turns", () => {
+  const memory = buildMemory({
+    activeReplyContext: {
+      sourceText: "Most people optimize for approval first.",
+      sourceUrl: null,
+      authorHandle: "creator",
+      quotedUserAsk: "how should i reply to that?",
+      confidence: "high",
+      parseReason: "reply_ask_with_post_metadata",
+      awaitingConfirmation: false,
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+      opportunityId: "chat-reply-1",
+      latestReplyOptions: [{ id: "opt-1", label: "nuance", text: "Option 1" }],
+      latestReplyDraftOptions: [],
+      selectedReplyOptionId: "opt-1",
+    },
+    activeReplyArtifactRef: {
+      messageId: "assistant_reply_1",
+      kind: "reply_options",
+    },
+    selectedReplyOptionId: "opt-1",
+  });
+
+  const result = scopeMemoryForCurrentTurn({
+    userMessage: "write a post about consistency on x",
+    memory,
+    resolvedWorkflow: "plan_then_draft",
+  });
+
+  assert.equal(result.activeReplyContext, null);
+  assert.equal(result.activeReplyArtifactRef, null);
+  assert.equal(result.selectedReplyOptionId, null);
+  assert.equal(result.topicSummary, memory.topicSummary);
+});

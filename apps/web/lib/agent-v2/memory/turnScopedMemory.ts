@@ -1,4 +1,5 @@
 import type { V2ConversationMemory } from "../contracts/chat.ts";
+import type { ChatResolvedWorkflow } from "../contracts/turnContract.ts";
 
 const MEMORY_STOP_TERMS = new Set([
   "about",
@@ -198,13 +199,25 @@ export function scopeMemoryForCurrentTurn(args: {
   userMessage: string;
   activeDraft?: string;
   memory: V2ConversationMemory;
+  resolvedWorkflow?: ChatResolvedWorkflow | null;
 }): V2ConversationMemory {
-  if (!isStrongTopicShift(args)) {
-    return args.memory;
+  const shouldClearReplyWorkflow =
+    Boolean(args.memory.activeReplyContext) && args.resolvedWorkflow !== "reply_to_post";
+  const scopedMemory = shouldClearReplyWorkflow
+    ? {
+        ...args.memory,
+        activeReplyContext: null,
+        activeReplyArtifactRef: null,
+        selectedReplyOptionId: null,
+      }
+    : args.memory;
+
+  if (!isStrongTopicShift({ ...args, memory: scopedMemory })) {
+    return scopedMemory;
   }
 
   return {
-    ...args.memory,
+    ...scopedMemory,
     conversationState: "ready_to_ideate",
     topicSummary: null,
     lastIdeationAngles: [],

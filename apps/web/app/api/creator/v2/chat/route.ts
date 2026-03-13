@@ -75,6 +75,7 @@ import {
   createEmptyActiveReplyContext,
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
+  shouldClearReplyWorkflow,
   type ActiveReplyContext,
   type ChatReplyArtifacts,
   type ChatReplyParseEnvelope,
@@ -855,6 +856,12 @@ export async function POST(request: NextRequest) {
             userMessage: effectiveMessage,
             activeReplyContext: storedMemory.activeReplyContext,
           }));
+    const shouldResetReplyWorkflow = shouldClearReplyWorkflow({
+      activeReplyContext: storedMemory.activeReplyContext,
+      turnSource: normalizedTurn.source,
+      replyParseResult,
+      replyContinuation,
+    });
     const defaultReplyStage = resolveChatReplyStage(creatorAgentContext);
     const defaultReplyTone = resolveChatReplyTone(body.toneRisk);
     const defaultReplyGoal = resolveChatReplyGoal(body.goal);
@@ -1563,6 +1570,13 @@ export async function POST(request: NextRequest) {
             }
           : {}),
         preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
+        ...(shouldResetReplyWorkflow
+          ? {
+              activeReplyContext: null,
+              activeReplyArtifactRef: null,
+              selectedReplyOptionId: null,
+            }
+          : {}),
       });
 
       const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };

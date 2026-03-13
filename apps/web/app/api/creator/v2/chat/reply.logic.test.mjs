@@ -5,6 +5,7 @@ import {
   buildReplyParseEnvelope,
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
+  shouldClearReplyWorkflow,
 } from "./reply.logic.ts";
 
 test("parseEmbeddedReplyRequest detects a pasted post plus reply ask", () => {
@@ -88,5 +89,63 @@ test("resolveReplyContinuation maps option picks and draft revisions from active
       activeReplyContext,
     }),
     { type: "revise_draft", tone: "warm", length: "same" },
+  );
+});
+
+test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply turns", () => {
+  const activeReplyContext = {
+    sourceText: "Most people optimize for approval first.",
+    sourceUrl: null,
+    authorHandle: "creator",
+    quotedUserAsk: "how do i reply to that?",
+    confidence: "high",
+    parseReason: "reply_ask_with_post_metadata",
+    awaitingConfirmation: false,
+    stage: "0_to_1k",
+    tone: "builder",
+    goal: "followers",
+    opportunityId: "chat-reply-1",
+    latestReplyOptions: [{ id: "opt-1", label: "nuance", text: "Option 1" }],
+    latestReplyDraftOptions: [],
+    selectedReplyOptionId: "opt-1",
+  };
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext,
+      turnSource: "free_text",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: null,
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext,
+      turnSource: "draft_action",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: null,
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext,
+      turnSource: "free_text",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: { type: "select_option", optionIndex: 0 },
+    }),
+    false,
   );
 });
