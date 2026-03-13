@@ -40,6 +40,10 @@
   - `conversationManager.ts` no longer carries its own duplicate copies of the draft-pipeline helper cluster.
   - Shared helper behavior such as topic-seed inference, clarification-question building, draft-preference inference, and thread-framing resolution now comes from `apps/web/lib/agent-v2/orchestrator/draftPipelineHelpers.ts` for both the manager and the draft pipeline.
   - The diagnostic routing-trace flag is now typed on `ConversationalDiagnosticContext` instead of using an `any` escape hatch in `conversationManager.ts`.
+- **Architecture follow-through step 2 landed:**
+  - Shared response finalization now lives in `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts`.
+  - `conversationManager.ts`, `draftPipelineHelpers.ts`, and the routing-policy fast-reply path now reuse the same response shaping / `responseShapePlan` assembly instead of carrying separate copies.
+  - `apps/web/app/api/creator/v2/chat/route.ts` now has a defensive fallback shape-plan path, which prevents partial orchestrator responses from crashing the route on `responseShapePlan.shouldAskFollowUp`.
 - **Conversational cleanup continued:**
   - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
   - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
@@ -99,10 +103,10 @@
    - test longer-session behavior
    - Status: completed. Shared salience policy now exists in `memorySalience.ts`, turn-scoped freshness lives in `turnScopedMemory.ts`, and the broader long-session validation sweep is green across response quality plus orchestrator regressions.
 6. **Architecture follow-through (2-3 steps)**
-   - identify remaining overloaded boundaries
-   - move lingering logic into focused modules
-   - verify behavior stayed stable
-   - Status: in progress. Step 1 is complete: duplicated helper logic was removed from `conversationManager.ts` in favor of `draftPipelineHelpers.ts`; the next step should shrink the remaining broad import/service surface in `conversationManager.ts` without changing behavior.
+  - identify remaining overloaded boundaries
+  - move lingering logic into focused modules
+  - verify behavior stayed stable
+  - Status: in progress. Step 1 removed duplicated draft-pipeline helper logic from `conversationManager.ts`, and step 2 centralized response finalization in `responseEnvelope.ts`; one small cleanup pass may still remain for residual broad imports / boundaries, but the highest-risk duplication is now gone.
 
 ## 3. Important Information for the Next Agent
 - **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
@@ -129,4 +133,5 @@
 - **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
 - **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
 - **Draft-Pipeline Helper Logic Is Now Shared Again**: `conversationManager.ts` now consumes the helper cluster from `draftPipelineHelpers.ts` instead of keeping a second copy. If you need to change clarification/topic-seed/draft-preference heuristics, update the shared helper module rather than reintroducing logic into `conversationManager.ts`.
+- **Response Finalization Is Now Shared Too**: `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts` is now the single place to compute `surfaceMode`, `responseShapePlan`, and shaped fast-reply envelopes. If a route crashes on missing response metadata again, fix that shared helper first instead of patching duplicate local finalizers.
 - Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.

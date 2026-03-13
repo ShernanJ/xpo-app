@@ -132,6 +132,9 @@ This section tracks what has already landed so future agents do not accidentally
 - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
 - `conversationManager.ts` no longer keeps its own duplicate copies of the draft-pipeline helper cluster; shared topic-seed, clarification, draft-preference, and thread-framing logic now comes from `apps/web/lib/agent-v2/orchestrator/draftPipelineHelpers.ts`.
 - `ConversationalDiagnosticContext` now explicitly types the optional `includeRoutingTrace` flag, which removes the `any` escape hatch from `conversationManager.ts`.
+- Shared response-envelope finalization now lives in `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts`.
+- `conversationManager.ts`, `draftPipelineHelpers.ts`, and the fast-reply path in `routingPolicy.ts` now reuse the same response shaping / `responseShapePlan` assembly instead of carrying separate copies.
+- `apps/web/app/api/creator/v2/chat/route.ts` now has a defensive response-shape fallback, so partial orchestrator responses no longer crash the route on `responseShapePlan.shouldAskFollowUp`.
 
 ### Verification snapshot
 - Green: `test:v2-route`
@@ -143,6 +146,7 @@ This section tracks what has already landed so future agents do not accidentally
 - Green: `replyOpportunities.test.ts`
 - Green: `memorySalience.test.ts`
 - Green: `turnScopedMemory.test.ts`
+- Green: `responseEnvelope.test.mjs`
 - Green: `eslint lib/agent-v2/orchestrator/draftPipeline.ts`
 - Green: `eslint lib/agent-v2/memory/memorySalience.ts lib/agent-v2/memory/memorySalience.test.ts lib/agent-v2/memory/memoryStore.ts lib/agent-v2/orchestrator/memoryPolicy.ts`
 - Green: `eslint lib/agent-v2/memory/turnScopedMemory.ts lib/agent-v2/memory/turnScopedMemory.test.ts lib/agent-v2/orchestrator/turnContextBuilder.ts`
@@ -152,6 +156,7 @@ This section tracks what has already landed so future agents do not accidentally
 - Green: `chatResponder.test.mjs`
 - Green: `liveAssistantEval.test.mjs`
 - Green: `test:v3-orchestrator`
+- Green: `pnpm build`
 
 ---
 
@@ -701,13 +706,14 @@ Use this checklist after meaningful changes.
    - identify remaining overloaded boundaries
    - move lingering logic into focused modules
    - verify behavior stayed stable
-   - Status: in progress. Step 1 is complete: `conversationManager.ts` now reuses `draftPipelineHelpers.ts` instead of keeping duplicate helper logic. Next step should shrink the remaining broad import/service surface in `conversationManager.ts` without changing behavior.
+   - Status: in progress. Step 1 removed duplicate helper logic from `conversationManager.ts`, and step 2 centralized response finalization plus fast-reply shaping in `responseEnvelope.ts`. One smaller cleanup pass may still remain, but the highest-risk response-envelope drift is now closed.
 
 ### Best next change
 Now that transcript cleanup, thread fallback hardening, constraint acknowledgment cleanup, response shaping cleanup, plan-pitch sanitization, planner normalization, grounding separation, prompt-layer simplification, thread-first quality maturation, explicit workspace-handle isolation, and memory/constraint salience follow-through have landed, focus on these targeted fixes:
 1. Reduce the remaining warning-heavy import/service surface in `conversationManager.ts`, especially pieces that are now only there because the file still knows too much about lower-level helpers.
-2. Move the next cohesive boundary into a focused module without re-centralizing behavior back into `conversationManager.ts`.
-3. Preserve the completed product-quality gains while making future changes safer and easier.
+2. Keep future response-shaping changes inside `responseEnvelope.ts` instead of reintroducing local envelope builders or one-off fast-reply shaping in route/orchestrator files.
+3. Move the next cohesive boundary into a focused module without re-centralizing behavior back into `conversationManager.ts`.
+4. Preserve the completed product-quality gains while making future changes safer and easier.
 
 ### Safest next implementation step
 Audit the remaining orchestrator-heavy surfaces and helper boundaries:

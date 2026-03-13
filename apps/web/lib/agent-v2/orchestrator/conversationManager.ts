@@ -185,8 +185,7 @@ import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles";
-import { selectResponseShapePlan } from "./surfaceModeSelector";
-import { shapeAssistantResponse } from "./responseShaper";
+import { finalizeResponseEnvelope } from "./responseEnvelope";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -589,29 +588,7 @@ export { buildPlanPitch } from "../core/planPitch";
 function finalizeOrchestratorResponse(
   rawResponse: RawOrchestratorResponse,
 ): OrchestratorResponse {
-  const resultData = rawResponse.data as Record<string, unknown> | undefined;
-  const responseShapePlan = selectResponseShapePlan({
-    outputShape: rawResponse.outputShape,
-    response: rawResponse.response,
-    hasQuickReplies:
-      Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
-    hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
-    hasPlan: Boolean(resultData?.plan),
-    hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
-    conversationState: rawResponse.memory.conversationState,
-    preferredSurfaceMode: rawResponse.memory.preferredSurfaceMode,
-  });
-
-  return {
-    ...rawResponse,
-    response: shapeAssistantResponse({
-      response: rawResponse.response,
-      outputShape: rawResponse.outputShape,
-      plan: responseShapePlan,
-    }),
-    surfaceMode: responseShapePlan.surfaceMode,
-    responseShapePlan,
-  };
+  return finalizeResponseEnvelope(rawResponse) as OrchestratorResponse;
 }
 
 function applyMemoryPatch(

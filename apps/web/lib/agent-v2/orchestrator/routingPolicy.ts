@@ -4,9 +4,8 @@ import {
   buildControllerFallbackDecision,
 } from "../agents/controller.ts";
 import { isConstraintDeclaration, respondConversationally } from "./chatResponder.ts";
-import { shapeAssistantResponse } from "./responseShaper.ts";
-import { selectResponseShapePlan } from "./surfaceModeSelector.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
+import { buildFastReplyOrchestratorResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
 import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
@@ -24,35 +23,6 @@ function clearClarificationPatch() {
   return {
     unresolvedQuestion: null,
   } as const;
-}
-
-export function buildFastReplyOrchestratorResponse(args: {
-  response: string;
-  memory: TurnContext["memory"];
-}): OrchestratorResponse {
-  const responseShapePlan = selectResponseShapePlan({
-    outputShape: "coach_question",
-    response: args.response,
-    hasQuickReplies: false,
-    hasAngles: false,
-    hasPlan: false,
-    hasDraft: false,
-    conversationState: args.memory.conversationState,
-    preferredSurfaceMode: args.memory.preferredSurfaceMode,
-  });
-
-  return {
-    mode: "coach",
-    outputShape: "coach_question",
-    response: shapeAssistantResponse({
-      response: args.response,
-      outputShape: "coach_question",
-      plan: responseShapePlan,
-    }),
-    surfaceMode: responseShapePlan.surfaceMode,
-    responseShapePlan,
-    memory: args.memory,
-  };
 }
 
 export async function resolveRoutingPolicy(
