@@ -37,6 +37,10 @@ import type {
   ChatTurnSource,
   SelectedAngleFormatHint,
 } from "@/lib/agent-v2/contracts/turnContract";
+import {
+  buildCreatorChatTransportRequest,
+  createClientTurnId,
+} from "@/lib/agent-v2/contracts/chatTransport";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
@@ -7069,40 +7073,36 @@ function ChatPageContent() {
       setErrorMessage(null);
 
       try {
+        const clientTurnId = createClientTurnId();
         const response = await fetchWorkspace("/api/creator/v2/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            runId: resolvedContext.runId,
-            threadId: activeThreadId,
-            ...(trimmedPrompt ? { message: trimmedPrompt } : {}),
-            history,
-            provider: providerPreference,
-            stream: true,
-            turnSource: effectiveTurnSource,
-            ...(options.artifactContext
-              ? { artifactContext: options.artifactContext }
-              : {}),
-            intent: effectiveIntent,
-            ...(options.formatPreferenceOverride
-              ? { formatPreference: options.formatPreferenceOverride }
-              : {}),
-            ...(options.threadFramingStyleOverride
-              ? { threadFramingStyle: options.threadFramingStyleOverride }
-              : {}),
-            ...(resolvedContentFocus ? { contentFocus: resolvedContentFocus } : {}),
-            ...(effectiveSelectedDraftContext
-              ? { selectedDraftContext: effectiveSelectedDraftContext }
-              : {}),
-            preferenceSettings: currentPreferencePayload,
-            ...(preferenceConstraintRules.length > 0
-              ? { preferenceConstraints: preferenceConstraintRules }
-              : {}),
-            ...resolvedToneInputs,
-            ...resolvedStrategyInputs,
-          }),
+          body: JSON.stringify(
+            buildCreatorChatTransportRequest({
+              runId: resolvedContext.runId,
+              threadId: activeThreadId ?? undefined,
+              workspaceHandle: accountName,
+              clientTurnId,
+              message: trimmedPrompt,
+              history,
+              provider: providerPreference,
+              stream: true,
+              turnSource: effectiveTurnSource,
+              artifactContext: options.artifactContext ?? null,
+              intent: effectiveIntent,
+              formatPreference: options.formatPreferenceOverride ?? null,
+              threadFramingStyle: options.threadFramingStyleOverride ?? null,
+              contentFocus: resolvedContentFocus,
+              selectedDraftContext: effectiveSelectedDraftContext,
+              preferenceSettings: currentPreferencePayload,
+              preferenceConstraints:
+                preferenceConstraintRules.length > 0 ? preferenceConstraintRules : undefined,
+              ...resolvedToneInputs,
+              ...resolvedStrategyInputs,
+            }),
+          ),
         });
 
         const contentType = response.headers.get("content-type") ?? "";

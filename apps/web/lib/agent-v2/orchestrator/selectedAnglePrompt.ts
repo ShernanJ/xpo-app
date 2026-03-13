@@ -8,6 +8,7 @@ const QUESTION_SHAPED_ANGLE =
 const SELECTED_ANGLE_PROMPT_PREFIXES = [
   /^(?:turn the following angle into a draft:|use the selected angle as the primary direction:)\s*/i,
   /^draft a (?:post|thread) that directly answers this question in the user's voice:\s*/i,
+  /^draft a (?:post|thread) in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending\. do not repeat the question or answer it in a single flat sentence:\s*/i,
   /^draft a (?:post|thread) from this chosen direction in the user's voice:\s*/i,
 ];
 
@@ -26,7 +27,7 @@ export function buildSelectedAngleDraftPrompt(args: {
   }
 
   if (isQuestionShapedSelectedAngle(normalized)) {
-    return `draft a ${args.formatHint} that directly answers this question in the user's voice: ${normalized}`;
+    return `draft a ${args.formatHint} in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. do not repeat the question or answer it in a single flat sentence: ${normalized}`;
   }
 
   return `draft a ${args.formatHint} from this chosen direction in the user's voice: ${normalized}`;

@@ -76,6 +76,14 @@ import type {
   ChatResolvedWorkflow,
   ChatTurnSource,
 } from "../contracts/turnContract";
+import type {
+  AgentRuntimeWorkflow,
+  RuntimeResolutionSource,
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
+  RuntimeWorkerExecutionSummary,
+} from "../runtime/runtimeContracts.ts";
+import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 
 export interface OrchestratorInput {
   userId: string;
@@ -133,6 +141,15 @@ export interface RoutingTrace {
     replyHandlingBypassedReason: string | null;
     resolvedWorkflow: ChatResolvedWorkflow | null;
   };
+  runtimeResolution:
+    | {
+        workflow: AgentRuntimeWorkflow;
+        source: RuntimeResolutionSource;
+      }
+    | null;
+  workerExecutions: RuntimeWorkerExecution[];
+  workerExecutionSummary: RuntimeWorkerExecutionSummary;
+  validations: RuntimeValidationResult[];
   turnPlan: {
     userGoal: string;
     overrideClassifiedIntent: string | null;
@@ -315,6 +332,52 @@ export async function manageConversationTurn(
         })
       : Promise.resolve([]),
   ]);
+
+  route.routingTrace.workerExecutions.push(
+    {
+      worker: "extract_style_rules",
+      capability: "shared",
+      phase: "context_load",
+      mode: "parallel",
+      status: context.userId !== "anonymous" ? "completed" : "skipped",
+      groupId: "initial_context_load",
+      details:
+        context.userId !== "anonymous"
+          ? { hasRules: Array.isArray(extractedRules) && extractedRules.length > 0 }
+          : { reason: "anonymous_user" },
+    },
+    {
+      worker: "extract_core_facts",
+      capability: "shared",
+      phase: "context_load",
+      mode: "parallel",
+      status: context.userId !== "anonymous" ? "completed" : "skipped",
+      groupId: "initial_context_load",
+      details:
+        context.userId !== "anonymous"
+          ? { hasFacts: Array.isArray(extractedFacts) && extractedFacts.length > 0 }
+          : { reason: "anonymous_user" },
+    },
+    {
+      worker: "load_source_material_assets",
+      capability: "shared",
+      phase: "context_load",
+      mode: "parallel",
+      status: context.userId !== "anonymous" ? "completed" : "skipped",
+      groupId: "initial_context_load",
+      details:
+        context.userId !== "anonymous"
+          ? {
+              assetCount: Array.isArray(rawSourceMaterialAssets)
+                ? rawSourceMaterialAssets.length
+                : 0,
+            }
+          : { reason: "anonymous_user" },
+    },
+  );
+  route.routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
+    route.routingTrace.workerExecutions,
+  );
 
   const semanticCorrectionDetail =
     looksLikeSemanticCorrection(context.userMessage) && hasConcreteCorrectionDetail(context.userMessage)

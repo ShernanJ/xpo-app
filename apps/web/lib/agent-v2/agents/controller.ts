@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { fetchJsonFromGroq } from "./llm.ts";
 import type { ConversationState, V2ChatIntent } from "../contracts/chat";
+import type { TurnPlan } from "../contracts/chat";
 
 export const ControllerActionSchema = z.enum([
   "answer",
@@ -22,6 +23,12 @@ export const ControllerDecisionSchema = z.object({
 
 export type ControllerAction = z.infer<typeof ControllerActionSchema>;
 export type ControllerDecision = z.infer<typeof ControllerDecisionSchema>;
+
+export interface TopLevelActionResolution {
+  decision: ControllerDecision;
+  classifiedIntent: V2ChatIntent;
+  source: "explicit_intent" | "turn_plan" | "controller";
+}
 
 export interface ControllerMemorySummary {
   conversationState: ConversationState;
@@ -313,6 +320,62 @@ export function mapControllerActionToIntent(args: {
   }
 
   return "coach";
+}
+
+export async function resolveTopLevelAction(args: {
+  explicitIntent?: V2ChatIntent | null;
+  turnPlan?: Pick<TurnPlan, "overrideClassifiedIntent"> | null;
+  userMessage: string;
+  recentHistory: string;
+  memory: ControllerMemorySummary;
+  controlTurnImpl?: typeof controlTurn;
+}): Promise<TopLevelActionResolution> {
+  if (args.turnPlan?.overrideClassifiedIntent && !args.explicitIntent) {
+    const classifiedIntent = args.turnPlan.overrideClassifiedIntent as V2ChatIntent;
+    return {
+      classifiedIntent,
+      source: "turn_plan",
+      decision: {
+        action: mapIntentToControllerAction(classifiedIntent),
+        needs_memory_update: false,
+        confidence: 1,
+        rationale: "deterministic guardrail",
+      },
+    };
+  }
+
+  if (args.explicitIntent) {
+    return {
+      classifiedIntent: args.explicitIntent,
+      source: "explicit_intent",
+      decision: {
+        action: mapIntentToControllerAction(args.explicitIntent),
+        needs_memory_update: false,
+        confidence: 1,
+        rationale: "explicit intent",
+      },
+    };
+  }
+
+  const decision =
+    (await (args.controlTurnImpl || controlTurn)({
+      userMessage: args.userMessage,
+      recentHistory: args.recentHistory,
+      memory: args.memory,
+    })) ||
+    buildControllerFallbackDecision({
+      userMessage: args.userMessage,
+      memory: args.memory,
+    });
+
+  return {
+    decision,
+    classifiedIntent: mapControllerActionToIntent({
+      action: decision.action,
+      memory: args.memory,
+    }),
+    source: "controller",
+  };
 }
 
 export async function controlTurn(args: {

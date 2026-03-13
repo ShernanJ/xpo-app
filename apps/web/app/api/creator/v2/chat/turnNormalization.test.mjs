@@ -20,7 +20,7 @@ test("ideation picks normalize into structured draft turns with a server-side pl
   assert.equal(normalized.transcriptMessage, "> what's the biggest friction you hit when launching a growth tool?");
   assert.equal(
     normalized.orchestrationMessage,
-    "draft a post that directly answers this question in the user's voice: what's the biggest friction you hit when launching a growth tool?",
+    "draft a post in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. do not repeat the question or answer it in a single flat sentence: what's the biggest friction you hit when launching a growth tool?",
   );
   assert.equal(normalized.shouldAllowReplyHandling, false);
   assert.equal(normalized.diagnostics.planSeedSource, "selected_angle");

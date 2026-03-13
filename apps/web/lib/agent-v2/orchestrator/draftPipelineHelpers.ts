@@ -193,6 +193,13 @@ import type {
   ChatResolvedWorkflow,
   ChatTurnSource,
 } from "../contracts/turnContract";
+import type {
+  AgentRuntimeWorkflow,
+  RuntimeResolutionSource,
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
+  RuntimeWorkerExecutionSummary,
+} from "../runtime/runtimeContracts.ts";
 
 export interface OrchestratorInput {
   userId: string;
@@ -250,6 +257,15 @@ export interface RoutingTrace {
     replyHandlingBypassedReason: string | null;
     resolvedWorkflow: ChatResolvedWorkflow | null;
   };
+  runtimeResolution:
+    | {
+        workflow: AgentRuntimeWorkflow;
+        source: RuntimeResolutionSource;
+      }
+    | null;
+  workerExecutions: RuntimeWorkerExecution[];
+  workerExecutionSummary: RuntimeWorkerExecutionSummary;
+  validations: RuntimeValidationResult[];
   turnPlan: {
     userGoal: string;
     overrideClassifiedIntent: string | null;

@@ -2,6 +2,8 @@ import { stripSelectedAnglePromptPrefix } from "../orchestrator/selectedAnglePro
 
 const ABRUPT_ENDING_CLAUSE =
   /(?:,\s*)?(?:and|or|but|because|so|that|which|while|when|to)\s+[a-z0-9][a-z0-9'/-]{0,20}$/i;
+const ABRUPT_ENDING_MULTIWORD_SHORT_TAIL =
+  /(?:,\s*)?(?:and|or|but|because|so|that|which|while|when|to)\b(?:\s+[a-z0-9][a-z0-9'/-]{0,20}){0,3}\s+[a-z]{1,2}$/i;
 const ABRUPT_ENDING_PUNCTUATION = /[,:;—-]\s*[a-z0-9][a-z0-9'/-]{0,20}$/i;
 const ABRUPT_ENDING_SHORT_FRAGMENT = /[,:;—-]\s*[^.!?,:;—-]{0,32}\b[a-z]{1,2}$/i;
 const ABRUPT_ENDING_QUESTION_STUB =
@@ -28,6 +30,7 @@ export function repairAbruptEnding(value: string): string {
 
   let repaired = trimmed
     .replace(ABRUPT_ENDING_CLAUSE, "")
+    .replace(ABRUPT_ENDING_MULTIWORD_SHORT_TAIL, "")
     .replace(ABRUPT_ENDING_PUNCTUATION, "")
     .replace(ABRUPT_ENDING_SHORT_FRAGMENT, "")
     .replace(ABRUPT_ENDING_QUESTION_STUB, "")

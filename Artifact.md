@@ -1,185 +1,150 @@
-# Agent Plan and Artifact Hand-off
+# Agent Runtime vNext Program Board
 
-## Phase: Transcript Contract Cleanup & Thread Resilience
-**Current Status:** Completed.
+## Status
+- Program: `Agent Runtime vNext`
+- Design pattern: `Sequential Control Plane, Parallel Worker Plane`
+- Migration style: staged strangler
+- Last updated: 2026-03-13
+- Current slice: Phase 1 control-plane hardening in progress
 
-## 1. What Has Been Done (Current Plan Executed)
-- **Transcript contract stabilized in `apps/web/app/api/creator/v2/chat/route.logic.ts`:**
-  - `recentHistory` is now explicitly transcript-only and stays limited to natural `user:` / `assistant:` turns.
-  - Dead `assistant_context` / `assistant_plan` / `assistant_draft` / `assistant_grounding` / `assistant_reply` / `assistant_angles` history assembly code was removed.
-  - `activeDraft` resolution still comes from structured state such as `contextPacket`, draft bundles, draft versions, and draft artifacts.
-- **Route tests realigned to the new contract:**
-  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now checks transcript continuity, exclusion behavior, and `activeDraft` carryover instead of expecting `assistant_*` markers in model history.
-- **Thread artifact parsing hardened in `apps/web/lib/onboarding/draftArtifacts.ts`:**
-  - Fallback order is now: explicit `---` delimiters, strong marker lines (`1/5`, `1.`, `2)`, `Post 2:`, `Tweet 2:`), blank-line paragraph grouping, then sentence/word chunking.
-  - Marker-based splitting preserves numbering tokens in each post and only activates when at least two credible boundaries are present.
-  - Numbered thread detection now recognizes the same marker families used by the fallback splitter.
-- **Regression coverage expanded:**
-  - `apps/web/lib/onboarding/draftArtifacts.test.mjs` now covers numbered threads without delimiters, single-newline marker threads, `Post/Tweet` labels, and oversized one-block fallbacks capped to six posts.
-- **Verification completed:**
-  - Green: `test:v2-route`, `draftArtifacts.test.mjs`, `test:v2-response-quality`, `test:v2-regressions`, `test:v2-orchestrator`, `liveAssistantEval.test.mjs`, `test:v3-orchestrator`.
-- **Per-handle backend isolation landed for multi-account Xpo profiles:**
-  - Shared workspace-handle helpers now live in `apps/web/lib/workspaceHandle.ts` and `apps/web/lib/workspaceHandle.server.ts`.
-  - Handle-scoped creator routes now resolve the effective workspace handle from the explicit request contract instead of treating `session.user.activeXHandle` as backend authority.
-  - `apps/web/app/api/creator/v2/chat/route.ts` now creates/loads threads against the requested workspace handle, validates thread ownership with `ChatThread.xHandle`, and only reads onboarding/profile context for that same handle.
-  - `apps/web/app/chat/page.tsx` now treats the workspace handle as tab state via `?xHandle=...`, sends `X-Xpo-Handle` on creator/chat requests, and preserves that handle across chat/thread navigation.
-  - `ReplyOpportunity` persistence is now isolated by `userId + xHandle + tweetId`, with the migration in `apps/web/prisma/migrations/20260313170000_reply_opportunity_handle_isolation/migration.sql`.
-  - Direct regression coverage now exists in `apps/web/lib/workspaceHandle.test.ts`.
-- **Memory/constraint salience step 1 landed:**
-  - Shared salience policy now lives in `apps/web/lib/agent-v2/memory/memorySalience.ts`.
-  - `memoryStore.ts` now applies salience normalization both when persisting conversation memory and when building snapshots for downstream orchestration.
-  - `memoryPolicy.ts` now uses the same salience rules when persistence falls back, so runtime memory shape stays aligned with the persisted shape.
-  - The salience layer now keeps hard grounding constraints sticky, trims noisy/transient residue, caps ideation-angle carryover, normalizes rolling summaries, and clamps long-session counters like `concreteAnswerCount`.
-  - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/memorySalience.test.ts`.
-- **Memory/constraint salience step 2 landed:**
-  - Turn-scoped memory freshness now lives in `apps/web/lib/agent-v2/memory/turnScopedMemory.ts`.
-  - `turnContextBuilder.ts` now scopes persisted memory per turn before routing/planning/drafting consume it, so stale topic summaries, old refinement instructions, lingering ideation angles, and outdated active-draft state stop dominating when the user clearly switches topics.
-  - Strong local continuation cues like active-draft edit requests still keep the current draft/plan context intact.
-  - Direct regression coverage now exists in `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
-- **Architecture follow-through step 1 landed:**
-  - `conversationManager.ts` no longer carries its own duplicate copies of the draft-pipeline helper cluster.
-  - Shared helper behavior such as topic-seed inference, clarification-question building, draft-preference inference, and thread-framing resolution now comes from `apps/web/lib/agent-v2/orchestrator/draftPipelineHelpers.ts` for both the manager and the draft pipeline.
-  - The diagnostic routing-trace flag is now typed on `ConversationalDiagnosticContext` instead of using an `any` escape hatch in `conversationManager.ts`.
-- **Architecture follow-through step 2 landed:**
-  - Shared response finalization now lives in `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts`.
-  - `conversationManager.ts`, `draftPipelineHelpers.ts`, and the routing-policy fast-reply path now reuse the same response shaping / `responseShapePlan` assembly instead of carrying separate copies.
-  - `apps/web/app/api/creator/v2/chat/route.ts` now has a defensive fallback shape-plan path, which prevents partial orchestrator responses from crashing the route on `responseShapePlan.shouldAskFollowUp`.
-- **Architecture follow-through step 3 landed:**
-  - `conversationManager.ts` now re-exports `ConversationServices` and consumes the shared `createDefaultConversationServices()` implementation instead of carrying its own duplicate service contract / factory.
-  - The unused local `applyMemoryPatch` copy is gone, and direct anti-pattern/source-material helpers are imported only where `conversationManager.ts` still uses them.
-  - `pnpm build` is green after the cleanup, so the reduced boundary is ship-safe rather than just test-safe.
-- **Thread handoff copy is now thread-native:**
-  - `apps/web/app/api/creator/v2/chat/route.logic.ts` now makes fallback draft handoff copy output-shape aware, so thread rewrites say `thread` and offer thread-native tweak prompts instead of generic post wording.
-  - Direct regression coverage now exists in `apps/web/app/api/creator/v2/chat/route.test.mjs`.
-  - `pnpm build`, the route tests, and `test:v2-orchestrator` are all green after the change.
-- **Generic draft asks now ideate naturally instead of overfitting to product claims:**
-  - `draftFastStart.ts` no longer fast-starts open-ended asks like `write a post about anything`, and bare draft requests no longer skip straight into grounded drafting even when saved context exists.
-  - `draftPipeline.ts` now sends those vague asks through generated ideation directions instead of random drafting or stiff clarification copy.
-- **Bare draft asks now show generated post/thread directions instead of auto-drafting:**
-  - A plain `write a post` or `write a thread` now returns `ideation_angles`, so the UI shows numbered idea directions plus chips instead of jumping straight into a low-context draft.
-  - `draftPipeline.ts` now builds a loose ideation prompt in the user’s lane and preserves only real inferred topic summaries, rather than storing generic request text like `write a post`.
-  - `ideationReply.ts` now makes the visible lead explicit (`here are a few post directions.` / `here are a few thread directions.`), which makes the list underneath easier to understand on the actual chat surface.
-  - The intercept now runs before the router’s `hasEnoughContextToAct` shortcut, so stale topic summaries or old pending-plan state can no longer turn a fresh bare ask like `write a post` into an immediate draft about the previous topic.
-  - `conversationManagerLogic.ts` now explicitly treats the exact phrase `write a post` as a bare draft request, which was the missing matcher keeping the earlier fix from firing on the real app input.
-- **Abrupt draft endings now get cleaned up before delivery:**
-  - `apps/web/lib/agent-v2/agents/draftCompletion.ts` now trims common dangling conjunction fragments like `..., and sugge` before the critic returns the final draft.
-  - The same cleanup now trims short broken tail clauses after commas or dashes, so fragments like `algorithms shift, noise r` get clipped before delivery too.
-  - The abrupt-ending cleanup now also trims unfinished trailing question stubs like `what habit gives you`, while preserving the punctuation on the last complete sentence.
-  - The critic now strips unfinished prompt-echo tails when a post starts parroting the selected idea/question back into the ending, such as a draft tail like `what's the toughest` after a selected-angle prompt.
-  - Standalone posts now also strip thread-style lead labels like `thread:` / `post 1:` / `tweet 1:` before delivery, which stops shortform drafts from looking serialized when the writer leaks thread framing into the opener.
-  - Direct regression coverage now exists in `apps/web/lib/agent-v2/agents/critic.test.mjs`.
-  - `test:v2-orchestrator`, `test:v2-response-quality`, and `pnpm build` are green after the change.
-- **Selected ideation picks now flow into post drafting more cleanly:**
-  - `apps/web/app/api/creator/v2/chat/route.ts` now passes the chosen angle text itself into the backend instead of wrapping it in `Turn the following angle into a draft: ...`.
-  - `draftPipeline.ts` now uses cleaner clarification wording for question-shaped selected angles, so the no-fabrication follow-up asks whether to ground it in build experience or keep it as a plain product point instead of echoing synthetic prompt wrappers back to the user.
-  - `promptBuilders.ts` now explicitly tells the writer to treat question briefs as problems to answer, not as text to paste back into the draft or trail off from.
-- **Selected ideation picks now carry a stronger hidden drafting brief:**
-  - `apps/web/lib/agent-v2/orchestrator/selectedAnglePrompt.ts` now builds internal prompts for chosen angles, so question-shaped picks become briefs like `draft a post that directly answers this question...` instead of going into the generator as raw question text.
-  - `apps/web/app/chat/page.tsx` now sends that richer hidden prompt while still rendering the visible user turn as the quoted chosen angle, which preserves the UX but gives the planner/writer more context to reason over before drafting.
-  - The same shared helper also strips those wrappers back out for user-facing clarification copy and prompt-echo cleanup, so better internal prompting does not leak synthetic phrasing back into the chat.
-- **Typed turn normalization now sits in front of reply parsing and orchestration:**
-  - Shared turn-contract types now live in `apps/web/lib/agent-v2/contracts/turnContract.ts`.
-  - `apps/web/app/api/creator/v2/chat/turnNormalization.ts` now converts overloaded request fields into a normalized turn contract before any reply parsing or orchestration runs.
-  - Structured UI actions now send explicit `turnSource` / `artifactContext` payloads from `apps/web/app/chat/page.tsx` for ideation picks, draft actions, and reply option selections.
-  - Selected-angle reasoning now happens server-side: the client no longer fabricates hidden drafting prompts, and the route now passes a clean user-facing `userMessage` plus separate internal `planSeedMessage` into the orchestrator.
-  - Reply parsing now only runs for normalized `free_text` turns, while ideation picks, draft actions, and structured reply actions bypass it by contract instead of scattered special cases.
-  - Routing diagnostics now include normalized turn metadata (`turnSource`, `artifactKind`, `planSeedSource`, `replyHandlingBypassedReason`, `resolvedWorkflow`) through `RoutingTrace`.
-- **Reply workflow ownership is now stricter:**
-  - `reply.logic.ts` now exposes `shouldClearReplyWorkflow(...)`, which deterministically clears stale reply state whenever a turn is not actually continuing the reply workflow.
-  - `turnScopedMemory.ts` now drops persisted `activeReplyContext` / `activeReplyArtifactRef` / `selectedReplyOptionId` before orchestration on non-reply workflows, so normal ideation/drafting/chat turns are not biased by old reply state.
-  - `apps/web/app/api/creator/v2/chat/route.ts` now persists that cleanup after ordinary assistant turns, so stale reply context cannot silently revive on later free-text messages.
-  - Direct regression coverage now exists in `apps/web/app/api/creator/v2/chat/reply.logic.test.mjs` and `apps/web/lib/agent-v2/memory/turnScopedMemory.test.ts`.
-- **Conversational cleanup continued:**
-  - Constraint acknowledgments now live in `constraintAcknowledgment.ts` and only offer revisions when a draft is actually in play.
-  - `responseShaper.ts` now strips short formulaic openers like `got it.` / `love that.` when they precede the substantive reply.
-  - Shared plan-pitch assembly now lives in `apps/web/lib/agent-v2/core/planPitch.ts`, where workflow-y planner phrasing is sanitized before it reaches the user.
-  - Planner outputs now normalize `pitchResponse`, and `buildPlanPitch` prefers the actual plan angle/objective over canned fallback copy when the planner returns low-signal text like `drafting it.`
-  - Shared planner payload normalization now lives in `apps/web/lib/agent-v2/core/plannerNormalization.ts`: deduped `mustInclude` / `mustAvoid`, overlap removal between those lists, and cleaned thread post proof points with a hard 6-post cap to match the intended thread planner contract.
-  - Planner guidance now pushes hooks toward real tension / surprise / contradiction from the request instead of generic "thoughts on" framing, and it explicitly forbids meta writing advice from leaking into `mustInclude` / `proofPoints`.
-  - Planner normalization now strips low-signal thread proof points like `be specific`, `make it clear`, or objective-duplicates so thread beats keep concrete evidence instead of meta filler.
-  - `promptBuilders.ts` now uses a clearer shared plan-requirements block plus stricter thread-beat guidance so planner prompts ask for fewer catch-all posts and fewer repeated proof points.
-  - The writer handoff is now stricter for thread plans: `promptBuilders.ts` tells the writer to preserve beat order, keep post count aligned with the plan when possible, keep proof points in their assigned beat, and carry transition hints into the actual phrasing between posts.
-  - Shared grounding-packet prompt assembly now lives in `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts`, which removes duplicated factual-authority / voice-context instructions from planner, reviser, and critic prompt strings.
-  - Shared X-platform prompt rules now live in `apps/web/lib/agent-v2/agents/xPostPromptRules.ts`, which centralizes thread-framing guidance plus X-specific markdown / verification-tone / CTA hygiene rules across drafting, revision, and critique.
-  - Shared JSON/output-contract prompt assembly now lives in `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts`, which centralizes parse-critical response schemas across planner, writer, reviser, and critic prompts.
-  - Thread planning now has a stronger default cadence contract: `plannerNormalization.ts` repairs duplicate/missing thread roles into a cleaner arc, dedupes proof points across posts, and upgrades low-signal transition hints so the writer gets more distinct beats.
-  - Thread writer/critic guidance is stricter now: the writer prompt explicitly tells each role to earn its slot, forbids close posts from just paraphrasing the payoff, and the critic now rejects flat middle beats plus payoff-as-close endings.
-  - Final thread output now has a runtime cleanup pass in `apps/web/lib/agent-v2/core/finalDraftPolicy.ts`: obviously samey adjacent posts can be collapsed before delivery, which helps remove repeated middle beats and close posts that only restate the payoff.
-  - `draftPipeline.ts` import/type drift was cleaned up after the modular plan-pitch/planner work: the file now imports from the correct modular sources, uses typed pipeline args instead of `any`, and is lint-clean again.
-  - `apps/web/lib/agent-v2/agents/promptContracts.test.mjs` now snapshots both the stronger thread-beat writer requirements and the shared grounding/platform prompt contracts so future prompt edits do not quietly drift by surface refactors.
-  - `apps/web/lib/agent-v2/core/finalDraftPolicy.test.mjs` now covers repeated-payoff closes and obviously samey adjacent middle posts so the final output cleanup stays locked in.
-  - `apps/web/lib/agent-v2/agents/llm.ts` now retries once when OpenAI-proxied reasoning models return reasoning with empty message content, which reduces false "failed to write draft" errors on otherwise valid turns.
+## Why this rework exists
+The app is now bottlenecked by infrastructure, not prompt tweaks.
 
-## 2. What Needs to Be Done (Future Plan)
-1. **Broader P0 quality pass (next major workstream):**
-   - **Where:** `chatResponderDeterministic.ts`, `responseShaper.ts`, `planner.ts`, `promptBuilders.ts`, and adjacent controller/orchestrator modules.
-   - **Goal:** Continue reducing deterministic / scripted feel, keep tightening pre-draft planning language and thread-beat quality, and keep voice grounding separate from factual grounding.
-   - **Current subfocus:** The first writer-handoff hardening landed; the next step is improving planner substance itself so hook choice, proof selection, and thread beat sharpness improve before the writer executes the plan.
-2. **Continue de-hardcoding conversational fast paths:**
-   - **Where:** `apps/web/lib/agent-v2/orchestrator/chatResponder.ts`, `chatResponderDeterministic.ts`, `responseShaper.ts`
-   - **Goal:** Keep shrinking canned conversational behavior, especially around constraints and meta chat, without losing safety-critical fallbacks.
+Current hotspots:
+- [apps/web/app/chat/page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) is still a large client monolith that mixes transport, local workflow state, and presentation.
+- [apps/web/app/api/creator/v2/chat/route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) is still too heavy as a route boundary.
+- [apps/web/lib/agent-v2/orchestrator/draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) still owns too many capabilities and too much continuation logic.
 
-## 2.5 Recommended Remaining Phases
-1. **Planner/Writer quality pass (3 steps)**
-   - tighten planner instructions
-   - improve planner-to-writer handoff
-   - verify with response/orchestrator suites
-   - Status: completed. Planner normalization, planner-side hook/proof sharpening, writer-handoff hardening, and validation are all green.
-2. **Voice vs factual grounding separation (4 steps)**
-   - audit current grounding paths
-   - separate style anchors from factual/evidence anchors
-   - update prompt usage and guardrails
-   - verify hallucination regressions stay closed
-   - Status: completed. `GroundingPacket` now exposes an explicit `factualAuthority` channel, legacy `contextAnchors` split into factual carryover vs `voiceContextHints`, and downstream retrieval/effective-context helpers carry those lanes separately with regression coverage staying green.
-3. **Prompt layering simplification (3 steps)**
-   - inventory duplicated/conflicting instruction blocks
-   - consolidate shared rules/helpers
-   - rerun quality/regression coverage
-   - Status: completed. Shared grounding-packet prompt assembly lives in `groundingPromptBlock.ts`, shared X-platform prompt rules live in `xPostPromptRules.ts`, shared JSON/output contracts live in `jsonPromptContracts.ts`, and the prompt contract plus response/orchestrator suites are green.
-4. **Thread-first quality maturation (4 steps)**
-   - refine thread planning quality
-   - refine writer execution of thread beats
-   - refine critic checks for thread coherence
-   - rerun thread-focused regressions/evals
-   - Status: completed. Planner-side normalization now repairs weak thread arcs before writing, writer/critic prompts enforce distinct middle beats plus real closes, `finalDraftPolicy.ts` removes obviously samey adjacent posts at delivery time, and the thread-focused regression sweep is green end to end.
-5. **Memory/constraint salience follow-through (3 steps)**
-   - decide what should persist vs decay
-   - implement salience/capping/summarization policy
-   - test longer-session behavior
-   - Status: completed. Shared salience policy now exists in `memorySalience.ts`, turn-scoped freshness lives in `turnScopedMemory.ts`, and the broader long-session validation sweep is green across response quality plus orchestrator regressions.
-6. **Architecture follow-through (2-3 steps)**
-  - identify remaining overloaded boundaries
-  - move lingering logic into focused modules
-  - verify behavior stayed stable
-  - Status: completed. Step 1 removed duplicated draft-pipeline helper logic from `conversationManager.ts`, step 2 centralized response finalization in `responseEnvelope.ts`, and step 3 removed the duplicated service/factory surface so `conversationManager.ts` now rides the shared helper boundary with `pnpm build` green.
+The program goal is to make the system feel like one natural ChatGPT-style assistant on the surface while being explicit, typed, and deterministic underneath.
 
-## 3. Important Information for the Next Agent
-- **The Orchestrator is now Modular**: When adapting conversational flow, do not shove logic directly into `conversationManager.ts`. Look for the applicable policy file (`turnContextBuilder`, `routingPolicy`, `draftPipeline`, `memoryPolicy`).
-- **Transcript Contract Is Cleaned Up**: Do not put structured assistant state back into `recentHistory`. The model should only read natural transcript turns there.
-- **`contextPacket` Is Still Canonical**: Machine-readable assistant state should continue to live in persisted message data, not in the transcript string.
-- **Thread Fallbacks Are Now Ordered and Conservative**: If you extend the splitter, preserve marker tokens in post content and keep the "at least two credible boundaries" rule so normal prose is not over-segmented.
-- **Constraint Acknowledgments Are Now Isolated**: Constraint detection and acknowledgment live in `constraintAcknowledgment.ts`, which keeps the conversational fast path testable without pulling in the coach stack.
-- **Visible Replies Are Slightly More Compressed Now**: `responseShaper.ts` removes certain low-information opener sentences before the user sees them. Preserve that behavior unless a concrete regression shows it is stripping meaningful content.
-- **Plan Pitching Is Now Shared and Sanitized**: `core/planPitch.ts` is the shared layer for user-visible plan pitches. If planner copy gets workflow-y again, fix it there and in `planner.ts` / `promptBuilders.ts`, not with scattered one-off wrappers.
-- **Planner Payload Cleanup Is Also Shared**: `core/plannerNormalization.ts` is the right place to dedupe or sanitize planner output structure before it leaks into downstream orchestration.
-- **`draftPipeline.ts` Is Stable Again**: If new errors appear there, prefer fixing imports/types at the module boundary instead of re-pulling broad helpers back out of `conversationManager.ts`.
-- **Grounding Now Has Separate Truth vs Voice Context Lanes**: `groundingPacket.ts` now exposes `factualAuthority` plus `voiceContextHints`. Use `factualAuthority` for reusable truth/evidence. Use `voiceContextHints` for territory/framing guidance only.
-- **Workspace Handle Is Now Explicit**: For handle-scoped creator/chat APIs, the request workspace handle is authoritative. The chat UI now persists it in `?xHandle=...` and server routes resolve it from `X-Xpo-Handle` / request input. `session.user.activeXHandle` should only be treated as a last-used default for opening a fresh workspace.
-- **Thread Access Must Stay Handle-Scoped**: `ChatThread.xHandle` is now the ownership boundary for creator chat threads. Use `resolveOwnedThreadForWorkspace(...)` instead of hand-rolling thread lookup logic, and keep null-handle legacy threads quarantined instead of silently reassigning them.
-- **Reply Opportunity Learning Is Handle-Scoped Too**: `ReplyOpportunity` records are now keyed by `userId + xHandle + tweetId`. Do not reintroduce user-level fallback lookups that can blend learning across handles inside the same Xpo profile.
-- **Grounding Prompt Copy Is Now Shared**: If you need to change how factual authority, voice-context hints, unknowns, or source-material detail lines are described to agents, update `apps/web/lib/agent-v2/agents/groundingPromptBlock.ts` instead of duplicating copy across planner/reviser/critic strings.
-- **X Platform Prompt Rules Are Now Shared**: If you need to change thread-framing wording or X-specific markdown / CTA / verification-tone rules, update `apps/web/lib/agent-v2/agents/xPostPromptRules.ts` instead of drifting separate copies in writer, reviser, or critic.
-- **JSON Output Contracts Are Now Shared**: If you need to change parse-critical response schemas, update `apps/web/lib/agent-v2/agents/jsonPromptContracts.ts` instead of editing separate inline JSON blocks in planner, writer, reviser, or critic prompts.
-- **Thread Plan Cadence Now Self-Repairs**: `apps/web/lib/agent-v2/core/plannerNormalization.ts` is now responsible for correcting weak role order, repeated proof beats, and low-signal transitions in thread plans before they reach the writer.
-- **Final Thread Output Also Self-Cleans**: `apps/web/lib/agent-v2/core/finalDraftPolicy.ts` now does a last-pass cleanup for obviously samey adjacent thread posts, so repeated payoff-as-close endings can be removed even if generation slips.
-- **Thread-first Quality Phase Is Done**: Planner, writer, critic, and final-policy layers now reinforce the same thread arc, so the next major focus should shift to memory/constraint salience instead of more thread plumbing.
-- **Memory Salience Is Now Shared**: `apps/web/lib/agent-v2/memory/memorySalience.ts` is now the shared place to decide which constraints, summaries, and ideation residue stay sticky versus decay. If long-session memory gets bloated again, fix the policy there before widening persistence rules elsewhere.
-- **Persistence and Runtime Memory Now Share the Same Shape**: `memoryStore.ts` and `memoryPolicy.ts` both apply the same salience rules, so follow-up work should preserve that parity instead of letting persisted memory and runtime fallbacks drift apart.
-- **Turn Context Now Applies Freshness Gating**: `apps/web/lib/agent-v2/memory/turnScopedMemory.ts` decides whether the current turn is continuing the active draft/topic or starting a new lane. Keep that freshness gate focused on topic-bound residue; do not let it drop correction locks or stable user preferences.
-- **Memory/Constraint Salience Phase Is Done**: Persistence salience, runtime parity, and turn-scoped freshness are all now in place and revalidated. The next major focus should shift to architecture follow-through rather than widening the salience heuristics.
-- **Turn normalization is now the chat boundary to preserve**: `turnNormalization.ts` is the first place to extend when you add a new structured UI action. Do not reintroduce route-level workflow guessing from raw `message` if a new action can be modeled as `turnSource + artifactContext`.
-- **Legacy request shims are temporary**: The route still accepts `selectedAngle` / `selectedDraftContext` during migration, but those fields are normalized immediately and should not be the shape new UI actions rely on.
-- **Reply workflow now has explicit ownership rules**: stale `activeReplyContext` should be cleared on non-reply turns instead of lingering in memory and competing with normal chat/draft flows. If a new reply UX is added, wire it through the normalized turn contract and `reply.logic.ts` ownership helpers instead of relying on generic free-text continuation.
-- **Draft-Pipeline Helper Logic Is Now Shared Again**: `conversationManager.ts` now consumes the helper cluster from `draftPipelineHelpers.ts` instead of keeping a second copy. If you need to change clarification/topic-seed/draft-preference heuristics, update the shared helper module rather than reintroducing logic into `conversationManager.ts`.
-- **Response Finalization Is Now Shared Too**: `apps/web/lib/agent-v2/orchestrator/responseEnvelope.ts` is now the single place to compute `surfaceMode`, `responseShapePlan`, and shaped fast-reply envelopes. If a route crashes on missing response metadata again, fix that shared helper first instead of patching duplicate local finalizers.
-- Check `LIVE_AGENT.md` for broader alignment on voice, thread rules, and safety fallbacks.
+## Architecture principles
+- One top-level runtime owner decides the workflow before any model call.
+- One turn belongs to one workflow:
+  - `answer_question`
+  - `ideate`
+  - `plan_then_draft`
+  - `revise_draft`
+  - `reply_to_post`
+  - `analyze_post`
+- The control plane stays sequential.
+- Parallelism is allowed only inside a chosen workflow and only for read-only or side-effect-free workers.
+- Memory, artifact persistence, reply context, and thread metadata mutate only through the sequential runtime path.
+- Validation and retry are the primary quality strategy.
+- Cleanup helpers remain last-resort output guards only.
+
+## Design pattern
+### Sequential control plane
+- Transport contract
+- Turn normalization
+- Runtime action resolution
+- Workflow dispatch
+- Persistence
+- Response envelope
+
+### Parallel worker plane
+- Retrieval
+- Style/profile loading
+- Source-material loading
+- Candidate generation
+- Validation/scoring
+
+### Forbidden concurrency patterns
+- Multiple routers classifying the same turn in parallel
+- Parallel writes to memory, artifacts, reply context, or thread state
+- Prompt-level workflow switching inside capability executors
+- Client-side hidden prompting as the main workflow signal
+- Cleanup heuristics used as the primary fix for routing or generation defects
+
+## Current invariants
+- `recentHistory` stays transcript-only.
+- Structured UI actions must travel as `turnSource + artifactContext`.
+- Explicit `workspaceHandle` is authoritative for creator/chat scope.
+- Reply parsing only runs on literal `free_text` turns.
+- Planner, writer, critic, reviser, and reply generation are capability workers, not peer routers.
+- Voice grounding and factual grounding stay separated.
+- Multi-handle isolation remains required behavior.
+
+## Phase board
+### Phase 0: Program reset
+- Rewrite [Artifact.md](/Users/shernanjavier/Projects/stanley-x-mvp/Artifact.md) and [LIVE_AGENT.md](/Users/shernanjavier/Projects/stanley-x-mvp/LIVE_AGENT.md) into migration docs instead of patch logs.
+- Status: complete.
+
+### Phase 1: Lock the control plane
+- Make turn normalization the only transport-to-runtime boundary.
+- Make runtime resolution the only workflow authority.
+- Standardize runtime trace output:
+  - normalized turn
+  - runtime workflow
+  - resolution source
+  - reply bypass reason
+  - worker execution summary
+  - validation results
+- Status: in progress.
+- Landed:
+  - [apps/web/lib/agent-v2/contracts/chatTransport.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/contracts/chatTransport.ts)
+  - [apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts)
+  - [apps/web/lib/agent-v2/runtime/runtimeContracts.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/runtimeContracts.ts)
+  - [apps/web/lib/agent-v2/runtime/runtimeTrace.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/runtimeTrace.ts)
+
+### Phase 2: Thin the client and route
+- Move transport/request construction out of [page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) into a dedicated chat transport layer plus workspace store.
+- Reduce [route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
+- Status: not started.
+
+### Phase 3: Split capability execution
+- Break [draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) into capability executors:
+  - ideation
+  - planning
+  - drafting
+  - revising
+  - replying
+  - analysis
+- Ban workflow reclassification inside executors.
+- Status: not started.
+
+### Phase 4: Formalize the parallel worker plane
+- Allow worker fan-out only for retrieval, source-material loading, style/profile loading, candidate generation, and validation/scoring.
+- Add merge rules for worker outputs.
+- Prohibit ambiguous side effects from worker fan-out.
+- Status: not started.
+
+### Phase 5: Validation and retry
+- Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.
+- Retry once inside the same workflow before any surface cleanup.
+- Status: not started.
+
+### Phase 6: Rollout and deletion
+- Migrate workflow families in order:
+  1. ideation + draft
+  2. revision
+  3. reply + analyze
+- Delete compatibility shims and duplicate routing only when each family is green under vNext.
+- Status: not started.
+
+## Acceptance gates
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/chat/route.test.mjs`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/chat/turnNormalization.test.mjs`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/contracts/chatTransport.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/resolveRuntimeAction.test.mjs`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/runtimeContracts.test.ts`
+- `pnpm run test:v2-orchestrator`
+- `pnpm run test:v2-response-quality`
+- `pnpm run test:v3-orchestrator`
+- `pnpm build`
+
+## Active blockers and risks
+- [page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) still owns too much request and workspace logic.
+- [route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) still owns too much workflow and persistence assembly.
+- [draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) still mixes generation, continuation, grounding, revision, and salvage logic.
+- Output cleanup helpers still exist because validator + retry is incomplete.
+
+## Do not regress
+- Do not move assistant machine state back into transcript history.
+- Do not reintroduce session-global handle scoping for account-specific context.
+- Do not let reply parsing inspect structured draft or ideation turns.
+- Do not let multiple control-plane owners classify the same turn.
+- Do not add more cleanup heuristics when the defect belongs in runtime ownership, validator logic, or executor boundaries.
+
+## Historical appendix
+- Transcript cleanup, handle isolation, voice-vs-factual grounding separation, memory salience, thread quality work, and initial turn normalization landed before the vNext program board existed.
+- Those behaviors are baseline requirements during this migration.

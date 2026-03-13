@@ -1,4 +1,5 @@
 import type { V2ChatIntent } from "../../../../../lib/agent-v2/contracts/chat.ts";
+import type { CreatorChatTransportRequest } from "../../../../../lib/agent-v2/contracts/chatTransport.ts";
 import type {
   ChatArtifactContext,
   ChatResolvedWorkflow,
@@ -16,15 +17,7 @@ import {
   type SelectedDraftContext,
 } from "./route.logic.ts";
 
-interface CreatorChatTurnBody extends Record<string, unknown> {
-  message?: unknown;
-  intent?: unknown;
-  selectedAngle?: unknown;
-  selectedDraftContext?: unknown;
-  artifactContext?: unknown;
-  turnSource?: unknown;
-  contentFocus?: unknown;
-}
+type CreatorChatTurnBody = CreatorChatTransportRequest & Record<string, unknown>;
 
 function parseTurnSource(value: unknown): ChatTurnSource | null {
   return value === "free_text" ||

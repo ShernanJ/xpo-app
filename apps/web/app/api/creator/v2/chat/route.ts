@@ -37,6 +37,8 @@ import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import { recordProductEvent } from "@/lib/productEvents";
 import type { GrowthStrategySnapshot } from "@/lib/onboarding/growthStrategy";
 import type { VoiceStyleCard } from "@/lib/agent-v2/core/styleProfile";
+import type { CreatorChatTransportRequest } from "@/lib/agent-v2/contracts/chatTransport";
+import { normalizeClientTurnId } from "@/lib/agent-v2/contracts/chatTransport";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
@@ -81,25 +83,7 @@ import {
   type ChatReplyParseEnvelope,
 } from "./reply.logic";
 
-interface CreatorChatRequest extends Record<string, unknown> {
-  threadId?: unknown;
-  runId?: unknown;
-  message?: unknown;
-  history?: unknown;
-  turnSource?: unknown;
-  artifactContext?: unknown;
-  intent?: unknown;
-  selectedAngle?: unknown;
-  contentFocus?: unknown;
-  selectedDraftContext?: unknown;
-  formatPreference?: unknown;
-  threadFramingStyle?: unknown;
-  preferenceConstraints?: unknown;
-  preferenceSettings?: unknown;
-  replyContext?: unknown;
-  goal?: unknown;
-  toneRisk?: unknown;
-}
+type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 
 const DEFAULT_THREAD_TITLE = "New Chat";
 
@@ -472,6 +456,7 @@ export async function POST(request: NextRequest) {
 
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
+  const clientTurnId = normalizeClientTurnId(body.clientTurnId);
   // If no threadId or runId, we will automatically generate a thread below.
 
   const normalizedTurn = normalizeChatTurn({ body });
@@ -519,6 +504,8 @@ export async function POST(request: NextRequest) {
   const workspaceHandle = await resolveWorkspaceHandleForRequest({
     request,
     session,
+    bodyHandle:
+      typeof body.workspaceHandle === "string" ? body.workspaceHandle : null,
   });
   if (!workspaceHandle.ok) {
     return workspaceHandle.response;
@@ -769,6 +756,7 @@ export async function POST(request: NextRequest) {
           content: normalizedTurn.transcriptMessage || routeUserMessage,
           data: {
             version: "user_context_v2",
+            clientTurnId,
             explicitIntent: effectiveExplicitIntent,
             turnSource: normalizedTurn.source,
             artifactContext: normalizedTurn.artifactContext,
@@ -912,6 +900,9 @@ export async function POST(request: NextRequest) {
         surfaceMode: args.surfaceMode,
         memory: nextMemory,
         routingDiagnostics: normalizedTurn.diagnostics,
+        requestTrace: {
+          clientTurnId,
+        },
         threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
         billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
         replyArtifacts: args.replyArtifacts || null,
@@ -1499,6 +1490,9 @@ export async function POST(request: NextRequest) {
       surfaceMode: result.surfaceMode,
       memory: result.memory,
       routingDiagnostics: normalizedTurn.diagnostics,
+      requestTrace: {
+        clientTurnId,
+      },
       replyArtifacts: null,
       replyParse: null,
       threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,

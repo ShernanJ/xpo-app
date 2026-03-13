@@ -22,9 +22,10 @@ export interface FinalizedResponseEnvelope extends RawResponseEnvelope {
   responseShapePlan: ResponseShapePlan;
 }
 
-export interface FinalizedFastReplyEnvelope extends FinalizedResponseEnvelope {
-  data?: undefined;
-}
+export type FinalizedFastReplyEnvelope<TData = unknown> =
+  FinalizedResponseEnvelope & {
+    data?: TData;
+  };
 
 export function finalizeResponseEnvelope<T extends RawResponseEnvelope>(
   rawResponse: T,
@@ -60,14 +61,16 @@ export function finalizeResponseEnvelope<T extends RawResponseEnvelope>(
   };
 }
 
-export function buildFastReplyOrchestratorResponse(args: {
+export function buildFastReplyOrchestratorResponse<TData = unknown>(args: {
   response: string;
   memory: V2ConversationMemory;
-}): FinalizedFastReplyEnvelope {
+  data?: TData;
+}): FinalizedFastReplyEnvelope<TData> {
   return finalizeResponseEnvelope({
     mode: "coach",
     outputShape: "coach_question",
     response: args.response,
+    data: args.data,
     memory: args.memory,
-  }) as FinalizedFastReplyEnvelope;
+  }) as FinalizedFastReplyEnvelope<TData>;
 }

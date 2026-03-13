@@ -30,6 +30,21 @@ test("repairAbruptEnding trims short broken clause tails", () => {
   );
 });
 
+test("repairAbruptEnding trims dangling multi-word tails that end in a broken final word", () => {
+  assert.equal(
+    repairAbruptEnding(
+      [
+        "the app, xpo, automates the tactics i've learned to boost visibility without relying on hashtags.",
+        "my goal? show stan what i can do and earn a sp",
+      ].join("\n"),
+    ),
+    [
+      "the app, xpo, automates the tactics i've learned to boost visibility without relying on hashtags.",
+      "my goal? show stan what i can do",
+    ].join("\n"),
+  );
+});
+
 test("stripThreadishLeadLabel removes thread-style prefixes from standalone posts", () => {
   assert.equal(
     stripThreadishLeadLabel(

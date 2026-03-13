@@ -9,6 +9,17 @@ import {
 test("buildFastReplyOrchestratorResponse includes surface mode and response shape plan", () => {
   const response = buildFastReplyOrchestratorResponse({
     response: "what core takeaway do you want readers to walk away with?",
+    data: {
+      routingTrace: {
+        normalizedTurn: {
+          turnSource: "free_text",
+          artifactKind: null,
+          planSeedSource: null,
+          replyHandlingBypassedReason: null,
+          resolvedWorkflow: "free_text",
+        },
+      },
+    },
     memory: {
       conversationState: "needs_more_context",
       topicSummary: "growth on x",
@@ -36,6 +47,7 @@ test("buildFastReplyOrchestratorResponse includes surface mode and response shap
   assert.equal(response.surfaceMode, "ask_one_question");
   assert.equal(response.responseShapePlan.shouldAskFollowUp, true);
   assert.equal(response.responseShapePlan.maxFollowUps, 1);
+  assert.equal(response.data?.routingTrace?.normalizedTurn?.turnSource, "free_text");
 });
 
 test("finalizeResponseEnvelope preserves structured draft outputs", () => {

@@ -1,14 +1,11 @@
-import {
-  mapControllerActionToIntent,
-  mapIntentToControllerAction,
-  buildControllerFallbackDecision,
-} from "../agents/controller.ts";
 import { isConstraintDeclaration, respondConversationally } from "./chatResponder.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
 import { buildFastReplyOrchestratorResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
 import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
+import { resolveRuntimeAction } from "../runtime/resolveRuntimeAction.ts";
+import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 
 export interface RoutingPolicyResult {
   isFastReply: boolean;
@@ -57,6 +54,10 @@ export async function resolveRoutingPolicy(
       replyHandlingBypassedReason: replyHandlingBypassedReason || null,
       resolvedWorkflow: resolvedWorkflow || null,
     },
+    runtimeResolution: null,
+    workerExecutions: [],
+    workerExecutionSummary: summarizeRuntimeWorkerExecutions([]),
+    validations: [],
     turnPlan: turnPlan
       ? {
           userGoal: turnPlan.userGoal,
@@ -92,44 +93,24 @@ export async function resolveRoutingPolicy(
     lastIdeationAngles: memory.lastIdeationAngles,
   };
 
-  let controllerDecision;
-  let classifiedIntent: V2ChatIntent;
-
-  if (turnPlan?.overrideClassifiedIntent && !explicitIntent) {
-    classifiedIntent = turnPlan.overrideClassifiedIntent as V2ChatIntent;
-    controllerDecision = {
-      action: mapIntentToControllerAction(classifiedIntent),
-      needs_memory_update: false,
-      confidence: 1,
-      rationale: "deterministic guardrail",
-    };
-  } else if (!explicitIntent) {
-    controllerDecision = await services.controlTurn({
-      userMessage,
-      recentHistory,
-      memory: controllerMemory,
-    });
-    if (!controllerDecision) {
-      controllerDecision = buildControllerFallbackDecision({
-        userMessage,
-        memory: controllerMemory,
-      });
-    }
-    classifiedIntent = mapControllerActionToIntent({
-      action: controllerDecision.action,
-      memory: controllerMemory,
-    });
-  } else {
-    classifiedIntent = explicitIntent;
-    controllerDecision = {
-      action: mapIntentToControllerAction(classifiedIntent),
-      needs_memory_update: false,
-      confidence: 1,
-      rationale: "explicit intent",
-    };
-  }
+  const runtimeAction = await resolveRuntimeAction({
+    turnSource,
+    artifactContext,
+    explicitIntent,
+    resolvedWorkflowHint: resolvedWorkflow || null,
+    turnPlan,
+    userMessage,
+    recentHistory,
+    memory: controllerMemory,
+  });
+  const controllerDecision = runtimeAction.decision;
+  const classifiedIntent = runtimeAction.classifiedIntent;
 
   routingTrace.controllerAction = controllerDecision.action;
+  routingTrace.runtimeResolution = {
+    workflow: runtimeAction.workflow,
+    source: runtimeAction.source,
+  };
 
   let currentMemory = memory;
   if (controllerDecision.needs_memory_update) {
@@ -162,7 +143,7 @@ export async function resolveRoutingPolicy(
   routingTrace.classifiedIntent = classifiedIntent;
   routingTrace.resolvedMode = mode;
 
-  if ((turnPlan && !turnPlan.shouldGenerate) || mode === "answer_question") {
+  if ((turnPlan && !turnPlan.shouldGenerate) || runtimeAction.workflow === "answer_question") {
     // We already have styleCard and anchors from context building!
     const fastReply = await respondConversationally({
       userMessage,
@@ -209,6 +190,9 @@ export async function resolveRoutingPolicy(
         fastReplyResponse: buildFastReplyOrchestratorResponse({
           response: fastReply,
           memory: finalMemory,
+          data: {
+            routingTrace,
+          },
         }),
       };
     }

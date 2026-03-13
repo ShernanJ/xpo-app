@@ -133,6 +133,7 @@ import type {
 import type { TurnContext } from "./turnContextBuilder";
 import type { RoutingPolicyResult } from "./routingPolicy";
 import { saveConversationTurnMemory } from "./memoryPolicy";
+import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -778,6 +779,33 @@ User Profile Summary:
       const claimCheck = checkDraftClaimsAgainstGrounding({
         draft: attempt.draftToDeliver,
         groundingPacket: draftGroundingPacket,
+      });
+      const validationStatus = claimCheck.needsClarification
+        ? "clarification_required"
+        : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
+          ? "failed"
+          : "passed";
+      routingTrace.workerExecutions.push({
+        worker: "claim_checker",
+        capability: "drafting",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: null,
+        details: {
+          status: validationStatus,
+          issueCount: claimCheck.issues.length,
+        },
+      });
+      routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
+        routingTrace.workerExecutions,
+      );
+      routingTrace.validations.push({
+        validator: "claim_checker",
+        capability: "drafting",
+        status: validationStatus,
+        issues: claimCheck.issues,
+        corrected: Boolean(claimCheck.draft && claimCheck.draft !== attempt.draftToDeliver),
       });
 
       return {
@@ -2580,6 +2608,33 @@ User Profile Summary:
       const claimCheck = checkDraftClaimsAgainstGrounding({
         draft: criticOutput.finalDraft,
         groundingPacket,
+      });
+      const revisionValidationStatus = claimCheck.needsClarification
+        ? "clarification_required"
+        : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
+          ? "failed"
+          : "passed";
+      routingTrace.workerExecutions.push({
+        worker: "claim_checker",
+        capability: "revising",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: null,
+        details: {
+          status: revisionValidationStatus,
+          issueCount: claimCheck.issues.length,
+        },
+      });
+      routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
+        routingTrace.workerExecutions,
+      );
+      routingTrace.validations.push({
+        validator: "claim_checker",
+        capability: "revising",
+        status: revisionValidationStatus,
+        issues: claimCheck.issues,
+        corrected: Boolean(claimCheck.draft && claimCheck.draft !== criticOutput.finalDraft),
       });
       if (claimCheck.needsClarification) {
         return returnClarificationQuestion({
