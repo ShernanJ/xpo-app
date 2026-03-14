@@ -127,9 +127,8 @@ import {
   resolveOpenDraftEditorState,
 } from "./chatDraftSessionState";
 import {
-  buildAssistantMessageFromChatResult,
   readChatResponseStream,
-  resolveNextDraftEditorSelection,
+  resolveAssistantReplySuccessState,
 } from "./chatReplyState";
 import {
   buildChatWorkspaceReset,
@@ -6548,6 +6547,9 @@ function ChatPageContent() {
         });
 
         const contentType = response.headers.get("content-type") ?? "";
+        const starterQuickReplies = buildDefaultExampleQuickReplies(
+          shouldUseLowercaseChipVoice(context),
+        );
 
         if (contentType.includes("application/json")) {
           const data: CreatorChatResponse = await response.json();
@@ -6577,45 +6579,55 @@ function ChatPageContent() {
             setBillingState(data.data.billing);
           }
 
-          const starterQuickReplies = buildDefaultExampleQuickReplies(
-            shouldUseLowercaseChipVoice(context),
-          );
-          setMessages((current) => [
-            ...current,
-            buildAssistantMessageFromChatResult({
+          const successState = resolveAssistantReplySuccessState({
+            result: data.data,
+            activeThreadId,
+            existingMessageCount: messages.length,
+            trimmedPrompt,
+            artifactKind: options.artifactContext?.kind ?? null,
+            defaultQuickReplies: starterQuickReplies,
+            selectedDraftContext: effectiveSelectedDraftContext,
+            mode: "json",
+            accountName,
+          });
+          setMessages((current) => {
+            const nextAssistantState = resolveAssistantReplySuccessState({
               result: data.data,
               activeThreadId,
               existingMessageCount: current.length,
               trimmedPrompt,
               artifactKind: options.artifactContext?.kind ?? null,
               defaultQuickReplies: starterQuickReplies,
-            }),
-          ]);
+              selectedDraftContext: effectiveSelectedDraftContext,
+              mode: "json",
+              accountName,
+            });
+
+            return [...current, nextAssistantState.assistantMessage];
+          });
           scrollThreadToBottom();
 
-          const nextDraftEditor = resolveNextDraftEditorSelection({
-            result: data.data,
-            selectedDraftContext: effectiveSelectedDraftContext,
-            mode: "json",
-          });
-          if (nextDraftEditor) {
-            setActiveDraftEditor(nextDraftEditor);
+          if (successState.nextDraftEditor) {
+            setActiveDraftEditor(successState.nextDraftEditor);
           }
 
-          // Store returned memory blob
-          if (data.data.memory) {
-            setConversationMemory(data.data.memory);
+          if (successState.nextConversationMemory) {
+            setConversationMemory(successState.nextConversationMemory);
           }
 
-          const responseThreadId = data.data.newThreadId ?? activeThreadId;
-          if (responseThreadId && data.data.threadTitle) {
-            syncThreadTitle(responseThreadId, data.data.threadTitle);
+          if (successState.nextThreadTitle) {
+            syncThreadTitle(
+              successState.nextThreadTitle.threadId,
+              successState.nextThreadTitle.title,
+            );
           }
 
-          applyCreatedThreadWorkspaceUpdate(
-            data.data.newThreadId,
-            data.data.threadTitle,
-          );
+          if (successState.createdThreadPlan) {
+            applyCreatedThreadWorkspaceUpdate(
+              successState.createdThreadPlan.threadId,
+              successState.createdThreadPlan.title,
+            );
+          }
 
           return;
         }
@@ -6629,49 +6641,58 @@ function ChatPageContent() {
           onStatus: (message) => setStreamStatus(message),
         });
 
-        if (streamedResult.billing) {
-          setBillingState(streamedResult.billing);
+        const successState = resolveAssistantReplySuccessState({
+          result: streamedResult,
+          activeThreadId,
+          existingMessageCount: messages.length,
+          trimmedPrompt,
+          artifactKind: options.artifactContext?.kind ?? null,
+          defaultQuickReplies: starterQuickReplies,
+          selectedDraftContext: effectiveSelectedDraftContext,
+          mode: "stream",
+          accountName,
+        });
+        if (successState.nextBilling) {
+          setBillingState(successState.nextBilling);
         }
-
-        const starterQuickReplies = buildDefaultExampleQuickReplies(
-          shouldUseLowercaseChipVoice(context),
-        );
-        setMessages((current) => [
-          ...current,
-          buildAssistantMessageFromChatResult({
+        setMessages((current) => {
+          const nextAssistantState = resolveAssistantReplySuccessState({
             result: streamedResult,
             activeThreadId,
             existingMessageCount: current.length,
             trimmedPrompt,
             artifactKind: options.artifactContext?.kind ?? null,
             defaultQuickReplies: starterQuickReplies,
-          }),
-        ]);
+            selectedDraftContext: effectiveSelectedDraftContext,
+            mode: "stream",
+            accountName,
+          });
+
+          return [...current, nextAssistantState.assistantMessage];
+        });
         scrollThreadToBottom();
 
-        const nextDraftEditor = resolveNextDraftEditorSelection({
-          result: streamedResult,
-          selectedDraftContext: effectiveSelectedDraftContext,
-          mode: "stream",
-        });
-        if (nextDraftEditor) {
-          setActiveDraftEditor(nextDraftEditor);
+        if (successState.nextDraftEditor) {
+          setActiveDraftEditor(successState.nextDraftEditor);
         }
 
-        // Store returned memory blob from stream
-        if (streamedResult.memory) {
-          setConversationMemory(streamedResult.memory);
+        if (successState.nextConversationMemory) {
+          setConversationMemory(successState.nextConversationMemory);
         }
 
-        const responseThreadId = streamedResult.newThreadId ?? activeThreadId;
-        if (responseThreadId && streamedResult.threadTitle) {
-          syncThreadTitle(responseThreadId, streamedResult.threadTitle);
+        if (successState.nextThreadTitle) {
+          syncThreadTitle(
+            successState.nextThreadTitle.threadId,
+            successState.nextThreadTitle.title,
+          );
         }
 
-        applyCreatedThreadWorkspaceUpdate(
-          streamedResult.newThreadId,
-          streamedResult.threadTitle,
-        );
+        if (successState.createdThreadPlan) {
+          applyCreatedThreadWorkspaceUpdate(
+            successState.createdThreadPlan.threadId,
+            successState.createdThreadPlan.title,
+          );
+        }
       } catch (error) {
         setErrorMessage(
           error instanceof Error

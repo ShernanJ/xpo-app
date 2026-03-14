@@ -5,6 +5,7 @@ import {
   applyCreatedThreadPlanToList,
   buildAssistantMessageFromChatResult,
   readChatResponseStream,
+  resolveAssistantReplySuccessState,
   resolveCreatedThreadPlan,
   resolveNextDraftEditorSelection,
 } from "./chatReplyState.ts";
@@ -136,6 +137,92 @@ test("resolveNextDraftEditorSelection keeps json and stream rules distinct", () 
   });
 
   assert.equal(missingStreamDraft, null);
+});
+
+test("resolveAssistantReplySuccessState plans assistant message, selection, memory, and thread updates", () => {
+  const successState = resolveAssistantReplySuccessState({
+    result: {
+      reply: "done",
+      angles: [],
+      plan: null,
+      draft: "draft body",
+      drafts: ["draft body"],
+      draftArtifacts: [],
+      draftVersions: [{ id: "version-2" }],
+      activeDraftVersionId: "version-2",
+      revisionChainId: "chain-1",
+      supportAsset: null,
+      outputShape: "short_form_post",
+      messageId: "assistant-msg-1",
+      newThreadId: "thread-9",
+      threadTitle: "Fresh thread",
+      memory: { conversationState: "active" },
+      billing: { plan: "pro" },
+    },
+    activeThreadId: null,
+    existingMessageCount: 2,
+    trimmedPrompt: "write a post",
+    artifactKind: null,
+    defaultQuickReplies: [{ kind: "example_reply", value: "fallback", label: "Fallback" }],
+    selectedDraftContext: {
+      messageId: "assistant-msg-0",
+      versionId: "version-1",
+    },
+    mode: "json",
+    accountName: "stan",
+    now: new Date("2026-03-14T12:00:00.000Z"),
+  });
+
+  assert.equal(successState.assistantMessage.id, "assistant-msg-1");
+  assert.equal(successState.nextDraftEditor?.versionId, "version-2");
+  assert.deepEqual(successState.nextConversationMemory, { conversationState: "active" });
+  assert.deepEqual(successState.nextBilling, { plan: "pro" });
+  assert.deepEqual(successState.createdThreadPlan, {
+    threadId: "thread-9",
+    title: "Fresh thread",
+    xHandle: "stan",
+    createdAt: "2026-03-14T12:00:00.000Z",
+    updatedAt: "2026-03-14T12:00:00.000Z",
+    replaceIds: ["current-workspace"],
+  });
+  assert.deepEqual(successState.nextThreadTitle, {
+    threadId: "thread-9",
+    title: "Fresh thread",
+  });
+});
+
+test("resolveAssistantReplySuccessState preserves stream-specific draft selection rules", () => {
+  const successState = resolveAssistantReplySuccessState({
+    result: {
+      reply: "streamed",
+      angles: [],
+      plan: null,
+      draft: null,
+      drafts: [],
+      draftArtifacts: [],
+      activeDraftVersionId: "version-3",
+      revisionChainId: "chain-2",
+      supportAsset: null,
+      outputShape: "coach_question",
+      messageId: "assistant-msg-2",
+    },
+    activeThreadId: "thread-1",
+    existingMessageCount: 1,
+    trimmedPrompt: "revise this",
+    artifactKind: null,
+    defaultQuickReplies: undefined,
+    selectedDraftContext: {
+      messageId: "assistant-msg-1",
+      versionId: "version-2",
+    },
+    mode: "stream",
+    accountName: "stan",
+    now: new Date("2026-03-14T12:00:00.000Z"),
+  });
+
+  assert.equal(successState.nextDraftEditor, null);
+  assert.equal(successState.createdThreadPlan, null);
+  assert.equal(successState.nextThreadTitle, null);
 });
 
 test("resolveCreatedThreadPlan and applyCreatedThreadPlanToList remap placeholder threads", () => {

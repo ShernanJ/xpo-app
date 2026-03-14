@@ -35,6 +35,7 @@ export {
   type ChatThreadListItemLike,
   type CreatedThreadPlan,
 } from "./chatWorkspaceState.ts";
+import { resolveCreatedThreadPlan, type CreatedThreadPlan } from "./chatWorkspaceState.ts";
 
 export interface ChatReplyResultLike<
   TQuickReply,
@@ -160,6 +161,72 @@ interface BuildAssistantMessageFromChatResultArgs<
   now?: Date;
 }
 
+interface ResolveAssistantReplySuccessStateArgs<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+> extends BuildAssistantMessageFromChatResultArgs<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket,
+    TMemory,
+    TBilling
+  > {
+  selectedDraftContext: DraftVersionSnapshotLike | null;
+  mode: "json" | "stream";
+  accountName: string | null;
+}
+
+export interface AssistantReplySuccessState<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+> {
+  assistantMessage: AssistantChatMessageLike<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket
+  >;
+  nextDraftEditor: DraftDrawerSelectionLike | null;
+  nextConversationMemory: TMemory | null;
+  nextBilling: TBilling | null;
+  createdThreadPlan: CreatedThreadPlan | null;
+  nextThreadTitle:
+    | {
+        threadId: string;
+        title: string;
+      }
+    | null;
+}
+
 export function buildAssistantMessageFromChatResult<
   TQuickReply,
   TPlan,
@@ -278,6 +345,76 @@ export function resolveNextDraftEditorSelection<
     messageId: args.result.messageId,
     versionId: nextDraftVersionId,
     revisionChainId: args.result.revisionChainId,
+  };
+}
+
+export function resolveAssistantReplySuccessState<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+>(
+  args: ResolveAssistantReplySuccessStateArgs<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket,
+    TMemory,
+    TBilling
+  >,
+): AssistantReplySuccessState<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling
+> {
+  const assistantMessage = buildAssistantMessageFromChatResult(args);
+  const nextDraftEditor = resolveNextDraftEditorSelection({
+    result: args.result,
+    selectedDraftContext: args.selectedDraftContext,
+    mode: args.mode,
+  });
+  const createdThreadPlan = resolveCreatedThreadPlan({
+    newThreadId: args.result.newThreadId,
+    threadTitle: args.result.threadTitle,
+    activeThreadId: args.activeThreadId,
+    accountName: args.accountName,
+    now: args.now,
+  });
+  const responseThreadId = args.result.newThreadId ?? args.activeThreadId;
+
+  return {
+    assistantMessage,
+    nextDraftEditor,
+    nextConversationMemory: args.result.memory ?? null,
+    nextBilling: args.result.billing ?? null,
+    createdThreadPlan,
+    nextThreadTitle:
+      responseThreadId && args.result.threadTitle
+        ? {
+            threadId: responseThreadId,
+            title: args.result.threadTitle,
+          }
+        : null,
   };
 }
 
