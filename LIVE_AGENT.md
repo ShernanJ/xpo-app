@@ -304,6 +304,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by using the explicit sibling-novelty retry trace, the route no-double-write regression, and the thin reply route shims as guardrails while checking for any remaining mixed ownership across route/runtime boundaries
-- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` as thin compatibility shims only; do not let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`
+- Continue Phase 4 by using the explicit sibling-novelty retry trace, the route no-double-write regression, and the now-compatibility-only reply shims as guardrails while checking for any remaining mixed ownership across route/runtime boundaries
+- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` as thin compatibility shims only; do not let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`, and do not route internal consumers back through those shims
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

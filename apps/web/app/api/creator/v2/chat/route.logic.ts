@@ -33,7 +33,7 @@ import type { DraftBundleResult } from "../../../../../lib/agent-v2/orchestrator
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
-} from "./reply.logic.ts";
+} from "../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 

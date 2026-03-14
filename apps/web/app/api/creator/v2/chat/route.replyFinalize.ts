@@ -1,8 +1,8 @@
 import type { NextResponse } from "next/server.js";
 import type { V2ConversationMemory } from "../../../../../lib/agent-v2/contracts/chat.ts";
 import type { NormalizedChatTurnDiagnostics } from "../../../../../lib/agent-v2/contracts/turnContract.ts";
-import type { PlannedReplyTurn } from "./route.reply.ts";
-import { buildReplyMemorySnapshot } from "./route.reply.ts";
+import type { PlannedReplyTurn } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
+import { buildReplyMemorySnapshot } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
 import { persistAssistantTurn } from "./route.persistence.ts";
 import {
   buildChatSuccessResponse,

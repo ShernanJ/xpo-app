@@ -63,7 +63,7 @@ import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import {
   planReplyTurn,
   resolveReplyTurnState,
-} from "./route.reply";
+} from "@/lib/agent-v2/orchestrator/replyTurnPlanner";
 import { finalizeReplyTurn } from "./route.replyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;

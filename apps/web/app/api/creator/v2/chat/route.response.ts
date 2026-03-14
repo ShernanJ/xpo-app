@@ -10,7 +10,7 @@ import {
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
-} from "./reply.logic.ts";
+} from "../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
 
 type ReplySurfaceMode = Extract<
   SurfaceMode,
