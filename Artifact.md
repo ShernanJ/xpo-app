@@ -5,7 +5,7 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-14
-- Current slice: Phase 4 complete; Phase 1 persisted-state tracing remains open at the program level
+- Current slice: Persisted-state tracing is now landed on the main chat route; the immediate follow-on is reply-path trace unification without inventing fake end-to-end traces
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -121,7 +121,10 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
 - Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
 - Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns handled-reply persistence/finalization.
-- Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
+- `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now keeps `routingTrace` in-memory until diagnostics explicitly request serialization, so route-boundary persistence can append to the same trace object before any external response includes it.
+- `apps/web/app/api/creator/v2/chat/route.persistence.ts` now emits `RuntimePersistenceTracePatch` with standardized persistence workers plus `persistedStateChanges` for assistant message, thread, memory, and draft-candidate writes.
+- `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch after sequential writes complete, and `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` reuses the same patch format when an upstream runtime trace exists.
+- Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that remains accepted migration debt until reply entry shares the common runtime path.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
 ## Phase board
@@ -139,9 +142,19 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - reply bypass reason
   - worker execution summary
   - validation results
+- Landed during the persisted-state tracing slice:
+  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now returns raw response payloads plus in-memory `routingTrace` instead of eagerly serializing that trace on the raw envelope
+  - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` and `apps/web/lib/agent-v2/runtime/runtimeTrace.ts` now standardize `RuntimePersistedStateChanges`, `RuntimePersistenceTracePatch`, and patch-merge helpers for persistence workers
+  - `apps/web/app/api/creator/v2/chat/route.persistence.ts` now returns persistence worker executions for `persist_assistant_message`, `update_conversation_memory`, `update_chat_thread`, and `create_draft_candidate`
+  - `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch before the final success response is built and only exposes full `routingTrace` when diagnostics explicitly request it
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now consumes the same persistence trace patch when a runtime trace is already available
 - Remaining target-state follow-on:
-  - extend runtime trace to cover persisted state changes too
-- Status: in progress.
+  - unify reply-path tracing without fabricating end-to-end runtime resolution for direct reply-preflight turns
+  - move response shaping after persistence/thread updates to match the target control-plane order
+- Exit criteria for this slice:
+  - diagnostics traces show persistence-phase worker entries after workflow execution
+  - `persistedStateChanges` reports assistant message id, thread mutation summary, memory mutation summary, and draft-candidate attempted/created/skipped counts
+- Status: in progress, with the main chat path landed and reply-path unification still open.
 - Landed:
   - `apps/web/lib/agent-v2/contracts/chatTransport.ts`
   - `apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts`
@@ -275,6 +288,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - `apps/web/app/chat/page.tsx` still owns too much async request orchestration and some large presentational/editor surfaces.
 - `apps/web/app/api/creator/v2/chat/route.ts` still owns too much workflow and persistence assembly.
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still mixes generation, continuation, grounding, revision, and salvage logic.
+- Reply turns can now reuse the persistence trace patch, but direct reply-preflight turns still lack unified runtime trace ownership.
 - Output cleanup helpers still exist because validator + retry is incomplete.
 
 ## Recent chat-client paydown

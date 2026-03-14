@@ -201,6 +201,7 @@ import type {
 import type {
   CapabilityName,
   AgentRuntimeWorkflow,
+  RuntimePersistedStateChanges,
   RuntimeResolutionSource,
   RuntimeValidationResult,
   RuntimeWorkerExecution,
@@ -271,6 +272,7 @@ export interface RoutingTrace {
     | null;
   workerExecutions: RuntimeWorkerExecution[];
   workerExecutionSummary: RuntimeWorkerExecutionSummary;
+  persistedStateChanges: RuntimePersistedStateChanges | null;
   validations: RuntimeValidationResult[];
   turnPlan: {
     userGoal: string;

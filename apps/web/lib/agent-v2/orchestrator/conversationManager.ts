@@ -79,6 +79,7 @@ import type {
 } from "../contracts/turnContract";
 import type {
   AgentRuntimeWorkflow,
+  RuntimePersistedStateChanges,
   RuntimeResolutionSource,
   RuntimeValidationResult,
   RuntimeWorkerExecution,
@@ -150,6 +151,7 @@ export interface RoutingTrace {
     | null;
   workerExecutions: RuntimeWorkerExecution[];
   workerExecutionSummary: RuntimeWorkerExecutionSummary;
+  persistedStateChanges: RuntimePersistedStateChanges | null;
   validations: RuntimeValidationResult[];
   turnPlan: {
     userGoal: string;
@@ -199,6 +201,11 @@ export type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
   "surfaceMode" | "responseShapePlan"
 >;
+
+export interface ManagedConversationTurnRawResult {
+  rawResponse: RawOrchestratorResponse;
+  routingTrace: RoutingTrace;
+}
 
 export {
   isLazyDraftRequest,
@@ -309,13 +316,16 @@ async function maybeCaptureAntiPattern(args: {
 export async function manageConversationTurnRaw(
   input: OrchestratorInput,
   overrides?: Partial<ConversationServices>,
-): Promise<RawOrchestratorResponse> {
+): Promise<ManagedConversationTurnRawResult> {
   const services = { ...createDefaultConversationServices(), ...overrides } as ConversationServices;
   const context = await buildTurnContext(input, services);
   const route = await resolveRoutingPolicy(context, services);
 
   if (route.isFastReply && route.fastReplyResponse) {
-    return route.fastReplyResponse;
+    return {
+      rawResponse: stripSerializedRoutingTrace(route.fastReplyResponse),
+      routingTrace: route.routingTrace,
+    };
   }
 
   // Heavy Orchestration
@@ -422,7 +432,6 @@ export async function manageConversationTurnRaw(
     preloadedRun: context.runId ? await services.getOnboardingRun(context.runId) : null,
   });
 
-  const shouldIncludeRoutingTrace = context.diagnosticContext?.includeRoutingTrace === true;
   const responseWithAutoSavedSources =
     autoSavedReport
       ? {
@@ -434,24 +443,53 @@ export async function manageConversationTurnRaw(
         }
       : rawResponse;
 
-  const responseWithRoutingTrace =
-    shouldIncludeRoutingTrace
-      ? {
-          ...responseWithAutoSavedSources,
-          data: {
-            ...(responseWithAutoSavedSources.data || {}),
-            routingTrace: route.routingTrace,
-          },
-        }
-      : responseWithAutoSavedSources;
-
-  return responseWithRoutingTrace;
+  return {
+    rawResponse: stripSerializedRoutingTrace(responseWithAutoSavedSources),
+    routingTrace: route.routingTrace,
+  };
 }
 
 export async function manageConversationTurn(
   input: OrchestratorInput,
   overrides?: Partial<ConversationServices>,
 ): Promise<OrchestratorResponse> {
-  const rawResponse = await manageConversationTurnRaw(input, overrides);
-  return finalizeOrchestratorResponse(rawResponse);
+  const { rawResponse, routingTrace } = await manageConversationTurnRaw(input, overrides);
+  const response = finalizeOrchestratorResponse(rawResponse);
+  if (input.diagnosticContext?.includeRoutingTrace !== true) {
+    return response;
+  }
+
+  return {
+    ...response,
+    data: {
+      ...(response.data || {}),
+      routingTrace,
+    },
+  };
+}
+
+function stripSerializedRoutingTrace(
+  rawResponse: RawOrchestratorResponse,
+): RawOrchestratorResponse {
+  const resultData =
+    rawResponse.data &&
+    typeof rawResponse.data === "object" &&
+    !Array.isArray(rawResponse.data)
+      ? (rawResponse.data as Record<string, unknown>)
+      : null;
+
+  if (!resultData || !("routingTrace" in resultData)) {
+    return rawResponse;
+  }
+
+  const { routingTrace: _routingTrace, ...rest } = resultData;
+  if (Object.keys(rest).length === 0) {
+    const { data: _data, ...responseWithoutData } = rawResponse;
+    return responseWithoutData;
+  }
+
+  return {
+    ...rawResponse,
+    data: rest,
+  };
 }

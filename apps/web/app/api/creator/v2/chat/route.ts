@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { finalizeResponseEnvelope } from "@/lib/agent-v2/orchestrator/responseEnvelope";
+import { applyRuntimePersistenceTracePatch } from "@/lib/agent-v2/runtime/runtimeTrace";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
   createConversationMemorySnapshot,
@@ -474,6 +475,9 @@ export async function POST(request: NextRequest) {
   );
 
   const effectiveExplicitIntent = normalizedTurn.explicitIntent;
+  const effectiveDiagnosticContext = diagnosticContext as ConversationalDiagnosticContext | null;
+  const diagnosticContextRecord = effectiveDiagnosticContext as Record<string, unknown> | null;
+  const shouldIncludeRoutingTrace = diagnosticContextRecord?.includeRoutingTrace === true;
   const turnCreditCost = resolveChatTurnCreditCost({
     explicitIntent: effectiveExplicitIntent,
     message: effectiveMessage,
@@ -666,6 +670,7 @@ export async function POST(request: NextRequest) {
         storedThreadId: storedThread?.id ?? null,
         storedThreadTitle: storedThread?.title ?? null,
         requestedThreadId: threadId,
+        shouldIncludeRoutingTrace,
         userId: session.user.id,
         activeHandle,
         loadBilling: () => getBillingStateForUser(effectiveUserId),
@@ -674,7 +679,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
-    const rawResult = await manageConversationTurnRaw({
+    const { rawResponse, routingTrace } = await manageConversationTurnRaw({
       userId: effectiveUserId,
       xHandle: storedThread?.xHandle || null, // Pipeline context isolation
       threadId: storedThread?.id,
@@ -694,9 +699,9 @@ export async function POST(request: NextRequest) {
       threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
       creatorProfileHints,
-      diagnosticContext,
+      diagnosticContext: effectiveDiagnosticContext,
     });
-    const result = finalizeResponseEnvelope(rawResult);
+    const result = finalizeResponseEnvelope(rawResponse);
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
     const resultData = result.data as Record<string, unknown> | undefined;
@@ -831,6 +836,7 @@ export async function POST(request: NextRequest) {
           outputShape: result.outputShape,
         },
       });
+      applyRuntimePersistenceTracePatch(routingTrace, persistenceResult.tracePatch);
       createdAssistantMessageId = persistenceResult.assistantMessageId;
       mappedData = {
         ...mappedData,
@@ -855,6 +861,7 @@ export async function POST(request: NextRequest) {
       mappedData,
       createdAssistantMessageId,
       newThreadId: !threadId && storedThread ? storedThread.id : undefined,
+      routingTrace: shouldIncludeRoutingTrace ? routingTrace : undefined,
       loadBilling: () => getBillingStateForUser(effectiveUserId),
     });
   } catch (error) {

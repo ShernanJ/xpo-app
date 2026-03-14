@@ -2,6 +2,8 @@ import type { V2ConversationMemory } from "../../../../../lib/agent-v2/contracts
 import type { NormalizedChatTurnDiagnostics } from "../../../../../lib/agent-v2/contracts/turnContract.ts";
 import type { PlannedReplyTurn } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
 import { buildReplyMemorySnapshot } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
+import type { RoutingTrace } from "../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
+import { applyRuntimePersistenceTracePatch } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 import { persistAssistantTurn } from "./route.persistence.ts";
 import {
   buildChatSuccessResponse,
@@ -19,6 +21,8 @@ export interface FinalizeReplyTurnArgs {
   storedThreadId: string | null;
   storedThreadTitle: string | null;
   requestedThreadId: string;
+  routingTrace?: RoutingTrace | null;
+  shouldIncludeRoutingTrace?: boolean;
   userId: string;
   activeHandle: string | null;
   loadBilling: () => Promise<unknown>;
@@ -98,6 +102,9 @@ export async function finalizeReplyTurnWithDeps(
       }),
     });
     createdAssistantMessageId = persistenceResult.assistantMessageId;
+    if (args.routingTrace) {
+      applyRuntimePersistenceTracePatch(args.routingTrace, persistenceResult.tracePatch);
+    }
     mappedData = {
       ...mappedData,
       threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
@@ -123,6 +130,8 @@ export async function finalizeReplyTurnWithDeps(
     mappedData,
     createdAssistantMessageId,
     newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,
+    routingTrace:
+      args.shouldIncludeRoutingTrace && args.routingTrace ? args.routingTrace : undefined,
     loadBilling: args.loadBilling,
   });
 }

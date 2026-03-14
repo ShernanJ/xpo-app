@@ -29,6 +29,7 @@ import {
 import { normalizeChatTurn } from "./turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
+import { summarizeRuntimeWorkerExecutions } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 
 const baseMemory = {
   conversationState: "needs_more_context",
@@ -52,6 +53,47 @@ const baseMemory = {
   selectedReplyOptionId: null,
   voiceFidelity: "balanced",
 };
+
+function createBaseRoutingTrace(overrides = {}) {
+  const workerExecutions = overrides.workerExecutions || [
+    {
+      worker: "turn_context_hydration",
+      capability: "shared",
+      phase: "context_load",
+      mode: "parallel",
+      status: "completed",
+      groupId: "turn_context_hydration",
+    },
+  ];
+
+  return {
+    normalizedTurn: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "plan_then_draft",
+    },
+    runtimeResolution: {
+      workflow: "plan_then_draft",
+      source: "structured_turn",
+    },
+    workerExecutions,
+    workerExecutionSummary: summarizeRuntimeWorkerExecutions(workerExecutions),
+    persistedStateChanges: null,
+    validations: [],
+    turnPlan: null,
+    controllerAction: null,
+    classifiedIntent: "draft",
+    resolvedMode: "draft",
+    routerState: null,
+    planInputSource: null,
+    clarification: null,
+    draftGuard: null,
+    planFailure: null,
+    ...overrides,
+  };
+}
 
 test("selectedDraftContext defaults route intent to edit when explicit intent is missing", () => {
   const selectedDraftContext = parseSelectedDraftContext({
@@ -571,9 +613,81 @@ test("buildChatSuccessResponse merges billing and ids into the final API payload
   assert.equal(json.data.newThreadId, "thread-9");
 });
 
+test("buildChatSuccessResponse exposes routingTrace only when provided", async () => {
+  const routingTrace = createBaseRoutingTrace();
+  const response = await buildChatSuccessResponse({
+    mappedData: {
+      reply: "here's the draft",
+      angles: [],
+      quickReplies: [],
+      plan: null,
+      draft: "draft body",
+      drafts: ["draft body"],
+      draftArtifacts: [],
+      draftVersions: [],
+      activeDraftVersionId: undefined,
+      previousVersionSnapshot: undefined,
+      revisionChainId: undefined,
+      draftBundle: null,
+      supportAsset: null,
+      groundingSources: [],
+      autoSavedSourceMaterials: null,
+      outputShape: "short_form_post",
+      surfaceMode: "generate_full_output",
+      memory: baseMemory,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "draft",
+      },
+      requestTrace: {
+        clientTurnId: "turn_5",
+      },
+      replyArtifacts: null,
+      replyParse: null,
+      threadTitle: "Thread title",
+      billing: null,
+      contextPacket: {
+        version: "assistant_context_v2",
+        summary: "draft: draft body",
+        planRef: null,
+        draftRef: {
+          excerpt: "draft body",
+          activeDraftVersionId: null,
+          revisionChainId: null,
+        },
+        grounding: {
+          mode: null,
+          explanation: null,
+          sourceTitles: [],
+        },
+        critique: {
+          issuesFixed: [],
+        },
+        replyRef: null,
+        replyParse: null,
+        artifacts: {
+          outputShape: "short_form_post",
+          surfaceMode: "generate_full_output",
+          quickReplyCount: 0,
+          hasDraft: true,
+        },
+      },
+    },
+    routingTrace,
+    loadBilling: async () => ({ creditsRemaining: 11 }),
+  });
+  const json = await response.json();
+
+  assert.deepEqual(json.data.routingTrace, routingTrace);
+});
+
 test("finalizeReplyTurnWithDeps keeps reply planning separate from route persistence and response assembly", async () => {
   let persistedArgs = null;
   let dispatchedArgs = null;
+  const routingTrace = createBaseRoutingTrace();
 
   const response = await finalizeReplyTurnWithDeps(
     {
@@ -641,6 +755,8 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
       storedThreadId: "thread-reply-1",
       storedThreadTitle: "Existing Reply Thread",
       requestedThreadId: "",
+      routingTrace,
+      shouldIncludeRoutingTrace: true,
       userId: "user-reply-1",
       activeHandle: "stan",
       loadBilling: async () => ({ creditsRemaining: 8 }),
@@ -652,6 +768,54 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
         return {
           assistantMessageId: "assistant-msg-reply",
           updatedThreadTitle: "Updated Reply Thread",
+          tracePatch: {
+            workerExecutions: [
+              {
+                worker: "persist_assistant_message",
+                capability: "shared",
+                phase: "persistence",
+                mode: "sequential",
+                status: "completed",
+                groupId: null,
+                details: {
+                  threadId: "thread-reply-1",
+                  assistantMessageId: "assistant-msg-reply",
+                },
+              },
+              {
+                worker: "update_chat_thread",
+                capability: "shared",
+                phase: "persistence",
+                mode: "sequential",
+                status: "completed",
+                groupId: null,
+                details: {
+                  threadId: "thread-reply-1",
+                  updatedTitle: "Updated Reply Thread",
+                },
+              },
+            ],
+            persistedStateChanges: {
+              assistantMessageId: "assistant-msg-reply",
+              thread: {
+                threadId: "thread-reply-1",
+                updatedTitle: "Updated Reply Thread",
+                titleChanged: true,
+              },
+              memory: {
+                updated: true,
+                preferredSurfaceMode: "structured",
+                activeDraftVersionId: null,
+                clearedReplyWorkflow: false,
+                selectedReplyOptionId: "option_2",
+              },
+              draftCandidates: {
+                attempted: 0,
+                created: 0,
+                skipped: 0,
+              },
+            },
+          },
         };
       },
       buildReplyAssistantMessageData,
@@ -707,6 +871,9 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
   assert.equal(json.data.newThreadId, "thread-reply-1");
   assert.equal(json.data.replyArtifacts.kind, "reply_draft");
   assert.equal(json.data.replyParse.parseReason, "reply_option_selected");
+  assert.equal(json.data.routingTrace.workerExecutions.at(-1).worker, "update_chat_thread");
+  assert.equal(json.data.routingTrace.persistedStateChanges.assistantMessageId, "assistant-msg-reply");
+  assert.equal(json.data.routingTrace.persistedStateChanges.memory.selectedReplyOptionId, "option_2");
 });
 
 test("persistAssistantTurnWithDeps preserves sequential write order", async () => {
@@ -781,6 +948,36 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
 
   assert.equal(result.assistantMessageId, "assistant-msg-1");
   assert.equal(result.updatedThreadTitle, "Updated title");
+  assert.deepEqual(
+    result.tracePatch.workerExecutions.map((execution) => execution.worker),
+    [
+      "persist_assistant_message",
+      "update_conversation_memory",
+      "update_chat_thread",
+      "create_draft_candidate",
+      "create_draft_candidate",
+    ],
+  );
+  assert.deepEqual(result.tracePatch.persistedStateChanges, {
+    assistantMessageId: "assistant-msg-1",
+    thread: {
+      threadId: "thread-1",
+      updatedTitle: "Updated title",
+      titleChanged: true,
+    },
+    memory: {
+      updated: true,
+      preferredSurfaceMode: "natural",
+      activeDraftVersionId: "version-1",
+      clearedReplyWorkflow: false,
+      selectedReplyOptionId: null,
+    },
+    draftCandidates: {
+      attempted: 2,
+      created: 2,
+      skipped: 0,
+    },
+  });
   assert.deepEqual(calls, [
     ["createChatMessage", "thread-1", "here's the draft"],
     ["updateConversationMemory", "thread-1", "assistant-msg-1", "version-1"],
@@ -904,7 +1101,7 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
   };
   const candidateTitles = [];
 
-  await persistAssistantTurnWithDeps(
+  const result = await persistAssistantTurnWithDeps(
     {
       threadId: "thread-1",
       assistantMessageData: {
@@ -974,6 +1171,17 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
     updateChatThread: 1,
   });
   assert.deepEqual(candidateTitles.sort(), ["Option one", "Option two"]);
+  assert.deepEqual(result.tracePatch.persistedStateChanges.draftCandidates, {
+    attempted: 2,
+    created: 2,
+    skipped: 0,
+  });
+  assert.equal(
+    result.tracePatch.workerExecutions.filter(
+      (execution) => execution.worker === "create_draft_candidate",
+    ).every((execution) => execution.groupId === "chat_route_persistence_draft_candidates"),
+    true,
+  );
 });
 
 test("persistAssistantTurnWithDeps does not double-write memory while candidate writes resolve out of order", async () => {
@@ -1091,7 +1299,44 @@ test("persistAssistantTurnWithDeps skips writes when no thread is available", as
     },
   );
 
-  assert.deepEqual(result, {});
+  assert.deepEqual(result, {
+    tracePatch: {
+      workerExecutions: [
+        {
+          worker: "persist_assistant_message",
+          capability: "shared",
+          phase: "persistence",
+          mode: "sequential",
+          status: "skipped",
+          groupId: null,
+          details: {
+            reason: "missing_thread",
+          },
+        },
+        {
+          worker: "update_chat_thread",
+          capability: "shared",
+          phase: "persistence",
+          mode: "sequential",
+          status: "skipped",
+          groupId: null,
+          details: {
+            reason: "missing_thread",
+          },
+        },
+      ],
+      persistedStateChanges: {
+        assistantMessageId: null,
+        thread: null,
+        memory: null,
+        draftCandidates: {
+          attempted: 0,
+          created: 0,
+          skipped: 0,
+        },
+      },
+    },
+  });
   assert.deepEqual(calls, []);
 });
 

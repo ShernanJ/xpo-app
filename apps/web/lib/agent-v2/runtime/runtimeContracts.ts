@@ -53,6 +53,38 @@ export interface RuntimeWorkerExecutionSummary {
   groups: string[];
 }
 
+export interface RuntimePersistedThreadChange {
+  threadId: string;
+  updatedTitle: string | null;
+  titleChanged: boolean;
+}
+
+export interface RuntimePersistedMemoryChange {
+  updated: boolean;
+  preferredSurfaceMode: "natural" | "structured" | null;
+  activeDraftVersionId: string | null;
+  clearedReplyWorkflow: boolean;
+  selectedReplyOptionId: string | null;
+}
+
+export interface RuntimePersistedDraftCandidateChange {
+  attempted: number;
+  created: number;
+  skipped: number;
+}
+
+export interface RuntimePersistedStateChanges {
+  assistantMessageId: string | null;
+  thread: RuntimePersistedThreadChange | null;
+  memory: RuntimePersistedMemoryChange | null;
+  draftCandidates: RuntimePersistedDraftCandidateChange | null;
+}
+
+export interface RuntimePersistenceTracePatch {
+  workerExecutions: RuntimeWorkerExecution[];
+  persistedStateChanges: RuntimePersistedStateChanges;
+}
+
 export type RuntimeValidationStatus =
   | "passed"
   | "failed"

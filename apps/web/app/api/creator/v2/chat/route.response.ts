@@ -10,6 +10,7 @@ import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
 } from "../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
+import type { RoutingTrace } from "../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
 
 type ReplySurfaceMode = Extract<
   SurfaceMode,
@@ -190,6 +191,7 @@ export async function buildChatSuccessResponse(args: {
   mappedData: ChatRouteResponseData;
   createdAssistantMessageId?: string;
   newThreadId?: string;
+  routingTrace?: RoutingTrace;
   loadBilling: () => Promise<unknown>;
 }): Promise<Response> {
   const billing = await args.loadBilling();
@@ -200,6 +202,7 @@ export async function buildChatSuccessResponse(args: {
       data: {
         ...args.mappedData,
         billing,
+        ...(args.routingTrace ? { routingTrace: args.routingTrace } : {}),
         ...(args.createdAssistantMessageId
           ? { messageId: args.createdAssistantMessageId }
           : {}),

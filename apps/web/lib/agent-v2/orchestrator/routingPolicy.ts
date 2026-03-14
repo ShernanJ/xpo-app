@@ -62,6 +62,7 @@ export async function resolveRoutingPolicy(
     runtimeResolution: null,
     workerExecutions: [...initialWorkerExecutions],
     workerExecutionSummary: summarizeRuntimeWorkerExecutions(initialWorkerExecutions),
+    persistedStateChanges: null,
     validations: [],
     turnPlan: turnPlan
       ? {

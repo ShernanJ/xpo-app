@@ -44,7 +44,8 @@ User turn
 ## Transitional notes
 - Current code still shapes the orchestrator response before route persistence and thread updates.
 - `pipeline_continuation` in runtime traces is migration debt, not a steady-state owner.
-- Runtime trace currently standardizes normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
+- Runtime trace now carries persisted-state changes for route-boundary persistence on the main chat path, and reply finalization can reuse that same persistence trace patch when an upstream runtime trace already exists.
+- Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that is intentional migration debt until reply entry shares the common runtime path.
 - As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
 
 ## Current ownership boundaries
@@ -77,6 +78,9 @@ User turn
 - Runtime contract and trace helpers live in:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
+- Current persistence trace contract adds:
+  - `RuntimePersistedStateChanges`
+  - `RuntimePersistenceTracePatch`
 - If runtime trace source becomes `pipeline_continuation`, treat that as migration debt to remove, not the desired steady state.
 
 ### Route boundary
@@ -86,6 +90,7 @@ User turn
   - now owns final response-envelope finalization for the main chat path
   - now delegates sequential assistant-message persistence, memory/thread updates, and draft-candidate writes through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
   - now delegates reply-turn response assembly, product-event planning, and final success-response packaging through `apps/web/app/api/creator/v2/chat/route.response.ts`
+  - now merges `RuntimePersistenceTracePatch` into the in-memory `routingTrace` after route-boundary writes complete
   - still coordinates response shaping before persistence/thread updates
   - still carries more request assembly and reply-workflow control flow than the target architecture wants
 - Target architecture ownership:
@@ -207,10 +212,22 @@ User turn
 - Check runtime contract and worker-summary shape first in:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
+- Check route-boundary persistence trace generation in:
+  - `apps/web/app/api/creator/v2/chat/route.persistence.ts`
+- Check where the persistence trace patch is merged in:
+  - `apps/web/app/api/creator/v2/chat/route.ts`
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts`
 - Only then inspect legacy routing paths in:
   - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - Treat those legacy routing paths as migration debt paths, not equal peers to the target runtime owner.
+
+### Persistence workers that should appear
+- `persist_assistant_message`
+- `update_conversation_memory`
+- `update_chat_thread`
+- `create_draft_candidate`
+- Candidate writes stay `mode: "parallel"` and share the `chat_route_persistence_draft_candidates` group id.
 
 ### Chat client thinning
 - If you are debugging client-only chat behavior first inspect:
@@ -350,6 +367,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Phase 4 worker-plane cleanup is complete; use the explicit sibling-novelty retry trace, the route no-double-write regression, and the reply seam-audit regression as guardrails against ownership drift
+- Phase 4 worker-plane cleanup is complete; use the explicit sibling-novelty retry trace, the route no-double-write regression, the reply seam-audit regression, and the new persistence-trace regressions as guardrails against ownership drift
 - Do not reintroduce route-local reply shims or let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`
-- Revisit residual route/client migration debt only when it blocks later runtime rollout, Phase 5 validation work, or broader Phase 6 deletion work
+- Revisit residual route/client migration debt only when it blocks later runtime rollout, reply-path trace unification, Phase 5 validation work, or broader Phase 6 deletion work

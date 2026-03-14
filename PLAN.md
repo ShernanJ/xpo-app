@@ -16,6 +16,9 @@ Target control-plane order:
 Transitional note:
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates. That ordering is migration debt, not the desired steady state.
 
+Current active slice:
+- Persisted-state tracing at the route boundary
+
 ## Status language
 - `target architecture` means the intended end state.
 - `landed` means already true in code today.
@@ -85,7 +88,19 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - reply bypass reason
   - worker execution summary
   - validation results
-- Target-state follow-on: extend runtime trace far enough to assert persisted state changes too.
+- Persisted-state tracing now lands through route-boundary helpers:
+  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now returns raw response payloads plus the in-memory `routingTrace`, and only `manageConversationTurn()` re-serializes that trace when diagnostics explicitly request it
+  - `apps/web/app/api/creator/v2/chat/route.persistence.ts` now returns a `RuntimePersistenceTracePatch` containing persistence-phase worker executions plus `persistedStateChanges`
+  - persistence workers are standardized as:
+    - `persist_assistant_message`
+    - `update_conversation_memory`
+    - `update_chat_thread`
+    - `create_draft_candidate`
+  - `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch after sequential writes complete and only exposes the full trace through `buildChatSuccessResponse()` when diagnostics are enabled
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now reuses the same persistence patch merge when an upstream runtime trace already exists
+- Remaining follow-on:
+  - direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace, so reply-path trace unification remains migration debt
+  - current code still shapes the orchestrator response before persistence/thread updates, so response-before-persistence ordering remains migration debt even though trace coverage now spans those writes
 
 ### Phase 2: Thin the client and route
 - Landed during migration:
@@ -236,6 +251,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `CapabilityExecutionResult`
   - `RuntimeValidationResult`
   - `activeContextRefs`
+- Persistence trace contract is now explicit:
+  - `RuntimePersistedStateChanges`
+  - `RuntimePersistenceTracePatch`
 - Standardize runtime trace output so tests and logs can assert:
   - workflow selected
   - source of decision
@@ -243,7 +261,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - validation result
   - persisted state changes
 - Transitional note:
-  - persisted state changes are not yet recorded in the runtime trace today
+  - persisted state changes are now recorded for main chat persistence and for reply finalization when a runtime trace already exists; direct reply-preflight trace synthesis is still deferred
 
 ## Test and Acceptance Plan
 - Required migration scenarios:
@@ -257,6 +275,8 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - multi-tab same-profile different-handle isolation
   - reply workflow not hijacking non-reply turns
   - no double-write behavior from worker fan-out
+  - persistence workers append after workflow execution in diagnostics traces
+  - persisted-state trace records assistant message id, thread mutation summary, memory mutation summary, and draft-candidate counts
 - Required capability eval coverage:
   - ideation quality
   - shortform draft quality

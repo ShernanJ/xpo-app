@@ -1,4 +1,9 @@
 import type { V2ChatOutputShape } from "../../../../../lib/agent-v2/contracts/chat.ts";
+import type {
+  RuntimePersistedMemoryChange,
+  RuntimePersistenceTracePatch,
+  RuntimeWorkerExecution,
+} from "../../../../../lib/agent-v2/runtime/runtimeContracts.ts";
 
 export interface PersistMemoryUpdateArgs {
   threadId?: string;
@@ -54,6 +59,121 @@ export interface PersistAssistantTurnArgs {
 export interface PersistAssistantTurnResult {
   assistantMessageId?: string;
   updatedThreadTitle?: string | null;
+  tracePatch: RuntimePersistenceTracePatch;
+}
+
+const DRAFT_CANDIDATE_PERSISTENCE_GROUP_ID = "chat_route_persistence_draft_candidates";
+
+function buildPersistenceWorkerExecution(args: {
+  worker: string;
+  mode: "sequential" | "parallel";
+  status: "completed" | "skipped" | "failed";
+  groupId?: string | null;
+  details?: Record<string, unknown> | null;
+}): RuntimeWorkerExecution {
+  return {
+    worker: args.worker,
+    capability: "shared",
+    phase: "persistence",
+    mode: args.mode,
+    status: args.status,
+    groupId: args.groupId ?? null,
+    ...(args.details ? { details: args.details } : {}),
+  };
+}
+
+function buildPersistedMemoryChange(
+  memoryUpdate: Omit<PersistMemoryUpdateArgs, "threadId"> | null,
+  updated: boolean,
+): RuntimePersistedMemoryChange | null {
+  if (!memoryUpdate) {
+    return null;
+  }
+
+  return {
+    updated,
+    preferredSurfaceMode: memoryUpdate.preferredSurfaceMode ?? null,
+    activeDraftVersionId: memoryUpdate.activeDraftRef?.versionId ?? null,
+    clearedReplyWorkflow:
+      memoryUpdate.activeReplyContext === null &&
+      memoryUpdate.activeReplyArtifactRef === null &&
+      memoryUpdate.selectedReplyOptionId === null,
+    selectedReplyOptionId: memoryUpdate.selectedReplyOptionId ?? null,
+  };
+}
+
+function buildSkippedPersistedMemoryChange(): RuntimePersistedMemoryChange {
+  return {
+    updated: false,
+    preferredSurfaceMode: null,
+    activeDraftVersionId: null,
+    clearedReplyWorkflow: false,
+    selectedReplyOptionId: null,
+  };
+}
+
+function buildNoThreadTracePatch(
+  args: PersistAssistantTurnArgs,
+): RuntimePersistenceTracePatch {
+  const attemptedDraftCandidates = args.draftCandidateCreates?.length ?? 0;
+  const workerExecutions: RuntimeWorkerExecution[] = [
+    buildPersistenceWorkerExecution({
+      worker: "persist_assistant_message",
+      mode: "sequential",
+      status: "skipped",
+      details: { reason: "missing_thread" },
+    }),
+    buildPersistenceWorkerExecution({
+      worker: "update_chat_thread",
+      mode: "sequential",
+      status: "skipped",
+      details: { reason: "missing_thread" },
+    }),
+  ];
+
+  if (args.buildMemoryUpdate) {
+    workerExecutions.splice(
+      1,
+      0,
+      buildPersistenceWorkerExecution({
+        worker: "update_conversation_memory",
+        mode: "sequential",
+        status: "skipped",
+        details: { reason: "missing_thread" },
+      }),
+    );
+  }
+
+  if (attemptedDraftCandidates > 0) {
+    workerExecutions.push(
+      ...args.draftCandidateCreates!.map((candidate) =>
+        buildPersistenceWorkerExecution({
+          worker: "create_draft_candidate",
+          mode: "parallel",
+          status: "skipped",
+          groupId: DRAFT_CANDIDATE_PERSISTENCE_GROUP_ID,
+          details: {
+            title: candidate.title,
+            reason: "missing_thread",
+          },
+        })
+      ),
+    );
+  }
+
+  return {
+    workerExecutions,
+    persistedStateChanges: {
+      assistantMessageId: null,
+      thread: null,
+      memory: args.buildMemoryUpdate ? buildSkippedPersistedMemoryChange() : null,
+      draftCandidates: {
+        attempted: attemptedDraftCandidates,
+        created: 0,
+        skipped: attemptedDraftCandidates,
+      },
+    },
+  };
 }
 
 export interface ChatRoutePersistenceDeps {
@@ -97,9 +217,12 @@ export async function persistAssistantTurnWithDeps(
   deps: ChatRoutePersistenceDeps,
 ): Promise<PersistAssistantTurnResult> {
   if (!args.threadId) {
-    return {};
+    return {
+      tracePatch: buildNoThreadTracePatch(args),
+    };
   }
   const threadId = args.threadId;
+  const workerExecutions: RuntimeWorkerExecution[] = [];
 
   const assistantMessage = await deps.createChatMessage({
     threadId,
@@ -107,53 +230,167 @@ export async function persistAssistantTurnWithDeps(
     content: args.assistantMessageData.reply,
     data: args.assistantMessageData,
   });
+  workerExecutions.push(
+    buildPersistenceWorkerExecution({
+      worker: "persist_assistant_message",
+      mode: "sequential",
+      status: "completed",
+      details: {
+        threadId,
+        assistantMessageId: assistantMessage.id,
+      },
+    }),
+  );
 
+  const memoryUpdate = args.buildMemoryUpdate
+    ? args.buildMemoryUpdate(assistantMessage.id)
+    : null;
   if (args.buildMemoryUpdate) {
     await deps.updateConversationMemory({
       threadId,
-      ...args.buildMemoryUpdate(assistantMessage.id),
+      ...memoryUpdate,
     });
+    workerExecutions.push(
+      buildPersistenceWorkerExecution({
+        worker: "update_conversation_memory",
+        mode: "sequential",
+        status: "completed",
+        details: {
+          threadId,
+          activeDraftVersionId: memoryUpdate?.activeDraftRef?.versionId ?? null,
+          selectedReplyOptionId: memoryUpdate?.selectedReplyOptionId ?? null,
+        },
+      }),
+    );
   }
 
   const updatedThread = await deps.updateChatThread({
     threadId,
     data: args.threadUpdate,
   });
+  workerExecutions.push(
+    buildPersistenceWorkerExecution({
+      worker: "update_chat_thread",
+      mode: "sequential",
+      status: "completed",
+      details: {
+        threadId,
+        updatedTitle: updatedThread.title,
+      },
+    }),
+  );
 
+  const attemptedDraftCandidates = args.draftCandidateCreates?.length ?? 0;
+  let createdDraftCandidates = 0;
+  let skippedDraftCandidates = 0;
   if (
     args.draftCandidateCreates &&
     args.draftCandidateCreates.length > 0 &&
     args.draftCandidateContext
   ) {
     const draftCandidateContext = args.draftCandidateContext;
-    try {
-      await Promise.all(
-        args.draftCandidateCreates.map((candidate) =>
-          deps.createDraftCandidate({
-            userId: draftCandidateContext.userId,
-            xHandle: draftCandidateContext.xHandle,
-            threadId,
-            runId: draftCandidateContext.runId,
-            title: candidate.title,
-            sourcePrompt: draftCandidateContext.sourcePrompt,
-            sourcePlaybook: draftCandidateContext.sourcePlaybook,
-            outputShape: draftCandidateContext.outputShape,
-            artifact: candidate.artifact,
-            voiceTarget: candidate.voiceTarget,
-            noveltyNotes: candidate.noveltyNotes,
-          }),
-        ),
-      );
-    } catch (error) {
-      if (!(await isMissingDraftCandidateTableError(error))) {
-        throw error;
-      }
+    const candidateResults = await Promise.allSettled(
+      args.draftCandidateCreates.map((candidate) =>
+        deps.createDraftCandidate({
+          userId: draftCandidateContext.userId,
+          xHandle: draftCandidateContext.xHandle,
+          threadId,
+          runId: draftCandidateContext.runId,
+          title: candidate.title,
+          sourcePrompt: draftCandidateContext.sourcePrompt,
+          sourcePlaybook: draftCandidateContext.sourcePlaybook,
+          outputShape: draftCandidateContext.outputShape,
+          artifact: candidate.artifact,
+          voiceTarget: candidate.voiceTarget,
+          noveltyNotes: candidate.noveltyNotes,
+        }),
+      ),
+    );
+    const missingTableByIndex = new Map<number, boolean>();
+    await Promise.all(
+      candidateResults.map(async (result, index) => {
+        if (result.status !== "rejected") {
+          return;
+        }
+        missingTableByIndex.set(index, await isMissingDraftCandidateTableError(result.reason));
+      }),
+    );
+
+    const nonMissingFailureIndex = candidateResults.findIndex(
+      (result, index) =>
+        result.status === "rejected" && missingTableByIndex.get(index) !== true,
+    );
+    if (nonMissingFailureIndex >= 0) {
+      throw (candidateResults[nonMissingFailureIndex] as PromiseRejectedResult).reason;
     }
+
+    args.draftCandidateCreates.forEach((candidate, index) => {
+      const result = candidateResults[index];
+      const isSkipped = result?.status === "rejected";
+      if (isSkipped) {
+        skippedDraftCandidates += 1;
+      } else {
+        createdDraftCandidates += 1;
+      }
+
+      workerExecutions.push(
+        buildPersistenceWorkerExecution({
+          worker: "create_draft_candidate",
+          mode: "parallel",
+          status: isSkipped ? "skipped" : "completed",
+          groupId: DRAFT_CANDIDATE_PERSISTENCE_GROUP_ID,
+          details: {
+            threadId,
+            title: candidate.title,
+            ...(isSkipped ? { reason: "missing_draft_candidate_table" } : {}),
+          },
+        }),
+      );
+    });
+  } else if (attemptedDraftCandidates > 0) {
+    skippedDraftCandidates = attemptedDraftCandidates;
+    workerExecutions.push(
+      ...args.draftCandidateCreates!.map((candidate) =>
+        buildPersistenceWorkerExecution({
+          worker: "create_draft_candidate",
+          mode: "parallel",
+          status: "skipped",
+          groupId: DRAFT_CANDIDATE_PERSISTENCE_GROUP_ID,
+          details: {
+            threadId,
+            title: candidate.title,
+            reason: "missing_draft_candidate_context",
+          },
+        })
+      ),
+    );
   }
+
+  const currentThreadTitle =
+    typeof args.assistantMessageData.threadTitle === "string"
+      ? args.assistantMessageData.threadTitle
+      : null;
 
   return {
     assistantMessageId: assistantMessage.id,
     updatedThreadTitle: updatedThread.title,
+    tracePatch: {
+      workerExecutions,
+      persistedStateChanges: {
+        assistantMessageId: assistantMessage.id,
+        thread: {
+          threadId,
+          updatedTitle: updatedThread.title,
+          titleChanged: updatedThread.title !== currentThreadTitle,
+        },
+        memory: buildPersistedMemoryChange(memoryUpdate, Boolean(memoryUpdate)),
+        draftCandidates: {
+          attempted: attemptedDraftCandidates,
+          created: createdDraftCandidates,
+          skipped: skippedDraftCandidates,
+        },
+      },
+    },
   };
 }
 
