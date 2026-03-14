@@ -48,15 +48,11 @@ import {
   type PlaybookTemplateTab,
 } from "@/lib/creator/playbooks";
 import {
-  ObservedMetricsModal,
-} from "./_dialogs/ObservedMetricsModal";
-import {
   type BillingSnapshotPayload,
   type BillingStatePayload,
 } from "./_features/billing/billingViewState";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
-import { PricingDialog } from "./_features/billing/PricingDialog";
-import { SettingsDialog } from "./_features/billing/SettingsDialog";
+import { BillingDialogs } from "./_features/billing/BillingDialogs";
 import { useBillingState } from "./_features/billing/useBillingState";
 import {
   DesktopDraftEditorDock,
@@ -103,7 +99,7 @@ import {
   getThreadFramingStyle,
   resolvePrimaryDraftRevealKey,
 } from "./_features/draft-editor/chatDraftPreviewState";
-import { DraftQueueDialog } from "./_features/draft-queue/DraftQueueDialog";
+import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import {
   FEEDBACK_MAX_FILE_SIZE_BYTES,
@@ -2239,8 +2235,6 @@ function ChatPageContent() {
 
     void loadFeedbackHistory();
   }, [feedbackModalOpen, loadFeedbackHistory]);
-
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
     const normalizedHandle = normalizeAccountHandle(handle);
@@ -4886,118 +4880,116 @@ function ChatPageContent() {
         ) : null
       }
 
-      <DraftQueueDialog
-        open={draftQueueOpen}
-        isLoading={isDraftQueueLoading}
-        errorMessage={draftQueueError}
-        items={draftQueueItems}
-        editingCandidateId={editingDraftCandidateId}
-        editingCandidateText={editingDraftCandidateText}
-        actionById={draftQueueActionById}
-        copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
-        canGenerateInChat={Boolean(context?.runId)}
-        isVerifiedAccount={isVerifiedAccount}
-        onOpenChange={handleDraftQueueOpenChange}
-        onGenerateInChat={() => {
-          handleDraftQueueOpenChange(false);
-          void submitQuickStarter("draft 4 posts from what you know about me");
+      <DraftQueueModals
+        draftQueueDialogProps={{
+          open: draftQueueOpen,
+          isLoading: isDraftQueueLoading,
+          errorMessage: draftQueueError,
+          items: draftQueueItems,
+          editingCandidateId: editingDraftCandidateId,
+          editingCandidateText: editingDraftCandidateText,
+          actionById: draftQueueActionById,
+          copiedPreviewDraftMessageId,
+          canGenerateInChat: Boolean(context?.runId),
+          isVerifiedAccount,
+          onOpenChange: handleDraftQueueOpenChange,
+          onGenerateInChat: () => {
+            handleDraftQueueOpenChange(false);
+            void submitQuickStarter("draft 4 posts from what you know about me");
+          },
+          onStartEditingCandidate: startEditingDraftCandidate,
+          onCancelEditingCandidate: cancelEditingDraftCandidate,
+          onEditCandidateTextChange: setEditingDraftCandidateText,
+          onMutateCandidate: (candidateId, payload) => {
+            void mutateDraftQueueCandidate(candidateId, payload);
+          },
+          onOpenObservedMetrics: openObservedMetricsModal,
+          onOpenSourceMaterial: (params) => {
+            void openSourceMaterialEditor(params);
+          },
+          onCopyCandidateDraft: (candidateId, content) => {
+            void copyPreviewDraft(candidateId, content);
+          },
+          onOpenX: shareDraftEditorToX,
         }}
-        onStartEditingCandidate={startEditingDraftCandidate}
-        onCancelEditingCandidate={cancelEditingDraftCandidate}
-        onEditCandidateTextChange={setEditingDraftCandidateText}
-        onMutateCandidate={(candidateId, payload) => {
-          void mutateDraftQueueCandidate(candidateId, payload);
-        }}
-        onOpenObservedMetrics={openObservedMetricsModal}
-        onOpenSourceMaterial={(params) => {
-          void openSourceMaterialEditor(params);
-        }}
-        onCopyCandidateDraft={(candidateId, content) => {
-          void copyPreviewDraft(candidateId, content);
-        }}
-        onOpenX={shareDraftEditorToX}
-      />
-      <ObservedMetricsModal
-        open={Boolean(observedMetricsCandidate)}
-        candidateTitle={observedMetricsCandidate?.title ?? null}
-        value={observedMetricsForm}
-        isSubmitting={draftQueueActionById[observedMetricsCandidateId || ""] === "observed"}
-        errorMessage={draftQueueError}
-        onChange={updateObservedMetricsField}
-        onOpenChange={(open) => {
+        observedMetricsOpen={Boolean(observedMetricsCandidate)}
+        observedMetricsCandidateTitle={observedMetricsCandidate?.title ?? null}
+        observedMetricsValue={observedMetricsForm}
+        observedMetricsSubmitting={draftQueueActionById[observedMetricsCandidateId || ""] === "observed"}
+        observedMetricsErrorMessage={draftQueueError}
+        onObservedMetricsChange={updateObservedMetricsField}
+        onObservedMetricsOpenChange={(open) => {
           if (!open) {
             closeObservedMetricsModal();
           }
         }}
-        onSubmit={() => {
+        onSubmitObservedMetrics={() => {
           void submitObservedMetrics();
         }}
       />
 
-      <SettingsDialog
-        open={settingsModalOpen}
-        onOpenChange={setSettingsModalOpen}
+      <BillingDialogs
         monetizationEnabled={monetizationEnabled}
-        planStatusLabel={planStatusLabel}
-        settingsPlanLabel={settingsPlanLabel}
-        rateLimitResetLabel={rateLimitResetLabel}
-        isOpeningBillingPortal={isOpeningBillingPortal}
-        onOpenBillingPortal={() => {
-          void openBillingPortal();
-        }}
-        showRateLimitUpgradeCta={showRateLimitUpgradeCta}
-        rateLimitUpgradeLabel={rateLimitUpgradeLabel}
-        onOpenPricing={() => {
-          setSettingsModalOpen(false);
-          if (monetizationEnabled) {
-            setPricingModalOpen(true);
-          }
-        }}
-        settingsCreditsRemaining={settingsCreditsRemaining}
-        settingsCreditsUsed={settingsCreditsUsed}
-        settingsCreditLimit={settingsCreditLimit}
-        settingsCreditsRemainingPercent={settingsCreditsRemainingPercent}
         supportEmail={supportEmail}
+        onOpenPricingPage={() => {
+          setPricingModalOpen(false);
+          void acknowledgePricingModal();
+          window.location.href = "/pricing";
+        }}
         onSignOut={() => {
           void signOut({ callbackUrl: "/" });
         }}
-      />
-
-      {monetizationEnabled ? (
-        <PricingDialog
-          open={pricingModalOpen}
-          onOpenChange={handlePricingModalOpenChange}
-          onOpenPricingPage={() => {
-            setPricingModalOpen(false);
-            void acknowledgePricingModal();
-            window.location.href = "/pricing";
-          }}
-          dismissLabel={pricingModalDismissLabel}
-          selectedModalProIsAnnual={selectedModalProIsAnnual}
-          selectedModalProCents={selectedModalProCents}
-          selectedModalProPriceSuffix={selectedModalProPriceSuffix}
-          setSelectedModalProCadence={setSelectedModalProCadence}
-          isProActive={isProActive}
-          isFounderCurrent={isFounderCurrent}
-          selectedModalProIsCurrent={selectedModalProIsCurrent}
-          selectedModalProNeedsPortalSwitch={selectedModalProNeedsPortalSwitch}
-          selectedModalProOfferEnabled={selectedModalProOfferEnabled}
-          selectedModalProButtonLabel={selectedModalProButtonLabel}
-          isSelectedModalProCheckoutLoading={isSelectedModalProCheckoutLoading}
-          isOpeningBillingPortal={isOpeningBillingPortal}
-          onOpenBillingPortal={() => {
+        settingsDialogProps={{
+          open: settingsModalOpen,
+          onOpenChange: setSettingsModalOpen,
+          planStatusLabel,
+          settingsPlanLabel,
+          rateLimitResetLabel,
+          isOpeningBillingPortal,
+          onOpenBillingPortal: () => {
             void openBillingPortal();
-          }}
-          onOpenCheckout={(offer) => {
+          },
+          showRateLimitUpgradeCta,
+          rateLimitUpgradeLabel,
+          onOpenPricing: () => {
+            setSettingsModalOpen(false);
+            if (monetizationEnabled) {
+              setPricingModalOpen(true);
+            }
+          },
+          settingsCreditsRemaining,
+          settingsCreditsUsed,
+          settingsCreditLimit,
+          settingsCreditsRemainingPercent,
+        }}
+        pricingDialogProps={{
+          open: pricingModalOpen,
+          onOpenChange: handlePricingModalOpenChange,
+          dismissLabel: pricingModalDismissLabel,
+          selectedModalProIsAnnual,
+          selectedModalProCents,
+          selectedModalProPriceSuffix,
+          setSelectedModalProCadence,
+          isProActive,
+          isFounderCurrent,
+          selectedModalProIsCurrent,
+          selectedModalProNeedsPortalSwitch,
+          selectedModalProOfferEnabled,
+          selectedModalProButtonLabel,
+          isSelectedModalProCheckoutLoading,
+          isOpeningBillingPortal,
+          onOpenBillingPortal: () => {
+            void openBillingPortal();
+          },
+          onOpenCheckout: (offer) => {
             void openCheckoutForOffer(offer);
-          }}
-          selectedModalProOffer={selectedModalProOffer}
-          lifetimeAmountCents={lifetimeOffer?.amountCents ?? 0}
-          lifetimeSlotSummary={lifetimeSlotSummary}
-          lifetimeOfferEnabled={lifetimeOffer?.enabled !== false}
-          supportEmail={supportEmail}
-        />
-      ) : null}
+          },
+          selectedModalProOffer,
+          lifetimeAmountCents: lifetimeOffer?.amountCents ?? 0,
+          lifetimeSlotSummary,
+          lifetimeOfferEnabled: lifetimeOffer?.enabled !== false,
+        }}
+      />
 
       <FeedbackDialog
         open={feedbackModalOpen}
