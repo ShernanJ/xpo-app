@@ -105,7 +105,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
 - Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
-- Reply preflight parsing/default resolution and handled-reply persistence/finalization now flow through `apps/web/app/api/creator/v2/chat/route.reply.ts`, but that wrapper still owns parse-only prompts and reply artifact shaping outside the runtime capability boundary.
+- Structured reply-action translation and handled-reply persistence/finalization now flow through `apps/web/app/api/creator/v2/chat/route.reply.ts`, while reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`.
 - Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
@@ -172,7 +172,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - reply continuation generation now lives in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` still owns the route-boundary preflight parse/default wrapper, parse prompts, reply artifact shaping, and handled-reply persistence/finalization and must be reconciled fully with the runtime capability boundary
+  - reply continuation generation, reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` now owns only structured reply-action translation and handled-reply persistence/finalization
 - Status: complete with accepted migration debt.
 
 ### Phase 4: Formalize the parallel worker plane

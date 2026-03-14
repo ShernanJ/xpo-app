@@ -55,11 +55,11 @@ export interface AnalysisCapabilityOutput {
 
 export async function executeAnalysisCapability(
   args: CapabilityExecutionRequest<AnalysisCapabilityContext> & {
-    services: Pick<ConversationServices, "generateCoachReply">;
+    services: Pick<ConversationServices, "generatePostAnalysis">;
   },
 ): Promise<CapabilityExecutionResult<AnalysisCapabilityOutput>> {
   const { context, services } = args;
-  const coachReply = await services.generateCoachReply(
+  const analysisReply = await services.generatePostAnalysis(
     context.userMessage,
     context.effectiveContext,
     context.topicSummary,
@@ -86,13 +86,13 @@ export async function executeAnalysisCapability(
         activeConstraints: context.memory.activeConstraints,
         latestDraftStatus: "Context gathering",
         formatPreference: context.memory.formatPreference || context.turnFormatPreference,
-        unresolvedQuestion: coachReply?.probingQuestion || null,
+        unresolvedQuestion: analysisReply?.probingQuestion || null,
       })
     : context.memory.rollingSummary;
 
   const finalResponse =
-    coachReply?.response ||
-    "i can help with ideas, drafts, revisions, or figuring out what to post.";
+    analysisReply?.response ||
+    "paste the post or tell me what you want to diagnose, and i'll break down the angle, tension, and what it's doing.";
 
   return {
     workflow: args.workflow,
@@ -115,23 +115,23 @@ export async function executeAnalysisCapability(
         concreteAnswerCount: nextConcreteAnswerCount,
         rollingSummary,
         assistantTurnCount: context.nextAssistantTurnCount,
-        unresolvedQuestion: coachReply?.probingQuestion || null,
-        clarificationQuestionsAsked: coachReply?.probingQuestion
+        unresolvedQuestion: analysisReply?.probingQuestion || null,
+        clarificationQuestionsAsked: analysisReply?.probingQuestion
           ? context.memory.clarificationQuestionsAsked + 1
           : context.memory.clarificationQuestionsAsked,
       },
     },
     workers: [
       {
-        worker: "analysis_coach",
+        worker: "analysis_guidance",
         capability: args.capability,
         phase: "execution",
         mode: "sequential",
         status: "completed",
         groupId: null,
         details: {
-          hadReply: Boolean(coachReply?.response),
-          hadFollowUp: Boolean(coachReply?.probingQuestion),
+          hadReply: Boolean(analysisReply?.response),
+          hadFollowUp: Boolean(analysisReply?.probingQuestion),
         },
       },
     ],

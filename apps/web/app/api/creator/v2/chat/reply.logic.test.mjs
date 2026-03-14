@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildReplyParseEnvelope,
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
@@ -37,7 +36,7 @@ test("parseEmbeddedReplyRequest does not hijack short quoted snippets", () => {
   assert.equal(result.context, null);
 });
 
-test("buildReplyParseEnvelope marks medium-confidence embedded reply requests as confirmation-needed", () => {
+test("parseEmbeddedReplyRequest marks multiline pasted posts as medium-confidence reply requests", () => {
   const result = parseEmbeddedReplyRequest({
     message: `been thinking about this line all day:
 
@@ -46,9 +45,8 @@ most people sound generic because they optimize for approval first
 how do i reply to that?`,
   });
 
-  const envelope = buildReplyParseEnvelope(result);
-  assert.equal(envelope?.detected, true);
-  assert.equal(envelope?.needsConfirmation, true);
+  assert.equal(result.classification, "reply_request_with_embedded_post");
+  assert.equal(result.context?.confidence, "medium");
 });
 
 test("resolveReplyContinuation maps option picks and draft revisions from active reply context", () => {

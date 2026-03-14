@@ -125,8 +125,7 @@ User turn
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation now lives in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, but `apps/web/app/api/creator/v2/chat/route.reply.ts` still sits at the route boundary for reply preflight parsing/defaults, parse-only prompts, reply artifact shaping, and handled-reply persistence/finalization
-  - reply and analysis still use coach-style generation behavior behind explicit executor seams
+  - reply continuation generation, reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` now sits at the route boundary only for structured reply-action translation and handled-reply persistence/finalization
 
 ## Capability contract
 - Shared capability types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
@@ -280,6 +279,6 @@ User turn
 ## Next structural targets
 - Start Phase 4 worker-plane cleanup or isolate remaining Phase 3 migration debt into dedicated follow-up seams
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
-- Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
+- Reconcile the remaining structured reply-action translation seam in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

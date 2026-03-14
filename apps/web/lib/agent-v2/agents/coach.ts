@@ -23,6 +23,8 @@ export const CoachReplySchema = z.object({
 
 export type CoachReply = z.infer<typeof CoachReplySchema>;
 
+type GuidanceCapability = "coach" | "reply" | "analysis";
+
 function inferCoachTopic(userMessage: string, topicSummary: string | null): string | null {
   const trimmed = userMessage.trim().replace(/[.?!,]+$/, "");
   const aboutMatch = trimmed.match(/\b(?:about|on)\s+([a-z0-9][a-z0-9\s/&'’-]{1,80})$/i);
@@ -154,11 +156,78 @@ function normalizeCoachReply(
   };
 }
 
-/**
- * Generates a conversational reply for a growth coach / ghostwriter.
- * Adapts to the user's voice, tone, and history without sounding like a chatbot.
- */
-export async function generateCoachReply(
+function buildCapabilityIdentity(capability: GuidanceCapability): string {
+  switch (capability) {
+    case "reply":
+      return "You are an X reply strategist and ghostwriter.";
+    case "analysis":
+      return "You are an X post analyst and ghostwriter.";
+    case "coach":
+    default:
+      return "You are an X growth coach and ghostwriter.";
+  }
+}
+
+function buildCapabilityJob(capability: GuidanceCapability): string {
+  switch (capability) {
+    case "reply":
+      return "Your job is to reduce the user's mental load around replying: help them decide the best lane, the sharpest angle, and the safest next move without drifting off the source post.";
+    case "analysis":
+      return "Your job is to reduce the user's mental load around analyzing a post: help them understand what the post is doing, where the tension is, and what angle matters most.";
+    case "coach":
+    default:
+      return "Your job is to reduce the user's mental load: help them decide what to post, write in their voice, and give sharp advice when it actually helps.";
+  }
+}
+
+function buildCapabilityBehaviorBlock(capability: GuidanceCapability): string[] {
+  if (capability === "reply") {
+    return [
+      "- Assume the user is working from a specific post or reply situation, even if the exact post is already stored in context.",
+      "- Prioritize the reply lane, the point of tension, and whether the user should add nuance, disagreement, proof, or a concrete example.",
+      "- Keep the guidance grounded to the source post and avoid broad generic growth advice.",
+    ];
+  }
+
+  if (capability === "analysis") {
+    return [
+      "- Prioritize what the post is doing: the angle, tension, proof style, audience signal, and likely reason it lands or misses.",
+      "- Make the analysis legible and concrete instead of abstract strategy jargon.",
+      "- Keep the guidance grounded to the source post and avoid drifting into unrelated writing advice.",
+    ];
+  }
+
+  return [
+    "- Treat strategy as support for the writing work, not the main event.",
+    "- If they ask for advice like \"what should i post\" or \"how do i make this better\", keep it practical and low-friction.",
+  ];
+}
+
+function buildCapabilityRuleBlock(capability: GuidanceCapability): string[] {
+  if (capability === "reply") {
+    return [
+      "- Do not invent details about the source post, the author, or the surrounding thread.",
+      "- Do not write the final reply draft here. Focus on the lane, the angle, or the one thing to change.",
+      "- If context is thin, ask for the missing source detail instead of bluffing.",
+    ];
+  }
+
+  if (capability === "analysis") {
+    return [
+      "- Do not write the final reply or quote draft here unless the user explicitly switches tasks later.",
+      "- Do not pretend to know author intent when the text only supports an inference.",
+      "- Keep the analysis concrete and source-bound instead of motivational.",
+    ];
+  }
+
+  return [
+    "- Never write the actual post draft here. If they want drafting, acknowledge it and leave the draft generation to the next step.",
+    "- Never generate a whole menu of ideas here.",
+  ];
+}
+
+async function generateGuidanceReply(
+  capability: GuidanceCapability,
   userMessage: string,
   recentHistory: string,
   topicSummary: string | null,
@@ -175,7 +244,6 @@ export async function generateCoachReply(
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
 
-  // Derive tone cues from the style card to mirror the user's energy
   const toningCues = styleCard
     ? [
       styleCard.pacing && `Their writing pace: ${styleCard.pacing}`,
@@ -190,14 +258,13 @@ export async function generateCoachReply(
       .join(". ")
     : "";
 
-  // Give the coach a sense of what topics the user has spoken about before
   const anchorHint = topicAnchors.length
-    ? `Their recent posts seem to be about: ${topicAnchors.slice(0, 2).map(a => `"${a.slice(0, 60)}..."`).join("; ")}`
+    ? `Their recent posts seem to be about: ${topicAnchors.slice(0, 2).map((a) => `"${a.slice(0, 60)}..."`).join("; ")}`
     : "No specific post history retrieved yet.";
 
   const instruction = `
-You are an X growth coach and ghostwriter.
-Your job is to reduce the user's mental load: help them decide what to post, write in their voice, and give sharp advice when it actually helps.
+${buildCapabilityIdentity(capability)}
+${buildCapabilityJob(capability)}
 Sound like a sharp collaborator in a live chat, not a workflow bot and not a hypey internet friend.
 
 ${buildConversationToneBlock()}
@@ -212,18 +279,15 @@ BEHAVIOR:
 - Match their energy and casing when it feels natural.
 - Be natural without being overly friendly. No fluff, no cheerleading, no empty praise.
 - Default to useful action. If you can answer, suggest, or tee up the next writing step without more questions, do that.
-- Treat strategy as support for the writing work, not the main event.
 - If they gave a concrete topic, react to it and only ask ONE follow-up if you still need something important.
 - If enough context already exists in the conversation, answer directly instead of asking again.
-- If they ask what you can do, answer briefly and concretely: drafts, ideas, revisions, growth feedback.
-- If they ask for advice like "what should i post" or "how do i make this better", keep it practical and low-friction.
+- If they ask what you can do, answer briefly and concretely.
 - If they send only a quoted question, ask them to answer it so you can work from it.
 - If they say "just write anything" or something similarly lazy, do not interrogate them. Offer one concrete direction they can immediately approve.
+${buildCapabilityBehaviorBlock(capability).join("\n")}
 
 RULES:
-- Never write the actual post draft here. If they want drafting, acknowledge it and leave the draft generation to the next step.
 - ONE question max. Never two.
-- Never generate a whole menu of ideas here.
 - Never expose internal modes, routing, or your process.
 - Never say "Let's dive in", "In conclusion", "Great question", "Certainly", or anything that sounds like a customer support bot.
 - Never use filler like "love that", "totally", "for sure", or "absolutely" unless the user is clearly talking that way first.
@@ -231,6 +295,7 @@ RULES:
 - Never use emoji headers or bold section headers.
 - If the user gives a concrete topic, repeat that topic in the follow-up question so it feels specific.
 - Avoid generic follow-up questions. "tell me more" is almost always too weak.
+${buildCapabilityRuleBlock(capability).join("\n")}
 
 TONE ADAPTATION:
 ${toningCues || "Mirror the user's energy."}
@@ -273,6 +338,85 @@ Respond ONLY with valid JSON:
     console.error("Coach validation failed", err);
     return null;
   }
+}
+
+/**
+ * Generates a conversational reply for a growth coach / ghostwriter.
+ * Adapts to the user's voice, tone, and history without sounding like a chatbot.
+ */
+export async function generateCoachReply(
+  userMessage: string,
+  recentHistory: string,
+  topicSummary: string | null,
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  userContextString: string = "",
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
+): Promise<CoachReply | null> {
+  return generateGuidanceReply(
+    "coach",
+    userMessage,
+    recentHistory,
+    topicSummary,
+    styleCard,
+    topicAnchors,
+    userContextString,
+    options,
+  );
+}
+
+export async function generateReplyGuidance(
+  userMessage: string,
+  recentHistory: string,
+  topicSummary: string | null,
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  userContextString: string = "",
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
+): Promise<CoachReply | null> {
+  return generateGuidanceReply(
+    "reply",
+    userMessage,
+    recentHistory,
+    topicSummary,
+    styleCard,
+    topicAnchors,
+    userContextString,
+    options,
+  );
+}
+
+export async function generatePostAnalysis(
+  userMessage: string,
+  recentHistory: string,
+  topicSummary: string | null,
+  styleCard: VoiceStyleCard | null,
+  topicAnchors: string[],
+  userContextString: string = "",
+  options?: {
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+  },
+): Promise<CoachReply | null> {
+  return generateGuidanceReply(
+    "analysis",
+    userMessage,
+    recentHistory,
+    topicSummary,
+    styleCard,
+    topicAnchors,
+    userContextString,
+    options,
+  );
 }
 
 export const WelcomeOutputSchema = z.object({
