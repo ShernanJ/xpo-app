@@ -179,6 +179,7 @@ import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
 import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
 import { ExtensionDialog } from "./_features/workspace-chrome/ExtensionDialog";
 import { ThreadDeleteDialog } from "./_features/workspace-chrome/ThreadDeleteDialog";
+import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
   resolveAccountAvatarFallback,
   resolveAccountProfileAriaLabel,
@@ -1458,13 +1459,38 @@ function ChatPageContent() {
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
   const [threadTransitionPhase, setThreadTransitionPhase] = useState<"idle" | "out" | "in">("idle");
   const [isThreadHydrating, setIsThreadHydrating] = useState(false);
-
-  // Sidebar Edit States
-  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [menuOpenThreadId, setMenuOpenThreadId] = useState<string | null>(null);
-  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
-  const [threadToDelete, setThreadToDelete] = useState<{ id: string, title: string } | null>(null);
+  const {
+    hoveredThreadId,
+    setHoveredThreadId,
+    menuOpenThreadId,
+    setMenuOpenThreadId,
+    editingThreadId,
+    setEditingThreadId,
+    editingTitle,
+    setEditingTitle,
+    threadToDelete,
+    requestDeleteThread,
+    clearThreadToDelete,
+    sidebarOpen,
+    setSidebarOpen,
+    sidebarSearchQuery,
+    setSidebarSearchQuery,
+    openSidebar,
+    closeSidebar,
+    accountMenuOpen,
+    closeAccountMenu,
+    toggleAccountMenu,
+    accountMenuVisible,
+    toolsMenuOpen,
+    setToolsMenuOpen,
+    rateLimitsMenuOpen,
+    setRateLimitsMenuOpen,
+    setAvailableHandles,
+    availableHandles,
+    threadMenuRef,
+    accountMenuRef,
+    toolsMenuRef,
+  } = useWorkspaceChromeState({ accountName });
   const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
   const [addAccountInput, setAddAccountInput] = useState("");
   const [addAccountPreview, setAddAccountPreview] = useState<XPublicProfile | null>(null);
@@ -1473,9 +1499,6 @@ function ChatPageContent() {
   const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
-  const threadMenuRef = useRef<HTMLDivElement>(null);
-  const accountMenuRef = useRef<HTMLDivElement>(null);
-  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const chatThreadsRef = useRef(chatThreads);
   const threadTransitionOutTimeoutRef = useRef<number | null>(null);
   const threadTransitionInTimeoutRef = useRef<number | null>(null);
@@ -1503,26 +1526,6 @@ function ChatPageContent() {
     url.searchParams.set("xHandle", accountName);
     window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
   }, [accountName]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as Node;
-
-      if (threadMenuRef.current && !threadMenuRef.current.contains(target)) {
-        setMenuOpenThreadId(null);
-      }
-
-      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
-        setAccountMenuOpen(false);
-      }
-
-      if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
-        setToolsMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -1651,11 +1654,6 @@ function ChatPageContent() {
     }
   };
 
-  const requestDeleteThread = (id: string, title: string) => {
-    setThreadToDelete({ id, title });
-    setMenuOpenThreadId(null);
-  }
-
   const confirmDeleteThread = async () => {
     if (!threadToDelete) return;
 
@@ -1681,7 +1679,7 @@ function ChatPageContent() {
       console.error("Failed to delete thread", e);
       setErrorMessage("Failed to delete the chat. Try again.");
     } finally {
-      setThreadToDelete(null);
+      clearThreadToDelete();
     }
   };
 
@@ -1713,7 +1711,12 @@ function ChatPageContent() {
         }, 280);
       }, 140);
     },
-    [activeThreadId, buildWorkspaceChatHref, threadTransitionPhase],
+    [
+      activeThreadId,
+      buildWorkspaceChatHref,
+      setMenuOpenThreadId,
+      threadTransitionPhase,
+    ],
   );
 
   // Guard against initializeThread re-fetching when we just created a thread in-session
@@ -2265,8 +2268,6 @@ function ChatPageContent() {
   const [preferenceBlacklistInput, setPreferenceBlacklistInput] = useState("");
   const [preferenceMaxCharacters, setPreferenceMaxCharacters] = useState(25000);
   const [, setBackfillNotice] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
@@ -2439,27 +2440,6 @@ function ChatPageContent() {
 
     return `${weightedCharacterCount}/${characterLimit} chars`;
   }, [activePlaybookTemplate?.text, isVerifiedAccount]);
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const desktopMediaQuery = window.matchMedia("(min-width: 768px)");
-    const syncSidebarToViewport = (isDesktopViewport: boolean) => {
-      setSidebarOpen(isDesktopViewport);
-    };
-
-    syncSidebarToViewport(desktopMediaQuery.matches);
-
-    const handleViewportChange = (event: MediaQueryListEvent) => {
-      syncSidebarToViewport(event.matches);
-    };
-
-    desktopMediaQuery.addEventListener("change", handleViewportChange);
-    return () => {
-      desktopMediaQuery.removeEventListener("change", handleViewportChange);
-    };
-  }, []);
   const activeFeedbackTitle = feedbackTitlesByCategory[feedbackCategory] ?? "";
   const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
   const applyFeedbackMarkdownToken = useCallback(
@@ -3525,44 +3505,7 @@ function ChatPageContent() {
     ],
   );
 
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [accountMenuVisible, setAccountMenuVisible] = useState(false);
-  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
-  const [rateLimitsMenuOpen, setRateLimitsMenuOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [availableHandles, setAvailableHandles] = useState<string[]>([]);
-
-  useEffect(() => {
-    fetch("/api/creator/profile/handles")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.ok && data.data?.handles) {
-          setAvailableHandles(data.data.handles);
-        }
-      })
-      .catch((err) => console.error("Failed to load available handles:", err));
-  }, []);
-
-  useEffect(() => {
-    if (!accountMenuOpen) {
-      setRateLimitsMenuOpen(false);
-    }
-  }, [accountMenuOpen]);
-
-  useEffect(() => {
-    if (accountMenuOpen) {
-      setAccountMenuVisible(true);
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setAccountMenuVisible(false);
-    }, 220);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [accountMenuOpen]);
 
   const applyPersistedPreferences = useCallback((preferences: UserPreferences) => {
     setPreferenceCasing(preferences.casing);
@@ -3654,7 +3597,7 @@ function ChatPageContent() {
       return;
     }
 
-    setAccountMenuOpen(false);
+    closeAccountMenu();
     setIsLoading(true);
     setErrorMessage(null);
 
@@ -3675,7 +3618,7 @@ function ChatPageContent() {
       setErrorMessage("Could not switch to account @" + normalizedHandle);
       setIsLoading(false);
     }
-  }, [accountName, refreshSession]);
+  }, [accountName, closeAccountMenu, refreshSession]);
 
   const closeAddAccountModal = useCallback(() => {
     if (isAddAccountSubmitting || requiresXAccountGate) {
@@ -3802,6 +3745,7 @@ function ChatPageContent() {
     isAddAccountPreviewLoading,
     normalizedAddAccount,
     readyAccountHandle,
+    setAvailableHandles,
   ]);
 
   const runMissingOnboardingSetup = useCallback(async (): Promise<boolean> => {
@@ -6321,12 +6265,8 @@ function ChatPageContent() {
           sidebarOpen={sidebarOpen}
           sidebarSearchQuery={sidebarSearchQuery}
           onSidebarSearchQueryChange={setSidebarSearchQuery}
-          onCloseSidebar={() => setSidebarOpen(false)}
-          onOpenSidebar={() => {
-            setMenuOpenThreadId(null);
-            setAccountMenuOpen(false);
-            setSidebarOpen(true);
-          }}
+          onCloseSidebar={closeSidebar}
+          onOpenSidebar={openSidebar}
           onNewChat={handleNewChat}
           sections={sidebarThreads}
           activeThreadId={activeThreadId}
@@ -6351,23 +6291,20 @@ function ChatPageContent() {
           threadMenuRef={threadMenuRef}
           accountMenuRef={accountMenuRef}
           accountMenuOpen={accountMenuOpen}
-          onToggleAccountMenu={() => {
-            setMenuOpenThreadId(null);
-            setAccountMenuOpen((current) => !current);
-          }}
+          onToggleAccountMenu={toggleAccountMenu}
           accountMenuVisible={accountMenuVisible}
           availableHandles={availableHandles}
           accountName={accountName}
           canAddAccount={canAddAccount}
           onSwitchActiveHandle={switchActiveHandle}
           onOpenAddAccount={() => {
-            setAccountMenuOpen(false);
+            closeAccountMenu();
             setIsAddAccountModalOpen(true);
             setAddAccountError(null);
             setReadyAccountHandle(null);
           }}
           onOpenSettings={() => {
-            setAccountMenuOpen(false);
+            closeAccountMenu();
             setSettingsModalOpen(true);
           }}
           rateLimitsMenuOpen={rateLimitsMenuOpen}
@@ -6379,7 +6316,7 @@ function ChatPageContent() {
           rateLimitUpgradeLabel={rateLimitUpgradeLabel}
           onOpenPricing={() => {
             setPricingModalOpen(true);
-            setAccountMenuOpen(false);
+            closeAccountMenu();
           }}
           avatarUrl={context?.avatarUrl ?? null}
           accountAvatarFallback={accountAvatarFallback}
@@ -7191,7 +7128,7 @@ function ChatPageContent() {
         threadTitle={threadToDelete?.title ?? null}
         onOpenChange={(open) => {
           if (!open) {
-            setThreadToDelete(null);
+            clearThreadToDelete();
           }
         }}
         onConfirmDelete={() => {
