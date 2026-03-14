@@ -182,7 +182,8 @@ User turn
 - Critique:
   - `apps/web/lib/agent-v2/agents/critic.ts`
 - Reply / analysis helpers:
-  - `apps/web/app/api/creator/v2/chat/reply.logic.ts`
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 
 ## Debugging guide
@@ -301,9 +302,10 @@ User turn
 - multi-tab same-profile different-handle isolation
 - reply workflow not hijacking non-reply turns
 - no double-write behavior from worker fan-out
+- reply route shims stay compatibility-only while route-internal consumers import runtime-owned reply modules directly
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by using the explicit sibling-novelty retry trace, the route no-double-write regression, and the now-compatibility-only reply shims as guardrails while checking for any remaining mixed ownership across route/runtime boundaries
-- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` as thin compatibility shims only; do not let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`, and do not route internal consumers back through those shims
-- Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction
+- Treat Phase 4 worker-plane cleanup as functionally complete: use the explicit sibling-novelty retry trace, the route no-double-write regression, and the reply seam-audit regression as guardrails against ownership drift
+- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` as thin compatibility shims only until a later deletion phase; do not let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`, and do not route internal consumers back through those shims
+- Revisit residual route/client migration debt only when it blocks later runtime rollout or Phase 6 deletion work

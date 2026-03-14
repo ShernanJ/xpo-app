@@ -174,8 +174,13 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Reply shims reduced to compatibility-only:
   - `route.ts`, `route.replyFinalize.ts`, `route.logic.ts`, and `route.response.ts` now import reply planning and reply artifact types directly from the runtime-owned modules instead of going back through the route shims
   - this removes the last meaningful internal route dependency on `route.reply.ts` / `reply.logic.ts`, keeping those files as compatibility shims instead of hidden ownership boundaries
-- Add merge rules so parallel workers cannot produce ambiguous state writes.
-- Prohibit parallel writes to memory, artifacts, reply context, or thread state.
+- Reply seam-audit regression landed:
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins `route.reply.ts` and `reply.logic.ts` as thin re-export shims and requires route-internal reply consumers to import the runtime-owned reply modules directly
+  - this turns the last Phase 4 reply-boundary audit into an automated guardrail, so compatibility shims stay compatibility-only unless we intentionally delete them in a later phase
+- Guardrails now in force:
+  - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
+  - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
+- Phase 4 implementation cleanup is functionally complete; any remaining compatibility-shim deletion moves to Phase 6.
 
 ### Phase 5: Replace patching with validation and retry
 - Add deterministic validators for:

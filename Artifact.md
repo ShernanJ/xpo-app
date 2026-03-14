@@ -4,8 +4,8 @@
 - Program: `Agent Runtime vNext`
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
-- Last updated: 2026-03-13
-- Current slice: Phase 4 worker-plane cleanup in progress
+- Last updated: 2026-03-14
+- Current slice: Phase 4 worker-plane closeout guardrails
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -197,9 +197,11 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `apps/web/app/api/creator/v2/chat/route.reply.ts` stays limited to reply state resolution and reply-turn planning
   - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, while `apps/web/app/api/creator/v2/chat/reply.logic.ts` and `apps/web/app/api/creator/v2/chat/route.reply.ts` are thin re-export shims
   - route-internal consumers now import those runtime-owned reply modules directly, so the route shims are compatibility-only instead of being part of the active ownership path
-- Add merge rules for worker outputs.
-- Prohibit ambiguous side effects from worker fan-out.
-- Status: in progress.
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the reply seam audit so `route.reply.ts` / `reply.logic.ts` stay thin compatibility re-exports and route-internal reply consumers keep importing the runtime-owned reply modules directly
+- Guardrails now in force:
+  - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
+  - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
+- Status: complete with accepted compatibility-shim deletion deferred to Phase 6.
 
 ### Phase 5: Validation and retry
 - Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.

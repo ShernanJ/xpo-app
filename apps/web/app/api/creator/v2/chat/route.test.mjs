@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   buildChatRoutePersistencePlan,
@@ -1452,4 +1453,59 @@ test("conversation context builder can exclude the current user turn when thread
   assert.equal(context.recentHistory.includes("user: write it now"), false);
   assert.equal(context.recentHistory.includes("assistant: let's keep it on one lane"), true);
   assert.equal(context.recentHistory.includes("assistant_context:"), false);
+});
+
+test("reply route ownership stays in runtime modules while route shims remain compatibility-only", () => {
+  const routeShimSource = readFileSync(new URL("./route.reply.ts", import.meta.url), "utf8");
+  const replyLogicShimSource = readFileSync(
+    new URL("./reply.logic.ts", import.meta.url),
+    "utf8",
+  );
+  const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  const routeReplyFinalizeSource = readFileSync(
+    new URL("./route.replyFinalize.ts", import.meta.url),
+    "utf8",
+  );
+  const routeLogicSource = readFileSync(new URL("./route.logic.ts", import.meta.url), "utf8");
+  const routeResponseSource = readFileSync(
+    new URL("./route.response.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    routeShimSource,
+    /export \* from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
+  );
+  assert.match(
+    replyLogicShimSource,
+    /export \* from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+  );
+
+  assert.match(
+    routeSource,
+    /from "@\/lib\/agent-v2\/orchestrator\/replyTurnPlanner";/,
+  );
+  assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
+
+  assert.match(
+    routeReplyFinalizeSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
+  );
+  assert.equal(
+    /from "\.\/route\.reply(?:\.ts)?";/.test(routeReplyFinalizeSource),
+    false,
+  );
+
+  assert.match(
+    routeLogicSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+  );
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeLogicSource), false);
+
+  assert.match(
+    routeResponseSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+  );
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeResponseSource), false);
 });
