@@ -134,6 +134,7 @@ import { executeIdeationCapability } from "./ideationExecutor.ts";
 import { executePlanningCapability } from "./planningExecutor.ts";
 import { executeDraftingCapability } from "./draftingExecutor.ts";
 import { executeRevisingCapability } from "./revisingExecutor.ts";
+import { executeReplyingCapability } from "./replyingExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -2690,6 +2691,46 @@ User Profile Summary:
     };
   }
 
+  async function handleReplyMode(): Promise<RawOrchestratorResponse> {
+    const execution = await executeReplyingCapability({
+      workflow: "reply_to_post",
+      capability: "replying",
+      activeContextRefs: [
+        "memory.activeReplyContext",
+        "memory.selectedReplyOptionId",
+        "memory.topicSummary",
+        "memory.rollingSummary",
+      ],
+      context: {
+        userMessage,
+        effectiveContext,
+        topicSummary: memory.topicSummary,
+        styleCard,
+        relevantTopicAnchors,
+        userContextString,
+        goal,
+        memory,
+        antiPatterns,
+        feedbackMemoryNotice,
+        nextAssistantTurnCount,
+        turnFormatPreference,
+        refreshRollingSummary: shouldRefreshRollingSummary(
+          nextAssistantTurnCount,
+          false,
+        ),
+      },
+      services,
+    });
+
+    mergeCapabilityExecutionMeta(execution);
+    await writeMemoryLocal(execution.output.memoryPatch);
+
+    return {
+      ...execution.output.responseSeed,
+      memory,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Execution Routing
   // ---------------------------------------------------------------------------
@@ -2703,6 +2744,7 @@ User Profile Summary:
     case "revise_draft":
       return handleDraftEditReviewMode();
     case "reply_to_post":
+      return handleReplyMode();
     case "analyze_post":
     case "answer_question":
     default:

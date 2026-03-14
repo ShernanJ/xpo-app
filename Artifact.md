@@ -160,13 +160,15 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor for plan approval, rough auto-draft, and plan-to-draft fallback delivery paths
   - targeted revision now executes through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor for edit/review delivery and merges returned validation metadata at the pipeline boundary
+  - the `reply_to_post` workflow now executes through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor for reply workflow turns instead of falling straight through the generic coach handler
 - Remaining work:
   - break `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` into capability executors:
-    - replying
     - analysis
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
   - move multi-draft bundle plus plan-to-draft fallback/replanning continuation branches off inline `draftPipeline.ts` control flow
+  - reconcile route-level reply artifact generation with the runtime capability boundary
 - Status: in progress.
 
 ### Phase 4: Formalize the parallel worker plane

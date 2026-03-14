@@ -118,12 +118,14 @@ User turn
   - initial planning now runs through `apps/web/lib/agent-v2/orchestrator/planningExecutor.ts`
   - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`
   - targeted revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
+  - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`
 - Remaining target executors:
-  - replying
   - analysis
 - Current migration debt inside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
   - multi-draft bundle generation is still inline
   - plan-to-draft fallback and replanning inside revision/edit flows are still inline
+- Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
+  - route-level reply artifact generation and continuation still live in `apps/web/app/api/creator/v2/chat/route.ts`
 
 ## Capability contract
 - Shared capability types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
@@ -275,7 +277,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Extract the reply executor from `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Extract the analysis executor from `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Move multi-draft bundle generation behind the shared capability contract or isolate it as explicit migration debt
 - Move capability execution behind the shared runtime executor contract in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction
