@@ -39,7 +39,7 @@ export interface PersistDraftCandidateContext {
 
 export interface PersistAssistantTurnArgs {
   threadId: string | null | undefined;
-  assistantMessageData: PersistedAssistantMessageData & Record<string, unknown>;
+  assistantMessageData: PersistedAssistantMessageData & object;
   threadUpdate: {
     updatedAt: Date;
     title?: string;

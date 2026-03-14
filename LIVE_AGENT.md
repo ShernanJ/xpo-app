@@ -84,8 +84,9 @@ User turn
   - still heavy
   - now owns final response-envelope finalization for the main chat path
   - now delegates sequential assistant-message persistence, memory/thread updates, and draft-candidate writes through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
+  - now delegates reply-turn response assembly, product-event planning, and final success-response packaging through `apps/web/app/api/creator/v2/chat/route.response.ts`
   - still coordinates response shaping before persistence/thread updates
-  - still carries more request assembly, reply-branch assembly, billing, and event wiring than the target architecture wants
+  - still carries more request assembly and reply-workflow control flow than the target architecture wants
 - Target architecture ownership:
   - auth
   - workspace/thread ownership
@@ -269,6 +270,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue thinning `apps/web/app/api/creator/v2/chat/route.ts`
-- Continue thinning `apps/web/app/chat/page.tsx`
+- Finish thinning `apps/web/app/chat/page.tsx`
+- Revisit any remaining reply-control debt in `apps/web/app/api/creator/v2/chat/route.ts` only if it still blocks the Phase 2 exit criteria
 - Split `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`

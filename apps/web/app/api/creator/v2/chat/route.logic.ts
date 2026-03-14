@@ -74,6 +74,11 @@ export interface DraftBundlePayload {
   options: DraftBundleOptionEntry[];
 }
 
+export type ChatRouteOutputShape =
+  | V2ChatOutputShape
+  | "reply_candidate"
+  | "quote_candidate";
+
 const DRAFT_HANDOFF_REPLIES = new Set([
   "here's the draft. take a look.",
   "here's a draft. take a look.",
@@ -1014,15 +1019,15 @@ export interface ChatRouteMappedDataSeed {
       deletable: boolean;
     }>;
   } | null;
-  outputShape: V2ChatOutputShape;
+  outputShape: ChatRouteOutputShape;
   surfaceMode: SurfaceMode;
   memory: V2ConversationMemory;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   requestTrace: {
     clientTurnId: string | null;
   };
-  replyArtifacts: null;
-  replyParse: null;
+  replyArtifacts: ChatReplyArtifacts | null;
+  replyParse: ChatReplyParseEnvelope | null;
 }
 
 export interface AssistantContextPacket {

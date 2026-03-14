@@ -103,7 +103,8 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline, but it still owns too much workspace/session/composer state to count as a thin client yet.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
-- Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`, but the route still owns too much surrounding request/event/billing assembly.
+- Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
+- Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
 - Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
@@ -138,6 +139,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
+  - reply-turn response assembly, product-event planning, and final success-response packaging now run through `apps/web/app/api/creator/v2/chat/route.response.ts`
 - Move transport/request construction out of `apps/web/app/chat/page.tsx` into a dedicated chat transport layer plus workspace store.
 - Reduce `apps/web/app/api/creator/v2/chat/route.ts` to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
 - Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.

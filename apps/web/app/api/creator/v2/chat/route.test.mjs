@@ -17,6 +17,11 @@ import {
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
 import { persistAssistantTurnWithDeps } from "./route.persistence.ts";
+import {
+  buildChatSuccessResponse,
+  buildReplyAssistantMessageData,
+  planMainAssistantTurnProductEvents,
+} from "./route.response.ts";
 import { normalizeChatTurn } from "./turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
@@ -377,6 +382,189 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
   assert.equal(plan.analytics.primaryGroundingMode, "saved_sources");
   assert.equal(plan.analytics.primaryGroundingSourceCount, 1);
   assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
+});
+
+test("buildReplyAssistantMessageData preserves reply artifacts and context packet details", () => {
+  const mapped = buildReplyAssistantMessageData({
+    reply: "pulled 3 grounded reply directions from that post.",
+    outputShape: "reply_candidate",
+    surfaceMode: "offer_options",
+    quickReplies: [{ id: "qr_1", label: "show drafts" }],
+    memory: {
+      ...baseMemory,
+      preferredSurfaceMode: "structured",
+      activeReplyContext: {
+        sourceText: "original post body",
+        sourceUrl: "https://x.com/example/status/1",
+        authorHandle: "example",
+        quotedUserAsk: null,
+        confidence: "high",
+        parseReason: "reply_request_with_embedded_post",
+        awaitingConfirmation: false,
+        stage: "1k_to_10k",
+        tone: "builder",
+        goal: "start_conversation",
+        opportunityId: "opp_1",
+        latestReplyOptions: [],
+        latestReplyDraftOptions: [],
+        selectedReplyOptionId: null,
+      },
+    },
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "reply",
+    },
+    clientTurnId: "turn_reply_1",
+    threadTitle: "Reply thread",
+    replyArtifacts: {
+      kind: "reply_options",
+      sourceText: "original post body",
+      sourceUrl: "https://x.com/example/status/1",
+      authorHandle: "example",
+      options: [{ id: "opt_1", label: "Option 1", text: "first reply" }],
+      groundingNotes: ["pulled from original post"],
+      warnings: [],
+      selectedOptionId: null,
+    },
+    replyParse: {
+      detected: true,
+      confidence: "high",
+      needsConfirmation: false,
+      parseReason: "reply_request_with_embedded_post",
+    },
+  });
+
+  assert.equal(mapped.replyArtifacts?.kind, "reply_options");
+  assert.equal(mapped.requestTrace.clientTurnId, "turn_reply_1");
+  assert.equal(mapped.contextPacket.replyRef?.kind, "reply_options");
+  assert.equal(mapped.contextPacket.replyParse?.parseReason, "reply_request_with_embedded_post");
+});
+
+test("planMainAssistantTurnProductEvents derives draft analytics and clarification prompts from mapped data", () => {
+  const events = planMainAssistantTurnProductEvents({
+    mappedData: {
+      outputShape: "short_form_post",
+      draft: "draft body",
+      surfaceMode: "generate_full_output",
+      memory: {
+        ...baseMemory,
+        clarificationQuestionsAsked: 2,
+      },
+    },
+    analytics: {
+      primaryGroundingMode: "saved_sources",
+      primaryGroundingSourceCount: 3,
+      autoSavedSourceMaterialCount: 1,
+    },
+    explicitIntent: null,
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.eventType, "draft_generated");
+  assert.equal(events[0]?.properties.usedSavedSources, true);
+  assert.equal(events[0]?.properties.autoSavedSourceMaterialCount, 1);
+
+  const clarificationEvents = planMainAssistantTurnProductEvents({
+    mappedData: {
+      outputShape: "coach_question",
+      draft: null,
+      surfaceMode: "ask_one_question",
+      memory: {
+        ...baseMemory,
+        conversationState: "needs_more_context",
+        clarificationQuestionsAsked: 1,
+        topicSummary: "messaging",
+      },
+    },
+    analytics: {
+      primaryGroundingMode: null,
+      primaryGroundingSourceCount: 0,
+      autoSavedSourceMaterialCount: 0,
+    },
+    explicitIntent: "edit",
+  });
+
+  assert.equal(clarificationEvents.length, 1);
+  assert.equal(clarificationEvents[0]?.eventType, "clarification_prompted");
+  assert.equal(clarificationEvents[0]?.properties.explicitIntent, "edit");
+  assert.equal(clarificationEvents[0]?.properties.hasTopicSummary, true);
+});
+
+test("buildChatSuccessResponse merges billing and ids into the final API payload", async () => {
+  const response = await buildChatSuccessResponse({
+    mappedData: {
+      reply: "here's the draft",
+      angles: [],
+      quickReplies: [],
+      plan: null,
+      draft: "draft body",
+      drafts: ["draft body"],
+      draftArtifacts: [],
+      draftVersions: [],
+      activeDraftVersionId: undefined,
+      previousVersionSnapshot: undefined,
+      revisionChainId: undefined,
+      draftBundle: null,
+      supportAsset: null,
+      groundingSources: [],
+      autoSavedSourceMaterials: null,
+      outputShape: "short_form_post",
+      surfaceMode: "generate_full_output",
+      memory: baseMemory,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "draft",
+      },
+      requestTrace: {
+        clientTurnId: "turn_4",
+      },
+      replyArtifacts: null,
+      replyParse: null,
+      threadTitle: "Thread title",
+      billing: null,
+      contextPacket: {
+        version: "assistant_context_v2",
+        summary: "draft: draft body",
+        planRef: null,
+        draftRef: {
+          excerpt: "draft body",
+          activeDraftVersionId: null,
+          revisionChainId: null,
+        },
+        grounding: {
+          mode: null,
+          explanation: null,
+          sourceTitles: [],
+        },
+        critique: {
+          issuesFixed: [],
+        },
+        replyRef: null,
+        replyParse: null,
+        artifacts: {
+          outputShape: "short_form_post",
+          surfaceMode: "generate_full_output",
+          quickReplyCount: 0,
+          hasDraft: true,
+        },
+      },
+    },
+    createdAssistantMessageId: "assistant-msg-9",
+    newThreadId: "thread-9",
+    loadBilling: async () => ({ creditsRemaining: 12 }),
+  });
+  const json = await response.json();
+
+  assert.equal(json.ok, true);
+  assert.equal(json.data.billing.creditsRemaining, 12);
+  assert.equal(json.data.messageId, "assistant-msg-9");
+  assert.equal(json.data.newThreadId, "thread-9");
 });
 
 test("persistAssistantTurnWithDeps preserves sequential write order", async () => {

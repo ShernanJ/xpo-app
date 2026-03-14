@@ -39,7 +39,6 @@ import {
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
 import {
-  buildAssistantContextPacket,
   buildChatRouteMappedData,
   buildChatRoutePersistencePlan,
   buildConversationContextFromHistory,
@@ -48,6 +47,13 @@ import {
   type SelectedDraftContext,
 } from "./route.logic";
 import { persistAssistantTurn } from "./route.persistence";
+import {
+  buildChatSuccessResponse,
+  buildReplyAssistantMessageData,
+  dispatchPlannedProductEvents,
+  planMainAssistantTurnProductEvents,
+  planReplyAssistantTurnProductEvents,
+} from "./route.response";
 import { normalizeChatTurn } from "./turnNormalization";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
@@ -755,41 +761,18 @@ export async function POST(request: NextRequest) {
         activeReplyContext: args.activeReplyContext,
         selectedReplyOptionId: args.selectedReplyOptionId,
       });
-      const mappedData = {
+      let mappedData = buildReplyAssistantMessageData({
         reply: args.reply,
-        angles: [],
-        quickReplies: args.quickReplies,
-        plan: null,
-        draft: null,
-        drafts: [],
-        draftArtifacts: [],
-        supportAsset: null,
         outputShape: args.outputShape,
         surfaceMode: args.surfaceMode,
+        quickReplies: args.quickReplies,
         memory: nextMemory,
         routingDiagnostics: normalizedTurn.diagnostics,
-        requestTrace: {
-          clientTurnId,
-        },
+        clientTurnId,
         threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
-        billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
         replyArtifacts: args.replyArtifacts || null,
         replyParse: args.replyParse || null,
-        contextPacket: buildAssistantContextPacket({
-          reply: args.reply,
-          plan: null,
-          draft: null,
-          outputShape: args.outputShape,
-          surfaceMode: args.surfaceMode,
-          issuesFixed: [],
-          groundingMode: null,
-          groundingExplanation: null,
-          groundingSources: [],
-          quickReplies: args.quickReplies,
-          replyArtifacts: args.replyArtifacts || null,
-          replyParse: args.replyParse || null,
-        }),
-      };
+      });
 
       let createdAssistantMessageId: string | undefined;
       if (storedThread) {
@@ -811,41 +794,33 @@ export async function POST(request: NextRequest) {
           }),
         });
         createdAssistantMessageId = persistenceResult.assistantMessageId;
-        mappedData.threadTitle =
-          persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE;
+        mappedData = {
+          ...mappedData,
+          threadTitle: persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE,
+        };
       }
 
-      if (args.eventType) {
-        void recordProductEvent({
-          userId: session.user.id,
-          xHandle: activeHandle,
-          threadId: storedThread?.id ?? null,
-          messageId: createdAssistantMessageId ?? null,
+      dispatchPlannedProductEvents({
+        events: planReplyAssistantTurnProductEvents({
           eventType: args.eventType,
-          properties: {
-            outputShape: args.outputShape,
-            surfaceMode: args.surfaceMode,
-            replyArtifactKind: args.replyArtifacts?.kind ?? null,
-            replyParseConfidence: args.replyParse?.confidence ?? null,
-          },
-        }).catch((error) =>
-          console.error(`Failed to record ${args.eventType} event:`, error),
-        );
-      }
+          outputShape: args.outputShape,
+          surfaceMode: args.surfaceMode,
+          replyArtifacts: args.replyArtifacts || null,
+          replyParse: args.replyParse || null,
+        }),
+        userId: session.user.id,
+        xHandle: activeHandle,
+        threadId: storedThread?.id ?? null,
+        messageId: createdAssistantMessageId ?? null,
+        recordProductEvent,
+      });
 
-      mappedData.billing = await getBillingStateForUser(effectiveUserId);
-
-      return NextResponse.json(
-        {
-          ok: true,
-          data: {
-            ...mappedData,
-            ...(createdAssistantMessageId ? { messageId: createdAssistantMessageId } : {}),
-            newThreadId: !threadId && storedThread ? storedThread.id : undefined,
-          },
-        },
-        { status: 200 },
-      );
+      return await buildChatSuccessResponse({
+        mappedData,
+        createdAssistantMessageId,
+        newThreadId: !threadId && storedThread ? storedThread.id : undefined,
+        loadBilling: () => getBillingStateForUser(effectiveUserId),
+      });
     };
 
     const activeReplyContext = storedMemory.activeReplyContext;
@@ -1214,9 +1189,8 @@ export async function POST(request: NextRequest) {
       preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
       shouldClearReplyWorkflow: shouldResetReplyWorkflow,
     });
-    const mappedData = {
+    let mappedData = {
       ...persistencePlan.assistantMessageData,
-      billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
     };
     let createdAssistantMessageId: string | undefined;
 
@@ -1255,72 +1229,31 @@ export async function POST(request: NextRequest) {
         },
       });
       createdAssistantMessageId = persistenceResult.assistantMessageId;
-      mappedData.threadTitle =
-        persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE;
+      mappedData = {
+        ...mappedData,
+        threadTitle: persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE,
+      };
     }
 
-    if (
-      (mappedData.outputShape === "short_form_post" ||
-        mappedData.outputShape === "long_form_post" ||
-        mappedData.outputShape === "thread_seed") &&
-      mappedData.draft
-    ) {
-      void recordProductEvent({
-        userId: session.user.id,
-        xHandle: activeHandle,
-        threadId: storedThread?.id ?? null,
-        messageId: createdAssistantMessageId ?? null,
-        eventType: "draft_generated",
-        properties: {
-          outputShape: mappedData.outputShape,
-          surfaceMode: mappedData.surfaceMode ?? null,
-          groundingMode: persistencePlan.analytics.primaryGroundingMode,
-          groundingSourceCount: persistencePlan.analytics.primaryGroundingSourceCount,
-          usedSavedSources:
-            persistencePlan.analytics.primaryGroundingMode === "saved_sources" ||
-            persistencePlan.analytics.primaryGroundingMode === "mixed",
-          usedSafeFramework:
-            persistencePlan.analytics.primaryGroundingMode === "safe_framework",
-          clarificationQuestionsAsked: mappedData.memory?.clarificationQuestionsAsked ?? 0,
-          autoSavedSourceMaterialCount: persistencePlan.analytics.autoSavedSourceMaterialCount,
-        },
-      }).catch((error) => console.error("Failed to record draft_generated event:", error));
-    }
+    dispatchPlannedProductEvents({
+      events: planMainAssistantTurnProductEvents({
+        mappedData,
+        analytics: persistencePlan.analytics,
+        explicitIntent: effectiveExplicitIntent,
+      }),
+      userId: session.user.id,
+      xHandle: activeHandle,
+      threadId: storedThread?.id ?? null,
+      messageId: createdAssistantMessageId ?? null,
+      recordProductEvent,
+    });
 
-    if (
-      mappedData.outputShape === "coach_question" &&
-      mappedData.surfaceMode === "ask_one_question"
-    ) {
-      void recordProductEvent({
-        userId: session.user.id,
-        xHandle: activeHandle,
-        threadId: storedThread?.id ?? null,
-        messageId: createdAssistantMessageId ?? null,
-        eventType: "clarification_prompted",
-        properties: {
-          conversationState: mappedData.memory?.conversationState ?? null,
-          clarificationQuestionsAsked: mappedData.memory?.clarificationQuestionsAsked ?? 0,
-          hasTopicSummary: Boolean(mappedData.memory?.topicSummary),
-          explicitIntent: effectiveExplicitIntent || "auto",
-        },
-      }).catch((error) =>
-        console.error("Failed to record clarification_prompted event:", error),
-      );
-    }
-
-    mappedData.billing = await getBillingStateForUser(effectiveUserId);
-
-    return NextResponse.json(
-        {
-          ok: true,
-          data: {
-          ...mappedData,
-          ...(createdAssistantMessageId ? { messageId: createdAssistantMessageId } : {}),
-          newThreadId: !threadId && storedThread ? storedThread.id : undefined
-        }
-      },
-      { status: 200 },
-    );
+    return await buildChatSuccessResponse({
+      mappedData,
+      createdAssistantMessageId,
+      newThreadId: !threadId && storedThread ? storedThread.id : undefined,
+      loadBilling: () => getBillingStateForUser(effectiveUserId),
+    });
   } catch (error) {
     if (debitedCharge) {
       await refundCredits({
