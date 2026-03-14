@@ -4,6 +4,10 @@ import {
   planReplyContinuation,
   type ReplyContinuationInsights,
 } from "../../../../../lib/agent-v2/orchestrator/replyContinuationPlanner.ts";
+import type {
+  ChatArtifactContext,
+  ChatTurnSource,
+} from "../../../../../lib/agent-v2/contracts/turnContract.ts";
 import {
   buildEmbeddedPostWithoutReplyPrompt,
   buildMissingReplyPostPrompt,
@@ -15,6 +19,9 @@ import {
   buildReplyOptionsQuickReplies,
   buildReplyParseEnvelope,
   createEmptyActiveReplyContext,
+  parseEmbeddedReplyRequest,
+  resolveReplyContinuation,
+  shouldClearReplyWorkflow,
   type ActiveReplyContext,
   type ChatReplyArtifacts,
   type ChatReplyParseEnvelope,
@@ -38,6 +45,144 @@ export interface PlannedReplyTurn {
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
   eventType?: string;
+}
+
+type ReplyAgentContext = {
+  growthStrategySnapshot: GrowthStrategySnapshot;
+  creatorProfile?: {
+    identity?: {
+      followerBand?: string | null;
+    };
+  };
+};
+
+interface StructuredReplyContextInput {
+  sourceText?: string | null;
+  sourceUrl?: string | null;
+  authorHandle?: string | null;
+}
+
+export interface ResolvedReplyTurnState {
+  replyStrategy: GrowthStrategySnapshot;
+  replyParseResult: EmbeddedReplyParseResult;
+  replyContinuation: ReplyContinuationResult | null;
+  shouldResetReplyWorkflow: boolean;
+  defaultReplyStage: ActiveReplyContext["stage"];
+  defaultReplyTone: ActiveReplyContext["tone"];
+  defaultReplyGoal: string;
+}
+
+function buildFallbackGrowthStrategySnapshot(activeHandle: string | null): GrowthStrategySnapshot {
+  return {
+    knownFor: activeHandle ? `${activeHandle}'s niche` : "a clearer niche",
+    targetAudience: "the right people in your niche on X",
+    contentPillars: ["clear positioning", "useful nuance", "proof-first writing"],
+    replyGoals: ["Add one useful layer instead of generic agreement."],
+    profileConversionCues: [
+      "Replies should reinforce the niche the account wants to be known for.",
+    ],
+    offBrandThemes: ["generic agreement with no point of view"],
+    ambiguities: [
+      "Profile context is thin, so keep reply guidance conservative and grounded to the pasted post.",
+    ],
+    confidence: {
+      overall: 40,
+      positioning: 35,
+      replySignal: 30,
+      readiness: "caution",
+    },
+    truthBoundary: {
+      verifiedFacts: activeHandle ? [`Active handle: @${activeHandle}`] : [],
+      inferredThemes: ["useful nuance"],
+      unknowns: [
+        "Profile context is thin, so reply recommendations should avoid overclaiming voice patterns.",
+      ],
+    },
+  };
+}
+
+function resolveChatReplyStage(
+  creatorAgentContext: ReplyAgentContext | null,
+): ActiveReplyContext["stage"] {
+  const followerBand = creatorAgentContext?.creatorProfile?.identity?.followerBand;
+  if (followerBand === "1k-10k") {
+    return "1k_to_10k";
+  }
+  if (followerBand === "10k+") {
+    return "10k_to_50k";
+  }
+  return "0_to_1k";
+}
+
+function resolveChatReplyTone(rawValue: unknown): ActiveReplyContext["tone"] {
+  if (rawValue === "bold") {
+    return "bold";
+  }
+
+  return "builder";
+}
+
+function resolveChatReplyGoal(rawValue: unknown): string {
+  return rawValue === "followers" || rawValue === "leads" || rawValue === "authority"
+    ? rawValue
+    : "followers";
+}
+
+export function resolveReplyTurnState(args: {
+  activeHandle: string | null;
+  creatorAgentContext: ReplyAgentContext | null;
+  effectiveMessage: string;
+  structuredReplyContext: StructuredReplyContextInput | null;
+  artifactContext: ChatArtifactContext | null;
+  turnSource: ChatTurnSource;
+  shouldBypassReplyHandling: boolean;
+  activeReplyContext: ActiveReplyContext | null;
+  toneRisk: unknown;
+  goal: unknown;
+}): ResolvedReplyTurnState {
+  const replyStrategy = args.creatorAgentContext
+    ? args.creatorAgentContext.growthStrategySnapshot
+    : buildFallbackGrowthStrategySnapshot(args.activeHandle);
+  const replyParseResult = args.shouldBypassReplyHandling
+    ? { classification: "plain_chat" as const, context: null }
+    : parseEmbeddedReplyRequest({
+        message: args.effectiveMessage,
+        replyContext: args.structuredReplyContext,
+      });
+  const structuredReplyContinuation =
+    args.artifactContext?.kind === "reply_option_select"
+      ? {
+          type: "select_option" as const,
+          optionIndex: args.artifactContext.optionIndex,
+        }
+      : args.artifactContext?.kind === "reply_confirmation"
+        ? args.artifactContext.decision === "confirm"
+          ? ({ type: "confirm" as const })
+          : ({ type: "decline" as const })
+        : null;
+  const replyContinuation =
+    structuredReplyContinuation ||
+    (args.shouldBypassReplyHandling
+      ? null
+      : resolveReplyContinuation({
+          userMessage: args.effectiveMessage,
+          activeReplyContext: args.activeReplyContext,
+        }));
+
+  return {
+    replyStrategy,
+    replyParseResult,
+    replyContinuation,
+    shouldResetReplyWorkflow: shouldClearReplyWorkflow({
+      activeReplyContext: args.activeReplyContext,
+      turnSource: args.turnSource,
+      replyParseResult,
+      replyContinuation,
+    }),
+    defaultReplyStage: resolveChatReplyStage(args.creatorAgentContext),
+    defaultReplyTone: resolveChatReplyTone(args.toneRisk),
+    defaultReplyGoal: resolveChatReplyGoal(args.goal),
+  };
 }
 
 export function planReplyTurn(args: {

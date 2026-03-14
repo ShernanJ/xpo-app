@@ -63,14 +63,14 @@ import {
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import {
-  parseEmbeddedReplyRequest,
-  resolveReplyContinuation,
-  shouldClearReplyWorkflow,
   type ActiveReplyContext,
   type ChatReplyArtifacts,
   type ChatReplyParseEnvelope,
 } from "./reply.logic";
-import { planReplyTurn } from "./route.reply";
+import {
+  planReplyTurn,
+  resolveReplyTurnState,
+} from "./route.reply";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 
@@ -214,56 +214,6 @@ function buildConversationalDiagnosticContext(args: {
     nextActions,
     recommendedPlaybooks: buildRecommendedPlaybookSummaries(args.agentContext, 2),
   };
-}
-
-function buildFallbackGrowthStrategySnapshot(activeHandle: string | null): GrowthStrategySnapshot {
-  return {
-    knownFor: activeHandle ? `${activeHandle}'s niche` : "a clearer niche",
-    targetAudience: "the right people in your niche on X",
-    contentPillars: ["clear positioning", "useful nuance", "proof-first writing"],
-    replyGoals: ["Add one useful layer instead of generic agreement."],
-    profileConversionCues: ["Replies should reinforce the niche the account wants to be known for."],
-    offBrandThemes: ["generic agreement with no point of view"],
-    ambiguities: ["Profile context is thin, so keep reply guidance conservative and grounded to the pasted post."],
-    confidence: {
-      overall: 40,
-      positioning: 35,
-      replySignal: 30,
-      readiness: "caution",
-    },
-    truthBoundary: {
-      verifiedFacts: activeHandle ? [`Active handle: @${activeHandle}`] : [],
-      inferredThemes: ["useful nuance"],
-      unknowns: ["Profile context is thin, so reply recommendations should avoid overclaiming voice patterns."],
-    },
-  };
-}
-
-function resolveChatReplyStage(
-  creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null,
-): ActiveReplyContext["stage"] {
-  const followerBand = creatorAgentContext?.creatorProfile.identity.followerBand;
-  if (followerBand === "1k-10k") {
-    return "1k_to_10k";
-  }
-  if (followerBand === "10k+") {
-    return "10k_to_50k";
-  }
-  return "0_to_1k";
-}
-
-function resolveChatReplyTone(rawValue: unknown): ActiveReplyContext["tone"] {
-  if (rawValue === "bold") {
-    return "bold";
-  }
-
-  return "builder";
-}
-
-function resolveChatReplyGoal(rawValue: unknown): string {
-  return rawValue === "followers" || rawValue === "leads" || rawValue === "authority"
-    ? rawValue
-    : "followers";
 }
 
 export async function POST(request: NextRequest) {
@@ -639,49 +589,30 @@ export async function POST(request: NextRequest) {
       (creatorAgentContext as { growthStrategySnapshot: GrowthStrategySnapshot } | null) ?? null;
     const growthPayloadForReply =
       (growthOsPayload as { replyInsights: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>>["replyInsights"] } | null) ?? null;
-    const replyStrategy: GrowthStrategySnapshot =
-      creatorContextForReply
-        ? creatorContextForReply.growthStrategySnapshot
-        : buildFallbackGrowthStrategySnapshot(activeHandle);
     const replyInsights =
       growthPayloadForReply
         ? growthPayloadForReply.replyInsights
         : null;
-    const shouldBypassReplyHandling = !normalizedTurn.shouldAllowReplyHandling;
-    const replyParseResult = shouldBypassReplyHandling
-      ? { classification: "plain_chat" as const, context: null }
-      : parseEmbeddedReplyRequest({
-          message: effectiveMessage,
-          replyContext: structuredReplyContext,
-        });
-    const structuredReplyContinuation =
-      normalizedTurn.artifactContext?.kind === "reply_option_select"
-        ? {
-            type: "select_option" as const,
-            optionIndex: normalizedTurn.artifactContext.optionIndex,
-          }
-        : normalizedTurn.artifactContext?.kind === "reply_confirmation"
-          ? normalizedTurn.artifactContext.decision === "confirm"
-            ? ({ type: "confirm" as const })
-            : ({ type: "decline" as const })
-          : null;
-    const replyContinuation =
-      structuredReplyContinuation ||
-      (shouldBypassReplyHandling
-        ? null
-        : resolveReplyContinuation({
-            userMessage: effectiveMessage,
-            activeReplyContext: storedMemory.activeReplyContext,
-          }));
-    const shouldResetReplyWorkflow = shouldClearReplyWorkflow({
-      activeReplyContext: storedMemory.activeReplyContext,
-      turnSource: normalizedTurn.source,
+    const {
+      replyStrategy,
       replyParseResult,
       replyContinuation,
+      shouldResetReplyWorkflow,
+      defaultReplyStage,
+      defaultReplyTone,
+      defaultReplyGoal,
+    } = resolveReplyTurnState({
+      activeHandle,
+      creatorAgentContext: creatorContextForReply,
+      effectiveMessage,
+      structuredReplyContext,
+      artifactContext: normalizedTurn.artifactContext,
+      turnSource: normalizedTurn.source,
+      shouldBypassReplyHandling: !normalizedTurn.shouldAllowReplyHandling,
+      activeReplyContext: storedMemory.activeReplyContext,
+      toneRisk: body.toneRisk,
+      goal: body.goal,
     });
-    const defaultReplyStage = resolveChatReplyStage(creatorAgentContext);
-    const defaultReplyTone = resolveChatReplyTone(body.toneRisk);
-    const defaultReplyGoal = resolveChatReplyGoal(body.goal);
 
     const buildNextReplyMemory = (args: {
       activeReplyContext: ActiveReplyContext | null;

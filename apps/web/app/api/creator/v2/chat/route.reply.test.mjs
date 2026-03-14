@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { planReplyTurn } from "./route.reply.ts";
+import {
+  planReplyTurn,
+  resolveReplyTurnState,
+} from "./route.reply.ts";
 
 const baseStrategy = {
   knownFor: "useful nuance",
@@ -110,4 +113,36 @@ test("planReplyTurn converts a selected reply option into a reply draft artifact
   assert.equal(planned.replyArtifacts?.kind, "reply_draft");
   assert.equal(planned.selectedReplyOptionId, "option_1");
   assert.equal(planned.activeReplyContext?.selectedReplyOptionId, "option_1");
+});
+
+test("resolveReplyTurnState derives continuation and reset behavior from route inputs", () => {
+  const activeReplyContext = createReplyContext();
+  activeReplyContext.awaitingConfirmation = true;
+
+  const state = resolveReplyTurnState({
+    activeHandle: "example",
+    creatorAgentContext: {
+      growthStrategySnapshot: baseStrategy,
+      creatorProfile: {
+        identity: {
+          followerBand: "1k-10k",
+        },
+      },
+    },
+    effectiveMessage: "yes, that's the post",
+    structuredReplyContext: null,
+    artifactContext: null,
+    turnSource: "free_text",
+    shouldBypassReplyHandling: false,
+    activeReplyContext,
+    toneRisk: "bold",
+    goal: "authority",
+  });
+
+  assert.equal(state.replyContinuation?.type, "confirm");
+  assert.equal(state.shouldResetReplyWorkflow, false);
+  assert.equal(state.defaultReplyStage, "1k_to_10k");
+  assert.equal(state.defaultReplyTone, "bold");
+  assert.equal(state.defaultReplyGoal, "authority");
+  assert.equal(state.replyStrategy.knownFor, "useful nuance");
 });

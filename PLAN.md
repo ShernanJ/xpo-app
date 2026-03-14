@@ -119,7 +119,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Break `draftPipeline.ts` into capability executors:
   - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
-  - route-level reply artifact generation and continuation still live outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`; generation now flows through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` remains the route-boundary wrapper for parse prompts, artifact shaping, and persistence
+  - route-level reply artifact generation and continuation still live outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`; generation now flows through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` remains the route-boundary wrapper for reply preflight parsing/default resolution, parse prompts, artifact shaping, and persistence
   - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
