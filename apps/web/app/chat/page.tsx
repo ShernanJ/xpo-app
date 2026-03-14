@@ -5014,6 +5014,13 @@ function ChatPageContent() {
                   onDraftInputChange={setDraftInput}
                   onComposerKeyDown={handleComposerKeyDown}
                   onSubmit={handleComposerSubmit}
+                  isComposerDisabled={
+                    isMainChatLocked ||
+                    !context ||
+                    !contract ||
+                    !activeStrategyInputs ||
+                    !activeToneInputs
+                  }
                   isSubmitDisabled={
                     isMainChatLocked ||
                     !context ||
@@ -5193,6 +5200,13 @@ function ChatPageContent() {
             onDraftInputChange={setDraftInput}
             onComposerKeyDown={handleComposerKeyDown}
             onSubmit={handleComposerSubmit}
+            isComposerDisabled={
+              isMainChatLocked ||
+              !context ||
+              !contract ||
+              !activeStrategyInputs ||
+              !activeToneInputs
+            }
             isSubmitDisabled={
               isMainChatLocked ||
               !context ||

@@ -16,6 +16,7 @@ interface ChatHeroProps {
   onDraftInputChange: (value: string) => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
   heroQuickActions: HeroQuickAction[];
@@ -34,6 +35,7 @@ export function ChatHero(props: ChatHeroProps) {
     onDraftInputChange,
     onComposerKeyDown,
     onSubmit,
+    isComposerDisabled,
     isSubmitDisabled,
     isSending,
     heroQuickActions,
@@ -91,7 +93,7 @@ export function ChatHero(props: ChatHeroProps) {
               onChange={(event) => onDraftInputChange(event.target.value)}
               onKeyDown={onComposerKeyDown}
               placeholder="What are we creating today?"
-              disabled={isSubmitDisabled}
+              disabled={isComposerDisabled}
               className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
               rows={1}
             />
@@ -132,7 +134,7 @@ export function ChatHero(props: ChatHeroProps) {
               key={action.prompt}
               type="button"
               onClick={() => onQuickAction(action.prompt)}
-              disabled={isSubmitDisabled}
+              disabled={isComposerDisabled}
               className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
             >
               {action.label}

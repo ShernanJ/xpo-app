@@ -12,6 +12,7 @@ interface ChatComposerDockProps {
   onDraftInputChange: (value: string) => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
 }
@@ -26,6 +27,7 @@ export function ChatComposerDock(props: ChatComposerDockProps) {
     onDraftInputChange,
     onComposerKeyDown,
     onSubmit,
+    isComposerDisabled,
     isSubmitDisabled,
     isSending,
   } = props;
@@ -60,7 +62,7 @@ export function ChatComposerDock(props: ChatComposerDockProps) {
               onChange={(event) => onDraftInputChange(event.target.value)}
               onKeyDown={onComposerKeyDown}
               placeholder="What are we creating today?"
-              disabled={isSubmitDisabled}
+              disabled={isComposerDisabled}
               className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
               rows={1}
             />
