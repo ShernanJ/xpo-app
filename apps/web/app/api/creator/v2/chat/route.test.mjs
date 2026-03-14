@@ -17,9 +17,9 @@ import {
   resolveEffectiveExplicitIntent,
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
-import { persistAssistantTurnWithDeps } from "./route.persistence.ts";
+import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./route.idempotency.ts";
-import { finalizeReplyTurnWithDeps } from "./route.replyFinalize.ts";
+import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
 import {
   buildChatSuccessResponse,
   buildReplyAssistantMessageData,
@@ -1890,7 +1890,7 @@ test("conversation context builder can exclude the current user turn when thread
 test("reply route ownership stays in runtime modules without shim files or shim imports", () => {
   const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
   const routeReplyFinalizeSource = readFileSync(
-    new URL("./route.replyFinalize.ts", import.meta.url),
+    new URL("./_lib/reply/routeReplyFinalize.ts", import.meta.url),
     "utf8",
   );
   const routeLogicSource = readFileSync(new URL("./route.logic.ts", import.meta.url), "utf8");
@@ -1911,7 +1911,7 @@ test("reply route ownership stays in runtime modules without shim files or shim 
 
   assert.match(
     routeReplyFinalizeSource,
-    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
   );
   assert.equal(
     /from "\.\/route\.reply(?:\.ts)?";/.test(routeReplyFinalizeSource),

@@ -47,7 +47,7 @@ import {
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./route.logic";
-import { persistAssistantTurn } from "./route.persistence";
+import { persistAssistantTurn } from "./_lib/persistence/routePersistence";
 import {
   buildChatSuccessResponse,
   dispatchPlannedProductEvents,
@@ -66,7 +66,7 @@ import {
   planReplyTurn,
   resolveReplyTurnState,
 } from "@/lib/agent-v2/orchestrator/replyTurnPlanner";
-import { finalizeReplyTurn } from "./route.replyFinalize";
+import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 
