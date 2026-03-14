@@ -14,10 +14,8 @@ import {
   useRef,
   useState,
 } from "react";
-import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
-import { ArrowUpRight, BookOpen, ChevronDown, ChevronUp, Check, Copy, Edit3, Lightbulb, MessageSquareText, MoreVertical, Settings2, ThumbsDown, ThumbsUp, Trash2, Wrench } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -38,12 +36,6 @@ import type {
 } from "@/lib/agent-v2/contracts/turnContract";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
-import {
-  assistantMarkdownClassName,
-  renderMarkdownToHtml,
-  renderStreamingMarkdownToHtml,
-} from "@/lib/ui/markdown";
-import { getChatRenderMode } from "@/lib/ui/chatRenderMode";
 import {
   isBroadDraftRequest,
   isBroadDiscoveryPrompt,
@@ -96,6 +88,9 @@ import {
   type PendingStatusPlan,
   type PendingStatusWorkflow,
 } from "./_features/composer/pendingStatus";
+import { ChatComposerDock } from "./_features/composer/ChatComposerDock";
+import { ChatHero } from "./_features/composer/ChatHero";
+import { resolveComposerViewState } from "./_features/composer/composerViewState";
 import { prepareAssistantReplyTransport } from "./_features/transport/chatTransport";
 import {
   prepareComposerSubmission,
@@ -123,22 +118,11 @@ import {
   resolveDraftVersionRevertUpdate,
 } from "./_features/draft-editor/chatDraftPersistenceState";
 import {
-  buildDraftArtifactRevealKey,
-  buildDraftBundleRevealKey,
   buildDraftCharacterCounterMeta,
   getThreadFramingStyle,
-  resolveDisplayedDraftCharacterLimit,
-  resolveInlineDraftPreviewState,
   resolvePrimaryDraftRevealKey,
 } from "./_features/draft-editor/chatDraftPreviewState";
 import {
-  AnimatedDraftText,
-  InlineDraftPreviewCard,
-} from "./_features/draft-editor/chatDraftPreviewCard";
-import {
-  getDraftGroundingLabel,
-  getDraftGroundingToneClasses,
-  summarizeGroundingSource,
   type DraftCandidateStatus,
 } from "./_features/draft-queue/draftQueueViewState";
 import {
@@ -186,13 +170,26 @@ import {
 import { resolveWorkspaceLoadState } from "./_features/workspace/chatWorkspaceLoadState";
 import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
 import { ChatMessageRow } from "./_features/thread-history/ChatMessageRow";
+import { MessageArtifactSections } from "./_features/thread-history/MessageArtifactSections";
+import { MessageContent } from "./_features/thread-history/MessageContent";
+import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
+import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
-import { AccountMenuPanel } from "./_features/workspace-chrome/AccountMenuPanel";
+import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
+import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
+import { ExtensionDialog } from "./_features/workspace-chrome/ExtensionDialog";
 import { ThreadDeleteDialog } from "./_features/workspace-chrome/ThreadDeleteDialog";
+import {
+  resolveAccountAvatarFallback,
+  resolveAccountProfileAriaLabel,
+  resolveSidebarThreadSections,
+  WORKSPACE_CHROME_TOOLS,
+} from "./_features/workspace-chrome/workspaceChromeViewState";
 import { SourceMaterialsDialog } from "./_features/source-materials/SourceMaterialsDialog";
 import { PreferencesDialog } from "./_features/preferences/PreferencesDialog";
 import { GrowthGuideDialog } from "./_features/growth-guide/GrowthGuideDialog";
 import { ProfileAnalysisDialog } from "./_features/analysis/ProfileAnalysisDialog";
+import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
 import {
   buildEmptySourceMaterialDraft,
   buildSourceMaterialDraftFromAsset,
@@ -1024,13 +1021,6 @@ function applyChipVoiceCase(value: string, lowercase: boolean): string {
   return lowercase ? normalized.toLowerCase() : normalized;
 }
 
-function buildHeroQuickActions(lowercase: boolean): Array<{ label: string; prompt: string }> {
-  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
-    label: applyChipVoiceCase(action.label, lowercase),
-    prompt: applyChipVoiceCase(action.prompt, lowercase),
-  }));
-}
-
 function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
   return BASE_HERO_QUICK_ACTIONS.map((action) => ({
     kind: "example_reply",
@@ -1046,10 +1036,6 @@ function formatEnumLabel(value: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatAreaLabel(value: string): string {
-  return formatEnumLabel(value);
 }
 
 function dedupePreserveOrder(values: string[]): string[] {
@@ -1253,78 +1239,6 @@ function inferInitialToneInputs(params: {
 
 function getComposerCharacterLimit(context: CreatorAgentContext | null): number {
   return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
-}
-
-function isClearlyCasualGreetingProfile(
-  context: CreatorAgentContext | null,
-  accountName: string | null,
-): boolean {
-  if (!context) {
-    return false;
-  }
-
-  const profile = context.creatorProfile;
-  const resolvedHandle = normalizeAccountHandle(
-    accountName ?? profile.identity.username ?? context.account,
-  );
-
-  if (resolvedHandle === "shernanjavier") {
-    return true;
-  }
-
-  const voiceSignals = [
-    ...profile.voice.styleNotes,
-    ...profile.styleCard.preferredOpeners,
-    ...profile.styleCard.signaturePhrases,
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  const hasFormalSignal =
-    /\b(formal|professional|polished|executive|authoritative|analytical|structured)\b/.test(
-      voiceSignals,
-    );
-  const hasCasualSignal =
-    /\b(casual|playful|relaxed|unfiltered|fun|raw|loose)\b/.test(
-      voiceSignals,
-    );
-  const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
-  const isLowercaseHeavy =
-    profile.voice.primaryCasing === "lowercase" &&
-    profile.voice.lowercaseSharePercent >= 96;
-  const isShortFormLeaning =
-    profile.voice.averageLengthBand === "short" ||
-    profile.voice.averageLengthBand === "medium";
-
-  if (hasFormalSignal) {
-    return false;
-  }
-
-  if (profile.identity.isVerified && !hasSlangSignal && !hasCasualSignal) {
-    return false;
-  }
-
-  return hasSlangSignal || hasCasualSignal || (isLowercaseHeavy && isShortFormLeaning);
-}
-
-function buildHeroGreeting(params: {
-  context: CreatorAgentContext | null;
-  accountName: string | null;
-}): string {
-  const resolvedHandle = normalizeAccountHandle(
-    params.accountName ??
-    params.context?.creatorProfile.identity.username ??
-    params.context?.account ??
-    "",
-  );
-  const opener = isClearlyCasualGreetingProfile(
-    params.context,
-    params.accountName,
-  )
-    ? "yo"
-    : "Hey";
-
-  return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
 
 function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
@@ -4815,39 +4729,6 @@ function ChatPageContent() {
     ).slice(0, 4);
   }, [context]);
 
-  const sidebarThreads = useMemo(() => {
-    if (!context || !contract) {
-      return [];
-    }
-
-    const trimmedQuery = sidebarSearchQuery.trim().toLowerCase();
-    const filteredThreads = trimmedQuery
-      ? chatThreads.filter((thread) =>
-        (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
-      )
-      : chatThreads;
-    const recentItems = filteredThreads.slice(0, 10).map((t) => ({
-      id: t.id,
-      label: t.title || "Chat",
-      meta: new Date(t.updatedAt).toLocaleDateString(),
-    }));
-
-    return [
-      {
-        section: "Chats",
-        items:
-          trimmedQuery || recentItems.length > 0
-            ? recentItems
-            : [
-              {
-                id: activeThreadId ?? "current-workspace",
-                label: "New Chat",
-                meta: "Active",
-              },
-            ],
-      },
-    ];
-  }, [context, contract, chatThreads, activeThreadId, sidebarSearchQuery]);
   const selectedDraftMessage = useMemo(
     () =>
       activeDraftEditor
@@ -5095,6 +4976,30 @@ function ChatPageContent() {
       setActiveDraftEditor(navigation.targetSelection);
     },
     [activeDraftEditor, selectedDraftTimeline, selectedDraftTimelineIndex],
+  );
+
+  const selectDraftBundleOption = useCallback(
+    (messageId: string, optionId: string, versionId: string) => {
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id !== messageId) {
+            return message;
+          }
+
+          return {
+            ...message,
+            activeDraftVersionId: versionId,
+            draftBundle: message.draftBundle
+              ? {
+                  ...message.draftBundle,
+                  selectedOptionId: optionId,
+                }
+              : message.draftBundle,
+          };
+        }),
+      );
+    },
+    [],
   );
 
   const openDraftEditor = useCallback((
@@ -6288,31 +6193,28 @@ function ChatPageContent() {
     }
   };
 
-  const isNewChatHero =
-    !activeThreadId && messages.length === 0 && Boolean(context) && !isLeavingHero;
-  const heroGreeting = buildHeroGreeting({
+  const {
+    heroGreeting,
+    heroInitials,
+    heroIdentityLabel,
+    heroQuickActions,
+    isNewChatHero,
+    shouldCenterHero,
+  } = resolveComposerViewState({
     context,
     accountName,
+    activeThreadId,
+    messagesLength: messages.length,
+    isLeavingHero,
   });
-  const heroQuickActions = buildHeroQuickActions(
-    shouldUseLowercaseChipVoice(context),
-  );
-  const heroIdentityLabel =
-    context?.creatorProfile.identity.displayName ??
-    context?.creatorProfile.identity.username ??
-    accountName ??
-    context?.account ??
-    "X";
-  const heroInitials = heroIdentityLabel
-    .replace(/^@+/, "")
-    .slice(0, 2)
-    .toUpperCase();
-  const accountAvatarFallback =
-    accountName?.slice(0, 1).toUpperCase() ??
-    session?.user?.email?.slice(0, 1).toUpperCase() ??
-    "X";
-  const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
-  const shouldCenterHero = isNewChatHero || isLeavingHero;
+  const accountAvatarFallback = resolveAccountAvatarFallback({
+    accountName,
+    sessionEmail: session?.user?.email ?? null,
+  });
+  const accountProfileAriaLabel = resolveAccountProfileAriaLabel({
+    accountName,
+    sessionEmail: session?.user?.email ?? null,
+  });
   const billingOffers = billingState?.offers ?? [];
   const lifetimeOffer = billingOffers.find((offer) => offer.offer === "lifetime");
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
@@ -6360,700 +6262,192 @@ function ChatPageContent() {
   } = billingViewState;
   const isSelectedModalProCheckoutLoading = checkoutLoadingOffer === selectedModalProOffer;
   const canAddAccount = true;
-  const composerChromeClassName =
-    "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
-  const heroInlineComposerSurfaceClassName =
-    `${composerChromeClassName} rounded-[1.4rem] p-1.5 sm:p-2`;
-  const dockComposerSurfaceClassName =
-    `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;
-  const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${isLeavingHero
-    ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
-    : "translate-y-0 scale-100 opacity-100 blur-0"
-    }`;
-  const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${isLeavingHero
-    ? "-translate-y-4 opacity-0 blur-[2px]"
-    : "translate-y-0 opacity-100 blur-0"
-    }`;
-  const dockComposerWrapperClassName = `absolute inset-x-0 bottom-0 z-10 pb-[env(safe-area-inset-bottom)] transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${isNewChatHero
-    ? "pointer-events-none opacity-0 -translate-y-[14.5rem] sm:-translate-y-[17rem]"
-    : "pointer-events-auto opacity-100 translate-y-0"
-    }`;
   const isInlineDraftEditorOpen = Boolean(
     selectedDraftVersion && selectedDraftBundle,
   );
-  const chatCanvasClassName = `relative mx-auto flex min-h-full w-full flex-col gap-6 px-4 pb-44 pt-8 sm:px-6 sm:pb-32 ${shouldCenterHero ? "justify-center" : ""
-    } ${isInlineDraftEditorOpen ? "max-w-[86rem] lg:pr-[28rem] xl:pr-[29rem]" : "max-w-4xl"}`;
-  const threadCanvasTransitionClassName = `transition-[filter,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[filter,opacity,transform] ${threadTransitionPhase === "out"
-    ? "opacity-25 blur-[10px] scale-[0.995]"
-    : "opacity-100 blur-0 scale-100"
-    }`;
-  const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
-    }`;
-  const draftEditorIdentity = {
-    avatarUrl: context?.avatarUrl ?? null,
-    displayName:
-      context?.creatorProfile.identity.displayName ??
-      context?.creatorProfile.identity.username ??
-      accountName ??
-      "You",
-    username: context?.creatorProfile.identity.username ?? accountName ?? "x",
-    profilePhotoLabel: `${heroIdentityLabel} profile photo`,
-    initials: heroInitials,
-  };
-  const renderDraftQueueModal = () => (
-    <DraftQueueDialog
-      open={draftQueueOpen}
-      isLoading={isDraftQueueLoading}
-      errorMessage={draftQueueError}
-      items={draftQueueItems}
-      editingCandidateId={editingDraftCandidateId}
-      editingCandidateText={editingDraftCandidateText}
-      actionById={draftQueueActionById}
-      copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
-      canGenerateInChat={Boolean(context?.runId)}
-      isVerifiedAccount={isVerifiedAccount}
-      onOpenChange={(open) => {
-        if (!open) {
-          setDraftQueueOpen(false);
-          setEditingDraftCandidateId(null);
-          setEditingDraftCandidateText("");
-        }
-      }}
-      onGenerateInChat={() => {
-        setDraftQueueOpen(false);
-        void submitQuickStarter("draft 4 posts from what you know about me");
-      }}
-      onStartEditingCandidate={(candidateId, content) => {
-        setEditingDraftCandidateId(candidateId);
-        setEditingDraftCandidateText(content);
-      }}
-      onCancelEditingCandidate={() => {
-        setEditingDraftCandidateId(null);
-        setEditingDraftCandidateText("");
-      }}
-      onEditCandidateTextChange={setEditingDraftCandidateText}
-      onMutateCandidate={(candidateId, payload) => {
-        void mutateDraftQueueCandidate(candidateId, payload);
-      }}
-      onOpenObservedMetrics={openObservedMetricsModal}
-      onOpenSourceMaterial={(params) => {
-        void openSourceMaterialEditor(params);
-      }}
-      onCopyCandidateDraft={(candidateId, content) => {
-        void copyPreviewDraft(candidateId, content);
-      }}
-      onOpenX={shareDraftEditorToX}
-    />
-  );
+  const {
+    chatCanvasClassName,
+    threadCanvasTransitionClassName,
+    threadContentTransitionClassName,
+  } = resolveThreadViewState({
+    shouldCenterHero,
+    isInlineDraftEditorOpen,
+    threadTransitionPhase,
+    isThreadHydrating,
+  });
+  const draftEditorIdentity = resolveDraftEditorIdentity({
+    context,
+    accountName,
+    heroIdentityLabel,
+    heroInitials,
+  });
+  const sidebarThreads = resolveSidebarThreadSections({
+    hasWorkspace: Boolean(context && contract),
+    chatThreads,
+    activeThreadId,
+    sidebarSearchQuery,
+  });
+  const headerTools = WORKSPACE_CHROME_TOOLS.map((tool) => ({
+    key: tool.key,
+    label: tool.label,
+    onSelect: () => {
+      setToolsMenuOpen(false);
+      if (tool.key === "source_materials") {
+        resetSourceMaterialDraft();
+        setSourceMaterialsNotice(null);
+        setSourceMaterialsOpen(true);
+        return;
+      }
+      if (tool.key === "draft_review") {
+        setDraftQueueError(null);
+        setDraftQueueOpen(true);
+        return;
+      }
+      if (tool.key === "profile_breakdown") {
+        setAnalysisOpen(true);
+        return;
+      }
+
+      setPlaybookStage(inferCurrentPlaybookStage(context));
+      setPendingGrowthGuidePlaybookId(null);
+      setPlaybookModalOpen(true);
+    },
+  }));
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="relative flex h-full min-h-0">
-        {sidebarOpen ? (
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-20 bg-black/50 md:hidden"
-            aria-label="Close sidebar overlay"
-          />
-        ) : null}
-
-        <aside
-          className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden bg-zinc-950 md:sticky md:top-0 md:bg-white/[0.02] [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer transition-[width,transform] duration-300 ${sidebarOpen
-            ? "w-[18.5rem] border-r border-white/10"
-            : "w-[18.5rem] -translate-x-full border-r border-white/10 md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"
-            }`}
-        >
-          {sidebarOpen ? (
-            <div className="flex items-center px-3 py-4">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-                aria-label="Collapse sidebar"
-              >
-                ×
-              </button>
-            </div>
-          ) : null}
-
-          {sidebarOpen ? (
-            <>
-              <div className="px-3">
-                <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] px-3 py-3">
-                  <span className="text-sm text-zinc-500">⌕</span>
-                  <input
-                    type="text"
-                    value={sidebarSearchQuery}
-                    onChange={(event) => setSidebarSearchQuery(event.target.value)}
-                    placeholder="Search chats"
-                    className="w-full bg-transparent text-sm text-zinc-300 outline-none placeholder:text-zinc-500"
-                  />
-                </div>
-              </div>
-
-              <div className="px-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleNewChat}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[0.03]"
-                >
-                  <span className="text-sm text-zinc-400">✎</span>
-                  <span className="text-sm font-medium text-white">New Chat</span>
-                </button>
-              </div>
-
-              <div className="px-3 pt-1">
-                <div className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => setPreferencesOpen(true)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <Settings2 className="h-4 w-4 shrink-0" />
-                    <span>Preferences</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFeedbackSubmitNotice(null);
-                      setFeedbackModalOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                  >
-                    <MessageSquareText className="h-4 w-4 shrink-0" />
-                    <span>Feedback</span>
-                  </button>
-                </div>
-              </div>
-
-            </>
-          ) : null}
-
-          <div className="flex-1 overflow-y-auto px-3 py-4">
-            {sidebarOpen ? (
-              <div className="space-y-6">
-                {sidebarThreads.map((section) => (
-                  <div key={section.section} className="space-y-2">
-                    <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                      {section.section}
-                    </p>
-                    {section.items.map((item) => (
-                      <div
-                        key={item.id}
-                        className="relative"
-                        onMouseEnter={() => setHoveredThreadId(item.id)}
-                        onMouseLeave={() => setHoveredThreadId(null)}
-                      >
-                        {editingThreadId === item.id ? (
-                          <div className={`flex w-full items-center rounded-2xl px-2 py-2 ${activeThreadId === item.id ? "bg-white/[0.04]" : "hover:bg-white/[0.03]"}`}>
-                            <input
-                              autoFocus
-                              value={editingTitle}
-                              onChange={(e) => setEditingTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleRenameSubmit(item.id);
-                                if (e.key === "Escape") setEditingThreadId(null);
-                              }}
-                              onBlur={() => handleRenameSubmit(item.id)}
-                              className="w-full bg-transparent text-sm leading-6 text-zinc-200 outline-none"
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              if (section.section === "Chats" && item.id !== "current-workspace") {
-                                switchToThreadWithTransition(item.id);
-                              }
-                            }}
-                            className={`group block w-full cursor-pointer rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${activeThreadId === item.id ? "bg-white/[0.04]" : ""}`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <div className="min-w-0 flex-1 pr-1">
-                                <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
-                                  {item.label}
-                                </span>
-                                <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                  {item.meta}
-                                </span>
-                              </div>
-
-                              {section.section === "Chats" && item.id !== "current-workspace" ? (
-                                <div className="relative w-8 flex-shrink-0 pt-1" ref={menuOpenThreadId === item.id ? threadMenuRef : null}>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setMenuOpenThreadId(menuOpenThreadId === item.id ? null : item.id);
-                                    }}
-                                    className={`ml-auto flex h-6 w-6 items-center justify-center rounded p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white ${hoveredThreadId === item.id || menuOpenThreadId === item.id
-                                      ? "pointer-events-auto opacity-100"
-                                      : "pointer-events-none opacity-0"
-                                      }`}
-                                  >
-                                    <MoreVertical className="h-4 w-4" />
-                                  </button>
-
-                                  {menuOpenThreadId === item.id && (
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-32 rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-xl">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setEditingTitle(item.label);
-                                          setEditingThreadId(item.id);
-                                          setMenuOpenThreadId(null);
-                                        }}
-                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/10 hover:text-white"
-                                      >
-                                        <Edit3 className="h-3 w-3" />
-                                        Rename
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          requestDeleteThread(item.id, item.label);
-                                        }}
-                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                        Delete
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {section.items.length === 0 && sidebarSearchQuery.trim() ? (
-                      <div className="rounded-2xl px-2 py-3 text-sm text-zinc-500">
-                        No matching chats
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="h-full" />
-            )}
-          </div>
-
-          {sidebarOpen ? (
-            <div ref={accountMenuRef} className="relative border-t border-white/10 px-3 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpenThreadId(null);
-                  setAccountMenuOpen((current) => !current);
-                }}
-                className={`flex w-full items-center justify-between rounded-xl p-2 transition ${accountMenuOpen ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
-                  }`}
-                aria-label="Open account menu"
-              >
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black">
-                    {context?.avatarUrl ? (
-                      <div
-                        className="h-full w-full bg-cover bg-center"
-                        style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                        role="img"
-                        aria-label={accountProfileAriaLabel}
-                      />
-                    ) : (
-                      accountAvatarFallback
-                    )}
-                  </div>
-                  <div className="flex flex-col items-start overflow-hidden text-left">
-                    <span className="flex w-full items-center gap-1 truncate text-xs font-semibold text-zinc-100">
-                      <span className="truncate">
-                        {accountName ? `@${accountName}` : (session?.user?.email ?? "Loading...")}
-                      </span>
-                      {isVerifiedAccount ? (
-                        <Image
-                          src="/x-verified.svg"
-                          alt="Verified account"
-                          width={14}
-                          height={14}
-                          className="h-3.5 w-3.5 shrink-0"
-                        />
-                      ) : null}
-                    </span>
-                    {accountName ? (
-                      <span className="w-full truncate text-[10px] text-zinc-500">
-                        {session?.user?.email ?? ""}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <ChevronUp
-                  className={`h-4 w-4 shrink-0 text-zinc-500 transition-all duration-300 ${accountMenuOpen ? "rotate-0 text-zinc-300" : "rotate-180"
-                    }`}
-                />
-              </button>
-
-              <AccountMenuPanel
-                className="absolute bottom-full left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
-                accountMenuVisible={accountMenuVisible}
-                accountMenuOpen={accountMenuOpen}
-                availableHandles={availableHandles}
-                accountName={accountName}
-                canAddAccount={canAddAccount}
-                onSwitchActiveHandle={switchActiveHandle}
-                onOpenAddAccount={() => {
-                  setAccountMenuOpen(false);
-                  setIsAddAccountModalOpen(true);
-                  setAddAccountError(null);
-                  setReadyAccountHandle(null);
-                }}
-                onOpenSettings={() => {
-                  setAccountMenuOpen(false);
-                  setSettingsModalOpen(true);
-                }}
-                rateLimitsMenuOpen={rateLimitsMenuOpen}
-                onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
-                rateLimitWindowLabel={rateLimitWindowLabel}
-                rateLimitsRemainingPercent={rateLimitsRemainingPercent}
-                rateLimitResetLabel={rateLimitResetLabel}
-                showRateLimitUpgradeCta={showRateLimitUpgradeCta}
-                rateLimitUpgradeLabel={rateLimitUpgradeLabel}
-                onOpenPricing={() => {
-                  setPricingModalOpen(true);
-                  setAccountMenuOpen(false);
-                }}
-              />
-            </div>
-          ) : null}
-        </aside>
-
-        {!sidebarOpen ? (
-          <>
-            <div className="pointer-events-none absolute left-4 top-4 z-20 hidden md:block">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpenThreadId(null);
-                  setAccountMenuOpen(false);
-                  setSidebarOpen(true);
-                }}
-                className="pointer-events-auto flex h-10 w-10 cursor-pointer items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white"
-                aria-label="Expand sidebar"
-              >
-                ≡
-              </button>
-            </div>
-
-            <div ref={accountMenuRef} className="absolute bottom-4 left-4 z-20 hidden md:block">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpenThreadId(null);
-                  setAccountMenuOpen((current) => !current);
-                }}
-                className={`flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-white text-sm font-bold text-black shadow-[0_10px_28px_rgba(0,0,0,0.35)] transition-all duration-300 hover:opacity-85 ${accountMenuOpen ? "scale-[1.04] ring-2 ring-white/30" : "scale-100 ring-0"
-                  }`}
-                aria-label="Open account menu"
-              >
-                {context?.avatarUrl ? (
-                  <div
-                    className="h-full w-full bg-cover bg-center"
-                    style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                    role="img"
-                    aria-label={accountProfileAriaLabel}
-                  />
-                ) : (
-                  accountAvatarFallback
-                )}
-              </button>
-              <AccountMenuPanel
-                className="absolute bottom-full left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
-                accountMenuVisible={accountMenuVisible}
-                accountMenuOpen={accountMenuOpen}
-                availableHandles={availableHandles}
-                accountName={accountName}
-                canAddAccount={canAddAccount}
-                onSwitchActiveHandle={switchActiveHandle}
-                onOpenAddAccount={() => {
-                  setAccountMenuOpen(false);
-                  setIsAddAccountModalOpen(true);
-                  setAddAccountError(null);
-                  setReadyAccountHandle(null);
-                }}
-                onOpenSettings={() => {
-                  setAccountMenuOpen(false);
-                  setSettingsModalOpen(true);
-                }}
-                rateLimitsMenuOpen={rateLimitsMenuOpen}
-                onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
-                rateLimitWindowLabel={rateLimitWindowLabel}
-                rateLimitsRemainingPercent={rateLimitsRemainingPercent}
-                rateLimitResetLabel={rateLimitResetLabel}
-                showRateLimitUpgradeCta={showRateLimitUpgradeCta}
-                rateLimitUpgradeLabel={rateLimitUpgradeLabel}
-                onOpenPricing={() => {
-                  setPricingModalOpen(true);
-                  setAccountMenuOpen(false);
-                }}
-              />
-            </div>
-          </>
-        ) : null}
+        <ChatSidebar
+          sidebarOpen={sidebarOpen}
+          sidebarSearchQuery={sidebarSearchQuery}
+          onSidebarSearchQueryChange={setSidebarSearchQuery}
+          onCloseSidebar={() => setSidebarOpen(false)}
+          onOpenSidebar={() => {
+            setMenuOpenThreadId(null);
+            setAccountMenuOpen(false);
+            setSidebarOpen(true);
+          }}
+          onNewChat={handleNewChat}
+          sections={sidebarThreads}
+          activeThreadId={activeThreadId}
+          hoveredThreadId={hoveredThreadId}
+          onHoveredThreadIdChange={setHoveredThreadId}
+          menuOpenThreadId={menuOpenThreadId}
+          onMenuOpenThreadIdChange={setMenuOpenThreadId}
+          editingThreadId={editingThreadId}
+          editingTitle={editingTitle}
+          onEditingTitleChange={setEditingTitle}
+          onEditingThreadIdChange={setEditingThreadId}
+          onRenameSubmit={(threadId) => {
+            void handleRenameSubmit(threadId);
+          }}
+          onSwitchToThread={switchToThreadWithTransition}
+          onRequestDeleteThread={requestDeleteThread}
+          onOpenPreferences={() => setPreferencesOpen(true)}
+          onOpenFeedback={() => {
+            setFeedbackSubmitNotice(null);
+            setFeedbackModalOpen(true);
+          }}
+          threadMenuRef={threadMenuRef}
+          accountMenuRef={accountMenuRef}
+          accountMenuOpen={accountMenuOpen}
+          onToggleAccountMenu={() => {
+            setMenuOpenThreadId(null);
+            setAccountMenuOpen((current) => !current);
+          }}
+          accountMenuVisible={accountMenuVisible}
+          availableHandles={availableHandles}
+          accountName={accountName}
+          canAddAccount={canAddAccount}
+          onSwitchActiveHandle={switchActiveHandle}
+          onOpenAddAccount={() => {
+            setAccountMenuOpen(false);
+            setIsAddAccountModalOpen(true);
+            setAddAccountError(null);
+            setReadyAccountHandle(null);
+          }}
+          onOpenSettings={() => {
+            setAccountMenuOpen(false);
+            setSettingsModalOpen(true);
+          }}
+          rateLimitsMenuOpen={rateLimitsMenuOpen}
+          onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
+          rateLimitWindowLabel={rateLimitWindowLabel}
+          rateLimitsRemainingPercent={rateLimitsRemainingPercent}
+          rateLimitResetLabel={rateLimitResetLabel}
+          showRateLimitUpgradeCta={showRateLimitUpgradeCta}
+          rateLimitUpgradeLabel={rateLimitUpgradeLabel}
+          onOpenPricing={() => {
+            setPricingModalOpen(true);
+            setAccountMenuOpen(false);
+          }}
+          avatarUrl={context?.avatarUrl ?? null}
+          accountAvatarFallback={accountAvatarFallback}
+          accountProfileAriaLabel={accountProfileAriaLabel}
+          isVerifiedAccount={isVerifiedAccount}
+          sessionEmail={session?.user?.email ?? null}
+        />
 
         <div className="relative flex h-full min-h-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen((current) => !current)}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-500 transition hover:bg-white/[0.04] hover:text-white md:hidden"
-                  aria-label="Toggle sidebar"
-                >
-                  ≡
-                </button>
-              </div>
-              <div className="flex justify-center">
-                <Image
-                  src="/xpo-logo-white.webp"
-                  alt="Xpo"
-                  width={846}
-                  height={834}
-                  className="h-8 w-auto"
-                  priority
+          <ChatHeader
+            toolsMenuRef={toolsMenuRef}
+            toolsMenuOpen={toolsMenuOpen}
+            onToggleToolsMenu={() => setToolsMenuOpen((current) => !current)}
+            onToggleSidebar={() => setSidebarOpen((current) => !current)}
+            onOpenCompanionApp={() => setExtensionModalOpen(true)}
+            tools={headerTools}
+          />
+
+          <ChatThreadView
+            threadScrollRef={threadScrollRef}
+            chatCanvasClassName={chatCanvasClassName}
+            threadCanvasTransitionClassName={threadCanvasTransitionClassName}
+            threadContentTransitionClassName={threadContentTransitionClassName}
+            isLoading={isLoading}
+            isWorkspaceInitializing={isWorkspaceInitializing}
+            hasContext={Boolean(context)}
+            hasContract={Boolean(contract)}
+            errorMessage={errorMessage}
+            showBillingWarningBanner={showBillingWarningBanner && Boolean(activeBillingSnapshot)}
+            billingWarningLevel={
+              billingWarningLevel === "none" ? null : billingWarningLevel
+            }
+            billingCreditsLabel={billingCreditsLabel}
+            onOpenPricing={() => setPricingModalOpen(true)}
+            onDismissBillingWarning={() =>
+              setDismissedBillingWarningLevel(billingWarningLevel as "low" | "critical")
+            }
+            hero={
+              isNewChatHero || isLeavingHero ? (
+                <ChatHero
+                  avatarUrl={context?.avatarUrl ?? null}
+                  heroIdentityLabel={heroIdentityLabel}
+                  heroInitials={heroInitials}
+                  heroGreeting={heroGreeting}
+                  isVerifiedAccount={isVerifiedAccount}
+                  isLeavingHero={isLeavingHero}
+                  draftInput={draftInput}
+                  onDraftInputChange={setDraftInput}
+                  onComposerKeyDown={handleComposerKeyDown}
+                  onSubmit={handleComposerSubmit}
+                  isSubmitDisabled={
+                    isMainChatLocked ||
+                    !context ||
+                    !contract ||
+                    !activeStrategyInputs ||
+                    !activeToneInputs ||
+                    !draftInput.trim()
+                  }
+                  isSending={isSending}
+                  heroQuickActions={heroQuickActions}
+                  onQuickAction={(prompt) => {
+                    void submitQuickStarter(prompt);
+                  }}
                 />
-              </div>
-              <div className="flex items-center justify-end gap-3">
-                <div ref={toolsMenuRef} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setToolsMenuOpen((current) => !current)}
-                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
-                      toolsMenuOpen
-                        ? "border-white/20 bg-white/[0.06] text-white"
-                        : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
-                    }`}
-                  >
-                    <Wrench className="h-3.5 w-3.5" />
-                    <span>Tools</span>
-                  </button>
-                  {toolsMenuOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+0.65rem)] z-30 w-56 rounded-3xl border border-white/10 bg-[#101010] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-                      {[
-                        {
-                          label: "Saved context",
-                          onClick: () => {
-                            resetSourceMaterialDraft();
-                            setSourceMaterialsNotice(null);
-                            setSourceMaterialsOpen(true);
-                          },
-                        },
-                        {
-                          label: "Draft review",
-                          onClick: () => {
-                            setDraftQueueError(null);
-                            setDraftQueueOpen(true);
-                          },
-                        },
-                        {
-                          label: "Profile breakdown",
-                          onClick: () => setAnalysisOpen(true),
-                        },
-                        {
-                          label: "Growth guide",
-                          onClick: () => {
-                            setPlaybookStage(inferCurrentPlaybookStage(context));
-                            setPendingGrowthGuidePlaybookId(null);
-                            setPlaybookModalOpen(true);
-                          },
-                        },
-                      ].map((item) => (
-                        <button
-                          key={item.label}
-                          type="button"
-                          onClick={() => {
-                            setToolsMenuOpen(false);
-                            item.onClick();
-                          }}
-                          className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
-                        >
-                          <span>{item.label}</span>
-                          <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setExtensionModalOpen(true)}
-                  className="hidden items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.04] md:inline-flex"
-                >
-                  <span>Companion App</span>
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
-            <div className={`${chatCanvasClassName} ${threadCanvasTransitionClassName}`}>
-              {(isLoading || isWorkspaceInitializing) && !context && !contract ? (
-                <div className="flex min-h-[34vh] flex-col items-center justify-center gap-4 text-center">
-                  <div className="relative h-11 w-11">
-                    <span className="absolute inset-0 rounded-full border border-white/10" />
-                    <span className="absolute inset-1 rounded-full border border-white/20 border-t-white animate-spin" />
-                    <span className="absolute inset-3 rounded-full bg-white/20 animate-pulse" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium tracking-[0.08em] text-zinc-200">
-                      Setting things up...
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      We&apos;re preparing your workspace.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className={threadContentTransitionClassName}>
-                  {errorMessage ? (
-                    <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                      {errorMessage}
-                    </div>
-                  ) : null}
-
-                  {showBillingWarningBanner && activeBillingSnapshot ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs text-zinc-300">
-                          <span
-                            className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${billingWarningLevel === "critical"
-                              ? "bg-rose-300"
-                              : "bg-amber-300"
-                              }`}
-                          />
-                          {billingWarningLevel === "critical"
-                            ? "Critical credits remaining."
-                            : "Low credits remaining."}{" "}
-                          <span className="text-zinc-500">({billingCreditsLabel})</span>
-                        </p>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setPricingModalOpen(true)}
-                            className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
-                          >
-                            Upgrade
-                            <ArrowUpRight className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDismissedBillingWarningLevel(
-                                billingWarningLevel as "low" | "critical",
-                              )
-                            }
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
-                            aria-label="Dismiss billing warning"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {isNewChatHero || isLeavingHero ? (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-10 py-10 text-center">
-                      <div className="w-full max-w-xl">
-                        <div className={heroProfileMotionClassName}>
-                          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 shadow-[0_14px_42px_rgba(0,0,0,0.32)] sm:h-24 sm:w-24">
-                            {context?.avatarUrl ? (
-                              <div
-                                className="h-full w-full bg-cover bg-center"
-                                style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                                role="img"
-                                aria-label={`${heroIdentityLabel} profile photo`}
-                              />
-                            ) : (
-                              <span className="text-2xl font-semibold text-white">{heroInitials}</span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center justify-center gap-2">
-                            <p className="text-xl font-semibold tracking-[-0.04em] text-white sm:text-3xl">
-                              {heroGreeting}
-                            </p>
-                            {isVerifiedAccount ? (
-                              <Image
-                                src="/x-verified.svg"
-                                alt="Verified account"
-                                width={18}
-                                height={18}
-                                className="h-4 w-4 shrink-0 sm:h-5 sm:w-5"
-                              />
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {isNewChatHero ? (
-                          <form onSubmit={handleComposerSubmit} className="mt-3">
-                            <div className={heroInlineComposerSurfaceClassName}>
-                              <textarea
-                                value={draftInput}
-                                onChange={(event) => setDraftInput(event.target.value)}
-                                onKeyDown={handleComposerKeyDown}
-                                placeholder="What are we creating today?"
-                                disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                                className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
-                                rows={1}
-                              />
-                              <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
-                                <button
-                                  type="submit"
-                                  disabled={
-                                    !context ||
-                                    !contract ||
-                                    !activeStrategyInputs ||
-                                    !activeToneInputs ||
-                                    !draftInput.trim() ||
-                                    isMainChatLocked
-                                  }
-                                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
-                                  aria-label="Send message"
-                                >
-                                  {isSending ? (
-                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
-                                  ) : (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
-                                      <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </form>
-                        ) : null}
-
-                        <div className={`${heroChipsMotionClassName} mt-4`}>
-                          {heroQuickActions.map((action) => (
-                            <button
-                              key={action.prompt}
-                              type="button"
-                              onClick={() => {
-                                void submitQuickStarter(action.prompt);
-                              }}
-                              disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
-                            >
-                              {action.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
+              ) : null
+            }
+            threadContent={
+              !isNewChatHero && !isLeavingHero ? (
                     <>
                       {messages.map((message, index) => {
                         const buildDraftRevealClasses = (draftKey: string) =>
@@ -7080,792 +6474,116 @@ function ChatPageContent() {
                               messageRefs.current[messageId] = node;
                             }}
                           >
-                          {message.role === "assistant" && message.isStreaming ? (
-                            <AssistantTypingBubble label={message.content || null} />
-                          ) : (
-                            message.role === "assistant" &&
-                            message.id === latestAssistantMessageId &&
-                            (typedAssistantLengths[message.id] ?? 0) < message.content.length ? (
-                              getChatRenderMode("assistant_streaming_preview") === "markdown" ? (
-                                <div className={assistantMarkdownClassName}>
-                                  <div
-                                    dangerouslySetInnerHTML={{
-                                      __html: renderStreamingMarkdownToHtml(
-                                        message.content,
-                                        typedAssistantLengths[message.id] ?? 0,
-                                      ),
-                                    }}
-                                  />
-                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                                </div>
-                              ) : (
-                                <p className="whitespace-pre-wrap">
-                                  {message.content.slice(
-                                    0,
-                                    typedAssistantLengths[message.id] ?? 0,
-                                  )}
-                                  <span className="ml-0.5 inline-block h-5 w-px animate-pulse bg-zinc-400 align-[-0.2em]" />
-                                </p>
-                              )
-                            ) : message.role === "assistant" ? (
-                              getChatRenderMode("assistant_message") === "markdown" ? (
-                                <div
-                                  className={assistantMarkdownClassName}
-                                  dangerouslySetInnerHTML={{
-                                    __html: renderMarkdownToHtml(message.content),
-                                  }}
-                                />
-                              ) : (
-                                <p className="whitespace-pre-wrap">{message.content}</p>
-                              )
-                            ) : (
-                              <p className="whitespace-pre-wrap">{message.content}</p>
-                            )
-                          )}
+                            <MessageContent
+                              role={message.role}
+                              content={message.content}
+                              isStreaming={Boolean(message.isStreaming)}
+                              isLatestAssistantMessage={message.id === latestAssistantMessageId}
+                              typedLength={typedAssistantLengths[message.id] ?? 0}
+                              assistantTypingBubble={
+                                <AssistantTypingBubble label={message.content || null} />
+                              }
+                            />
 
-                          {message.role === "assistant" &&
-                            message.autoSavedSourceMaterials?.count ? (
-                            <div
-                              className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] ${
-                                dismissedAutoSavedSourceByMessageId[message.id]
-                                  ? "border-zinc-700 bg-zinc-900/70 text-zinc-400"
-                                  : "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200/90"
-                              }`}
-                            >
-                              <Lightbulb className="h-3.5 w-3.5" />
-                              <span>
-                                {dismissedAutoSavedSourceByMessageId[message.id]
-                                  ? "Won't reuse that source."
-                                  : `Saved to memory${
-                                      message.autoSavedSourceMaterials.assets[0]?.title
-                                        ? `: ${message.autoSavedSourceMaterials.assets[0].title}`
-                                        : "."
-                                    }`}
-                              </span>
-                              {!dismissedAutoSavedSourceByMessageId[message.id] &&
-                              message.autoSavedSourceMaterials.assets[0] ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void openSourceMaterialEditor({
-                                      assetId: message.autoSavedSourceMaterials!.assets[0].id,
-                                      title: message.autoSavedSourceMaterials!.assets[0].title,
-                                    });
-                                  }}
-                                  className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white"
-                                >
-                                  Review
-                                </button>
-                              ) : null}
-                              {!dismissedAutoSavedSourceByMessageId[message.id] &&
-                              message.autoSavedSourceMaterials.assets.some(
-                                (asset) => asset.deletable,
-                              ) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void undoAutoSavedSourceMaterials(
-                                      message.id,
-                                      message.autoSavedSourceMaterials!,
-                                    );
-                                  }}
-                                  disabled={Boolean(
-                                    autoSavedSourceUndoPendingByMessageId[message.id],
-                                  )}
-                                  className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {autoSavedSourceUndoPendingByMessageId[message.id]
-                                    ? "Removing..."
-                                    : "Undo"}
-                                </button>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            message.promotedSourceMaterials?.count ? (
-                            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/[0.06] px-3 py-1 text-[11px] text-sky-200/90">
-                              <BookOpen className="h-3.5 w-3.5" />
-                              <span>
-                                Added to saved context
-                                {message.promotedSourceMaterials.assets[0]?.title
-                                  ? `: ${message.promotedSourceMaterials.assets[0].title}`
-                                  : "."}
-                              </span>
-                              {message.promotedSourceMaterials.assets[0] ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void openSourceMaterialEditor({
-                                      assetId: message.promotedSourceMaterials!.assets[0].id,
-                                      title: message.promotedSourceMaterials!.assets[0].title,
-                                    });
-                                  }}
-                                  className="inline-flex items-center rounded-full border border-sky-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-sky-100 transition hover:border-sky-300/40 hover:text-white"
-                                >
-                                  Review
-                                </button>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" && !message.isStreaming ? (
-                            <div className="mt-2 flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void submitAssistantMessageFeedback(message.id, "up");
-                                }}
-                                disabled={
-                                  isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
+                            <MessageArtifactSections
+                              message={message}
+                              index={index}
+                              messagesLength={messages.length}
+                              composerCharacterLimit={composerCharacterLimit}
+                              isVerifiedAccount={isVerifiedAccount}
+                              isMainChatLocked={isMainChatLocked}
+                              showDevTools={showDevTools}
+                              selectedDraftMessageId={selectedDraftMessageId}
+                              selectedDraftVersionId={selectedDraftVersionId}
+                              selectedThreadPreviewPostIndex={
+                                selectedThreadPostByMessageId[message.id]
+                              }
+                              expandedInlineThreadPreviewId={expandedInlineThreadPreviewId}
+                              copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
+                              dismissedAutoSavedSource={Boolean(
+                                dismissedAutoSavedSourceByMessageId[message.id],
+                              )}
+                              autoSavedSourceUndoPending={Boolean(
+                                autoSavedSourceUndoPendingByMessageId[message.id],
+                              )}
+                              messageFeedbackPending={Boolean(
+                                messageFeedbackPendingById[message.id],
+                              )}
+                              canRunReplyActions={
+                                !isMainChatLocked &&
+                                Boolean(activeStrategyInputs && activeToneInputs)
+                              }
+                              contextIdentity={{
+                                username:
+                                  context?.creatorProfile?.identity?.username || "user",
+                                displayName:
+                                  context?.creatorProfile?.identity?.displayName ||
+                                  context?.creatorProfile?.identity?.username ||
+                                  "user",
+                                avatarUrl: context?.avatarUrl || null,
+                              }}
+                              getRevealClassName={buildDraftRevealClasses}
+                              shouldAnimateRevealLines={shouldAnimateDraftLines}
+                              shouldShowQuickReplies={(candidate) =>
+                                shouldShowQuickRepliesForMessage(candidate as ChatMessage)
+                              }
+                              shouldShowOptionArtifacts={(candidate) =>
+                                shouldShowOptionArtifactsForMessage(candidate as ChatMessage)
+                              }
+                              shouldShowDraftOutput={(candidate) =>
+                                shouldShowDraftOutputForMessage(candidate as ChatMessage)
+                              }
+                              onOpenSourceMaterialEditor={(params) => {
+                                void openSourceMaterialEditor(params);
+                              }}
+                              onUndoAutoSavedSourceMaterials={() => {
+                                if (!message.autoSavedSourceMaterials) {
+                                  return;
                                 }
-                                aria-label="Thumbs up"
-                                className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "up"
-                                  ? "bg-emerald-300/10 text-emerald-300"
-                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
-                                  } disabled:cursor-not-allowed disabled:opacity-60`}
-                              >
-                                <ThumbsUp className="h-3 w-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void submitAssistantMessageFeedback(message.id, "down");
-                                }}
-                                disabled={
-                                  isMainChatLocked || Boolean(messageFeedbackPendingById[message.id])
-                                }
-                                aria-label="Thumbs down"
-                                className={`inline-flex items-center rounded-full p-1.5 transition ${message.feedbackValue === "down"
-                                  ? "bg-rose-300/10 text-rose-300"
-                                  : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
-                                  } disabled:cursor-not-allowed disabled:opacity-60`}
-                              >
-                                <ThumbsDown className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ) : null}
 
-                          {message.role === "assistant" &&
-                            shouldShowQuickRepliesForMessage(message) &&
-                            index === messages.length - 1 &&
-                            !(
-                              message.outputShape === "ideation_angles" &&
-                              message.angles?.length
-                            ) ? (
-                            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies?.map((quickReply) => (
-                                <button
-                                  key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
-                                  type="button"
-                                  onClick={() => {
-                                    void handleQuickReplySelect(quickReply);
-                                  }}
-                                  disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                >
-                                  {quickReply.label}
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowOptionArtifactsForMessage(message) &&
-                            message.outputShape !== "coach_question" &&
-                            message.angles?.length ? (
-                            <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                              {message.angles.map((angle, index) => {
-                                // Support both old string[] and new structured IdeaSchema objects
-                                const isStructured = typeof angle === "object" && angle !== null;
-                                const title = isStructured ? (angle as Record<string, string>).title : angle as string;
-                                const whyThisWorks = isStructured ? (angle as Record<string, string>).why_this_works : null;
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const openingLines = isStructured ? (angle as Record<string, any>).opening_lines : null;
-                                const subtopics = isStructured ? (angle as Record<string, string>).subtopics : null;
-
-                                // Old formats parsing
-                                const premise = isStructured ? (angle as Record<string, string>).premise : null;
-                                const format = isStructured ? (angle as Record<string, string>).format : null;
-
-                                const selectedAngleFormatHint: SelectedAngleFormatHint =
-                                  /\bthread directions\b/i.test(message.content) ? "thread" : "post";
-
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void handleAngleSelect(title, selectedAngleFormatHint);
-                                    }}
-                                    key={`${message.id}-angle-${index}`}
-                                    className="group relative w-full text-left rounded-lg py-2 hover:bg-white/[0.04] transition-colors cursor-pointer"
-                                  >
-                                    <div className="flex items-start gap-3">
-                                      <span className="mt-0.5 text-sm font-semibold text-zinc-500">{index + 1}.</span>
-                                      <p className="text-sm font-medium leading-relaxed text-zinc-400 group-hover:text-zinc-100 transition-colors">
-                                        {title}
-                                      </p>
-                                    </div>
-                                  </button>
+                                void undoAutoSavedSourceMaterials(
+                                  message.id,
+                                  message.autoSavedSourceMaterials,
                                 );
-                              })}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            message.outputShape === "ideation_angles" &&
-                            message.angles?.length &&
-                            shouldShowQuickRepliesForMessage(message) &&
-                            index === messages.length - 1 ? (
-                            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                              {message.quickReplies?.map((quickReply) => (
-                                <button
-                                  key={`${message.id}-${quickReply.kind}-${quickReply.value}`}
-                                  type="button"
-                                  onClick={() => {
-                                    void handleQuickReplySelect(quickReply);
-                                  }}
-                                  disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                >
-                                  {quickReply.label}
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            message.replyArtifacts?.kind === "reply_options" ? (
-                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
-                                  Source Post
-                                </p>
-                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                                  {message.replyArtifacts.sourceText}
-                                </p>
-                                {message.replyArtifacts.authorHandle || message.replyArtifacts.sourceUrl ? (
-                                  <p className="mt-2 text-xs text-zinc-400">
-                                    {message.replyArtifacts.authorHandle
-                                      ? `@${message.replyArtifacts.authorHandle}`
-                                      : message.replyArtifacts.sourceUrl}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div className="grid gap-3 md:grid-cols-3">
-                                {message.replyArtifacts.options.map((option, optionIndex) => (
-                                  <button
-                                    key={`${message.id}-reply-option-${option.id}`}
-                                    type="button"
-                                    onClick={() => {
-                                      void handleReplyOptionSelect(optionIndex);
-                                    }}
-                                    disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                                    className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                      Option {optionIndex + 1}
-                                    </p>
-                                    <p className="mt-1 text-sm font-semibold text-white">
-                                      {option.label.replace(/_/g, " ")}
-                                    </p>
-                                    {option.intent?.anchor ? (
-                                      <p className="mt-2 text-xs leading-5 text-emerald-200/80">
-                                        {option.intent.anchor}
-                                      </p>
-                                    ) : null}
-                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                                      {option.text}
-                                    </p>
-                                  </button>
-                                ))}
-                              </div>
-                              {message.replyArtifacts.groundingNotes?.length ? (
-                                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    Grounding Notes
-                                  </p>
-                                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-zinc-300">
-                                    {message.replyArtifacts.groundingNotes.map((note, noteIndex) => (
-                                      <li key={`${message.id}-reply-grounding-${noteIndex}`}>{note}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            message.replyArtifacts?.kind === "reply_draft" ? (
-                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                  Reply Drafts
-                                </p>
-                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                                  {message.replyArtifacts.sourceText}
-                                </p>
-                              </div>
-                              <div className="grid gap-3 md:grid-cols-2">
-                                {message.replyArtifacts.options.map((option) => (
-                                  <div
-                                    key={`${message.id}-reply-draft-${option.id}`}
-                                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                          Variant
-                                        </p>
-                                        <p className="mt-1 text-sm font-semibold text-white">
-                                          {option.label}
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          void navigator.clipboard.writeText(option.text);
-                                        }}
-                                        className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                                      >
-                                        Copy
-                                      </button>
-                                    </div>
-                                    {option.intent?.anchor ? (
-                                      <p className="mt-2 text-xs leading-5 text-emerald-200/80">
-                                        {option.intent.anchor}
-                                      </p>
-                                    ) : null}
-                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                                      {option.text}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                              {message.replyArtifacts.notes?.length ? (
-                                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    Notes
-                                  </p>
-                                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-zinc-300">
-                                    {message.replyArtifacts.notes.map((note, noteIndex) => (
-                                      <li key={`${message.id}-reply-note-${noteIndex}`}>{note}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowDraftOutputForMessage(message) &&
-                            message.outputShape !== "coach_question" &&
-                            message.draftBundle?.options?.length &&
-                            message.draftBundle.options.length < 4 ? (
-                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
-                              {message.draftBundle.options.map((option, optionIndex) => {
-                                const isSelected =
-                                  option.id === message.draftBundle?.selectedOptionId ||
-                                  option.versionId === message.activeDraftVersionId;
-                                const preview =
-                                  option.content.length > 220
-                                    ? `${option.content.slice(0, 217).trimEnd()}...`
-                                    : option.content;
-                                const draftRevealKey = buildDraftBundleRevealKey(option.id);
-
-                                return (
-                                  <button
-                                    key={`${message.id}-bundle-${option.id}`}
-                                    type="button"
-                                    onClick={() => {
-                                      setMessages((current) =>
-                                        current.map((entry) =>
-                                          entry.id === message.id
-                                            ? {
-                                                ...entry,
-                                                activeDraftVersionId: option.versionId,
-                                                draftBundle: entry.draftBundle
-                                                  ? {
-                                                      ...entry.draftBundle,
-                                                      selectedOptionId: option.id,
-                                                    }
-                                                  : entry.draftBundle,
-                                              }
-                                            : entry,
-                                        ),
-                                      );
-                                      openDraftEditor(message.id, option.versionId);
-                                    }}
-                                    className={`rounded-3xl border p-4 text-left transition ${
-                                      isSelected
-                                        ? "border-white/20 bg-white/[0.06] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
-                                        : "border-white/10 bg-black/20 hover:border-white/15 hover:bg-white/[0.04]"
-                                    } ${buildDraftRevealClasses(draftRevealKey)}`}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                          Option {optionIndex + 1}
-                                        </p>
-                                        <p className="mt-1 text-sm font-semibold text-white">
-                                          {option.label}
-                                        </p>
-                                      </div>
-                                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                        {option.artifact.weightedCharacterCount}/
-                                        {option.artifact.maxCharacterLimit}
-                                      </span>
-                                    </div>
-                                    <AnimatedDraftText
-                                      text={preview}
-                                      className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300"
-                                      animate={shouldAnimateDraftLines(draftRevealKey)}
-                                    />
-                                  </button>
+                              }}
+                              onSubmitAssistantMessageFeedback={(value) => {
+                                void submitAssistantMessageFeedback(message.id, value);
+                              }}
+                              onQuickReplySelect={(quickReply) => {
+                                void handleQuickReplySelect(quickReply as ChatQuickReply);
+                              }}
+                              onAngleSelect={(title, selectedAngleFormatHint) => {
+                                void handleAngleSelect(title, selectedAngleFormatHint);
+                              }}
+                              onReplyOptionSelect={(optionIndex) => {
+                                void handleReplyOptionSelect(optionIndex);
+                              }}
+                              onSelectDraftBundleOption={(optionId, versionId) => {
+                                selectDraftBundleOption(message.id, optionId, versionId);
+                              }}
+                              onOpenDraftEditor={(versionId, threadPostIndex) => {
+                                openDraftEditor(message.id, versionId, threadPostIndex);
+                              }}
+                              onRequestDraftCardRevision={(
+                                prompt,
+                                threadFramingStyleOverride,
+                              ) => {
+                                void requestDraftCardRevision(
+                                  message.id,
+                                  prompt,
+                                  threadFramingStyleOverride ?? undefined,
                                 );
-                              })}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowDraftOutputForMessage(message) &&
-                            message.outputShape !== "coach_question" &&
-                            message.outputShape !== "short_form_post" &&
-                            message.outputShape !== "long_form_post" &&
-                            message.outputShape !== "thread_seed" &&
-                            message.draftArtifacts?.length ? (
-                            <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                              {message.draftArtifacts.map((artifact, index) => {
-                                const artifactVersionId =
-                                  normalizeDraftVersionBundle(
-                                    message,
-                                    composerCharacterLimit,
-                                  )?.versions[index]?.id;
-                                const draftRevealKey = buildDraftArtifactRevealKey(
-                                  artifact.id,
+                              }}
+                              onToggleExpandedInlineThreadPreview={() => {
+                                setExpandedInlineThreadPreviewId((current) =>
+                                  current === message.id ? null : message.id,
                                 );
-
-                                return (
-                                  <div
-                                    key={`${message.id}-draft-artifact-${artifact.id}`}
-                                    className={`rounded-2xl border border-white/10 bg-black/20 px-3 py-3 ${buildDraftRevealClasses(
-                                      draftRevealKey,
-                                    )}`}
-                                  >
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <div>
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                          {artifact.title}
-                                        </p>
-                                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                          {formatAreaLabel(artifact.kind)} · {artifact.weightedCharacterCount}/
-                                          {artifact.maxCharacterLimit}
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          openDraftEditor(message.id, artifactVersionId)
-                                        }
-                                        className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                    <AnimatedDraftText
-                                      text={artifact.content}
-                                      className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100"
-                                      animate={shouldAnimateDraftLines(draftRevealKey)}
-                                    />
-                                    {artifact.groundingExplanation ||
-                                    artifact.groundingSources?.length ? (() => {
-                                      const groundingTone = getDraftGroundingToneClasses(artifact);
-                                      const groundingLabel =
-                                        getDraftGroundingLabel(artifact) || "Grounding";
-
-                                      return (
-                                        <div className={`mt-3 rounded-2xl border px-3 py-3 ${groundingTone.container}`}>
-                                          <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${groundingTone.label}`}>
-                                            {groundingLabel}
-                                          </p>
-                                          {artifact.groundingExplanation ? (
-                                            <p className="mt-2 text-xs leading-6 text-zinc-200">
-                                              {artifact.groundingExplanation}
-                                            </p>
-                                          ) : null}
-                                          {artifact.groundingSources?.length ? (
-                                            <ul className="mt-2 space-y-1.5 text-xs leading-6 text-zinc-200">
-                                              {artifact.groundingSources.slice(0, 2).map((source, sourceIndex) => (
-                                                <li key={`${artifact.id}-grounding-${sourceIndex}`}>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      void openSourceMaterialEditor({
-                                                        title: source.title,
-                                                      });
-                                                    }}
-                                                    className="font-semibold text-emerald-200 transition hover:text-white"
-                                                  >
-                                                    {source.title}
-                                                  </button>
-                                                  {summarizeGroundingSource(source)
-                                                    ? ` · ${summarizeGroundingSource(source)}`
-                                                    : ""}
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          ) : null}
-                                        </div>
-                                      );
-                                    })() : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowDraftOutputForMessage(message) &&
-                            message.outputShape !== "coach_question" &&
-                            message.draftBundle?.options?.length &&
-                            message.draftBundle.options.length >= 4 ? (
-                            <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                              {message.draftBundle.options.map((option) => {
-                                const username =
-                                  context?.creatorProfile?.identity?.username || "user";
-                                const displayName =
-                                  context?.creatorProfile?.identity?.displayName || username;
-                                const avatarUrl = context?.avatarUrl || null;
-                                const draftCounter = buildDraftCharacterCounterMeta(
-                                  option.content,
-                                  resolveDisplayedDraftCharacterLimit(
-                                    option.artifact.maxCharacterLimit,
-                                    composerCharacterLimit,
-                                  ),
-                                );
-                                const isFocusedDraftPreview =
-                                  selectedDraftMessageId === message.id &&
-                                  selectedDraftVersionId === option.versionId;
-                                const draftRevealKey = buildDraftBundleRevealKey(option.id);
-
-                                return (
-                                  <div
-                                    key={`${message.id}-inline-draft-${option.id}`}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => openDraftEditor(message.id, option.versionId)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        openDraftEditor(message.id, option.versionId);
-                                      }
-                                    }}
-                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
-                                      isFocusedDraftPreview
-                                        ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
-                                        : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                    } ${buildDraftRevealClasses(draftRevealKey)}`}
-                                    aria-current={isFocusedDraftPreview ? "true" : undefined}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                          {avatarUrl ? (
-                                            <div
-                                              className="h-full w-full bg-cover bg-center"
-                                              style={{ backgroundImage: `url(${avatarUrl})` }}
-                                              role="img"
-                                              aria-label={`${displayName} profile photo`}
-                                            />
-                                          ) : (
-                                            displayName.charAt(0)
-                                          )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-1">
-                                            <span className="truncate text-sm font-bold text-white">
-                                              {displayName}
-                                            </span>
-                                            {isVerifiedAccount ? (
-                                              <Image
-                                                src="/x-verified.svg"
-                                                alt="Verified account"
-                                                width={16}
-                                                height={16}
-                                                className="h-4 w-4 shrink-0"
-                                              />
-                                            ) : null}
-                                          </div>
-                                          <span className="text-xs text-zinc-500">@{username}</span>
-                                        </div>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openDraftEditor(message.id, option.versionId);
-                                        }}
-                                        className="rounded-full p-2 text-zinc-500"
-                                        aria-label="Edit draft"
-                                      >
-                                        <Edit3 className="h-4 w-4" />
-                                      </button>
-                                    </div>
-
-                                    <div className="mt-3">
-                                      <AnimatedDraftText
-                                        text={option.content}
-                                        className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
-                                        animate={shouldAnimateDraftLines(draftRevealKey)}
-                                      />
-                                    </div>
-
-                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
-                                      <span>Just now</span>
-                                      <span>·</span>
-                                      <span className={draftCounter.toneClassName}>
-                                        {draftCounter.label}
-                                      </span>
-                                    </div>
-
-                                    <div className="mt-3 border-t border-white/[0.06]" />
-
-                                    <div className="mt-2 flex items-center justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          void copyPreviewDraft(option.versionId, option.content);
-                                        }}
-                                        className="rounded-full p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                        aria-label="Copy draft"
-                                      >
-                                        {copiedPreviewDraftMessageId === option.versionId ? (
-                                          <Check className="h-4 w-4" />
-                                        ) : (
-                                          <Copy className="h-4 w-4" />
-                                        )}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowDraftOutputForMessage(message) &&
-                            message.outputShape !== "coach_question" &&
-                            !(message.draftBundle?.options?.length && message.draftBundle.options.length >= 4) &&
-                            (message.draft ||
-                              message.draftArtifacts?.length ||
-                              message.draftVersions?.length) ? (() => {
-                              const username = context?.creatorProfile?.identity?.username || "user";
-                              const displayName = context?.creatorProfile?.identity?.displayName || username;
-                              const avatarUrl = context?.avatarUrl || null;
-                              const previewState = resolveInlineDraftPreviewState({
-                                message,
-                                composerCharacterLimit,
-                                isVerifiedAccount,
-                                selectedThreadPreviewPostIndex:
-                                  selectedThreadPostByMessageId[message.id],
-                                expandedInlineThreadPreviewId,
-                                selectedDraftMessageId,
-                              });
-                              const previewRevealKey = previewState.previewRevealKey;
-                              return (
-                                <InlineDraftPreviewCard
-                                  identity={{
-                                    username,
-                                    displayName,
-                                    avatarUrl,
-                                  }}
-                                  previewState={previewState}
-                                  isVerifiedAccount={isVerifiedAccount}
-                                  isMainChatLocked={isMainChatLocked}
-                                  hasCopiedDraft={copiedPreviewDraftMessageId === message.id}
-                                  revealClassName={buildDraftRevealClasses(previewRevealKey)}
-                                  shouldAnimateLines={shouldAnimateDraftLines(
-                                    previewRevealKey,
-                                  )}
-                                  onOpenDraftEditor={(threadPostIndex) =>
-                                    openDraftEditor(
-                                      message.id,
-                                      undefined,
-                                      threadPostIndex,
-                                    )}
-                                  onRequestRevision={(
-                                    prompt,
-                                    threadFramingStyleOverride,
-                                  ) => {
-                                    void requestDraftCardRevision(
-                                      message.id,
-                                      prompt,
-                                      threadFramingStyleOverride,
-                                    );
-                                  }}
-                                  onToggleExpanded={() =>
-                                    setExpandedInlineThreadPreviewId((current) =>
-                                      current === message.id ? null : message.id,
-                                    )}
-                                  onCopy={() => {
-                                    void copyPreviewDraft(
-                                      message.id,
-                                      previewState.previewDraft,
-                                    );
-                                  }}
-                                  onShare={() => {
-                                    shareDraftEditorToX();
-                                  }}
-                                />
-                              );
-                            })() : null}
-
-                          {message.role === "assistant" &&
-                            shouldShowDraftOutputForMessage(message) &&
-                            message.supportAsset &&
-                            !message.draftArtifacts?.length ? (
-                            <div className="mt-4 border-t border-white/10 pt-4">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Visual / Demo Ideas
-                              </p>
-                              <p className="mt-2 text-xs leading-6 text-zinc-300">
-                                {message.supportAsset}
-                              </p>
-                            </div>
-                          ) : null}
-
-                          {showDevTools && message.role === "assistant" &&
-                            ((message.whyThisWorks?.length ?? 0) > 0 ||
-                              (message.watchOutFor?.length ?? 0) > 0) ? (
-                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
-                              {message.whyThisWorks?.length ? (
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    Why This Works
-                                  </p>
-                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                    {message.whyThisWorks.map((item, index) => (
-                                      <li key={`${message.id}-why-${index}`}>{item}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-
-                              {message.watchOutFor?.length ? (
-                                <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                    Watch Out For
-                                  </p>
-                                  <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-300">
-                                    {message.watchOutFor.map((item, index) => (
-                                      <li key={`${message.id}-watch-${index}`}>{item}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
+                              }}
+                              onCopyPreviewDraft={(messageId, content) => {
+                                void copyPreviewDraft(messageId, content);
+                              }}
+                              onShareDraftEditor={shareDraftEditorToX}
+                            />
 
                           </ChatMessageRow>
                         );
@@ -7880,65 +6598,29 @@ function ChatPageContent() {
                         <AssistantTypingBubble label={pendingStatusLabel} />
                       ) : null}
                     </>
-                  )}
+              ) : null
+            }
+          />
 
-                </div>
-              )}
-            </div>
-          </section >
-
-          <div className={dockComposerWrapperClassName}>
-            <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
-              {showScrollToLatest && !shouldCenterHero ? (
-                <div className="mb-3 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={scrollThreadToBottom}
-                    className="group inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-[#0F0F0F]/90 text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-white"
-                    aria-label="Jump to latest message"
-                  >
-                    <ChevronDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
-                  </button>
-                </div>
-              ) : null}
-              <form onSubmit={handleComposerSubmit}>
-                <div className={dockComposerSurfaceClassName}>
-                  <textarea
-                    value={draftInput}
-                    onChange={(event) => setDraftInput(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="Send a message..."
-                    disabled={isMainChatLocked || !activeStrategyInputs || !activeToneInputs}
-                    className="max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-12 text-[15px] leading-[22px] text-white outline-none placeholder:text-zinc-500 disabled:opacity-50 sm:pb-3 sm:pr-14"
-                    rows={1}
-                  />
-                  <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4">
-                    <button
-                      type="submit"
-                      disabled={
-                        !context ||
-                        !contract ||
-                        !activeStrategyInputs ||
-                        !activeToneInputs ||
-                        !draftInput.trim() ||
-                        isMainChatLocked
-                      }
-                      className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
-                      aria-label="Send message"
-                    >
-                      {isSending ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]">
-                          <path d="M12 20L12 4M12 4L5 11M12 4L19 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
+          <ChatComposerDock
+            isNewChatHero={isNewChatHero}
+            showScrollToLatest={showScrollToLatest}
+            shouldCenterHero={shouldCenterHero}
+            onScrollToBottom={scrollThreadToBottom}
+            draftInput={draftInput}
+            onDraftInputChange={setDraftInput}
+            onComposerKeyDown={handleComposerKeyDown}
+            onSubmit={handleComposerSubmit}
+            isSubmitDisabled={
+              isMainChatLocked ||
+              !context ||
+              !contract ||
+              !activeStrategyInputs ||
+              !activeToneInputs ||
+              !draftInput.trim()
+            }
+            isSending={isSending}
+          />
         </div >
       </div >
 
@@ -8066,7 +6748,49 @@ function ChatPageContent() {
         ) : null
       }
 
-      {renderDraftQueueModal()}
+      <DraftQueueDialog
+        open={draftQueueOpen}
+        isLoading={isDraftQueueLoading}
+        errorMessage={draftQueueError}
+        items={draftQueueItems}
+        editingCandidateId={editingDraftCandidateId}
+        editingCandidateText={editingDraftCandidateText}
+        actionById={draftQueueActionById}
+        copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
+        canGenerateInChat={Boolean(context?.runId)}
+        isVerifiedAccount={isVerifiedAccount}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDraftQueueOpen(false);
+            setEditingDraftCandidateId(null);
+            setEditingDraftCandidateText("");
+          }
+        }}
+        onGenerateInChat={() => {
+          setDraftQueueOpen(false);
+          void submitQuickStarter("draft 4 posts from what you know about me");
+        }}
+        onStartEditingCandidate={(candidateId, content) => {
+          setEditingDraftCandidateId(candidateId);
+          setEditingDraftCandidateText(content);
+        }}
+        onCancelEditingCandidate={() => {
+          setEditingDraftCandidateId(null);
+          setEditingDraftCandidateText("");
+        }}
+        onEditCandidateTextChange={setEditingDraftCandidateText}
+        onMutateCandidate={(candidateId, payload) => {
+          void mutateDraftQueueCandidate(candidateId, payload);
+        }}
+        onOpenObservedMetrics={openObservedMetricsModal}
+        onOpenSourceMaterial={(params) => {
+          void openSourceMaterialEditor(params);
+        }}
+        onCopyCandidateDraft={(candidateId, content) => {
+          void copyPreviewDraft(candidateId, content);
+        }}
+        onOpenX={shareDraftEditorToX}
+      />
       <ObservedMetricsModal
         open={Boolean(observedMetricsCandidate)}
         candidateTitle={observedMetricsCandidate?.title ?? null}
@@ -8214,46 +6938,10 @@ function ChatPageContent() {
         isFeedbackSubmitting={isFeedbackSubmitting}
       />
 
-      {
-        extensionModalOpen ? (
-          <div
-            className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                setExtensionModalOpen(false);
-              }
-            }}
-          >
-            <div className="relative my-auto w-full max-w-xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl max-sm:max-h-[calc(100vh-2rem)] max-sm:overflow-y-auto">
-              <button
-                type="button"
-                onClick={() => setExtensionModalOpen(false)}
-                className="absolute right-4 top-4 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-              >
-                Close
-              </button>
-
-              <div className="space-y-6">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Companion App
-                  </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-white">
-                    Coming soon!
-                  </h2>
-                  <p className="mt-3 text-sm leading-7 text-zinc-400">
-                    Companion App is in progress and will be available soon.
-                  </p>
-                </div>
-
-                <span className="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-2.5 text-sm font-medium text-zinc-300">
-                  Coming soon!
-                </span>
-              </div>
-            </div>
-          </div>
-        ) : null
-      }
+      <ExtensionDialog
+        open={extensionModalOpen}
+        onOpenChange={setExtensionModalOpen}
+      />
 
       <SourceMaterialsDialog
         open={sourceMaterialsOpen}
