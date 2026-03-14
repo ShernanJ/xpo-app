@@ -9,9 +9,9 @@ import {
 } from "../../lib/agent-v2/agents/controller.ts";
 import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
-  ConversationServices,
   OrchestratorResponse,
 } from "../../lib/agent-v2/orchestrator/conversationManager";
+import type { ConversationServices } from "../../lib/agent-v2/orchestrator/draftPipelineHelpers";
 import type {
   SourceMaterialAssetInput,
   SourceMaterialAssetRecord,

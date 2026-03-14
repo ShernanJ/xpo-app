@@ -413,6 +413,18 @@ test("draft pipeline delegates revise and replan mode routing to the revision ca
   );
 });
 
+test("conversation manager no longer acts as a helper or service barrel", () => {
+  const conversationManagerSource = readFileSync(
+    new URL("./conversationManager.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(/export type \{ ConversationServices \}/.test(conversationManagerSource), false);
+  assert.equal(/export \{ buildPlanPitch \}/.test(conversationManagerSource), false);
+  assert.equal(/export \{\s*isLazyDraftRequest/.test(conversationManagerSource), false);
+  assert.equal(/export \{\s*looksGenericTopicSummary/.test(conversationManagerSource), false);
+});
+
 test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
   assert.equal(existsSync(new URL("./revisionValidationWorkers.ts", import.meta.url)), false);
 });

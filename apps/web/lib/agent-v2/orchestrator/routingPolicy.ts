@@ -3,10 +3,10 @@ import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
 import { buildFastReplyRawResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
 import type {
-  ConversationServices,
   RawOrchestratorResponse,
   RoutingTrace,
 } from "./conversationManager.ts";
+import type { ConversationServices } from "./draftPipelineHelpers.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
 import { resolveRuntimeAction } from "../runtime/resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
