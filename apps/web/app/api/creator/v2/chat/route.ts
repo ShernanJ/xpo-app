@@ -49,10 +49,8 @@ import {
 import { persistAssistantTurn } from "./route.persistence";
 import {
   buildChatSuccessResponse,
-  buildReplyAssistantMessageData,
   dispatchPlannedProductEvents,
   planMainAssistantTurnProductEvents,
-  planReplyAssistantTurnProductEvents,
 } from "./route.response";
 import { normalizeChatTurn } from "./turnNormalization";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
@@ -63,11 +61,7 @@ import {
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import {
-  type ActiveReplyContext,
-  type ChatReplyArtifacts,
-  type ChatReplyParseEnvelope,
-} from "./reply.logic";
-import {
+  finalizeReplyTurn,
   planReplyTurn,
   resolveReplyTurnState,
 } from "./route.reply";
@@ -614,101 +608,6 @@ export async function POST(request: NextRequest) {
       goal: body.goal,
     });
 
-    const buildNextReplyMemory = (args: {
-      activeReplyContext: ActiveReplyContext | null;
-      selectedReplyOptionId?: string | null;
-    }) => ({
-      ...storedMemory,
-      activeReplyContext: args.activeReplyContext,
-      activeReplyArtifactRef: storedMemory.activeReplyArtifactRef,
-      selectedReplyOptionId:
-        args.selectedReplyOptionId === undefined
-          ? storedMemory.selectedReplyOptionId
-          : args.selectedReplyOptionId,
-      preferredSurfaceMode: "structured" as const,
-    });
-
-    const finalizeReplyAssistantTurn = async (args: {
-      reply: string;
-      outputShape: "coach_question" | "reply_candidate";
-      surfaceMode:
-        | "answer_directly"
-        | "ask_one_question"
-        | "offer_options"
-        | "generate_full_output";
-      quickReplies: unknown[];
-      activeReplyContext: ActiveReplyContext | null;
-      selectedReplyOptionId?: string | null;
-      replyArtifacts?: ChatReplyArtifacts | null;
-      replyParse?: ChatReplyParseEnvelope | null;
-      eventType?: string;
-    }) => {
-      const nextMemory = buildNextReplyMemory({
-        activeReplyContext: args.activeReplyContext,
-        selectedReplyOptionId: args.selectedReplyOptionId,
-      });
-      let mappedData = buildReplyAssistantMessageData({
-        reply: args.reply,
-        outputShape: args.outputShape,
-        surfaceMode: args.surfaceMode,
-        quickReplies: args.quickReplies,
-        memory: nextMemory,
-        routingDiagnostics: normalizedTurn.diagnostics,
-        clientTurnId,
-        threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
-        replyArtifacts: args.replyArtifacts || null,
-        replyParse: args.replyParse || null,
-      });
-
-      let createdAssistantMessageId: string | undefined;
-      if (storedThread) {
-        const persistenceResult = await persistAssistantTurn({
-          threadId: storedThread.id,
-          assistantMessageData: mappedData,
-          threadUpdate: { updatedAt: new Date() },
-          buildMemoryUpdate: (assistantMessageId) => ({
-            preferredSurfaceMode: "structured",
-            activeReplyContext: args.activeReplyContext,
-            activeReplyArtifactRef: args.replyArtifacts
-              ? {
-                  messageId: assistantMessageId,
-                  kind: args.replyArtifacts.kind,
-                }
-              : null,
-            selectedReplyOptionId:
-              args.selectedReplyOptionId === undefined ? null : args.selectedReplyOptionId,
-          }),
-        });
-        createdAssistantMessageId = persistenceResult.assistantMessageId;
-        mappedData = {
-          ...mappedData,
-          threadTitle: persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE,
-        };
-      }
-
-      dispatchPlannedProductEvents({
-        events: planReplyAssistantTurnProductEvents({
-          eventType: args.eventType,
-          outputShape: args.outputShape,
-          surfaceMode: args.surfaceMode,
-          replyArtifacts: args.replyArtifacts || null,
-          replyParse: args.replyParse || null,
-        }),
-        userId: session.user.id,
-        xHandle: activeHandle,
-        threadId: storedThread?.id ?? null,
-        messageId: createdAssistantMessageId ?? null,
-        recordProductEvent,
-      });
-
-      return await buildChatSuccessResponse({
-        mappedData,
-        createdAssistantMessageId,
-        newThreadId: !threadId && storedThread ? storedThread.id : undefined,
-        loadBilling: () => getBillingStateForUser(effectiveUserId),
-      });
-    };
-
     const handledReplyTurn = planReplyTurn({
       activeReplyContext: storedMemory.activeReplyContext,
       replyContinuation,
@@ -722,7 +621,20 @@ export async function POST(request: NextRequest) {
     });
 
     if (handledReplyTurn) {
-      return await finalizeReplyAssistantTurn(handledReplyTurn);
+      return await finalizeReplyTurn({
+        plannedTurn: handledReplyTurn,
+        storedMemory,
+        routingDiagnostics: normalizedTurn.diagnostics,
+        clientTurnId,
+        defaultThreadTitle: DEFAULT_THREAD_TITLE,
+        storedThreadId: storedThread?.id ?? null,
+        storedThreadTitle: storedThread?.title ?? null,
+        requestedThreadId: threadId,
+        userId: session.user.id,
+        activeHandle,
+        loadBilling: () => getBillingStateForUser(effectiveUserId),
+        recordProductEvent,
+      });
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);

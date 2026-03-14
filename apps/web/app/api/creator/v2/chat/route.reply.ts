@@ -1,11 +1,14 @@
+import type { NextResponse } from "next/server.js";
 import type { VoiceStyleCard } from "../../../../../lib/agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../../../../../lib/onboarding/growthStrategy.ts";
+import type { V2ConversationMemory } from "../../../../../lib/agent-v2/contracts/chat.ts";
 import {
   planReplyContinuation,
   type ReplyContinuationInsights,
 } from "../../../../../lib/agent-v2/orchestrator/replyContinuationPlanner.ts";
 import type {
   ChatArtifactContext,
+  NormalizedChatTurnDiagnostics,
   ChatTurnSource,
 } from "../../../../../lib/agent-v2/contracts/turnContract.ts";
 import {
@@ -28,6 +31,13 @@ import {
   type EmbeddedReplyParseResult,
   type ReplyContinuationResult,
 } from "./reply.logic.ts";
+import { persistAssistantTurn } from "./route.persistence.ts";
+import {
+  buildChatSuccessResponse,
+  buildReplyAssistantMessageData,
+  dispatchPlannedProductEvents,
+  planReplyAssistantTurnProductEvents,
+} from "./route.response.ts";
 
 type ReplySurfaceMode =
   | "answer_directly"
@@ -45,6 +55,23 @@ export interface PlannedReplyTurn {
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
   eventType?: string;
+}
+
+export function buildReplyMemorySnapshot(args: {
+  storedMemory: V2ConversationMemory;
+  activeReplyContext: ActiveReplyContext | null;
+  selectedReplyOptionId?: string | null;
+}): V2ConversationMemory {
+  return {
+    ...args.storedMemory,
+    activeReplyContext: args.activeReplyContext,
+    activeReplyArtifactRef: args.storedMemory.activeReplyArtifactRef,
+    selectedReplyOptionId:
+      args.selectedReplyOptionId === undefined
+        ? args.storedMemory.selectedReplyOptionId
+        : args.selectedReplyOptionId,
+    preferredSurfaceMode: "structured",
+  };
 }
 
 type ReplyAgentContext = {
@@ -340,4 +367,94 @@ export function planReplyTurn(args: {
   }
 
   return null;
+}
+
+export async function finalizeReplyTurn(args: {
+  plannedTurn: PlannedReplyTurn;
+  storedMemory: V2ConversationMemory;
+  routingDiagnostics: NormalizedChatTurnDiagnostics;
+  clientTurnId: string | null;
+  defaultThreadTitle: string;
+  storedThreadId: string | null;
+  storedThreadTitle: string | null;
+  requestedThreadId: string;
+  userId: string;
+  activeHandle: string | null;
+  loadBilling: () => Promise<unknown>;
+  recordProductEvent: (args: {
+    userId: string;
+    xHandle: string | null;
+    threadId: string | null;
+    messageId: string | null;
+    eventType: string;
+    properties: Record<string, unknown>;
+  }) => Promise<unknown>;
+}): Promise<NextResponse> {
+  const nextMemory = buildReplyMemorySnapshot({
+    storedMemory: args.storedMemory,
+    activeReplyContext: args.plannedTurn.activeReplyContext,
+    selectedReplyOptionId: args.plannedTurn.selectedReplyOptionId,
+  });
+  let mappedData = buildReplyAssistantMessageData({
+    reply: args.plannedTurn.reply,
+    outputShape: args.plannedTurn.outputShape,
+    surfaceMode: args.plannedTurn.surfaceMode,
+    quickReplies: args.plannedTurn.quickReplies,
+    memory: nextMemory,
+    routingDiagnostics: args.routingDiagnostics,
+    clientTurnId: args.clientTurnId,
+    threadTitle: args.storedThreadTitle || args.defaultThreadTitle,
+    replyArtifacts: args.plannedTurn.replyArtifacts || null,
+    replyParse: args.plannedTurn.replyParse || null,
+  });
+
+  let createdAssistantMessageId: string | undefined;
+  if (args.storedThreadId) {
+    const persistenceResult = await persistAssistantTurn({
+      threadId: args.storedThreadId,
+      assistantMessageData: mappedData,
+      threadUpdate: { updatedAt: new Date() },
+      buildMemoryUpdate: (assistantMessageId) => ({
+        preferredSurfaceMode: "structured",
+        activeReplyContext: args.plannedTurn.activeReplyContext,
+        activeReplyArtifactRef: args.plannedTurn.replyArtifacts
+          ? {
+              messageId: assistantMessageId,
+              kind: args.plannedTurn.replyArtifacts.kind,
+            }
+          : null,
+        selectedReplyOptionId:
+          args.plannedTurn.selectedReplyOptionId === undefined
+            ? null
+            : args.plannedTurn.selectedReplyOptionId,
+      }),
+    });
+    createdAssistantMessageId = persistenceResult.assistantMessageId;
+    mappedData = {
+      ...mappedData,
+      threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
+    };
+  }
+
+  dispatchPlannedProductEvents({
+    events: planReplyAssistantTurnProductEvents({
+      eventType: args.plannedTurn.eventType,
+      outputShape: args.plannedTurn.outputShape,
+      surfaceMode: args.plannedTurn.surfaceMode,
+      replyArtifacts: args.plannedTurn.replyArtifacts || null,
+      replyParse: args.plannedTurn.replyParse || null,
+    }),
+    userId: args.userId,
+    xHandle: args.activeHandle,
+    threadId: args.storedThreadId,
+    messageId: createdAssistantMessageId ?? null,
+    recordProductEvent: args.recordProductEvent,
+  });
+
+  return await buildChatSuccessResponse({
+    mappedData,
+    createdAssistantMessageId,
+    newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,
+    loadBilling: args.loadBilling,
+  });
 }
