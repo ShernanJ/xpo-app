@@ -5,14 +5,14 @@ import {
 } from "../planning/clarificationHeuristics.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
-import { buildIdeationReply } from "../../orchestrator/ideationReply.ts";
-import { buildIdeationQuickReplies } from "../../orchestrator/ideationQuickReplies.ts";
+import { buildIdeationReply } from "../../responses/ideationReply.ts";
+import { buildIdeationQuickReplies } from "../../responses/ideationQuickReplies.ts";
 import {
   isBareDraftRequest,
   isBareIdeationRequest,
 } from "../../orchestrator/conversationManagerLogic.ts";
 import { isOpenEndedWildcardDraftRequest } from "../../orchestrator/draftFastStart.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import {
   buildRollingSummary,
   shouldRefreshRollingSummary,

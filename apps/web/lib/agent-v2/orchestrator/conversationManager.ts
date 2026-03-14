@@ -40,7 +40,7 @@ import {
   hasConcreteCorrectionDetail,
   looksLikeSemanticCorrection,
   normalizeRepairDetail,
-} from "./correctionRepair";
+} from "../responses/correctionRepair";
 import {
   extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
@@ -52,7 +52,7 @@ import {
 } from "../agents/antiPatternExtractor";
 import {
   countNewMemoryEntries,
-} from "./feedbackMemoryNotice";
+} from "../responses/feedbackMemoryNotice";
 import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
 import {
   type ConversationRouterState,

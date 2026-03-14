@@ -4,12 +4,12 @@ import {
   inferCorrectionRepairQuestion,
   inferSourceTransparencyReply,
   looksLikeSemanticCorrection,
-} from "../../orchestrator/correctionRepair.ts";
+} from "../../responses/correctionRepair.ts";
 import {
   buildDraftMeaningResponse,
   isDraftMeaningQuestion,
 } from "../../grounding/draftGrounding.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";
 

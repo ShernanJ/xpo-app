@@ -1,8 +1,8 @@
 import {
   buildRollingSummary,
 } from "../../memory/summaryManager.ts";
-import { buildDraftReply } from "../../orchestrator/draftReply.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { buildDraftReply } from "../../responses/draftReply.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { WriterOutput } from "../../agents/writer.ts";
 import type { CriticOutput } from "../../agents/critic.ts";
 import type {

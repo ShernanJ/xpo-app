@@ -12,9 +12,9 @@ import {
   buildLooseDirectionReply,
   buildPlanRejectReply,
   buildTopicFocusReply,
-} from "./assistantReplyStyle";
-import { buildDynamicDraftChoices } from "./clarificationDraftChips";
-import { buildPlannerQuickReplies } from "./plannerQuickReplies";
+} from "../responses/assistantReplyStyle";
+import { buildDynamicDraftChoices } from "../responses/clarificationDraftChips";
+import { buildPlannerQuickReplies } from "../responses/plannerQuickReplies";
 
 interface ClarificationTreeArgs {
   branchKey: ClarificationBranchKey;

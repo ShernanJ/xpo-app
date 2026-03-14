@@ -1,6 +1,6 @@
 import type { DraftPreference } from "../contracts/chat";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { DraftRevisionChangeKind } from "./draftRevision";
+import type { DraftRevisionChangeKind } from "../orchestrator/draftRevision.ts";
 
 interface BuildDraftReplyArgs {
   userMessage: string;

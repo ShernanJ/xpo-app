@@ -44,7 +44,7 @@ import {
 import {
   buildDirectionChoiceReply,
   buildLooseDirectionReply,
-} from "./assistantReplyStyle.ts";
+} from "../responses/assistantReplyStyle.ts";
 import {
   buildDraftBundleBriefs,
 } from "./draftBundles.ts";
@@ -75,7 +75,7 @@ import {
 import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "../grounding/claimChecker.ts";
-import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
+import { getDeterministicChatReply } from "../responses/chatResponderDeterministic.ts";
 
 test("initial context load workers return mergeable outputs for identified users", async () => {
   const result = await loadInitialContextWorkers({
@@ -494,6 +494,77 @@ test("grounding leaf modules stay out of orchestrator once ownership moves", () 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
     new URL("../grounding/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("response helper leaf modules stay out of orchestrator once ownership moves", () => {
+  const deletedModulePaths = [
+    "./assistantReplyStyle.ts",
+    "./chatResponder.ts",
+    "./chatResponderDeterministic.ts",
+    "./chatResponder.test.mjs",
+    "./clarificationDraftChips.ts",
+    "./constraintAcknowledgment.ts",
+    "./correctionRepair.ts",
+    "./correctionRepair.test.ts",
+    "./draftReply.ts",
+    "./feedbackMemoryNotice.ts",
+    "./ideationQuickReplies.ts",
+    "./ideationReply.ts",
+    "./plannerQuickReplies.ts",
+  ];
+
+  for (const modulePath of deletedModulePaths) {
+    assert.equal(existsSync(new URL(modulePath, import.meta.url)), false, modulePath);
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/assistantReplyStyle(?:\.ts)?/,
+    /agent-v2\/orchestrator\/chatResponder(?:\.ts)?/,
+    /agent-v2\/orchestrator\/chatResponderDeterministic(?:\.ts)?/,
+    /agent-v2\/orchestrator\/clarificationDraftChips(?:\.ts)?/,
+    /agent-v2\/orchestrator\/constraintAcknowledgment(?:\.ts)?/,
+    /agent-v2\/orchestrator\/correctionRepair(?:\.ts)?/,
+    /agent-v2\/orchestrator\/draftReply(?:\.ts)?/,
+    /agent-v2\/orchestrator\/feedbackMemoryNotice(?:\.ts)?/,
+    /agent-v2\/orchestrator\/ideationQuickReplies(?:\.ts)?/,
+    /agent-v2\/orchestrator\/ideationReply(?:\.ts)?/,
+    /agent-v2\/orchestrator\/plannerQuickReplies(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/assistantReplyStyle(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/chatResponder(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/chatResponderDeterministic(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/clarificationDraftChips(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/constraintAcknowledgment(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/correctionRepair(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftReply(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/feedbackMemoryNotice(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/ideationQuickReplies(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/ideationReply(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/plannerQuickReplies(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../agents/", import.meta.url),
+    new URL("../capabilities/", import.meta.url),
+    new URL("../responses/", import.meta.url),
     new URL("../runtime/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),

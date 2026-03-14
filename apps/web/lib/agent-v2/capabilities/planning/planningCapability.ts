@@ -8,8 +8,8 @@ import { buildPlanFailureResponse } from "../../orchestrator/conversationManager
 import { withNoFabricationPlanGuardrail } from "../../grounding/draftGrounding.ts";
 import {
   buildPlannerQuickReplies,
-} from "../../orchestrator/plannerQuickReplies.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+} from "../../responses/plannerQuickReplies.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import {
   applyCreatorProfileHintsToPlan,
 } from "../../grounding/creatorHintPolicy.ts";

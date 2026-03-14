@@ -3,16 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { buildDynamicDraftChoices } from "./orchestrator/clarificationDraftChips.ts";
+import { buildDynamicDraftChoices } from "./responses/clarificationDraftChips.ts";
 import { normalizeDraftRevisionInstruction } from "./orchestrator/draftRevision.ts";
-import { buildDraftReply } from "./orchestrator/draftReply.ts";
-import { buildIdeationReply } from "./orchestrator/ideationReply.ts";
-import { buildIdeationQuickReplies } from "./orchestrator/ideationQuickReplies.ts";
+import { buildDraftReply } from "./responses/draftReply.ts";
+import { buildIdeationReply } from "./responses/ideationReply.ts";
+import { buildIdeationQuickReplies } from "./responses/ideationQuickReplies.ts";
 import {
   looksLikeMechanicalEdit,
   looksLikeNegativeFeedback,
 } from "./agents/antiPatternExtractor.ts";
-import { buildPlannerQuickReplies } from "./orchestrator/plannerQuickReplies.ts";
+import { buildPlannerQuickReplies } from "./responses/plannerQuickReplies.ts";
 import {
   inferCorrectionRepairQuestion,
   inferIdeationRationaleReply,
@@ -20,17 +20,17 @@ import {
   inferSourceTransparencyReply,
   looksLikeConfusionPing,
   looksLikeSemanticCorrection,
-} from "./orchestrator/correctionRepair.ts";
+} from "./responses/correctionRepair.ts";
 import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,
-} from "./orchestrator/feedbackMemoryNotice.ts";
+} from "./responses/feedbackMemoryNotice.ts";
 import {
   buildComparisonRelationshipQuestion,
   buildLooseDirectionReply,
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
-} from "./orchestrator/assistantReplyStyle.ts";
+} from "./responses/assistantReplyStyle.ts";
 import { buildRollingSummary, shouldRefreshRollingSummary } from "./memory/summaryManager.ts";
 import {
   buildFactSafeReferenceHints,

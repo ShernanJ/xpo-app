@@ -5,7 +5,7 @@ import {
   isBareIdeationRequest,
   resolveConversationMode,
 } from "../orchestrator/conversationManagerLogic.ts";
-import { buildIdeationReply } from "../orchestrator/ideationReply.ts";
+import { buildIdeationReply } from "../responses/ideationReply.ts";
 import { dedupeAngleTitlesForRetry } from "../orchestrator/angleNovelty.ts";
 import {
   ANGLE_NOVELTY_FIXTURES,
@@ -17,7 +17,7 @@ import {
   inferIdeationRationaleReply,
   inferPostReferenceReply,
   looksLikeConfusionPing,
-} from "../orchestrator/correctionRepair.ts";
+} from "../responses/correctionRepair.ts";
 
 for (const fixture of IDEATION_COMMAND_FIXTURES) {
   test(`regression: ideation command detection - "${fixture.input}"`, () => {

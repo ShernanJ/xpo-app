@@ -7,8 +7,8 @@ import {
   inferPostReferenceReply,
   inferSourceTransparencyReply,
   looksLikeConfusionPing,
-} from "../../orchestrator/correctionRepair.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+} from "../../responses/correctionRepair.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {
   StrategyPlan,

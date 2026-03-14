@@ -5,7 +5,7 @@ import {
   rememberSemanticCorrectionOnStyleCard,
   getDurableFactsFromStyleCard,
 } from "../core/styleProfile";
-import { countNewMemoryEntries } from "./feedbackMemoryNotice";
+import { countNewMemoryEntries } from "../responses/feedbackMemoryNotice";
 import {
 } from "../grounding/sourceMaterials";
 import type { ConversationServices } from "../runtime/services.ts";

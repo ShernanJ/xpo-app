@@ -6,7 +6,7 @@ import {
   type DraftBundleResult,
 } from "./draftBundles.ts";
 import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
-import { prependFeedbackMemoryNotice } from "./feedbackMemoryNotice.ts";
+import { prependFeedbackMemoryNotice } from "../responses/feedbackMemoryNotice.ts";
 import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 import type {
   OrchestratorResponse,

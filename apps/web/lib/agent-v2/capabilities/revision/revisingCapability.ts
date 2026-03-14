@@ -2,8 +2,8 @@ import {
   buildRollingSummary,
 } from "../../memory/summaryManager.ts";
 import { resolveVoiceTarget } from "../../core/voiceTarget.ts";
-import { buildDraftReply } from "../../orchestrator/draftReply.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { buildDraftReply } from "../../responses/draftReply.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { runRevisionValidationWorkers } from "../../workers/validation/revisionValidationWorkers.ts";
 import type { ReviserOutput } from "../../agents/reviser.ts";
 import type { CriticOutput } from "../../agents/critic.ts";

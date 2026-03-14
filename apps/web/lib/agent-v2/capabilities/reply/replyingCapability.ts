@@ -13,7 +13,7 @@ import type {
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
-import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { runConversationValidationWorkers } from "../../workers/validation/conversationValidationWorkers.ts";
 import type {
   RuntimeValidationResult,

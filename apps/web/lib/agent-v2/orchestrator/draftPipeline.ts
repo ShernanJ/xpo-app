@@ -37,17 +37,17 @@ import {
   looksLikePostReferenceRequest,
   looksLikeSourceTransparencyRequest,
   looksLikeSemanticCorrection,
-} from "./correctionRepair";
+} from "../responses/correctionRepair";
 import {
   extractConcreteSceneAnchors,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
 } from "../grounding/draftGrounding";
-import { buildDraftReply } from "./draftReply";
+import { buildDraftReply } from "../responses/draftReply";
 import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,
-} from "./feedbackMemoryNotice";
+} from "../responses/feedbackMemoryNotice";
 import {
   inferBroadTopicDraftRequest,
   isOpenEndedWildcardDraftRequest,

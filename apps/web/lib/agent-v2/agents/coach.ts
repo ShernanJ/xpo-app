@@ -13,7 +13,7 @@ import {
   buildWelcomeFallbackMessage,
   isTemplateyWelcomeMessage,
 } from "../welcomeMessage";
-import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../orchestrator/assistantReplyStyle";
+import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../responses/assistantReplyStyle";
 import { finalizeCoachReplyForSurface } from "./coachReplyNormalizer";
 
 export const CoachReplySchema = z.object({

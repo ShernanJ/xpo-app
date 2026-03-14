@@ -6,7 +6,7 @@ import {
   buildComparisonRelationshipQuestion,
   buildProblemStakeQuestion,
   buildProductCapabilityQuestion,
-} from "../../orchestrator/assistantReplyStyle";
+} from "../../responses/assistantReplyStyle";
 import {
   isBareDraftRequest,
   isBareIdeationRequest,
@@ -22,7 +22,7 @@ import {
   hasRelationshipDetail,
   inferComparisonReference,
 } from "../../orchestrator/draftContextSlots";
-import { extractTopicGrounding } from "../../orchestrator/correctionRepair";
+import { extractTopicGrounding } from "../../responses/correctionRepair";
 import {
   getTurnRelationContext,
   isContextDependentFollowUp,
