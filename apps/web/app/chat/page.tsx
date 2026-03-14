@@ -23,11 +23,6 @@ import {
   type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
-import {
-  buildDraftReviewFailureLabel,
-  buildDraftReviewLoadingLabel,
-  buildDraftReviewPrompt,
-} from "@/lib/agent-v2/responses/assistantReplyStyle";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
@@ -95,6 +90,7 @@ import {
   prepareDraftPromotionRequest,
   resolveDraftVersionRevertUpdate,
 } from "./_features/draft-editor/chatDraftPersistenceState";
+import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
 import {
   getThreadFramingStyle,
   resolvePrimaryDraftRevealKey,
@@ -242,28 +238,6 @@ interface CreatorGenerationContractFailure {
 type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
-
-interface DraftInspectorSuccess {
-  ok: true;
-  data: {
-    summary: string;
-    prompt: string;
-    userMessageId: string;
-    assistantMessageId: string;
-    billing?: BillingStatePayload;
-  };
-}
-
-interface DraftInspectorFailure {
-  ok: false;
-  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED";
-  errors: ValidationError[];
-  data?: {
-    billing?: BillingSnapshotPayload;
-  };
-}
-
-type DraftInspectorResponse = DraftInspectorSuccess | DraftInspectorFailure;
 
 interface DraftPromotionSuccess {
   ok: true;
@@ -1668,7 +1642,6 @@ function ChatPageContent() {
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [editorDraftText, setEditorDraftText] = useState("");
   const [editorDraftPosts, setEditorDraftPosts] = useState<string[]>([]);
-  const [isDraftInspectorLoading, setIsDraftInspectorLoading] = useState(false);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
   const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
   const [, setConversationMemory] = useState<
@@ -3094,6 +3067,39 @@ function ChatPageContent() {
   const draftInspectorActionLabel = isViewingHistoricalDraftVersion
     ? "Compare to Current"
     : "Analyze this Draft";
+  const { isDraftInspectorLoading, runDraftInspector } = useDraftInspectorState<ChatMessage>({
+    activeThreadId,
+    activeDraftEditorMessageId: activeDraftEditor?.messageId,
+    activeDraftEditorVersionId: activeDraftEditor?.versionId,
+    draftEditorSerializedContent,
+    selectedDraftVersion,
+    isViewingHistoricalDraftVersion,
+    latestDraftTimelineEntry,
+    fetchWorkspace,
+    setMessages,
+    scrollThreadToBottom,
+    onApplyBillingState: setBillingState,
+    onApplyBillingSnapshot: applyBillingSnapshot,
+    onRequirePricingModal: () => {
+      setPricingModalOpen(true);
+    },
+    onErrorMessage: setErrorMessage,
+    createUserMessage: ({ id, threadId, content, createdAt }) => ({
+      id,
+      threadId,
+      role: "user",
+      content,
+      createdAt,
+    }),
+    createAssistantMessage: ({ id, threadId, content, createdAt }) => ({
+      id,
+      threadId,
+      role: "assistant",
+      content,
+      createdAt,
+      isStreaming: true,
+    }),
+  });
   const isMainChatLocked = isSending || isDraftInspectorLoading;
 
   const latestAssistantMessageId = useMemo(
@@ -3670,157 +3676,6 @@ function ChatPageContent() {
       setErrorMessage("Copy failed. Try selecting the text manually.");
     }
   }, []);
-
-  const runDraftInspector = useCallback(async () => {
-    if (!selectedDraftVersion || !activeThreadId) {
-      return;
-    }
-
-    const inspectedDraft =
-      draftEditorSerializedContent.trim() || selectedDraftVersion.content.trim();
-    if (!inspectedDraft) {
-      return;
-    }
-
-    const shouldCompare =
-      isViewingHistoricalDraftVersion &&
-      !!latestDraftTimelineEntry &&
-      (latestDraftTimelineEntry.messageId !== activeDraftEditor?.messageId ||
-        latestDraftTimelineEntry.versionId !== activeDraftEditor?.versionId);
-    const currentDraft =
-      shouldCompare && latestDraftTimelineEntry
-        ? latestDraftTimelineEntry.content.trim()
-        : "";
-
-    if (shouldCompare && !currentDraft) {
-      setErrorMessage("There isn't a current draft version to compare against yet.");
-      return;
-    }
-
-    const prompt = buildDraftReviewPrompt(shouldCompare ? "compare" : "analyze");
-    const nowIso = new Date().toISOString();
-    const temporaryUserMessageId = `draft-inspector-user-${Date.now()}`;
-    const temporaryAssistantMessageId = `draft-inspector-assistant-${Date.now() + 1}`;
-
-    setMessages((current) => [
-      ...current,
-      {
-        id: temporaryUserMessageId,
-        threadId: activeThreadId ?? undefined,
-        role: "user",
-        content: prompt,
-        createdAt: nowIso,
-      },
-      {
-        id: temporaryAssistantMessageId,
-        threadId: activeThreadId ?? undefined,
-        role: "assistant",
-        content: buildDraftReviewLoadingLabel(shouldCompare ? "compare" : "analyze"),
-        createdAt: nowIso,
-        isStreaming: true,
-      },
-    ]);
-    scrollThreadToBottom();
-    setIsDraftInspectorLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetchWorkspace("/api/creator/v2/draft-analysis", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          mode: shouldCompare ? "compare" : "analyze",
-          draft: inspectedDraft,
-          threadId: activeThreadId,
-          ...(shouldCompare ? { currentDraft } : {}),
-        }),
-      });
-
-      const data = (await response.json()) as DraftInspectorResponse;
-
-      if (!response.ok || !data.ok) {
-        const failure = data as DraftInspectorFailure;
-        if (failure.data?.billing) {
-          applyBillingSnapshot(failure.data.billing);
-        }
-        if (response.status === 402 || response.status === 403) {
-          setPricingModalOpen(true);
-        }
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === temporaryAssistantMessageId
-              ? {
-                ...message,
-                content: buildDraftReviewFailureLabel(),
-                isStreaming: false,
-              }
-              : message,
-          ),
-        );
-        setErrorMessage(
-          failure.errors[0]?.message ?? "The draft analysis failed.",
-        );
-        return;
-      }
-
-      if (data.data.billing) {
-        setBillingState(data.data.billing);
-      }
-
-      setMessages((current) =>
-        current.map((message) => {
-          if (message.id === temporaryUserMessageId) {
-            return {
-              ...message,
-              id: data.data.userMessageId,
-              content: data.data.prompt,
-            };
-          }
-
-          if (message.id === temporaryAssistantMessageId) {
-            return {
-              ...message,
-              id: data.data.assistantMessageId,
-              content: data.data.summary.trim(),
-              isStreaming: false,
-            };
-          }
-
-          return message;
-        }),
-      );
-    } catch {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === temporaryAssistantMessageId
-            ? {
-              ...message,
-              content: buildDraftReviewFailureLabel(),
-              isStreaming: false,
-            }
-            : message,
-        ),
-      );
-      setErrorMessage("The draft analysis failed.");
-    } finally {
-      setIsDraftInspectorLoading(false);
-    }
-  }, [
-    activeThreadId,
-    activeDraftEditor?.messageId,
-    activeDraftEditor?.versionId,
-    applyBillingSnapshot,
-    draftEditorSerializedContent,
-    fetchWorkspace,
-    isViewingHistoricalDraftVersion,
-    latestDraftTimelineEntry,
-    selectedDraftVersion,
-    setBillingState,
-    setPricingModalOpen,
-    scrollThreadToBottom,
-  ]);
 
   const applyAssistantReplyPlan = useCallback(
     (replyPlan: CreatorAssistantReplyPlan) => {
