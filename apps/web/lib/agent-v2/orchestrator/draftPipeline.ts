@@ -10,8 +10,6 @@ import {
   isLazyDraftRequest,
   inferLooseClarificationSeed,
   inferAbstractTopicSeed,
-  extractIdeaTitlesFromIdeas,
-  inferTopicFromIdeaTitles,
   withPlanPreferences,
   looksGenericTopicSummary,
   buildDraftGroundingSummary,
@@ -23,7 +21,6 @@ import {
 import {
   buildPlanFailureResponse,
   isBareDraftRequest,
-  isBareIdeationRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
   shouldRouteCareerClarification,
@@ -80,8 +77,6 @@ import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,
 } from "./feedbackMemoryNotice";
-import { buildIdeationReply } from "./ideationReply";
-import { buildIdeationQuickReplies } from "./ideationQuickReplies";
 import { interpretPlannerFeedback } from "./plannerFeedback";
 import {
   inferBroadTopicDraftRequest,
@@ -135,6 +130,7 @@ import type { RoutingPolicyResult } from "./routingPolicy";
 import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
+import { executeIdeationCapability } from "./ideationExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -226,6 +222,20 @@ export async function executeDraftPipeline(args: {
       workflow: runtimeWorkflow,
       source: "pipeline_continuation",
     };
+  };
+  const mergeCapabilityExecutionMeta = (args: {
+    workers?: NonNullable<typeof routingTrace.workerExecutions>;
+    validations?: NonNullable<typeof routingTrace.validations>;
+  }) => {
+    if (args.workers?.length) {
+      routingTrace.workerExecutions.push(...args.workers);
+      routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
+        routingTrace.workerExecutions,
+      );
+    }
+    if (args.validations?.length) {
+      routingTrace.validations.push(...args.validations);
+    }
   };
 
   // We rewrite writeMemory locally to call saveConversationTurnMemory
@@ -2090,85 +2100,35 @@ User Profile Summary:
     topicSummaryOverride?: string | null;
     responseUserMessage?: string;
   }): Promise<RawOrchestratorResponse> {
-    const ideationPromptMessage = args?.promptMessage || userMessage;
-    const ideationReplyMessage = args?.responseUserMessage || userMessage;
-    const ideationTopicSummary =
-      args?.topicSummaryOverride !== undefined
-        ? args.topicSummaryOverride
-        : memory.topicSummary;
-    const ideas = await services.generateIdeasMenu(
-      ideationPromptMessage,
-      ideationTopicSummary,
-      effectiveContext,
-      styleCard,
-      relevantTopicAnchors,
-      userContextString,
-      {
+    const execution = await executeIdeationCapability({
+      workflow: "ideate",
+      capability: "ideation",
+      activeContextRefs: ["memory.topicSummary", "memory.lastIdeationAngles"],
+      context: {
+        userMessage,
+        promptMessage: args?.promptMessage,
+        responseUserMessage: args?.responseUserMessage,
+        topicSummaryOverride: args?.topicSummaryOverride,
+        memory,
+        effectiveContext,
+        styleCard,
+        relevantTopicAnchors,
+        userContextString,
         goal,
-        conversationState: memory.conversationState,
         antiPatterns,
+        effectiveActiveConstraints,
+        turnFormatPreference,
+        nextAssistantTurnCount,
+        feedbackMemoryNotice,
       },
-    );
-    const currentIdeaTitles = extractIdeaTitlesFromIdeas(ideas?.angles);
-    const inferredIdeaTopic = inferTopicFromIdeaTitles(currentIdeaTitles);
-
-    const currentTopicSummary = looksGenericTopicSummary(ideationTopicSummary)
-      ? null
-      : ideationTopicSummary;
-    const nextIdeationTopicSummary =
-      isBareIdeationRequest(ideationReplyMessage) ||
-      isBareDraftRequest(ideationReplyMessage) ||
-      isOpenEndedWildcardDraftRequest(ideationReplyMessage)
-      ? currentTopicSummary || inferredIdeaTopic
-      : ideationPromptMessage;
-
-    await writeMemoryLocal({
-      ...(nextIdeationTopicSummary !== memory.topicSummary
-        ? { topicSummary: nextIdeationTopicSummary }
-        : {}),
-      ...(currentIdeaTitles.length > 0
-        ? { lastIdeationAngles: currentIdeaTitles }
-        : {}),
-      conversationState: "ready_to_ideate",
-      pendingPlan: null,
-      clarificationState: null,
-      assistantTurnCount: nextAssistantTurnCount,
-      rollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, false)
-        ? buildRollingSummary({
-          currentSummary: memory.rollingSummary,
-          topicSummary: nextIdeationTopicSummary || currentTopicSummary,
-          approvedPlan: null,
-          activeConstraints: effectiveActiveConstraints,
-          latestDraftStatus: "Ideation in progress",
-          formatPreference: memory.formatPreference || turnFormatPreference,
-          unresolvedQuestion: ideas?.close || null,
-        })
-        : memory.rollingSummary,
-      latestRefinementInstruction: null,
-      ...clearClarificationPatch(),
+      services,
     });
 
+    mergeCapabilityExecutionMeta(execution);
+    await writeMemoryLocal(execution.output.memoryPatch);
+
     return {
-      mode: "ideate",
-      outputShape: "ideation_angles",
-      response: prependFeedbackMemoryNotice(
-        buildIdeationReply({
-          intro: ideas?.intro || "",
-          close: ideas?.close || "",
-          userMessage: ideationReplyMessage,
-          styleCard,
-        }),
-        feedbackMemoryNotice,
-      ),
-      data: ideas
-        ? {
-          angles: ideas.angles,
-          quickReplies: buildIdeationQuickReplies({
-            styleCard,
-            seedTopic: nextIdeationTopicSummary || currentTopicSummary,
-          }),
-        }
-        : undefined,
+      ...execution.output.responseSeed,
       memory,
     };
   }

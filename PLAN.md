@@ -107,8 +107,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 
 ### Phase 3: Split capability execution
 - Shared executor contract is partially landed already in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`; the remaining work is moving capability execution onto it cleanly.
+- Landed during migration:
+  - ideation now runs through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts` using `CapabilityExecutionRequest` / `CapabilityExecutionResult`, with `draftPipeline.ts` applying the returned memory patch and worker trace metadata.
 - Break `draftPipeline.ts` into capability executors:
-  - ideation
   - planning
   - drafting
   - revising

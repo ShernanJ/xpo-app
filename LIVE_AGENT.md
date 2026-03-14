@@ -113,8 +113,9 @@ User turn
 ### Capability execution
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Still transitional.
-- Long-term target is separate executors for:
-  - ideation
+- Landed so far:
+  - ideation now runs through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts`
+- Remaining target executors:
   - planning
   - drafting
   - revising
@@ -271,6 +272,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Split `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Extract the planning executor from `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Separate drafting from revising so each runs behind the shared capability contract
 - Move capability execution behind the shared runtime executor contract in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

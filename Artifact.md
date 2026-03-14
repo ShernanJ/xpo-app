@@ -151,9 +151,11 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `CapabilityExecutionRequest`
   - `CapabilityExecutionResult`
   - `RuntimeValidationResult`
+- Landed:
+  - ideation now executes through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts`
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor through the shared capability contract and merges returned worker metadata at the pipeline boundary
 - Remaining work:
   - break `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` into capability executors:
-    - ideation
     - planning
     - drafting
     - revising
@@ -161,7 +163,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
     - analysis
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-- Status: partially landed.
+- Status: in progress.
 
 ### Phase 4: Formalize the parallel worker plane
 - Allow worker fan-out only for retrieval, source-material loading, style/profile loading, candidate generation, and validation/scoring.
