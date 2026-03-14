@@ -125,7 +125,7 @@ User turn
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation now lives in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, but `apps/web/app/api/creator/v2/chat/route.reply.ts` still sits at the route boundary for reply preflight parsing/defaults, parse-only prompts, reply artifact shaping, and handled-reply persistence/finalization
+  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization and `apps/web/app/api/creator/v2/chat/route.reply.ts` / `apps/web/app/api/creator/v2/chat/reply.logic.ts` remain compatibility shims
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ## Capability contract
