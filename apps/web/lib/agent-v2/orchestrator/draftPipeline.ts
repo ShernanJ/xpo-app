@@ -142,6 +142,7 @@ import { executeReplyingCapability } from "./replyingExecutor.ts";
 import { executeAnalysisCapability } from "./analysisExecutor.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";
+import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -629,6 +630,28 @@ User Profile Summary:
     });
   }
 
+  async function returnDeliveryValidationFallback(args: {
+    issues: string[];
+    response?: string;
+  }): Promise<RawOrchestratorResponse> {
+    await writeMemoryLocal({
+      assistantTurnCount: nextAssistantTurnCount,
+      clarificationState: null,
+      ...clearClarificationPatch(),
+    });
+
+    return {
+      mode: "coach",
+      outputShape: "coach_question",
+      response: prependFeedbackMemoryNotice(
+        args.response ||
+          "that draft came back malformed twice. want me to regenerate it cleanly with the same direction?",
+        feedbackMemoryNotice,
+      ),
+      memory,
+    };
+  }
+
   function buildConcreteSceneClarificationQuestion(sourceUserMessage: string): string {
     const anchors = extractConcreteSceneAnchors(sourceUserMessage);
     const anchorSummary =
@@ -1048,19 +1071,34 @@ User Profile Summary:
       };
     }
 
-    const firstValidation = await runDraftGuardValidationWorkers({
+    const firstDeliveryValidation = runDeliveryValidationWorkers({
       capability: "drafting",
-      groupId: "draft_guard_validation_initial",
-      activeConstraints: args.activeConstraints,
-      sourceUserMessage: args.sourceUserMessage,
+      groupId: "draft_delivery_validation_initial",
       draft: firstAttemptWithClaimCheck.draftToDeliver,
+      formatPreference: args.formatPreference,
+      sourceUserMessage: args.sourceUserMessage,
     });
-    localWorkers.push(...firstValidation.workerExecutions);
-    localValidations.push(...firstValidation.validations);
-    const firstAssessment = firstValidation.concreteSceneAssessment;
-    const firstProductAssessment = firstValidation.groundedProductAssessment;
+    localWorkers.push(...firstDeliveryValidation.workerExecutions);
+    localValidations.push(...firstDeliveryValidation.validations);
+    let firstAssessment = { hasDrift: false, reason: null as string | null };
+    let firstProductAssessment = { hasDrift: false, reason: null as string | null };
+
+    if (!firstDeliveryValidation.hasFailures) {
+      const firstValidation = await runDraftGuardValidationWorkers({
+        capability: "drafting",
+        groupId: "draft_guard_validation_initial",
+        activeConstraints: args.activeConstraints,
+        sourceUserMessage: args.sourceUserMessage,
+        draft: firstAttemptWithClaimCheck.draftToDeliver,
+      });
+      localWorkers.push(...firstValidation.workerExecutions);
+      localValidations.push(...firstValidation.validations);
+      firstAssessment = firstValidation.concreteSceneAssessment;
+      firstProductAssessment = firstValidation.groundedProductAssessment;
+    }
 
     if (
+      !firstDeliveryValidation.hasFailures &&
       !firstAssessment.hasDrift &&
       !firstProductAssessment.hasDrift &&
       !firstAttemptWithClaimCheck.hasUnsupportedClaims
@@ -1083,10 +1121,15 @@ User Profile Summary:
       ...(firstAttemptWithClaimCheck.hasUnsupportedClaims
         ? [buildUnsupportedClaimRetryConstraint()]
         : []),
-      ...(firstAssessment.hasDrift
+      ...firstDeliveryValidation.retryConstraints,
+      ...(firstDeliveryValidation.hasFailures
+        ? []
+        : firstAssessment.hasDrift
         ? [buildConcreteSceneRetryConstraint(args.sourceUserMessage || "")]
         : []),
-      ...(firstProductAssessment.hasDrift
+      ...(firstDeliveryValidation.hasFailures
+        ? []
+        : firstProductAssessment.hasDrift
         ? [buildGroundedProductRetryConstraint()]
         : []),
     ].filter(Boolean) as string[];
@@ -1153,6 +1196,37 @@ User Profile Summary:
           ...(args.pendingPlan !== undefined
             ? { pendingPlan: args.pendingPlan }
             : {}),
+        }),
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
+      };
+    }
+
+    const secondDeliveryValidation = runDeliveryValidationWorkers({
+      capability: "drafting",
+      groupId: retryConstraints.length > 0
+        ? "draft_delivery_validation_retry"
+        : "draft_delivery_validation_initial",
+      draft: secondAttemptWithClaimCheck.draftToDeliver,
+      formatPreference: args.formatPreference,
+      sourceUserMessage: args.sourceUserMessage,
+    });
+    localWorkers.push(...secondDeliveryValidation.workerExecutions);
+    localValidations.push(...secondDeliveryValidation.validations);
+
+    if (secondDeliveryValidation.hasFailures) {
+      routingTracePatch = {
+        ...routingTracePatch,
+        draftGuard: {
+          reason: "delivery_validation_failed",
+          issues: secondDeliveryValidation.issues.map((issue) => issue.message),
+        },
+      };
+      return {
+        kind: "response",
+        response: await returnDeliveryValidationFallback({
+          issues: secondDeliveryValidation.issues.map((issue) => issue.message),
         }),
         workers: localWorkers,
         validations: localValidations,

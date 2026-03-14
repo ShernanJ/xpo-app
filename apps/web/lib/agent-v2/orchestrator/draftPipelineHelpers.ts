@@ -295,9 +295,10 @@ export interface RoutingTrace {
   draftGuard:
     | {
         reason:
-          | "claim_needs_clarification"
-          | "concrete_scene_drift"
-          | "product_drift";
+        | "claim_needs_clarification"
+        | "concrete_scene_drift"
+        | "product_drift"
+        | "delivery_validation_failed";
         issues: string[];
       }
     | null;

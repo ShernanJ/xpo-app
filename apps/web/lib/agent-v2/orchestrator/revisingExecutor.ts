@@ -4,7 +4,7 @@ import {
 import { resolveVoiceTarget } from "../core/voiceTarget.ts";
 import { buildDraftReply } from "./draftReply.ts";
 import { prependFeedbackMemoryNotice } from "./feedbackMemoryNotice.ts";
-import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
+import { runRevisionValidationWorkers } from "../workers/validation/revisionValidationWorkers.ts";
 import type { ReviserOutput } from "../agents/reviser.ts";
 import type { CriticOutput } from "../agents/critic.ts";
 import type {
@@ -21,7 +21,9 @@ import type {
   CapabilityResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeValidationResult,
   RuntimeResponseSeed,
+  RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
 import {
   resolveDraftOutputShape,
@@ -39,6 +41,28 @@ type RawOrchestratorResponse = Omit<
 >;
 
 type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
+
+function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
+  return Array.from(
+    new Set(
+      issueMessages.map((message) => {
+        if (/cut off/i.test(message)) {
+          return "Finished the revision with a complete ending.";
+        }
+        if (/echoing the user's prompt/i.test(message)) {
+          return "Removed prompt-echo phrasing from the revision.";
+        }
+        if (/single post was requested/i.test(message)) {
+          return "Matched the requested post format.";
+        }
+        if (/distinct posts/i.test(message)) {
+          return "Reshaped the revision into a valid thread.";
+        }
+        return "Cleaned up malformed revision delivery.";
+      }),
+    ),
+  );
+}
 
 export interface RevisingCapabilityContext {
   memory: V2ConversationMemory;
@@ -96,28 +120,111 @@ export async function executeRevisingCapability(
   },
 ): Promise<CapabilityExecutionResult<RevisingCapabilityOutput>> {
   const { context, services } = args;
-  const reviserOutput = await services.generateRevisionDraft({
-    activeDraft: context.activeDraft,
-    revision: context.revision,
-    styleCard: context.styleCard,
-    topicAnchors: context.relevantTopicAnchors,
-    activeConstraints: context.revisionActiveConstraints,
-    recentHistory: context.effectiveContext,
-    options: {
-      conversationState: "editing",
-      antiPatterns: context.antiPatterns,
-      maxCharacterLimit: context.maxCharacterLimit,
-      goal: context.goal,
-      draftPreference: context.turnDraftPreference,
-      formatPreference: context.turnFormatPreference,
-      threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
-      threadFramingStyle: context.turnThreadFramingStyle,
-      sourceUserMessage: context.userMessage,
-      groundingPacket: context.groundingPacket,
-    },
+
+  const buildDeliveryFallbackResponse = (): RawOrchestratorResponse => ({
+    mode: "coach",
+    outputShape: "coach_question",
+    response: prependFeedbackMemoryNotice(
+      "that revision came back malformed twice. want me to try again cleanly with the same edit goal?",
+      context.feedbackMemoryNotice ?? null,
+    ),
+    memory: context.memory,
   });
 
-  if (!reviserOutput) {
+  const runRevisionAttempt = async (attempt: {
+    extraConstraints?: string[];
+    validationGroupId: string;
+  }) => {
+    const activeConstraints = Array.from(
+      new Set([
+        ...context.revisionActiveConstraints,
+        ...(attempt.extraConstraints ?? []),
+      ]),
+    );
+    const reviserOutput = await services.generateRevisionDraft({
+      activeDraft: context.activeDraft,
+      revision: context.revision,
+      styleCard: context.styleCard,
+      topicAnchors: context.relevantTopicAnchors,
+      activeConstraints,
+      recentHistory: context.effectiveContext,
+      options: {
+        conversationState: "editing",
+        antiPatterns: context.antiPatterns,
+        maxCharacterLimit: context.maxCharacterLimit,
+        goal: context.goal,
+        draftPreference: context.turnDraftPreference,
+        formatPreference: context.turnFormatPreference,
+        threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
+        threadFramingStyle: context.turnThreadFramingStyle,
+        sourceUserMessage: context.userMessage,
+        groundingPacket: context.groundingPacket,
+      },
+    });
+
+    if (!reviserOutput) {
+      return {
+        activeConstraints,
+        reviserOutput: null,
+        criticOutput: null,
+        validation: null,
+      };
+    }
+
+    const criticOutput = await services.critiqueDrafts(
+      {
+        angle: "Targeted revision",
+        draft: reviserOutput.revisedDraft,
+        supportAsset: reviserOutput.supportAsset ?? "",
+        whyThisWorks: "",
+        watchOutFor: "",
+      },
+      activeConstraints,
+      context.styleCard,
+      {
+        maxCharacterLimit: context.maxCharacterLimit,
+        draftPreference: context.turnDraftPreference,
+        formatPreference: context.turnFormatPreference,
+        threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
+        threadFramingStyle: context.turnThreadFramingStyle,
+        previousDraft: context.activeDraft,
+        revisionChangeKind: context.revision.changeKind,
+        sourceUserMessage: context.userMessage,
+        groundingPacket: context.groundingPacket,
+      },
+    );
+
+    if (!criticOutput) {
+      return {
+        activeConstraints,
+        reviserOutput,
+        criticOutput: null,
+        validation: null,
+      };
+    }
+
+    return {
+      activeConstraints,
+      reviserOutput,
+      criticOutput,
+      validation: runRevisionValidationWorkers({
+        capability: "revising",
+        draft: criticOutput.finalDraft,
+        groundingPacket: context.groundingPacket,
+        formatPreference: context.turnFormatPreference,
+        sourceUserMessage: context.userMessage,
+        groupId: attempt.validationGroupId,
+      }),
+    };
+  };
+
+  const accumulatedWorkers: RuntimeWorkerExecution[] = [];
+  const accumulatedValidations: RuntimeValidationResult[] = [];
+  const firstAttempt = await runRevisionAttempt({
+    validationGroupId: "revision_delivery_validation_initial",
+  });
+
+  if (!firstAttempt.reviserOutput) {
     return {
       workflow: args.workflow,
       capability: args.capability,
@@ -146,30 +253,7 @@ export async function executeRevisingCapability(
     };
   }
 
-  const criticOutput = await services.critiqueDrafts(
-    {
-      angle: "Targeted revision",
-      draft: reviserOutput.revisedDraft,
-      supportAsset: reviserOutput.supportAsset ?? "",
-      whyThisWorks: "",
-      watchOutFor: "",
-    },
-    context.revisionActiveConstraints,
-    context.styleCard,
-    {
-      maxCharacterLimit: context.maxCharacterLimit,
-      draftPreference: context.turnDraftPreference,
-      formatPreference: context.turnFormatPreference,
-      threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
-      threadFramingStyle: context.turnThreadFramingStyle,
-      previousDraft: context.activeDraft,
-      revisionChangeKind: context.revision.changeKind,
-      sourceUserMessage: context.userMessage,
-      groundingPacket: context.groundingPacket,
-    },
-  );
-
-  if (!criticOutput) {
+  if (!firstAttempt.criticOutput) {
     return {
       workflow: args.workflow,
       capability: args.capability,
@@ -191,7 +275,7 @@ export async function executeRevisingCapability(
           status: "completed",
           groupId: null,
           details: {
-            issuesFixedCount: reviserOutput.issuesFixed?.length ?? 0,
+            issuesFixedCount: firstAttempt.reviserOutput.issuesFixed?.length ?? 0,
           },
         },
         {
@@ -209,14 +293,24 @@ export async function executeRevisingCapability(
     };
   }
 
-  const revisionValidation = runRevisionValidationWorkers({
-    capability: "revising",
-    draft: criticOutput.finalDraft,
-    groundingPacket: context.groundingPacket,
-  });
-  const { claimCheck, validationStatus: revisionValidationStatus } = revisionValidation;
+  accumulatedWorkers.push(
+    {
+      worker: "reviser",
+      capability: "revising",
+      phase: "execution",
+      mode: "sequential",
+      status: "completed",
+      groupId: null,
+      details: {
+        issuesFixedCount: firstAttempt.reviserOutput.issuesFixed?.length ?? 0,
+        revisionChangeKind: context.revision.changeKind,
+      },
+    },
+    ...firstAttempt.validation!.workerExecutions,
+  );
+  accumulatedValidations.push(...firstAttempt.validation!.validations);
 
-  if (claimCheck.needsClarification) {
+  if (firstAttempt.validation!.claimCheck.needsClarification) {
     return {
       workflow: args.workflow,
       capability: args.capability,
@@ -224,31 +318,125 @@ export async function executeRevisingCapability(
         kind: "response",
         response: await services.buildClarificationResponse(),
       },
-      workers: [
-        {
-          worker: "reviser",
-          capability: "revising",
-          phase: "execution",
-          mode: "sequential",
-          status: "completed",
-          groupId: null,
-          details: {
-            issuesFixedCount: reviserOutput.issuesFixed?.length ?? 0,
-          },
-        },
-        {
-          ...revisionValidation.workerExecutions[0],
-        },
-      ],
-      validations: revisionValidation.validations,
+      workers: accumulatedWorkers,
+      validations: accumulatedValidations,
     };
   }
 
-  const revisionWasRejectedByCritic = !criticOutput.approved;
+  const retryConstraints = firstAttempt.validation!.retryConstraints;
+  const finalAttempt = retryConstraints.length > 0
+    ? await runRevisionAttempt({
+        extraConstraints: retryConstraints,
+        validationGroupId: "revision_delivery_validation_retry",
+      })
+    : firstAttempt;
+
+  if (finalAttempt !== firstAttempt) {
+    if (!finalAttempt.reviserOutput) {
+      return {
+        workflow: args.workflow,
+        capability: args.capability,
+        output: {
+          kind: "response",
+          response: {
+            mode: "error",
+            outputShape: "coach_question",
+            response: "Failed to revise draft.",
+            memory: context.memory,
+          },
+        },
+        workers: accumulatedWorkers,
+        validations: accumulatedValidations,
+      };
+    }
+
+    if (!finalAttempt.criticOutput) {
+      return {
+        workflow: args.workflow,
+        capability: args.capability,
+        output: {
+          kind: "response",
+          response: {
+            mode: "error",
+            outputShape: "coach_question",
+            response: "Failed to finalize revised draft.",
+            memory: context.memory,
+          },
+        },
+        workers: accumulatedWorkers,
+        validations: accumulatedValidations,
+      };
+    }
+
+    accumulatedWorkers.push(
+      {
+        worker: "reviser",
+        capability: "revising",
+        phase: "execution",
+        mode: "sequential",
+        status: "completed",
+        groupId: null,
+        details: {
+          issuesFixedCount: finalAttempt.reviserOutput.issuesFixed?.length ?? 0,
+          revisionChangeKind: context.revision.changeKind,
+        },
+      },
+      ...finalAttempt.validation!.workerExecutions,
+    );
+    accumulatedValidations.push(...finalAttempt.validation!.validations);
+  }
+
+  if (!finalAttempt.reviserOutput || !finalAttempt.criticOutput) {
+    return {
+      workflow: args.workflow,
+      capability: args.capability,
+      output: {
+        kind: "response",
+        response: {
+          mode: "error",
+          outputShape: "coach_question",
+          response: "Failed to finalize revised draft.",
+          memory: context.memory,
+        },
+      },
+      workers: accumulatedWorkers,
+      validations: accumulatedValidations,
+    };
+  }
+
+  if (finalAttempt.validation!.claimCheck.needsClarification) {
+    return {
+      workflow: args.workflow,
+      capability: args.capability,
+      output: {
+        kind: "response",
+        response: await services.buildClarificationResponse(),
+      },
+      workers: accumulatedWorkers,
+      validations: accumulatedValidations,
+    };
+  }
+
+  if (finalAttempt.validation!.hasDeliveryFailures) {
+    return {
+      workflow: args.workflow,
+      capability: args.capability,
+      output: {
+        kind: "response",
+        response: buildDeliveryFallbackResponse(),
+      },
+      workers: accumulatedWorkers,
+      validations: accumulatedValidations,
+    };
+  }
+
+  const revisionWasRejectedByCritic = !finalAttempt.criticOutput.approved;
   const finalizedRevisionDraft =
-    claimCheck.draft ||
-    (revisionWasRejectedByCritic ? context.activeDraft : criticOutput.finalDraft) ||
-    reviserOutput.revisedDraft;
+    finalAttempt.validation!.claimCheck.draft ||
+    (revisionWasRejectedByCritic
+      ? context.activeDraft
+      : finalAttempt.criticOutput.finalDraft) ||
+    finalAttempt.reviserOutput.revisedDraft;
   const revisionVoiceTarget = resolveVoiceTarget({
     styleCard: context.styleCard,
     userMessage: context.userMessage,
@@ -260,7 +448,7 @@ export async function executeRevisingCapability(
         currentSummary: context.memory.rollingSummary,
         topicSummary: context.memory.topicSummary,
         approvedPlan: context.memory.pendingPlan,
-        activeConstraints: context.revisionActiveConstraints,
+        activeConstraints: finalAttempt.activeConstraints,
         latestDraftStatus: "Draft revised",
         formatPreference: context.memory.formatPreference || context.turnFormatPreference,
       })
@@ -268,9 +456,14 @@ export async function executeRevisingCapability(
 
   const issuesFixed = Array.from(
     new Set([
-      ...(reviserOutput.issuesFixed || []),
-      ...criticOutput.issues,
-      ...claimCheck.issues,
+      ...(finalAttempt.reviserOutput.issuesFixed || []),
+      ...finalAttempt.criticOutput.issues,
+      ...finalAttempt.validation!.claimCheck.issues,
+      ...(retryConstraints.length > 0
+        ? buildDeliveryFixSummaries(
+            firstAttempt.validation!.validations.flatMap((validation) => validation.issues),
+          )
+        : []),
       ...(revisionWasRejectedByCritic
         ? ["Kept the revision closer to the original edit scope."]
         : []),
@@ -298,7 +491,7 @@ export async function executeRevisingCapability(
         ),
         data: {
           draft: finalizedRevisionDraft,
-          supportAsset: reviserOutput.supportAsset,
+          supportAsset: finalAttempt.reviserOutput.supportAsset,
           issuesFixed,
           voiceTarget: revisionVoiceTarget,
           noveltyNotes: [],
@@ -310,7 +503,7 @@ export async function executeRevisingCapability(
       },
       memoryPatch: {
         conversationState: "editing",
-        activeConstraints: context.revisionActiveConstraints,
+        activeConstraints: finalAttempt.activeConstraints,
         pendingPlan: null,
         clarificationState: null,
         rollingSummary,
@@ -321,21 +514,7 @@ export async function executeRevisingCapability(
       },
     },
     workers: [
-      {
-        worker: "reviser",
-        capability: "revising",
-        phase: "execution",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          issuesFixedCount: reviserOutput.issuesFixed?.length ?? 0,
-          revisionChangeKind: context.revision.changeKind,
-        },
-      },
-      {
-        ...revisionValidation.workerExecutions[0],
-      },
+      ...accumulatedWorkers,
       {
         worker: "revision_delivery",
         capability: "revising",
@@ -348,6 +527,6 @@ export async function executeRevisingCapability(
         },
       },
     ],
-    validations: revisionValidation.validations,
+    validations: accumulatedValidations,
   };
 }

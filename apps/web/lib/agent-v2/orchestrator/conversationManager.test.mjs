@@ -11,12 +11,15 @@ import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
+import { executeRevisingCapability } from "./revisingExecutor.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,
   resolveRuntimeValidationStatus,
 } from "./workerPlane.ts";
+import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
+import { validateDelivery } from "../validators/shared/deliveryValidators.ts";
 
 import {
   evaluateDraftContextSlots,
@@ -658,6 +661,8 @@ test("revision validation workers isolate deterministic revision claim checks", 
       unknowns: ["missing evidence for outcome claims"],
       sourceMaterials: [],
     },
+    formatPreference: "shortform",
+    sourceUserMessage: "tighten this revision",
   });
 
   assert.equal(result.claimCheck.hasUnsupportedClaims, true);
@@ -675,13 +680,129 @@ test("revision validation workers isolate deterministic revision claim checks", 
         phase: "validation",
         mode: "sequential",
         status: "completed",
-        groupId: "revision_validation",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
+        worker: "truncation_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
+        worker: "prompt_echo_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
+        worker: "artifact_shape_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
+        worker: "thread_shape_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "skipped",
+        groupId: "revision_delivery_validation_initial",
       },
     ],
   );
   assert.deepEqual(
-    result.validations.map((validation) => validation.status),
-    ["failed"],
+    result.validations.map((validation) => validation.validator),
+    [
+      "claim_checker",
+      "truncation_guard",
+      "prompt_echo_guard",
+      "artifact_shape_guard",
+    ],
+  );
+});
+
+test("delivery validators catch truncation, prompt echo, artifact mismatch, and malformed thread shape", () => {
+  assert.deepEqual(
+    validateDelivery({
+      draft: "shipped the update and",
+      formatPreference: "shortform",
+      sourceUserMessage: "write me a post about the update",
+    }).issues.map((issue) => issue.code),
+    ["truncation"],
+  );
+
+  assert.deepEqual(
+    validateDelivery({
+      draft: "the post is tighter now.\nwhat do you think about the update",
+      formatPreference: "shortform",
+      sourceUserMessage: "what do you think about the update?",
+    }).issues.map((issue) => issue.code),
+    ["prompt_echo"],
+  );
+
+  assert.deepEqual(
+    validateDelivery({
+      draft: "Thread: first thought\n---\nsecond thought",
+      formatPreference: "shortform",
+      sourceUserMessage: "write one post",
+    }).issues.map((issue) => issue.code),
+    ["artifact_mismatch"],
+  );
+
+  assert.deepEqual(
+    validateDelivery({
+      draft: "first post\n---\nsecond post",
+      formatPreference: "thread",
+      sourceUserMessage: "write a thread",
+    }).issues.map((issue) => issue.code),
+    ["thread_post_shape_mismatch"],
+  );
+});
+
+test("delivery validation workers expose standardized worker names and retry metadata", () => {
+  const result = runDeliveryValidationWorkers({
+    capability: "drafting",
+    groupId: "draft_delivery_validation_initial",
+    draft: "Thread: shipped the update and",
+    formatPreference: "shortform",
+    sourceUserMessage: "write one post about the update",
+  });
+
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "truncation_guard",
+        status: "completed",
+        groupId: "draft_delivery_validation_initial",
+      },
+      {
+        worker: "prompt_echo_guard",
+        status: "completed",
+        groupId: "draft_delivery_validation_initial",
+      },
+      {
+        worker: "artifact_shape_guard",
+        status: "completed",
+        groupId: "draft_delivery_validation_initial",
+      },
+      {
+        worker: "thread_shape_guard",
+        status: "skipped",
+        groupId: "draft_delivery_validation_initial",
+      },
+    ],
+  );
+  assert.equal(result.retryConstraints.length >= 2, true);
+  assert.deepEqual(
+    result.validations.map((validation) => validation.validator),
+    ["truncation_guard", "prompt_echo_guard", "artifact_shape_guard"],
   );
 });
 
@@ -2106,6 +2227,273 @@ test("unsupported claims force a stricter grounded retry before first-pass deliv
   assert.equal(source.includes("hasUnsupportedClaims"), true);
   assert.equal(
     source.includes("!firstAttemptWithClaimCheck.hasUnsupportedClaims"),
+    true,
+  );
+});
+
+test("draft pipeline runs delivery validation before fallbacking malformed drafts", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(source.includes("runDeliveryValidationWorkers"), true);
+  assert.equal(source.includes("draft_delivery_validation_initial"), true);
+  assert.equal(source.includes("draft_delivery_validation_retry"), true);
+  assert.equal(source.includes("returnDeliveryValidationFallback"), true);
+  assert.equal(source.includes("delivery_validation_failed"), true);
+});
+
+test("revising capability retries delivery failures once and succeeds on a clean second pass", async () => {
+  let revisionCalls = 0;
+  let criticCalls = 0;
+
+  const execution = await executeRevisingCapability({
+    workflow: "revise_draft",
+    capability: "revising",
+    context: {
+      memory: {
+        rollingSummary: null,
+        topicSummary: "launch update",
+        pendingPlan: null,
+        formatPreference: "shortform",
+      },
+      activeDraft: "the launch is live now",
+      revision: {
+        instruction: "tighten the ending",
+        changeKind: "length_trim",
+        targetText: null,
+      },
+      revisionActiveConstraints: ["keep it grounded"],
+      effectiveContext: "assistant: draft ready",
+      relevantTopicAnchors: ["launch update"],
+      styleCard: null,
+      maxCharacterLimit: 280,
+      goal: "Audience growth",
+      antiPatterns: [],
+      turnDraftPreference: "balanced",
+      turnFormatPreference: "shortform",
+      threadPostMaxCharacterLimit: undefined,
+      turnThreadFramingStyle: null,
+      userMessage: "tighten the ending",
+      groundingPacket: {
+        durableFacts: ["the launch is live now"],
+        turnGrounding: [],
+        allowedFirstPersonClaims: [],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        unknowns: [],
+        sourceMaterials: [],
+      },
+      feedbackMemoryNotice: null,
+      nextAssistantTurnCount: 3,
+      refreshRollingSummary: false,
+      latestRefinementInstruction: "tighten the ending",
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+    },
+    services: {
+      generateRevisionDraft: async () => {
+        revisionCalls += 1;
+        return {
+          revisedDraft:
+            revisionCalls === 1
+              ? "the launch is live now and"
+              : "the launch is live now. tightened the close and kept it grounded.",
+          issuesFixed: ["Tightened the ending."],
+          supportAsset: null,
+        };
+      },
+      critiqueDrafts: async (writerOutput) => {
+        criticCalls += 1;
+        return {
+          approved: true,
+          finalDraft: writerOutput.draft,
+          issues: ["Smoothed the phrasing."],
+        };
+      },
+      buildClarificationResponse: async () => {
+        throw new Error("clarification should not be requested");
+      },
+    },
+  });
+
+  assert.equal(revisionCalls, 2);
+  assert.equal(criticCalls, 2);
+  assert.equal(execution.output.kind, "revision_ready");
+  assert.equal(
+    execution.output.responseSeed.data.draft,
+    "the launch is live now. tightened the close and kept it grounded.",
+  );
+  assert.equal(
+    execution.output.responseSeed.data.issuesFixed.includes(
+      "Finished the revision with a complete ending.",
+    ),
+    true,
+  );
+  assert.equal(
+    execution.workers.some(
+      (worker) => worker.groupId === "revision_delivery_validation_retry",
+    ),
+    true,
+  );
+});
+
+test("revising capability falls back safely when delivery validation fails twice", async () => {
+  const execution = await executeRevisingCapability({
+    workflow: "revise_draft",
+    capability: "revising",
+    context: {
+      memory: {
+        rollingSummary: null,
+        topicSummary: "launch update",
+        pendingPlan: null,
+        formatPreference: "shortform",
+      },
+      activeDraft: "the launch is live now",
+      revision: {
+        instruction: "tighten the ending",
+        changeKind: "length_trim",
+        targetText: null,
+      },
+      revisionActiveConstraints: ["keep it grounded"],
+      effectiveContext: "assistant: draft ready",
+      relevantTopicAnchors: ["launch update"],
+      styleCard: null,
+      maxCharacterLimit: 280,
+      goal: "Audience growth",
+      antiPatterns: [],
+      turnDraftPreference: "balanced",
+      turnFormatPreference: "shortform",
+      threadPostMaxCharacterLimit: undefined,
+      turnThreadFramingStyle: null,
+      userMessage: "tighten the ending",
+      groundingPacket: {
+        durableFacts: ["the launch is live now"],
+        turnGrounding: [],
+        allowedFirstPersonClaims: [],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        unknowns: [],
+        sourceMaterials: [],
+      },
+      feedbackMemoryNotice: null,
+      nextAssistantTurnCount: 3,
+      refreshRollingSummary: false,
+      latestRefinementInstruction: "tighten the ending",
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+    },
+    services: {
+      generateRevisionDraft: async () => ({
+        revisedDraft: "the launch is live now and",
+        issuesFixed: ["Tightened the ending."],
+        supportAsset: null,
+      }),
+      critiqueDrafts: async (writerOutput) => ({
+        approved: true,
+        finalDraft: writerOutput.draft,
+        issues: ["Smoothed the phrasing."],
+      }),
+      buildClarificationResponse: async () => {
+        throw new Error("clarification should not be requested");
+      },
+    },
+  });
+
+  assert.equal(execution.output.kind, "response");
+  assert.equal(execution.output.response.mode, "coach");
+  assert.equal(execution.output.response.outputShape, "coach_question");
+  assert.equal(
+    execution.output.response.response.includes("malformed twice"),
+    true,
+  );
+  assert.equal(
+    execution.workers.some(
+      (worker) => worker.groupId === "revision_delivery_validation_retry",
+    ),
+    true,
+  );
+});
+
+test("revising capability keeps claim clarification ahead of delivery fallback", async () => {
+  let clarificationCalls = 0;
+
+  const execution = await executeRevisingCapability({
+    workflow: "revise_draft",
+    capability: "revising",
+    context: {
+      memory: {
+        rollingSummary: null,
+        topicSummary: "launch update",
+        pendingPlan: null,
+        formatPreference: "shortform",
+      },
+      activeDraft: "the launch is live now",
+      revision: {
+        instruction: "add more detail",
+        changeKind: "specificity_tune",
+        targetText: null,
+      },
+      revisionActiveConstraints: ["keep it grounded"],
+      effectiveContext: "assistant: draft ready",
+      relevantTopicAnchors: ["launch update"],
+      styleCard: null,
+      maxCharacterLimit: 280,
+      goal: "Audience growth",
+      antiPatterns: [],
+      turnDraftPreference: "balanced",
+      turnFormatPreference: "shortform",
+      threadPostMaxCharacterLimit: undefined,
+      turnThreadFramingStyle: null,
+      userMessage: "add more detail",
+      groundingPacket: {
+        durableFacts: [],
+        turnGrounding: [],
+        allowedFirstPersonClaims: [],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        unknowns: ["missing evidence"],
+        sourceMaterials: [],
+      },
+      feedbackMemoryNotice: null,
+      nextAssistantTurnCount: 3,
+      refreshRollingSummary: false,
+      latestRefinementInstruction: "add more detail",
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+    },
+    services: {
+      generateRevisionDraft: async () => ({
+        revisedDraft: "yesterday i closed 3 launches in toronto",
+        issuesFixed: [],
+        supportAsset: null,
+      }),
+      critiqueDrafts: async (writerOutput) => ({
+        approved: true,
+        finalDraft: writerOutput.draft,
+        issues: [],
+      }),
+      buildClarificationResponse: async () => {
+        clarificationCalls += 1;
+        return {
+          mode: "coach",
+          outputShape: "coach_question",
+          response: "need clarification",
+          memory: { topicSummary: "launch update" },
+        };
+      },
+    },
+  });
+
+  assert.equal(clarificationCalls, 1);
+  assert.equal(execution.output.kind, "response");
+  assert.equal(execution.output.response.response, "need clarification");
+  assert.equal(
+    execution.workers.some((worker) => worker.worker === "claim_checker"),
     true,
   );
 });
