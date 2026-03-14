@@ -14,7 +14,7 @@ import {
 import {
   applyGrowthStrategyToCreatorProfileHints,
   buildCreatorProfileHintsFromOnboarding,
-} from "@/lib/agent-v2/orchestrator/creatorProfileHints";
+} from "@/lib/agent-v2/grounding/creatorProfileHints";
 import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
@@ -30,7 +30,7 @@ import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardi
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import type {
   CreatorProfileHints,
-} from "@/lib/agent-v2/orchestrator/groundingPacket";
+} from "@/lib/agent-v2/grounding/groundingPacket";
 import type { V2ConversationMemory } from "@/lib/agent-v2/contracts/chat";
 import type { NormalizedChatTurnDiagnostics } from "@/lib/agent-v2/contracts/turnContract";
 import {

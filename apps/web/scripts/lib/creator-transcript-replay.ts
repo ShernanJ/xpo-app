@@ -15,7 +15,7 @@ import type { ConversationServices } from "../../lib/agent-v2/runtime/services";
 import type {
   SourceMaterialAssetInput,
   SourceMaterialAssetRecord,
-} from "../../lib/agent-v2/orchestrator/sourceMaterials";
+} from "../../lib/agent-v2/grounding/sourceMaterials";
 import type {
   DraftFormatPreference,
   StrategyPlan,

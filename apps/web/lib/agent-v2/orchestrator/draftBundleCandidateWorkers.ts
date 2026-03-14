@@ -10,7 +10,7 @@ import type {
 } from "../runtime/runtimeContracts.ts";
 import type { DraftBundleBrief } from "./draftBundles.ts";
 import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
-import type { GroundingPacket } from "./groundingPacket.ts";
+import type { GroundingPacket } from "../grounding/groundingPacket.ts";
 import {
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,

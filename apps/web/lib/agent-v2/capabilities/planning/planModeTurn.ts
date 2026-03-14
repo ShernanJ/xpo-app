@@ -19,8 +19,8 @@ import type {
   CreatorProfileHints,
   GroundingPacket,
   GroundingPacketSourceMaterial,
-} from "../../orchestrator/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../../orchestrator/sourceMaterials.ts";
+} from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
   ThreadFramingStyle,

@@ -30,7 +30,7 @@ import {
   serializeSourceMaterialAsset,
   type SourceMaterialAssetInput,
   type SourceMaterialAssetRecord,
-} from "../orchestrator/sourceMaterials.ts";
+} from "../grounding/sourceMaterials.ts";
 import {
   isMissingDraftCandidateTableError,
   isMissingSourceMaterialAssetTableError,

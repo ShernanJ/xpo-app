@@ -1,5 +1,5 @@
 import type { ConversationServices } from "../runtime/services.ts";
-import type { SourceMaterialAssetRecord } from "./sourceMaterials";
+import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
 import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 

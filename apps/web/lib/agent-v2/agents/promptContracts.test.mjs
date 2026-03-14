@@ -8,7 +8,7 @@ import {
   buildConcreteScenePlanBlock,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
-} from "../orchestrator/draftGrounding.ts";
+} from "../grounding/draftGrounding.ts";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards.ts";
 
 test("planner concrete-scene block stays anchored to the literal anecdote", () => {

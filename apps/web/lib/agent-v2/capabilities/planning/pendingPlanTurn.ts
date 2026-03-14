@@ -12,19 +12,19 @@ import { interpretPlannerFeedback } from "../../orchestrator/plannerFeedback.ts"
 import { buildPlannerQuickReplies } from "../../orchestrator/plannerQuickReplies.ts";
 import {
   applyCreatorProfileHintsToPlan,
-} from "../../orchestrator/creatorHintPolicy.ts";
-import { applySourceMaterialBiasToPlan } from "../../orchestrator/sourceMaterialPlanPolicy.ts";
+} from "../../grounding/creatorHintPolicy.ts";
+import { applySourceMaterialBiasToPlan } from "../../grounding/sourceMaterialPlanPolicy.ts";
 import {
   appendNoFabricationConstraint,
   hasNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
-} from "../../orchestrator/draftGrounding.ts";
+} from "../../grounding/draftGrounding.ts";
 import {
   hasAutobiographicalGrounding,
   type CreatorProfileHints,
   type GroundingPacket,
-} from "../../orchestrator/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../../orchestrator/sourceMaterials.ts";
+} from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

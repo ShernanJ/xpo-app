@@ -6,7 +6,7 @@ import type {
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
-import type { GroundingPacket } from "../../orchestrator/groundingPacket.ts";
+import type { GroundingPacket } from "../../grounding/groundingPacket.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
@@ -16,8 +16,8 @@ import {
   buildGroundedProductRetryConstraint,
   buildUnsupportedClaimRetryConstraint,
   buildConcreteSceneRetryConstraint,
-} from "../../orchestrator/draftGrounding.ts";
-import { checkDraftClaimsAgainstGrounding } from "../../orchestrator/claimChecker.ts";
+} from "../../grounding/draftGrounding.ts";
+import { checkDraftClaimsAgainstGrounding } from "../../grounding/claimChecker.ts";
 import { runDraftGuardValidationWorkers } from "../../orchestrator/draftGuardValidationWorkers.ts";
 import {
   buildRuntimeValidationResult,

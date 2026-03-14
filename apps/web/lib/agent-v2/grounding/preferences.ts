@@ -15,7 +15,7 @@ import {
   inferThreadFramingStyleFromPrompt,
   resolveThreadFramingStyle,
 } from "../../onboarding/draftArtifacts";
-import type { GroundingPacketSourceMaterial } from "../orchestrator/groundingPacket.ts";
+import type { GroundingPacketSourceMaterial } from "../grounding/groundingPacket.ts";
 
 export function buildDraftGroundingSummary(args: {
   groundingSources: GroundingPacketSourceMaterial[];

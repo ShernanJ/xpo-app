@@ -44,7 +44,7 @@ import {
 import {
   extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
-} from "./sourceMaterials";
+} from "../grounding/sourceMaterials";
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
 import {
   looksLikeMechanicalEdit,
@@ -60,7 +60,7 @@ import {
 import {
   type CreatorProfileHints,
   type GroundingPacketSourceMaterial,
-} from "./groundingPacket";
+} from "../grounding/groundingPacket";
 import {
   type DraftBundleResult,
 } from "./draftBundles";

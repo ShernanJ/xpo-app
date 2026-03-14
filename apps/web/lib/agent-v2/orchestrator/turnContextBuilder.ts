@@ -1,4 +1,4 @@
-import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
+import { buildCreatorProfileHintsFromOnboarding } from "../grounding/creatorProfileHints";
 import { planTurn } from "./turnPlanner";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
@@ -9,7 +9,7 @@ import {
 } from "../runtime/services.ts";
 import type { OrchestratorInput } from "../runtime/types.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
-import type { CreatorProfileHints } from "./groundingPacket";
+import type { CreatorProfileHints } from "../grounding/groundingPacket";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { resolveArtifactContinuationAction } from "../agents/controller.ts";
 import { normalizeDraftRevisionInstruction } from "../orchestrator/draftRevision.ts";
-import { assessGroundedProductDrift } from "../orchestrator/draftGrounding.ts";
+import { assessGroundedProductDrift } from "../grounding/draftGrounding.ts";
 import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory.ts";
 import {
   buildConversationContextFromHistory,

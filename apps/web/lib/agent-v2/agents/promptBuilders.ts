@@ -19,11 +19,11 @@ import {
 import {
   buildConcreteSceneDraftBlock,
   buildConcreteScenePlanBlock,
-} from "../orchestrator/draftGrounding";
+} from "../grounding/draftGrounding";
 import type {
   CreatorProfileHints,
   GroundingPacket,
-} from "../orchestrator/groundingPacket";
+} from "../grounding/groundingPacket";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
 import {
   buildPlannerJsonContract,

@@ -3,7 +3,7 @@ import {
   SourceMaterialAssetPatchSchema,
   normalizeSourceMaterialInput,
   normalizeSourceMaterialPatch,
-} from "../../../../../lib/agent-v2/orchestrator/sourceMaterials.ts";
+} from "../../../../../lib/agent-v2/grounding/sourceMaterials.ts";
 
 export function getActiveHandle(session: {
   user?: {

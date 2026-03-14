@@ -1,4 +1,4 @@
-import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
+import type { GroundingPacket } from "../agent-v2/grounding/groundingPacket.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
   buildReplyIntentPlanForDraft,

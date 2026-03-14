@@ -1,5 +1,5 @@
-import { checkDraftClaimsAgainstGrounding } from "../agent-v2/orchestrator/claimChecker.ts";
-import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
+import { checkDraftClaimsAgainstGrounding } from "../agent-v2/grounding/claimChecker.ts";
+import type { GroundingPacket } from "../agent-v2/grounding/groundingPacket.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 

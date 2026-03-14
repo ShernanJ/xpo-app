@@ -7,11 +7,11 @@ import {
 } from "../core/styleProfile";
 import { countNewMemoryEntries } from "./feedbackMemoryNotice";
 import {
-} from "./sourceMaterials";
+} from "../grounding/sourceMaterials";
 import type { ConversationServices } from "../runtime/services.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { SourceMaterialAssetInput, SourceMaterialAssetRecord } from "./sourceMaterials";
+import type { SourceMaterialAssetInput, SourceMaterialAssetRecord } from "../grounding/sourceMaterials";
 
 export function applyMemoryPatch(
   current: V2ConversationMemory,

@@ -11,7 +11,7 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
-import type { GroundingPacket } from "../orchestrator/groundingPacket";
+import type { GroundingPacket } from "../grounding/groundingPacket";
 // TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
 // import type { DraftScore } from "../contracts/chat";
 // The CriticOutputSchema could be extended with optional fields:
@@ -30,7 +30,7 @@ import {
 import {
   assessConcreteSceneDrift,
   buildConcreteSceneCriticBlock,
-} from "../orchestrator/draftGrounding";
+} from "../grounding/draftGrounding";
 
 export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),

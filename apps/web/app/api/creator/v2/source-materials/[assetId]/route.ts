@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
 import {
   serializeSourceMaterialAsset,
-} from "@/lib/agent-v2/orchestrator/sourceMaterials";
+} from "@/lib/agent-v2/grounding/sourceMaterials";
 import {
   getActiveHandle,
   parsePatchSourceMaterialBody,

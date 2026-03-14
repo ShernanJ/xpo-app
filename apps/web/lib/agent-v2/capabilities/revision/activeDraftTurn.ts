@@ -8,7 +8,7 @@ import {
 import {
   buildDraftMeaningResponse,
   isDraftMeaningQuestion,
-} from "../../orchestrator/draftGrounding.ts";
+} from "../../grounding/draftGrounding.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";

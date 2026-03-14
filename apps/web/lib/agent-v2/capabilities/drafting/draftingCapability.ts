@@ -33,7 +33,7 @@ import type {
   OrchestratorResponse,
   RoutingTracePatch,
 } from "../../runtime/types.ts";
-import type { GroundingPacketSourceMaterial } from "../../orchestrator/groundingPacket.ts";
+import type { GroundingPacketSourceMaterial } from "../../grounding/groundingPacket.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

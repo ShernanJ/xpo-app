@@ -1,7 +1,7 @@
 import {
   collectGroundingFactualAuthority,
   type GroundingPacket,
-} from "../orchestrator/groundingPacket";
+} from "../grounding/groundingPacket";
 
 export function buildGroundingPromptBlock(args: {
   groundingPacket: GroundingPacket | null | undefined;

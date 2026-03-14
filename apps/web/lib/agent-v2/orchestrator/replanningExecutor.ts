@@ -1,7 +1,7 @@
 import {
   appendNoFabricationConstraint,
   hasNoFabricationPlanGuardrail,
-} from "./draftGrounding.ts";
+} from "../grounding/draftGrounding.ts";
 import {
   executePlanningCapability,
 } from "../capabilities/planning/planningCapability.ts";
@@ -29,8 +29,8 @@ import type {
   CreatorProfileHints,
   GroundingPacket,
   GroundingPacketSourceMaterial,
-} from "./groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "./sourceMaterials.ts";
+} from "../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
   ThreadFramingStyle,

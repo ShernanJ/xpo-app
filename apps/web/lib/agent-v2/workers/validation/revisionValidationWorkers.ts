@@ -1,5 +1,5 @@
-import { checkDraftClaimsAgainstGrounding } from "../../orchestrator/claimChecker.ts";
-import type { GroundingPacket } from "../../orchestrator/groundingPacket.ts";
+import { checkDraftClaimsAgainstGrounding } from "../../grounding/claimChecker.ts";
+import type { GroundingPacket } from "../../grounding/groundingPacket.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,

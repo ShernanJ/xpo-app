@@ -18,7 +18,7 @@ import {
 import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
 import {
   type GroundingPacket,
-} from "../orchestrator/groundingPacket";
+} from "../grounding/groundingPacket";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
 import { buildReviserJsonContract } from "./jsonPromptContracts";
 import {

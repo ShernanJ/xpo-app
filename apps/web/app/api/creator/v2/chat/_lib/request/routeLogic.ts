@@ -9,7 +9,7 @@ import type {
 } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type {
   GroundingPacketSourceMaterial,
-} from "../../../../../../../lib/agent-v2/orchestrator/groundingPacket.ts";
+} from "../../../../../../../lib/agent-v2/grounding/groundingPacket.ts";
 import type { VoiceTarget } from "../../../../../../../lib/agent-v2/core/voiceTarget.ts";
 import type {
   UserPreferences,

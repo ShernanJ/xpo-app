@@ -32,7 +32,7 @@ import type { ConversationRouterState } from "../orchestrator/conversationRouter
 import type {
   CreatorProfileHints,
   GroundingPacketSourceMaterial,
-} from "../orchestrator/groundingPacket.ts";
+} from "../grounding/groundingPacket.ts";
 import type { DraftBundleResult } from "../orchestrator/draftBundles.ts";
 
 export interface OrchestratorInput {

@@ -25,8 +25,8 @@ import type {
 import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
-} from "../../orchestrator/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../../orchestrator/sourceMaterials.ts";
+} from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import type { PlanningCapabilityMemoryPatch } from "./planningCapability.ts";
 

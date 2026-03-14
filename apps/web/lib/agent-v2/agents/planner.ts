@@ -11,7 +11,7 @@ import { normalizePlannerOutput } from "../core/plannerNormalization";
 import type {
   CreatorProfileHints,
   GroundingPacket,
-} from "../orchestrator/groundingPacket";
+} from "../grounding/groundingPacket";
 import { buildPlanInstruction } from "./promptBuilders";
 
 function summarizePlannerFetchFailure(reason: string): string {

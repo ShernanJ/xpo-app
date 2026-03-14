@@ -1,7 +1,7 @@
 import {
   assessConcreteSceneDrift,
   assessGroundedProductDrift,
-} from "./draftGrounding.ts";
+} from "../grounding/draftGrounding.ts";
 import type {
   RuntimeValidationResult,
   RuntimeWorkerExecution,

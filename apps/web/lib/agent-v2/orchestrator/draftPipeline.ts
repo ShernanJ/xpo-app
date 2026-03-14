@@ -42,7 +42,7 @@ import {
   extractConcreteSceneAnchors,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
-} from "./draftGrounding";
+} from "../grounding/draftGrounding";
 import { buildDraftReply } from "./draftReply";
 import {
   buildFeedbackMemoryNotice,
@@ -59,23 +59,23 @@ import { resolveConversationRouterState } from "./conversationRouterMachine";
 import { evaluateDraftContextSlots } from "./draftContextSlots";
 import {
   shouldForceNoFabricationPlanGuardrail,
-} from "./draftGrounding";
+} from "../grounding/draftGrounding";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
   buildSafeFrameworkConstraint,
   hasAutobiographicalGrounding,
   type GroundingPacket,
-} from "./groundingPacket";
+} from "../grounding/groundingPacket";
 import {
   mapPreferredOutputShapeToFormatPreference,
-} from "./creatorHintPolicy";
-import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
+} from "../grounding/creatorHintPolicy";
+import { buildSourceMaterialDraftConstraints } from "../grounding/sourceMaterialDraftPolicy";
 import {
   mergeSourceMaterialsIntoGroundingPacket,
   selectRelevantSourceMaterials,
   type SourceMaterialAssetRecord,
-} from "./sourceMaterials";
+} from "../grounding/sourceMaterials";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,

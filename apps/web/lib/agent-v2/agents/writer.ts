@@ -13,7 +13,7 @@ import type {
 import type {
   CreatorProfileHints,
   GroundingPacket,
-} from "../orchestrator/groundingPacket";
+} from "../grounding/groundingPacket";
 import { buildWriterInstruction } from "./promptBuilders";
 
 export const WriterOutputSchema = z.object({

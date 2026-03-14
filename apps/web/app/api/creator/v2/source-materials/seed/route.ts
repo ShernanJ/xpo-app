@@ -14,7 +14,7 @@ import {
   normalizeSourceMaterialInput,
   serializeSourceMaterialAsset,
   type SourceMaterialAssetInput,
-} from "@/lib/agent-v2/orchestrator/sourceMaterials";
+} from "@/lib/agent-v2/grounding/sourceMaterials";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 function buildSourceMaterialIdentityKey(

@@ -1,4 +1,4 @@
-import { isConcreteAnecdoteDraftRequest } from "../orchestrator/draftGrounding.ts";
+import { isConcreteAnecdoteDraftRequest } from "../grounding/draftGrounding.ts";
 
 function hasNoFabricationGuardrail(entries: string[]): boolean {
   return entries.some((entry) =>

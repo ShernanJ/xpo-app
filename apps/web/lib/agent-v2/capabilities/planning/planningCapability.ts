@@ -5,15 +5,15 @@ import { withPlanPreferences } from "../../grounding/preferences.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
 import { buildPlanFailureResponse } from "../../orchestrator/conversationManagerLogic.ts";
-import { withNoFabricationPlanGuardrail } from "../../orchestrator/draftGrounding.ts";
+import { withNoFabricationPlanGuardrail } from "../../grounding/draftGrounding.ts";
 import {
   buildPlannerQuickReplies,
 } from "../../orchestrator/plannerQuickReplies.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
 import {
   applyCreatorProfileHintsToPlan,
-} from "../../orchestrator/creatorHintPolicy.ts";
-import { applySourceMaterialBiasToPlan } from "../../orchestrator/sourceMaterialPlanPolicy.ts";
+} from "../../grounding/creatorHintPolicy.ts";
+import { applySourceMaterialBiasToPlan } from "../../grounding/sourceMaterialPlanPolicy.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
@@ -30,9 +30,9 @@ import type {
 import type {
   CreatorProfileHints,
   GroundingPacket,
-} from "../../orchestrator/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../../orchestrator/sourceMaterials.ts";
-import { hasAutobiographicalGrounding } from "../../orchestrator/groundingPacket.ts";
+} from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
+import { hasAutobiographicalGrounding } from "../../grounding/groundingPacket.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

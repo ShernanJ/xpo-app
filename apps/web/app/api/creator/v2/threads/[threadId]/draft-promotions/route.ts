@@ -8,7 +8,7 @@ import {
   buildPromotedDraftSourceMaterialInputs,
   buildSourceMaterialIdentityKey,
   serializeSourceMaterialAsset,
-} from "@/lib/agent-v2/orchestrator/sourceMaterials";
+} from "@/lib/agent-v2/grounding/sourceMaterials";
 import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,

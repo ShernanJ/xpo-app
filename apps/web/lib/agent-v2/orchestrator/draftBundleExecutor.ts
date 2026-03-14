@@ -27,8 +27,8 @@ import type {
   CapabilityExecutionResult,
   RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
-import type { GroundingPacket, GroundingPacketSourceMaterial } from "./groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "./sourceMaterials.ts";
+import type { GroundingPacket, GroundingPacketSourceMaterial } from "../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials.ts";
 import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
 
 type RawOrchestratorResponse = Omit<
