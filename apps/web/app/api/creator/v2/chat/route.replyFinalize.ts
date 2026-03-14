@@ -10,7 +10,7 @@ import {
   buildReplyAssistantMessageData,
   dispatchPlannedProductEvents,
   planReplyAssistantTurnProductEvents,
-} from "./route.response.ts";
+} from "./_lib/response/routeResponse.ts";
 
 export interface FinalizeReplyTurnArgs {
   plannedTurn: PlannedReplyTurn;

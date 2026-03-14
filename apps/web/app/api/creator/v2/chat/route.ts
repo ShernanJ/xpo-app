@@ -52,7 +52,7 @@ import {
   buildChatSuccessResponse,
   dispatchPlannedProductEvents,
   planMainAssistantTurnProductEvents,
-} from "./route.response";
+} from "./_lib/response/routeResponse";
 import { normalizeChatTurn } from "./_lib/normalization/turnNormalization";
 import { findDuplicateTurnReplay } from "./route.idempotency";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";

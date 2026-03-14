@@ -25,7 +25,7 @@ import {
   buildReplyAssistantMessageData,
   planReplyAssistantTurnProductEvents,
   planMainAssistantTurnProductEvents,
-} from "./route.response.ts";
+} from "./_lib/response/routeResponse.ts";
 import { normalizeChatTurn } from "./_lib/normalization/turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
@@ -1895,7 +1895,7 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   );
   const routeLogicSource = readFileSync(new URL("./route.logic.ts", import.meta.url), "utf8");
   const routeResponseSource = readFileSync(
-    new URL("./route.response.ts", import.meta.url),
+    new URL("./_lib/response/routeResponse.ts", import.meta.url),
     "utf8",
   );
 
@@ -1926,7 +1926,7 @@ test("reply route ownership stays in runtime modules without shim files or shim 
 
   assert.match(
     routeResponseSource,
-    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
   );
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeResponseSource), false);
 });
