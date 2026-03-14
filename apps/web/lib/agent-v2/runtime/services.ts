@@ -34,7 +34,7 @@ import {
 import {
   isMissingDraftCandidateTableError,
   isMissingSourceMaterialAssetTableError,
-} from "../orchestrator/prismaGuards.ts";
+} from "../persistence/prismaGuards.ts";
 import type { CapabilityName, RuntimeWorkerExecution } from "./runtimeContracts.ts";
 
 export interface ConversationServices {

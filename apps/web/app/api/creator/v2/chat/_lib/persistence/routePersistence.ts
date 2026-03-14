@@ -439,7 +439,7 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
 
 async function isMissingDraftCandidateTableError(error: unknown): Promise<boolean> {
   const prismaGuards = await import(
-    "../../../../../../../lib/agent-v2/orchestrator/prismaGuards.ts"
+    "../../../../../../../lib/agent-v2/persistence/prismaGuards.ts"
   );
   return prismaGuards.isMissingDraftCandidateTableError(error);
 }

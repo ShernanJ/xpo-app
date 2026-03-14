@@ -19,7 +19,7 @@ import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
   normalizeUserPreferences,
-} from "@/lib/agent-v2/orchestrator/preferenceConstraints";
+} from "@/lib/agent-v2/core/preferenceConstraints";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,

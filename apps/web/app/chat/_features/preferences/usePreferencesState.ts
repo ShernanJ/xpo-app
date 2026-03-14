@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 
-import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
+import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/core/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 

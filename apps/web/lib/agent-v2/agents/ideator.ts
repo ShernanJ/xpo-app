@@ -9,7 +9,7 @@ import {
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
-import { dedupeAngleTitlesForRetry } from "../orchestrator/angleNovelty";
+import { dedupeAngleTitlesForRetry } from "../core/angleNovelty";
 
 export const IdeaSchema = z.object({
   title: z.string().describe("A broad, conversational, open-ended question that prompts the user for a story. Keep it general and simple. e.g. 'Are there any recent projects you worked on that you can talk about?' or 'What is a common misconception about building AI tools?'"),

@@ -6,7 +6,7 @@ import {
   resolveConversationMode,
 } from "../orchestrator/conversationManagerLogic.ts";
 import { buildIdeationReply } from "../responses/ideationReply.ts";
-import { dedupeAngleTitlesForRetry } from "../orchestrator/angleNovelty.ts";
+import { dedupeAngleTitlesForRetry } from "../core/angleNovelty.ts";
 import {
   ANGLE_NOVELTY_FIXTURES,
   IDEATION_COMMAND_FIXTURES,

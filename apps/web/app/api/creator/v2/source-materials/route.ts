@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
-import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
+import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/persistence/prismaGuards";
 import {
   serializeSourceMaterialAsset,
 } from "@/lib/agent-v2/grounding/sourceMaterials";

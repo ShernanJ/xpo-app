@@ -1,6 +1,6 @@
-import type { SelectedAngleFormatHint } from "../contracts/turnContract.ts";
+import type { SelectedAngleFormatHint } from "../../contracts/turnContract.ts";
 
-export type { SelectedAngleFormatHint } from "../contracts/turnContract.ts";
+export type { SelectedAngleFormatHint } from "../../contracts/turnContract.ts";
 
 const QUESTION_SHAPED_ANGLE =
   /^(?:what|what's|why|how|when|where|who|which|is|are|can|could|should|do|does|did)\b/i;

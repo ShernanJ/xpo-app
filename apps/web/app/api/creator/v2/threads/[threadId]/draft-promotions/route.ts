@@ -3,7 +3,7 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { recordProductEvent } from "@/lib/productEvents";
-import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
+import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/persistence/prismaGuards";
 import {
   buildPromotedDraftSourceMaterialInputs,
   buildSourceMaterialIdentityKey,

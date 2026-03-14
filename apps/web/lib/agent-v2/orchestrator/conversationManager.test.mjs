@@ -72,7 +72,7 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "../grounding/draftGrounding.ts";
-import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
+import { isMissingDraftCandidateTableError } from "../persistence/prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "../grounding/claimChecker.ts";
 import { getDeterministicChatReply } from "../responses/chatResponderDeterministic.ts";
@@ -719,6 +719,94 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
     new URL("../responses/", import.meta.url),
     new URL("../runtime/", import.meta.url),
     new URL("../workers/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("core and persistence leaf modules stay out of orchestrator once ownership moves", () => {
+  const deletedModulePaths = [
+    "./prismaGuards.ts",
+    "./angleNovelty.ts",
+    "./preferenceConstraints.ts",
+  ];
+
+  for (const modulePath of deletedModulePaths) {
+    assert.equal(existsSync(new URL(modulePath, import.meta.url)), false, modulePath);
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/prismaGuards(?:\.ts)?/,
+    /agent-v2\/orchestrator\/angleNovelty(?:\.ts)?/,
+    /agent-v2\/orchestrator\/preferenceConstraints(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/prismaGuards(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/angleNovelty(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/preferenceConstraints(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../agents/", import.meta.url),
+    new URL("../capabilities/", import.meta.url),
+    new URL("../core/", import.meta.url),
+    new URL("../persistence/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("drafting leaf helpers stay out of orchestrator once ownership moves", () => {
+  const deletedPaths = [
+    "./selectedAnglePrompt.ts",
+    "./selectedAnglePrompt.test.ts",
+  ];
+  for (const relativePath of deletedPaths) {
+    assert.equal(
+      existsSync(new URL(relativePath, import.meta.url)),
+      false,
+      `${relativePath} should be deleted from orchestrator`,
+    );
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/selectedAnglePrompt(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/selectedAnglePrompt(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../agents/", import.meta.url),
+    new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),

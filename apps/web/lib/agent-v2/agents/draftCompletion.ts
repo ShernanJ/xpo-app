@@ -1,4 +1,4 @@
-import { stripSelectedAnglePromptPrefix } from "../orchestrator/selectedAnglePrompt.ts";
+import { stripSelectedAnglePromptPrefix } from "../capabilities/drafting/selectedAnglePrompt.ts";
 
 const ABRUPT_ENDING_CLAUSE =
   /(?:,\s*)?(?:and|or|but|because|so|that|which|while|when|to)\s+[a-z0-9][a-z0-9'/-]{0,20}$/i;

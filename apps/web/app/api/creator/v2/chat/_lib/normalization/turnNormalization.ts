@@ -10,7 +10,7 @@ import type {
   SelectedAngleArtifactContext,
   SelectedDraftContextPayload,
 } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
-import { buildSelectedAngleDraftPrompt } from "../../../../../../../lib/agent-v2/orchestrator/selectedAnglePrompt.ts";
+import { buildSelectedAngleDraftPrompt } from "../../../../../../../lib/agent-v2/capabilities/drafting/selectedAnglePrompt.ts";
 import {
   parseSelectedDraftContext,
   resolveEffectiveExplicitIntent,

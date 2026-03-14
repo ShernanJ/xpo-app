@@ -8,7 +8,7 @@ import type { DraftGroundingSource } from "@/lib/onboarding/shared/draftArtifact
 import {
   isMissingDraftCandidateTableError,
   isMissingSourceMaterialAssetTableError,
-} from "@/lib/agent-v2/orchestrator/prismaGuards";
+} from "@/lib/agent-v2/persistence/prismaGuards";
 import {
   buildSeedSourceMaterialInputs,
   normalizeSourceMaterialInput,

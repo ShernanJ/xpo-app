@@ -10,7 +10,7 @@ import {
 import {
   DEFAULT_USER_PREFERENCES,
   normalizeUserPreferences,
-} from "@/lib/agent-v2/orchestrator/preferenceConstraints";
+} from "@/lib/agent-v2/core/preferenceConstraints";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 async function readVoiceProfile(userId: string, xHandle: string) {
