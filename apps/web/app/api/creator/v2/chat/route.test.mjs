@@ -2256,6 +2256,10 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     new URL("./_lib/request/routeLogic.ts", import.meta.url),
     "utf8",
   );
+  const routePreflightSource = readFileSync(
+    new URL("./_lib/request/routePreflight.ts", import.meta.url),
+    "utf8",
+  );
   const routeResponseSource = readFileSync(
     new URL("./_lib/response/routeResponse.ts", import.meta.url),
     "utf8",
@@ -2276,16 +2280,27 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   );
   assert.match(routeSource, /finalizeMainAssistantTurn/);
   assert.match(routeSource, /prepareChatRouteTurn/);
+  assert.match(routeSource, /resolveRouteThreadState/);
+  assert.match(routeSource, /resolveRouteProfileContext/);
+  assert.match(routeSource, /loadRouteConversationContext/);
   assert.equal(/finalizeResponseEnvelope/.test(routeSource), false);
   assert.equal(/persistAssistantTurn\(/.test(routeSource), false);
   assert.equal(/applyRuntimePersistenceTracePatch\(/.test(routeSource), false);
   assert.equal(/planMainAssistantTurnProductEvents\(/.test(routeSource), false);
+  assert.equal(/resolveWorkspaceHandleForRequest\(/.test(routeSource), false);
+  assert.equal(/resolveOwnedThreadForWorkspace\(/.test(routeSource), false);
+  assert.equal(/readLatestOnboardingRunByHandle\(/.test(routeSource), false);
+  assert.equal(/createConversationMemory\(/.test(routeSource), false);
+  assert.equal(/getConversationMemory\(/.test(routeSource), false);
   assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
 
   assert.match(routeMainFinalizeSource, /persistAssistantTurn/);
   assert.match(routeMainFinalizeSource, /planMainAssistantTurnProductEvents/);
   assert.match(routeMainFinalizeSource, /applyRuntimePersistenceTracePatch/);
+  assert.match(routePreflightSource, /resolveWorkspaceHandleForRequest/);
+  assert.match(routePreflightSource, /readLatestOnboardingRunByHandle/);
+  assert.match(routePreflightSource, /getConversationMemory/);
 
   assert.match(
     routeReplyFinalizeSource,

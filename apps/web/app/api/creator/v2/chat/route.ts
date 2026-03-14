@@ -1,50 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
-import {
-  createConversationMemorySnapshot,
-  createConversationMemory,
-  getConversationMemory,
-} from "@/lib/agent-v2/memory/memoryStore";
-import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
+import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
   resolveThreadFramingStyle,
 } from "@/lib/onboarding/shared/draftArtifacts";
-import {
-  applyGrowthStrategyToCreatorProfileHints,
-  buildCreatorProfileHintsFromOnboarding,
-} from "@/lib/agent-v2/orchestrator/creatorProfileHints";
-import {
-  buildPreferenceConstraintsFromPreferences,
-  mergeUserPreferences,
-  normalizeUserPreferences,
-} from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
-import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
-import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { recordProductEvent } from "@/lib/productEvents";
-import type { GrowthStrategySnapshot } from "@/lib/onboarding/strategy/growthStrategy";
-import type { VoiceStyleCard } from "@/lib/agent-v2/core/styleProfile";
 import type { CreatorChatTransportRequest } from "@/lib/agent-v2/contracts/chatTransport";
 import { normalizeClientTurnId } from "@/lib/agent-v2/contracts/chatTransport";
 import {
-  resolveOwnedThreadForWorkspace,
-  resolveWorkspaceHandleForRequest,
-} from "@/lib/workspaceHandle.server";
-import {
-  buildConversationContextFromHistory,
   parseSelectedDraftContext,
   prepareChatRouteTurn,
-  resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./_lib/request/routeLogic";
+import {
+  loadRouteConversationContext,
+  resolveRouteProfileContext,
+  resolveRouteStoredRun,
+  resolveRouteThreadState,
+} from "./_lib/request/routePreflight";
 import {
   buildChatSuccessResponse,
 } from "./_lib/response/routeResponse";
@@ -52,10 +32,6 @@ import { normalizeChatTurn } from "./_lib/normalization/turnNormalization";
 import { findDuplicateTurnReplay } from "./_lib/request/routeIdempotency";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
-import {
-  buildRecommendedPlaybookSummaries,
-  inferCurrentPlaybookStage,
-} from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
@@ -181,30 +157,6 @@ function resolveChatTurnCreditCost(args: {
   return ACTION_CREDIT_COST.chat_standard;
 }
 
-function buildConversationalDiagnosticContext(args: {
-  agentContext: ReturnType<typeof buildCreatorAgentContext>;
-  growthOs: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>>;
-}): ConversationalDiagnosticContext {
-  const reasons = [
-    args.growthOs.profileConversionAudit.gaps[0],
-    args.growthOs.contentInsights.cautionSignals[0],
-    args.growthOs.strategyAdjustments.notes[0],
-  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-  const nextActions = [
-    args.growthOs.profileConversionAudit.recommendedBioEdits[0],
-    args.growthOs.strategyAdjustments.experiments[0] || args.growthOs.strategyAdjustments.reinforce[0],
-    args.growthOs.contentAdjustments.experiments[0] || args.growthOs.contentAdjustments.reinforce[0],
-  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-
-  return {
-    stage: inferCurrentPlaybookStage(args.agentContext),
-    knownFor: args.agentContext.growthStrategySnapshot.knownFor,
-    reasons,
-    nextActions,
-    recommendedPlaybooks: buildRecommendedPlaybookSummaries(args.agentContext, 2),
-  };
-}
-
 export async function POST(request: NextRequest) {
   const monetizationEnabled = isMonetizationEnabled();
   const sessionPromise = getServerSession();
@@ -283,48 +235,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+  const threadState = await resolveRouteThreadState({
     request,
-    session,
+    session: { user: { id: session.user.id } },
     bodyHandle:
       typeof body.workspaceHandle === "string" ? body.workspaceHandle : null,
+    threadId,
   });
-  if (!workspaceHandle.ok) {
-    return workspaceHandle.response;
+  if (!threadState.ok) {
+    return threadState.response;
   }
 
-  const activeHandle = workspaceHandle.xHandle;
-  let storedThread = null;
-  let storedRun: {
-    id: string;
-    input: unknown;
-    result: unknown;
-  } | null = null;
-
-  if (threadId) {
-    const ownedThread = await resolveOwnedThreadForWorkspace({
-      threadId,
-      userId: session.user.id,
-      xHandle: activeHandle,
-    });
-    if (!ownedThread.ok) {
-      return ownedThread.response;
-    }
-    storedThread = ownedThread.thread;
-  } else {
-    storedThread = await prisma.chatThread.create({
-      data: {
-        userId: session.user.id,
-        xHandle: activeHandle,
-      }
-    });
-    console.log("[V2 Chat Checkpoint] New Thread generated:", storedThread.id);
-
-    await createConversationMemory({
-      threadId: storedThread.id,
-      userId: session.user.id,
-    });
-  }
+  const { activeHandle, storedThread } = threadState;
 
   if (threadId && storedThread && clientTurnId) {
     const duplicateTurnReplay = await findDuplicateTurnReplay(
@@ -361,129 +283,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (runId) {
-    const matchedRun = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-    const matchedRunHandle =
-      matchedRun?.input &&
-      typeof matchedRun.input === "object" &&
-      !Array.isArray(matchedRun.input)
-        ? ((matchedRun.input as { account?: string }).account?.trim().replace(/^@+/, "").toLowerCase() ||
-          null)
-        : null;
-    if (!matchedRun || matchedRun.userId !== session.user.id || matchedRunHandle !== activeHandle) {
-      return NextResponse.json(
-        {
-          ok: false,
-          errors: [{ field: "runId", message: "Onboarding run not found for this handle." }],
-        },
-        { status: 404 },
-      );
-    }
-    storedRun = {
-      id: matchedRun.id,
-      input: matchedRun.input,
-      result: matchedRun.result,
-    };
-  } else {
-    const latestRun = await readLatestOnboardingRunByHandle(session.user.id, activeHandle);
-    storedRun = latestRun
-      ? {
-          id: latestRun.runId,
-          input: latestRun.input,
-          result: latestRun.result,
-        }
-      : null;
+  const storedRunResult = await resolveRouteStoredRun({
+    runId,
+    userId: session.user.id,
+    activeHandle,
+  });
+  if (!storedRunResult.ok) {
+    return storedRunResult.response;
   }
+  const storedRun = storedRunResult.storedRun;
 
-  const onboardingResult = (storedRun?.result || null) as
-    | {
-        profile?: {
-          isVerified?: boolean;
-        };
-      }
-    | null;
-  const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
-  let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
-  let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
-  let diagnosticContext: ConversationalDiagnosticContext | null = null;
-  const creatorProfileHintsPromise =
-    storedRun?.id && storedRun?.result
-      ? (async () => {
-          try {
-            const onboarding = storedRun.result as unknown as Parameters<
-              typeof buildCreatorProfileHintsFromOnboarding
-            >[0]["onboarding"];
-            const baseHints = buildCreatorProfileHintsFromOnboarding({
-              runId: storedRun.id,
-              onboarding,
-            });
-            creatorAgentContext = buildCreatorAgentContext({
-              runId: storedRun.id,
-              onboarding,
-            });
-            growthOsPayload = await buildGrowthOperatingSystemPayload({
-              userId: session.user.id,
-              xHandle: activeHandle,
-              onboarding,
-              context: creatorAgentContext,
-            });
-            diagnosticContext = buildConversationalDiagnosticContext({
-              agentContext: creatorAgentContext,
-              growthOs: growthOsPayload,
-            });
-
-            return applyGrowthStrategyToCreatorProfileHints({
-              hints: baseHints,
-              growthStrategySnapshot: creatorAgentContext.growthStrategySnapshot,
-              learningSignals: [
-                ...growthOsPayload.replyInsights.bestSignals,
-                ...growthOsPayload.replyInsights.cautionSignals,
-                ...growthOsPayload.strategyAdjustments.experiments,
-                ...growthOsPayload.contentInsights.bestSignals,
-                ...growthOsPayload.contentInsights.cautionSignals,
-                ...growthOsPayload.contentAdjustments.experiments,
-              ],
-            });
-          } catch {
-            creatorAgentContext = null;
-            growthOsPayload = null;
-            diagnosticContext = null;
-            return null;
-          }
-        })()
-      : Promise.resolve(null);
-  const persistedVoiceProfilePromise = activeHandle
-    ? prisma.voiceProfile.findFirst({
-        where: {
-          userId: session.user.id,
-          xHandle: activeHandle,
-        },
-      })
-    : Promise.resolve(null);
-  const [creatorProfileHints, persistedVoiceProfile] = await Promise.all([
-    creatorProfileHintsPromise,
-    persistedVoiceProfilePromise,
-  ]);
-  const parsedPersistedStyleCard = persistedVoiceProfile?.styleCard
-    ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
-    : null;
-  const storedUserPreferences = normalizeUserPreferences(
-    parsedPersistedStyleCard?.success
-      ? parsedPersistedStyleCard.data.userPreferences
-      : null,
-  );
-  const effectiveUserPreferences = mergeUserPreferences(
-    storedUserPreferences,
+  const {
+    isVerifiedAccount,
+    creatorProfileHints,
+    creatorAgentContext,
+    growthOsPayload,
+    diagnosticContext,
+    styleCard,
+    effectiveUserPreferences,
+    mergedPreferenceConstraints,
+  } = await resolveRouteProfileContext({
+    userId: session.user.id,
+    activeHandle,
+    storedRun,
     transientPreferenceSettings,
-  );
-  const mergedPreferenceConstraints = Array.from(
-    new Set([
-      ...buildPreferenceConstraintsFromPreferences(effectiveUserPreferences, {
-        isVerifiedAccount,
-      }),
-      ...preferenceConstraints,
-    ]),
-  );
+    preferenceConstraints,
+  });
 
   const effectiveExplicitIntent = normalizedTurn.explicitIntent;
   const effectiveDiagnosticContext = diagnosticContext as ConversationalDiagnosticContext | null;
@@ -564,85 +389,27 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    let recentHistoryStr = "None";
-    let activeDraft: string | undefined;
-    let storedMemory = createConversationMemorySnapshot(null);
-    let threadMessages: Array<{
-      id: string;
-      role: string;
-      content: string;
-      data: Prisma.JsonValue;
-      createdAt: Date;
-    }> = [];
+    const conversationContext = await loadRouteConversationContext({
+      storedThread,
+      history: body.history,
+      selectedDraftContext,
+      transcriptMessage: normalizedTurn.transcriptMessage,
+      routeUserMessage,
+      clientTurnId,
+      explicitIntent: effectiveExplicitIntent,
+      turnSource: normalizedTurn.source,
+      artifactContext: normalizedTurn.artifactContext,
+      routingDiagnostics: normalizedTurn.diagnostics,
+      formatPreference,
+      threadFramingStyle,
+      structuredReplyContext,
+    });
+    const recentHistoryStr = conversationContext.recentHistoryStr;
+    const activeDraft = conversationContext.activeDraft;
+    const storedMemory = conversationContext.storedMemory;
+    selectedDraftContext = conversationContext.selectedDraftContext;
 
-    if (storedThread) {
-      const createdUserMessage = await prisma.chatMessage.create({
-        data: {
-          threadId: storedThread.id,
-          role: "user",
-          content: normalizedTurn.transcriptMessage || routeUserMessage,
-          data: {
-            version: "user_context_v2",
-            clientTurnId,
-            explicitIntent: effectiveExplicitIntent,
-            turnSource: normalizedTurn.source,
-            artifactContext: normalizedTurn.artifactContext,
-            routingDiagnostics: normalizedTurn.diagnostics,
-            formatPreference,
-            threadFramingStyle,
-            selectedDraftContext,
-            replyContext: structuredReplyContext,
-          } as unknown as Prisma.InputJsonValue,
-        }
-      });
-      const [loadedThreadMessages, conversationMemory] = await Promise.all([
-        prisma.chatMessage.findMany({
-          where: { threadId: storedThread.id },
-          orderBy: { createdAt: "desc" },
-          take: 24,
-          select: {
-            id: true,
-            role: true,
-            content: true,
-            data: true,
-            createdAt: true,
-          },
-        }),
-        getConversationMemory({ threadId: storedThread.id }),
-      ]);
-      threadMessages = loadedThreadMessages;
-      storedMemory = createConversationMemorySnapshot(conversationMemory);
-      selectedDraftContext = resolveSelectedDraftContextFromHistory({
-        history: threadMessages.reverse(),
-        selectedDraftContext,
-        activeDraftRef: storedMemory.activeDraftRef,
-      });
-      const context = buildConversationContextFromHistory({
-        history: threadMessages,
-        selectedDraftContext,
-        excludeMessageId: createdUserMessage.id,
-      });
-      recentHistoryStr = context.recentHistory;
-      activeDraft = context.activeDraft;
-    } else {
-      const context = buildConversationContextFromHistory({
-        history: body.history,
-        selectedDraftContext,
-      });
-      recentHistoryStr = context.recentHistory;
-      activeDraft = context.activeDraft;
-    }
-
-    const styleCard: VoiceStyleCard | null =
-      parsedPersistedStyleCard?.success ? parsedPersistedStyleCard.data : null;
-    const creatorContextForReply =
-      (creatorAgentContext as { growthStrategySnapshot: GrowthStrategySnapshot } | null) ?? null;
-    const growthPayloadForReply =
-      (growthOsPayload as { replyInsights: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>>["replyInsights"] } | null) ?? null;
-    const replyInsights =
-      growthPayloadForReply
-        ? growthPayloadForReply.replyInsights
-        : null;
+    const replyInsights = growthOsPayload?.replyInsights ?? null;
     const replyTurnPreflight = await prepareHandledReplyTurn({
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
@@ -652,7 +419,7 @@ export async function POST(request: NextRequest) {
       resolvedWorkflowHint: normalizedTurn.diagnostics.resolvedWorkflow,
       routingDiagnostics: normalizedTurn.diagnostics,
       activeHandle,
-      creatorAgentContext: creatorContextForReply,
+      creatorAgentContext,
       structuredReplyContext,
       shouldBypassReplyHandling: !normalizedTurn.shouldAllowReplyHandling,
       memory: storedMemory,
@@ -671,8 +438,8 @@ export async function POST(request: NextRequest) {
         routingDiagnostics: normalizedTurn.diagnostics,
         clientTurnId,
         defaultThreadTitle: DEFAULT_THREAD_TITLE,
-        storedThreadId: storedThread?.id ?? null,
-        storedThreadTitle: storedThread?.title ?? null,
+        storedThreadId: storedThread.id,
+        storedThreadTitle: storedThread.title ?? null,
         requestedThreadId: threadId,
         shouldIncludeRoutingTrace,
         userId: session.user.id,
@@ -682,11 +449,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
+    console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread.id);
     const { rawResponse, routingTrace } = await manageConversationTurnRaw({
       userId: effectiveUserId,
-      xHandle: storedThread?.xHandle || null, // Pipeline context isolation
-      threadId: storedThread?.id,
+      xHandle: storedThread.xHandle || null, // Pipeline context isolation
+      threadId: storedThread.id,
       runId: storedRun?.id,
       userMessage: routeUserMessage,
       planSeedMessage:
@@ -719,7 +486,7 @@ export async function POST(request: NextRequest) {
       formatPreference?: "shortform" | "longform" | "thread";
     } | null;
     const shouldPromoteThreadTitle = canPromoteThreadTitle({
-      currentTitle: storedThread?.title,
+      currentTitle: storedThread.title,
       topicSummary: rawResponse.memory.topicSummary,
       conversationState: rawResponse.memory.conversationState,
     });
@@ -757,10 +524,7 @@ export async function POST(request: NextRequest) {
       formatPreference,
       isVerifiedAccount,
       userPreferences: effectiveUserPreferences,
-      styleCard:
-        parsedPersistedStyleCard?.success
-          ? parsedPersistedStyleCard.data
-          : null,
+      styleCard,
       routingDiagnostics: normalizedTurn.diagnostics,
       clientTurnId,
       issuesFixed:
@@ -768,7 +532,7 @@ export async function POST(request: NextRequest) {
           ? (resultData?.issuesFixed as string[]).filter((value) => typeof value === "string")
           : [],
       defaultThreadTitle: DEFAULT_THREAD_TITLE,
-      currentThreadTitle: storedThread?.title,
+      currentThreadTitle: storedThread.title,
       nextThreadTitle: shouldPromoteThreadTitle ? contextualThreadTitle : null,
       preferredSurfaceMode: rawResponse.memory.preferredSurfaceMode ?? "natural",
       shouldClearReplyWorkflow: shouldResetReplyWorkflow,
@@ -777,7 +541,7 @@ export async function POST(request: NextRequest) {
       preparedTurn,
       routingTrace,
       shouldIncludeRoutingTrace,
-      storedThreadId: storedThread?.id ?? null,
+      storedThreadId: storedThread.id,
       requestedThreadId: threadId,
       userId: session.user.id,
       activeHandle,
