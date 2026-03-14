@@ -8,7 +8,7 @@ import {
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
-} from "./draftingExecutor.ts";
+} from "../capabilities/drafting/draftingCapability.ts";
 import type {
   ConversationServices,
   OrchestratorResponse,

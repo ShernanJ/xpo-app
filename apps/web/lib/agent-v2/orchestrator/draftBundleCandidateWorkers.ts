@@ -9,7 +9,7 @@ import type {
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
 import type { DraftBundleBrief } from "./draftBundles.ts";
-import type { DraftingCapabilityRunResult } from "./draftingExecutor.ts";
+import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
 import type { GroundingPacket } from "./groundingPacket.ts";
 import {
   buildRuntimeWorkerExecution,

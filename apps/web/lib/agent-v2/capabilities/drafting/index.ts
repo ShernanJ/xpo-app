@@ -6,4 +6,4 @@ export {
   type DraftingCapabilityReadyOutput,
   type DraftingCapabilityRunResult,
   type DraftingCapabilityRunSuccess,
-} from "../capabilities/drafting/draftingCapability.ts";
+} from "./draftingCapability.ts";

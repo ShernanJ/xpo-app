@@ -29,7 +29,7 @@ import type {
 } from "../runtime/runtimeContracts.ts";
 import type { GroundingPacket, GroundingPacketSourceMaterial } from "./groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "./sourceMaterials.ts";
-import type { DraftingCapabilityRunResult } from "./draftingExecutor.ts";
+import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

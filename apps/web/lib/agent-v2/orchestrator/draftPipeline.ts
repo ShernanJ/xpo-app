@@ -136,7 +136,7 @@ import { executePlanningCapability } from "./planningExecutor.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
-} from "./draftingExecutor.ts";
+} from "../capabilities/drafting/draftingCapability.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
 import { executeReplyingCapability } from "./replyingExecutor.ts";
 import { executeAnalysisCapability } from "./analysisExecutor.ts";
