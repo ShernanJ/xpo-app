@@ -94,8 +94,22 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
   - reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts` instead of being assembled inline in `route.ts`.
   - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/chatTransport.ts` instead of building the chat request inline.
-- `apps/web/app/chat/page.tsx` now delegates chat result parsing, assistant-message assembly, draft-editor follow-up selection, and thread remap planning through `apps/web/app/chat/chatReplyState.ts`.
-- Residual workspace/session/composer state in `page.tsx` is accepted migration debt after the Phase 2 boundary cleanup.
+- `apps/web/app/chat/page.tsx` now delegates chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning through `apps/web/app/chat/chatReplyState.ts`.
+- `apps/web/app/chat/page.tsx` now delegates page-local client seams through dedicated helpers/modules:
+  - workspace/session/composer lifecycle:
+    - `apps/web/app/chat/chatWorkspaceState.ts`
+    - `apps/web/app/chat/chatComposerState.ts`
+    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+  - draft editor/session/persistence/preview/action/history:
+    - `apps/web/app/chat/chatDraftEditorState.ts`
+    - `apps/web/app/chat/chatDraftSessionState.ts`
+    - `apps/web/app/chat/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/chatDraftActionState.ts`
+    - `apps/web/app/chat/chatThreadHistoryState.ts`
+  - presentational preview surface:
+    - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+- Residual client debt in `page.tsx` is now mostly async orchestration and large presentation surfaces rather than duplicated state math; that is accepted migration debt after the Phase 2 boundary cleanup.
 - Reduce the chat route to:
   - auth
   - workspace/thread ownership

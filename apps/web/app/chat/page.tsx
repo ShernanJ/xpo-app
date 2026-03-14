@@ -20,10 +20,8 @@ import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, 
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
-  buildDraftArtifact,
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
-  inferThreadFramingStyleFromPosts,
   type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
@@ -90,12 +88,65 @@ import {
 } from "./pendingStatus";
 import { prepareAssistantReplyTransport } from "./chatTransport";
 import {
-  applyCreatedThreadPlanToList,
-  buildAssistantMessageFromChatResult,
+  prepareComposerSubmission,
+  resolveComposerQuickReplyUpdate,
+} from "./chatComposerState";
+import {
+  addThreadDraftPost as addThreadDraftPostState,
+  buildDraftEditorHydrationState,
+  buildDraftEditorSerializedContent,
+  buildEditableThreadPosts,
+  clampThreadPostIndex,
+  ensureEditableThreadPosts,
+  mergeThreadDraftPostDown as mergeThreadDraftPostDownState,
+  moveThreadDraftPost as moveThreadDraftPostState,
+  removeThreadDraftPost as removeThreadDraftPostState,
+  splitThreadDraftPost as splitThreadDraftPostState,
+} from "./chatDraftEditorState";
+import {
+  resolveDraftCardRevisionAction,
+  resolveSelectedThreadFramingChangeAction,
+} from "./chatDraftActionState";
+import {
+  getThreadPostCharacterLimit,
+  prepareDraftPromotionRequest,
+  resolveDraftVersionRevertUpdate,
+} from "./chatDraftPersistenceState";
+import {
+  buildDraftArtifactRevealKey,
+  buildDraftBundleRevealKey,
+  buildDraftCharacterCounterMeta,
+  getArtifactPosts,
+  getThreadFramingStyle,
+  resolveDisplayedDraftCharacterLimit,
+  resolveInlineDraftPreviewState,
+  resolvePrimaryDraftRevealKey,
+} from "./chatDraftPreviewState";
+import {
+  AnimatedDraftText,
+  InlineDraftPreviewCard,
+} from "./chatDraftPreviewCard";
+import { resolveThreadHistoryHydration } from "./chatThreadHistoryState";
+import {
+  buildDraftRevisionTimeline,
+  normalizeDraftVersionBundle,
+  resolveDraftTimelineNavigation,
+  resolveDraftTimelineState,
+  resolveOpenDraftEditorState,
+} from "./chatDraftSessionState";
+import {
   readChatResponseStream,
-  resolveCreatedThreadPlan,
-  resolveNextDraftEditorSelection,
+  resolveAssistantReplyJsonOutcome,
+  resolveAssistantReplyPlan,
 } from "./chatReplyState";
+import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./chatReplyState";
+import {
+  buildChatWorkspaceReset,
+  resolveCreatedThreadWorkspaceUpdate,
+  resolveWorkspaceHandle,
+  type ChatWorkspaceReset,
+} from "./chatWorkspaceState";
+import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
 import { usePendingStatusLabel } from "./usePendingStatusLabel";
 
 interface ValidationError {
@@ -858,25 +909,22 @@ interface ChatQuickReply {
   formatPreference?: "shortform" | "longform" | "thread";
 }
 
+type CreatorAssistantReplyPlan = ResolvedAssistantReplyPlan<
+  ChatQuickReply,
+  CreatorChatSuccess["data"]["plan"],
+  DraftArtifact,
+  DraftVersionEntry,
+  DraftBundlePayload,
+  DraftVersionSnapshot,
+  ReplyArtifacts,
+  ReplyParseEnvelope,
+  CreatorChatSuccess["data"]["contextPacket"],
+  CreatorChatSuccess["data"]["memory"],
+  BillingStatePayload
+>;
+
 const DRAFT_REVEAL_DURATION_MS = 1250;
-const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
-
-function buildDraftBundleRevealKey(optionId: string): string {
-  return `bundle:${optionId}`;
-}
-
-function buildDraftArtifactRevealKey(artifactId: string): string {
-  return `artifact:${artifactId}`;
-}
-
-function buildDraftVersionRevealKey(versionId: string): string {
-  return `version:${versionId}`;
-}
-
-function buildDraftMessageRevealKey(messageId: string): string {
-  return `message:${messageId}`;
-}
 
 function isDraftPendingWorkflow(
   workflow: PendingStatusWorkflow | null | undefined,
@@ -893,70 +941,11 @@ function messageHasDraftOutput(message: ChatMessage): boolean {
   );
 }
 
-function resolvePrimaryDraftRevealKey(message: ChatMessage): string {
-  if (message.draftBundle?.options?.length) {
-    const selectedOption =
-      message.draftBundle.options.find(
-        (option) =>
-          option.id === message.draftBundle?.selectedOptionId ||
-          option.versionId === message.activeDraftVersionId,
-      ) ?? message.draftBundle.options[0];
-    return buildDraftBundleRevealKey(selectedOption.id);
-  }
-
-  if (message.draftArtifacts?.[0]?.id) {
-    return buildDraftArtifactRevealKey(message.draftArtifacts[0].id);
-  }
-
-  if (message.activeDraftVersionId) {
-    return buildDraftVersionRevealKey(message.activeDraftVersionId);
-  }
-
-  if (message.draftVersions?.length) {
-    return buildDraftVersionRevealKey(
-      message.draftVersions[message.draftVersions.length - 1].id,
-    );
-  }
-
-  return buildDraftMessageRevealKey(message.id);
-}
-
 function hasActiveDraftReveal(
   activeDraftRevealByMessageId: Record<string, string>,
   messageId: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(activeDraftRevealByMessageId, messageId);
-}
-
-function AnimatedDraftText(props: {
-  text: string;
-  className: string;
-  animate: boolean;
-  baseDelayMs?: number;
-}) {
-  if (!props.animate) {
-    return <p className={props.className}>{props.text}</p>;
-  }
-
-  const lines = props.text.split("\n");
-
-  return (
-    <p className={props.className}>
-      {lines.map((line, index) => (
-        <Fragment key={`${index}-${line.length}`}>
-          <span
-            className="draft-reveal-line inline-block whitespace-pre-wrap"
-            style={{
-              animationDelay: `${(props.baseDelayMs ?? 0) + index * DRAFT_REVEAL_LINE_STAGGER_MS}ms`,
-            }}
-          >
-            {line || "\u00A0"}
-          </span>
-          {index < lines.length - 1 ? <br /> : null}
-        </Fragment>
-      ))}
-    </p>
-  );
 }
 
 interface ChatStrategyInputs {
@@ -1772,230 +1761,6 @@ function buildHeroGreeting(params: {
   return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
 
-function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
-  label: string;
-  toneClassName: string;
-} {
-  const usedCharacterCount = computeXWeightedCharacterCount(text);
-  const isOverLimit = usedCharacterCount > maxCharacterLimit;
-
-  return {
-    label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
-    toneClassName: isOverLimit ? "text-red-400" : "text-zinc-500",
-  };
-}
-
-function getDisplayedDraftCharacterLimit(
-  storedMaxCharacterLimit: number,
-  fallbackCharacterLimit: number,
-): number {
-  return Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
-}
-
-function resolveDraftArtifactKind(
-  outputShape?: CreatorChatSuccess["data"]["outputShape"],
-): DraftArtifact["kind"] {
-  switch (outputShape) {
-    case "long_form_post":
-    case "thread_seed":
-    case "reply_candidate":
-    case "quote_candidate":
-    case "short_form_post":
-      return outputShape;
-    default:
-      return "short_form_post";
-  }
-}
-
-function getDraftVersionSupportAsset(message: ChatMessage): string | null {
-  return message.supportAsset ?? message.draftArtifacts?.[0]?.supportAsset ?? null;
-}
-
-function buildDraftArtifactWithLimit(params: {
-  id: string;
-  title: string;
-  kind: DraftArtifact["kind"];
-  content: string;
-  supportAsset: string | null;
-  maxCharacterLimit: number;
-  threadPostMaxCharacterLimit?: number;
-  posts?: string[];
-  replyPlan?: string[];
-  voiceTarget?: DraftArtifact["voiceTarget"];
-  noveltyNotes?: string[];
-  groundingSources?: DraftArtifact["groundingSources"];
-  groundingMode?: DraftArtifact["groundingMode"];
-  groundingExplanation?: DraftArtifact["groundingExplanation"];
-  threadFramingStyle?: DraftArtifact["threadFramingStyle"];
-}): DraftArtifact {
-  const artifact = buildDraftArtifact({
-    id: params.id,
-    title: params.title,
-    kind: params.kind,
-    content: params.content,
-    supportAsset: params.supportAsset,
-    ...(params.threadPostMaxCharacterLimit
-      ? { threadPostMaxCharacterLimit: params.threadPostMaxCharacterLimit }
-      : {}),
-    ...(params.posts?.length ? { posts: params.posts } : {}),
-    ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
-    ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
-    ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
-    ...(params.groundingSources?.length ? { groundingSources: params.groundingSources } : {}),
-    ...(params.groundingMode ? { groundingMode: params.groundingMode } : {}),
-    ...(params.groundingExplanation ? { groundingExplanation: params.groundingExplanation } : {}),
-    ...(params.threadFramingStyle
-      ? { threadFramingStyle: params.threadFramingStyle }
-      : {}),
-  });
-
-  if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
-    return artifact;
-  }
-
-  return {
-    ...artifact,
-    maxCharacterLimit: params.maxCharacterLimit,
-    isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
-  };
-}
-
-function getThreadPostCharacterLimit(
-  artifact: DraftArtifact | null | undefined,
-  fallbackCharacterLimit: number,
-): number {
-  return artifact?.posts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
-}
-
-function getThreadFramingStyle(
-  artifact: DraftArtifact | null | undefined,
-  fallbackContent?: string,
-): ThreadFramingStyle {
-  if (artifact?.threadFramingStyle) {
-    return artifact.threadFramingStyle;
-  }
-
-  const posts = artifact
-    ? getArtifactPosts(artifact)
-    : fallbackContent
-      ? splitThreadContent(fallbackContent)
-      : [];
-
-  return inferThreadFramingStyleFromPosts(posts);
-}
-
-function buildThreadFramingRevisionPrompt(style: ThreadFramingStyle): string {
-  switch (style) {
-    case "numbered":
-      return "keep the same thread but make the framing explicitly numbered with x/x in each post.";
-    case "soft_signal":
-      return "keep the same thread but make the opener clearly signal the thread in a natural way without x/x numbering.";
-    case "none":
-    default:
-      return "keep the same thread but remove thread numbering and make the flow feel natural without explicit thread labels.";
-  }
-}
-
-function getThreadFramingStyleLabel(style: ThreadFramingStyle | null | undefined): string {
-  switch (style) {
-    case "numbered":
-      return "Numbered";
-    case "soft_signal":
-      return "Soft Intro";
-    case "none":
-    default:
-      return "Natural";
-  }
-}
-
-function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] {
-  if (!artifact) {
-    return [];
-  }
-
-  if (artifact.posts?.length) {
-    return artifact.posts.map((post) => post.content);
-  }
-
-  return artifact.content ? [artifact.content] : [];
-}
-
-function joinThreadPosts(posts: string[]): string {
-  return posts
-    .map((post) => post.trim())
-    .filter(Boolean)
-    .join("\n\n---\n\n");
-}
-
-function splitThreadPostAtBoundary(content: string): [string, string] | null {
-  const normalized = content.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const paragraphParts = normalized.split(/\n{2,}/).filter(Boolean);
-  if (paragraphParts.length > 1) {
-    const pivot = Math.ceil(paragraphParts.length / 2);
-    return [
-      paragraphParts.slice(0, pivot).join("\n\n").trim(),
-      paragraphParts.slice(pivot).join("\n\n").trim(),
-    ];
-  }
-
-  const sentenceParts = normalized.split(/(?<=[.!?])\s+/).filter(Boolean);
-  if (sentenceParts.length > 1) {
-    const pivot = Math.ceil(sentenceParts.length / 2);
-    return [
-      sentenceParts.slice(0, pivot).join(" ").trim(),
-      sentenceParts.slice(pivot).join(" ").trim(),
-    ];
-  }
-
-  const words = normalized.split(/\s+/).filter(Boolean);
-  if (words.length < 8) {
-    return null;
-  }
-
-  const pivot = Math.ceil(words.length / 2);
-  return [
-    words.slice(0, pivot).join(" ").trim(),
-    words.slice(pivot).join(" ").trim(),
-  ];
-}
-
-function splitThreadContent(content: string): string[] {
-  return content
-    .split(/\n\s*---\s*\n/g)
-    .map((post) => post.trim())
-    .filter(Boolean);
-}
-
-function buildEditableThreadPosts(
-  artifact: DraftArtifact | null | undefined,
-  content: string,
-): string[] {
-  const artifactPosts = getArtifactPosts(artifact)
-    .map((post) => post.trim())
-    .filter(Boolean);
-
-  if (artifactPosts.length > 0) {
-    return artifactPosts;
-  }
-
-  const contentPosts = splitThreadContent(content);
-  if (contentPosts.length > 0) {
-    return contentPosts;
-  }
-
-  const normalizedContent = content.trim();
-  return normalizedContent ? [normalizedContent] : [""];
-}
-
-function ensureEditableThreadPosts(posts: string[]): string[] {
-  const normalized = posts.map((post) => post.replace(/\r\n/g, "\n"));
-  return normalized.length > 0 ? normalized : [""];
-}
-
 function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
   switch (status) {
     case "approved":
@@ -2092,187 +1857,6 @@ function getDraftGroundingToneClasses(
   };
 }
 
-function normalizeDraftVersionBundle(
-  message: ChatMessage,
-  fallbackCharacterLimit: number,
-): {
-  versions: DraftVersionEntry[];
-  activeVersionId: string;
-  activeVersion: DraftVersionEntry;
-  previousSnapshot: DraftVersionSnapshot | null;
-} | null {
-  const supportAsset = getDraftVersionSupportAsset(message);
-  const rawVersions =
-    message.draftVersions?.length
-      ? message.draftVersions
-      : (() => {
-        const fallbackContent =
-          message.draft ??
-          message.drafts?.[0] ??
-          message.draftArtifacts?.[0]?.content ??
-          null;
-
-        if (!fallbackContent) {
-          return [];
-        }
-
-        return [
-          {
-            id: `${message.id}-v1`,
-            content: fallbackContent,
-            source: "assistant_generated" as const,
-            createdAt: message.createdAt ?? new Date(0).toISOString(),
-            basedOnVersionId: null,
-            weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
-            maxCharacterLimit:
-              message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
-            supportAsset,
-            artifact: message.draftArtifacts?.[0],
-          },
-        ];
-      })();
-
-  if (!rawVersions.length) {
-    return null;
-  }
-
-  const mappedVersions = rawVersions.map((version) => {
-    const content = typeof version.content === "string" ? version.content : "";
-    const artifact = version.artifact;
-    const maxCharacterLimit =
-      typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
-        ? version.maxCharacterLimit
-        : artifact?.maxCharacterLimit ?? message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
-
-    return {
-      id: version.id,
-      content,
-      source: version.source,
-      createdAt: version.createdAt,
-      basedOnVersionId: version.basedOnVersionId ?? null,
-      weightedCharacterCount: computeXWeightedCharacterCount(content),
-      maxCharacterLimit,
-      supportAsset: version.supportAsset ?? supportAsset,
-      artifact,
-    };
-  });
-
-  const activeVersionId =
-    message.activeDraftVersionId &&
-      mappedVersions.some((version) => version.id === message.activeDraftVersionId)
-      ? message.activeDraftVersionId
-      : mappedVersions[mappedVersions.length - 1].id;
-  const activeVersionIndex = mappedVersions.findIndex(
-    (version) => version.id === activeVersionId,
-  );
-  const versions =
-    activeVersionIndex >= 0 && activeVersionIndex < mappedVersions.length - 1
-      ? [
-        ...mappedVersions.slice(0, activeVersionIndex),
-        ...mappedVersions.slice(activeVersionIndex + 1),
-        mappedVersions[activeVersionIndex],
-      ]
-      : mappedVersions;
-  const currentVersionIndex = Math.max(
-    0,
-    versions.findIndex((version) => version.id === activeVersionId),
-  );
-  const activeVersion = versions[currentVersionIndex];
-  const inferredPreviousVersion =
-    (activeVersion.basedOnVersionId
-      ? versions.find((version) => version.id === activeVersion.basedOnVersionId) ?? null
-      : null) ?? (currentVersionIndex > 0 ? versions[currentVersionIndex - 1] : null);
-  const previousSnapshot = message.previousVersionSnapshot
-    ? message.previousVersionSnapshot
-    : inferredPreviousVersion
-      ? {
-        messageId: message.id,
-        versionId: inferredPreviousVersion.id,
-        content: inferredPreviousVersion.content,
-        source: inferredPreviousVersion.source,
-        createdAt: inferredPreviousVersion.createdAt,
-      }
-      : null;
-  return {
-    versions,
-    activeVersionId,
-    activeVersion,
-    previousSnapshot,
-  };
-}
-
-function replaceDraftVersionEntry(args: {
-  versions: DraftVersionEntry[];
-  versionId: string;
-  content: string;
-  artifact: DraftArtifact;
-}): DraftVersionEntry[] {
-  return args.versions.map((version) =>
-    version.id === args.versionId
-      ? {
-          ...version,
-          content: args.content,
-          weightedCharacterCount: computeXWeightedCharacterCount(args.content),
-          maxCharacterLimit: args.artifact.maxCharacterLimit,
-          supportAsset: args.artifact.supportAsset ?? version.supportAsset,
-          artifact: args.artifact,
-        }
-      : version,
-  );
-}
-
-function buildDraftCollectionsFromVersions(args: {
-  versions: DraftVersionEntry[];
-  activeVersionId: string;
-  fallbackDrafts?: string[];
-  fallbackArtifacts?: DraftArtifact[];
-}): {
-  draft: string;
-  drafts: string[];
-  draftArtifacts: DraftArtifact[];
-} {
-  const activeVersion =
-    args.versions.find((version) => version.id === args.activeVersionId) ??
-    args.versions[args.versions.length - 1];
-  const drafts = args.versions.map((version) => version.content).filter(Boolean);
-  const draftArtifacts = args.versions
-    .map((version) => version.artifact)
-    .filter((artifact): artifact is DraftArtifact => Boolean(artifact));
-
-  return {
-    draft: activeVersion?.content ?? args.fallbackDrafts?.[0] ?? "",
-    drafts: drafts.length > 0 ? drafts : args.fallbackDrafts ?? [],
-    draftArtifacts: draftArtifacts.length > 0 ? draftArtifacts : args.fallbackArtifacts ?? [],
-  };
-}
-
-function syncDraftBundleSelection(args: {
-  draftBundle: DraftBundlePayload | null | undefined;
-  versionId: string;
-  content: string;
-  artifact: DraftArtifact;
-}): DraftBundlePayload | null {
-  if (!args.draftBundle) {
-    return null;
-  }
-
-  const selectedOption =
-    args.draftBundle.options.find((option) => option.versionId === args.versionId) ?? null;
-
-  return {
-    ...args.draftBundle,
-    selectedOptionId: selectedOption?.id ?? args.draftBundle.selectedOptionId,
-    options: args.draftBundle.options.map((option) =>
-      option.versionId === args.versionId
-        ? {
-            ...option,
-            content: args.content,
-            artifact: args.artifact,
-          }
-        : option,
-    ),
-  };
-}
 
 function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
   if (!message.quickReplies?.length) {
@@ -2306,196 +1890,6 @@ function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
     message.surfaceMode === "generate_full_output" ||
     message.surfaceMode === "revise_and_return"
   );
-}
-
-function buildDraftRevisionTimeline(args: {
-  messages: ChatMessage[];
-  activeDraftSelection: DraftDrawerSelection | null;
-  fallbackCharacterLimit: number;
-}): DraftTimelineEntry[] {
-  if (!args.activeDraftSelection) {
-    return [];
-  }
-
-  const selectedMessage =
-    args.messages.find((message) => message.id === args.activeDraftSelection?.messageId) ?? null;
-  if (!selectedMessage) {
-    return [];
-  }
-
-  const selectedBundle = normalizeDraftVersionBundle(
-    selectedMessage,
-    args.fallbackCharacterLimit,
-  );
-  if (!selectedBundle) {
-    return [];
-  }
-
-  const resolvedChainId =
-    args.activeDraftSelection.revisionChainId?.trim() ||
-    selectedMessage.revisionChainId?.trim() ||
-    selectedMessage.previousVersionSnapshot?.revisionChainId?.trim() ||
-    `legacy-chain-${selectedMessage.id}`;
-
-  const chainedEntries = resolvedChainId
-    ? args.messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          typeof message.revisionChainId === "string" &&
-          message.revisionChainId.trim() === resolvedChainId,
-      )
-      .sort((left, right) =>
-        (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
-      )
-      .flatMap((message) => {
-        const bundle = normalizeDraftVersionBundle(message, args.fallbackCharacterLimit);
-        if (!bundle) {
-          return [];
-        }
-
-        return bundle.versions.map((version) => ({
-          messageId: message.id,
-          versionId: version.id,
-          content: version.content,
-          createdAt: version.createdAt,
-          source: version.source,
-          revisionChainId: resolvedChainId,
-          maxCharacterLimit: version.maxCharacterLimit,
-          isCurrentMessageVersion: message.id === selectedMessage.id,
-        }));
-      })
-    : [];
-
-  if (chainedEntries.length > 0) {
-    const selectedMessageEntries = chainedEntries.some(
-      (entry) => entry.messageId === selectedMessage.id,
-    )
-      ? []
-      : selectedBundle.versions.map((version) => ({
-        messageId: selectedMessage.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: true,
-      }));
-    const combinedEntries = [...selectedMessageEntries, ...chainedEntries].sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt),
-    );
-    const previousSnapshot = selectedBundle.previousSnapshot;
-    if (!previousSnapshot) {
-      return combinedEntries;
-    }
-
-    const snapshotAlreadyPresent = combinedEntries.some(
-      (entry) =>
-        entry.messageId === previousSnapshot.messageId &&
-        entry.versionId === previousSnapshot.versionId,
-    );
-    if (snapshotAlreadyPresent) {
-      return combinedEntries;
-    }
-
-    return [
-      {
-        messageId: previousSnapshot.messageId,
-        versionId: previousSnapshot.versionId,
-        content: previousSnapshot.content,
-        createdAt: previousSnapshot.createdAt,
-        source: previousSnapshot.source,
-        revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
-        maxCharacterLimit:
-          previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
-        isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
-      },
-      ...combinedEntries,
-    ];
-  }
-
-  const legacyChainSourceId =
-    args.activeDraftSelection.revisionChainId?.startsWith("legacy-chain-")
-      ? args.activeDraftSelection.revisionChainId.slice("legacy-chain-".length)
-      : "";
-  const legacyChainSource =
-    legacyChainSourceId && legacyChainSourceId !== selectedMessage.id
-      ? args.messages.find((message) => message.id === legacyChainSourceId) ?? null
-      : null;
-
-  if (legacyChainSource) {
-    const legacySourceBundle = normalizeDraftVersionBundle(
-      legacyChainSource,
-      args.fallbackCharacterLimit,
-    );
-    if (legacySourceBundle) {
-      const currentEntries = selectedBundle.versions.map((version) => ({
-        messageId: selectedMessage.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: true,
-      }));
-      const anchorEntries = legacySourceBundle.versions.map((version) => ({
-        messageId: legacyChainSource.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: false,
-      }));
-
-      return [...currentEntries, ...anchorEntries].sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt),
-      );
-    }
-  }
-
-  const fallbackEntries = selectedBundle.versions.map((version) => ({
-    messageId: selectedMessage.id,
-    versionId: version.id,
-    content: version.content,
-    createdAt: version.createdAt,
-    source: version.source,
-    revisionChainId: resolvedChainId,
-    maxCharacterLimit: version.maxCharacterLimit,
-    isCurrentMessageVersion: true,
-  }));
-  const previousSnapshot = selectedBundle.previousSnapshot;
-
-  if (!previousSnapshot) {
-    return fallbackEntries;
-  }
-
-  const snapshotAlreadyPresent = fallbackEntries.some(
-    (entry) =>
-      entry.messageId === previousSnapshot.messageId &&
-      entry.versionId === previousSnapshot.versionId,
-  );
-  if (snapshotAlreadyPresent) {
-    return fallbackEntries;
-  }
-
-  return [
-    {
-      messageId: previousSnapshot.messageId,
-      versionId: previousSnapshot.versionId,
-      content: previousSnapshot.content,
-      createdAt: previousSnapshot.createdAt,
-      source: previousSnapshot.source,
-      revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
-      maxCharacterLimit:
-        previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
-      isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
-    },
-    ...fallbackEntries,
-  ];
 }
 
 // V3: inferComposerIntent was removed. The backend turn planner and LLM
@@ -2644,15 +2038,14 @@ function ChatPageContent() {
   const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
   const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
 
-  const accountName = useMemo(() => {
-    const workspaceHandleFromUrl = normalizeAccountHandle(searchParams.get("xHandle") ?? "");
-    if (workspaceHandleFromUrl) {
-      return workspaceHandleFromUrl;
-    }
-
-    const workspaceHandleFromSession = normalizeAccountHandle(session?.user?.activeXHandle ?? "");
-    return workspaceHandleFromSession || null;
-  }, [searchParams, session?.user?.activeXHandle]);
+  const accountName = useMemo(
+    () =>
+      resolveWorkspaceHandle({
+        searchHandle: searchParams.get("xHandle"),
+        sessionHandle: session?.user?.activeXHandle ?? null,
+      }),
+    [searchParams, session?.user?.activeXHandle],
+  );
   const requiresXAccountGate = status === "authenticated" && !accountName;
   const sourceMaterialsBootstrapKey = useMemo(() => {
     const normalizedHandle = normalizeAccountHandle(accountName ?? "");
@@ -2698,6 +2091,7 @@ function ChatPageContent() {
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const chatThreadsRef = useRef(chatThreads);
   const threadTransitionOutTimeoutRef = useRef<number | null>(null);
   const threadTransitionInTimeoutRef = useRef<number | null>(null);
   const shouldJumpToBottomAfterThreadSwitchRef = useRef(false);
@@ -2705,6 +2099,10 @@ function ChatPageContent() {
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
     normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
+
+  useEffect(() => {
+    chatThreadsRef.current = chatThreads;
+  }, [chatThreads]);
 
   useEffect(() => {
     if (!accountName) {
@@ -2891,20 +2289,7 @@ function ChatPageContent() {
       setChatThreads((current) => current.filter((thread) => thread.id !== deletingThread.id));
 
       if (activeThreadId === deletingThread.id) {
-        setActiveThreadId(null);
-        threadCreatedInSessionRef.current = false;
-        setMessages([]);
-        setDraftInput("");
-        setConversationMemory(null);
-        setActiveDraftEditor(null);
-        setEditorDraftText("");
-        setEditorDraftPosts([]);
-        setTypedAssistantLengths({});
-        setActiveDraftRevealByMessageId({});
-        setRevealedDraftMessageIds({});
-        setErrorMessage(null);
-        setIsLeavingHero(false);
-
+        applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
         window.history.replaceState({}, "", buildWorkspaceChatHref(null));
       }
     } catch (e) {
@@ -3275,6 +2660,30 @@ function ChatPageContent() {
       ),
     );
   }, [fetchWorkspace]);
+  const applyCreatedThreadWorkspaceUpdate = useCallback(
+    (newThreadId?: string | null, threadTitle?: string | null) => {
+      const createdThreadUpdate = resolveCreatedThreadWorkspaceUpdate({
+        currentThreads: chatThreadsRef.current,
+        newThreadId,
+        threadTitle,
+        activeThreadId,
+        accountName,
+      });
+      if (!createdThreadUpdate) {
+        return;
+      }
+
+      setActiveThreadId(createdThreadUpdate.nextActiveThreadId);
+      threadCreatedInSessionRef.current = createdThreadUpdate.threadCreatedInSession;
+      window.history.replaceState(
+        {},
+        "",
+        buildWorkspaceChatHref(createdThreadUpdate.nextHistoryThreadId),
+      );
+      setChatThreads(createdThreadUpdate.nextChatThreads);
+    },
+    [accountName, activeThreadId, buildWorkspaceChatHref],
+  );
 
   const acknowledgePricingModal = useCallback(async () => {
     try {
@@ -3378,21 +2787,8 @@ function ChatPageContent() {
   const handleNewChat = useCallback(() => {
     if (!accountName) return;
 
-    setActiveThreadId(null);
-    threadCreatedInSessionRef.current = false;
-    setMessages([]);
-    setDraftInput("");
-    setConversationMemory(null);
-    setActiveDraftEditor(null);
-    setEditorDraftText("");
-    setEditorDraftPosts([]);
-    setTypedAssistantLengths({});
-    setActiveDraftRevealByMessageId({});
-    setRevealedDraftMessageIds({});
-    setErrorMessage(null);
-    setIsLeavingHero(false);
-
-    window.history.pushState({}, '', buildWorkspaceChatHref(null));
+    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+    window.history.pushState({}, "", buildWorkspaceChatHref(null));
   }, [accountName, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
@@ -3519,6 +2915,81 @@ function ChatPageContent() {
   >({});
   const draftRevealTimeoutsRef = useRef<Record<string, number>>({});
   const hasHydratedDraftRevealRef = useRef(false);
+  function applyChatWorkspaceReset(
+    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
+  ) {
+    if ("activeThreadId" in reset) {
+      setActiveThreadId(reset.activeThreadId);
+    }
+    if ("threadCreatedInSession" in reset) {
+      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
+    }
+    if ("context" in reset) {
+      setContext(reset.context);
+    }
+    if ("contract" in reset) {
+      setContract(reset.contract);
+    }
+    if ("conversationMemory" in reset) {
+      setConversationMemory(reset.conversationMemory);
+    }
+    if ("streamStatus" in reset) {
+      setStreamStatus(reset.streamStatus);
+    }
+    if ("isWorkspaceInitializing" in reset) {
+      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
+    }
+    if ("analysisOpen" in reset) {
+      setAnalysisOpen(reset.analysisOpen);
+    }
+    if ("backfillNotice" in reset) {
+      setBackfillNotice(reset.backfillNotice);
+    }
+    if ("isAnalysisScrapeRefreshing" in reset) {
+      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
+    }
+    if ("analysisScrapeNotice" in reset) {
+      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
+    }
+    if ("analysisScrapeCooldownUntil" in reset) {
+      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
+    }
+    if ("activeContentFocus" in reset) {
+      setActiveContentFocus(reset.activeContentFocus);
+    }
+    if ("toneInputs" in reset) {
+      setToneInputs(reset.toneInputs);
+    }
+    if ("activeToneInputs" in reset) {
+      setActiveToneInputs(reset.activeToneInputs);
+    }
+    if ("activeStrategyInputs" in reset) {
+      setActiveStrategyInputs(reset.activeStrategyInputs);
+    }
+    if ("draftQueueItems" in reset) {
+      setDraftQueueItems(reset.draftQueueItems);
+    }
+    if ("draftQueueError" in reset) {
+      setDraftQueueError(reset.draftQueueError);
+    }
+    if ("editingDraftCandidateId" in reset) {
+      setEditingDraftCandidateId(reset.editingDraftCandidateId);
+    }
+    if ("editingDraftCandidateText" in reset) {
+      setEditingDraftCandidateText(reset.editingDraftCandidateText);
+    }
+
+    setMessages(reset.messages);
+    setDraftInput(reset.draftInput);
+    setErrorMessage(reset.errorMessage);
+    setActiveDraftEditor(reset.activeDraftEditor);
+    setEditorDraftText(reset.editorDraftText);
+    setEditorDraftPosts(reset.editorDraftPosts);
+    setTypedAssistantLengths(reset.typedAssistantLengths);
+    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
+    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
+    setIsLeavingHero(reset.isLeavingHero);
+  }
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
@@ -4700,7 +4171,7 @@ function ChatPageContent() {
   ]);
   const preferencesPreviewCounter = useMemo(
     () =>
-      getXCharacterCounterMeta(
+      buildDraftCharacterCounterMeta(
         preferencesPreviewDraft,
         effectivePreferenceMaxCharacters,
       ),
@@ -5136,41 +4607,16 @@ function ChatPageContent() {
         const contractData: CreatorGenerationContractResponse =
           await contractResponse.json();
 
-        const contextMissingOnboarding =
-          (!contextData.ok &&
-            (contextData.code === "MISSING_ONBOARDING_RUN" ||
-              (contextResponse.status === 404 &&
-                contextData.errors.some((error) =>
-                  error.message.toLowerCase().includes("no onboarding run"),
-                ))));
-        const contractMissingOnboarding =
-          (!contractData.ok &&
-            (contractData.code === "MISSING_ONBOARDING_RUN" ||
-              (contractResponse.status === 404 &&
-                contractData.errors.some((error) =>
-                  error.message.toLowerCase().includes("no onboarding run"),
-                ))));
-        const contextInvalidOnboardingSource =
-          !contextData.ok &&
-          (contextData.code === "ONBOARDING_SOURCE_INVALID" ||
-            (contextResponse.status === 409 &&
-              contextData.errors.some((error) =>
-                error.message.toLowerCase().includes("fallback data"),
-              )));
-        const contractInvalidOnboardingSource =
-          !contractData.ok &&
-          (contractData.code === "ONBOARDING_SOURCE_INVALID" ||
-            (contractResponse.status === 409 &&
-              contractData.errors.some((error) =>
-                error.message.toLowerCase().includes("fallback data"),
-              )));
+        const workspaceLoadState = resolveWorkspaceLoadState({
+          contextResponseOk: contextResponse.ok,
+          contextStatus: contextResponse.status,
+          contextData,
+          contractResponseOk: contractResponse.ok,
+          contractStatus: contractResponse.status,
+          contractData,
+        });
 
-        if (
-          contextMissingOnboarding ||
-          contractMissingOnboarding ||
-          contextInvalidOnboardingSource ||
-          contractInvalidOnboardingSource
-        ) {
+        if (workspaceLoadState.status === "retry_after_onboarding") {
           const didSetup = await runMissingOnboardingSetup();
           if (didSetup) {
             return await loadWorkspace(overrides, toneOverrides);
@@ -5178,32 +4624,17 @@ function ChatPageContent() {
           return { ok: false };
         }
 
-        if (!contextResponse.ok || !contextData.ok) {
-          setErrorMessage(
-            contextData.ok
-              ? "Failed to load the creator context."
-              : (contextData.errors[0]?.message ??
-                "Failed to load the creator context."),
-          );
+        if (workspaceLoadState.status === "error") {
+          setErrorMessage(workspaceLoadState.errorMessage);
           return { ok: false };
         }
 
-        if (!contractResponse.ok || !contractData.ok) {
-          setErrorMessage(
-            contractData.ok
-              ? "Failed to load the generation contract."
-              : (contractData.errors[0]?.message ??
-                "Failed to load the generation contract."),
-          );
-          return { ok: false };
-        }
-
-        setContext(contextData.data);
-        setContract(contractData.data);
+        setContext(workspaceLoadState.contextData);
+        setContract(workspaceLoadState.contractData);
         return {
           ok: true,
-          contextData: contextData.data,
-          contractData: contractData.data,
+          contextData: workspaceLoadState.contextData,
+          contractData: workspaceLoadState.contractData,
         };
       } catch {
         setErrorMessage("Network error while loading the chat workspace.");
@@ -5403,34 +4834,13 @@ function ChatPageContent() {
     }
 
     missingOnboardingSetupAttemptedRef.current.clear();
-    setContext(null);
-    setContract(null);
-    setMessages([]);
-    setDraftInput("");
-    setErrorMessage(null);
-    setStreamStatus(null);
-    setIsWorkspaceInitializing(false);
-    setAnalysisOpen(false);
-    setBackfillNotice(null);
-    setIsAnalysisScrapeRefreshing(false);
-    setAnalysisScrapeNotice(null);
-    setAnalysisScrapeCooldownUntil(null);
-    setActiveContentFocus(null);
-    setToneInputs(DEFAULT_CHAT_TONE_INPUTS);
-    setActiveToneInputs(null);
-    setActiveStrategyInputs(DEFAULT_CHAT_STRATEGY_INPUTS);
-    setActiveDraftEditor(null);
-    setEditorDraftText("");
-    setEditorDraftPosts([]);
-    setDraftQueueItems([]);
-    setDraftQueueError(null);
-    setEditingDraftCandidateId(null);
-    setEditingDraftCandidateText("");
-    setTypedAssistantLengths({});
-    setActiveDraftRevealByMessageId({});
-    setRevealedDraftMessageIds({});
-    setIsLeavingHero(false);
-  }, [accountName, fetchWorkspace]);
+    applyChatWorkspaceReset(
+      buildChatWorkspaceReset("workspace", {
+        defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
+        defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
+      }),
+    );
+  }, [accountName]);
 
   useEffect(() => {
     if (!isLeavingHero) {
@@ -6133,7 +5543,7 @@ function ChatPageContent() {
     }
 
     const rawIndex = selectedThreadPostByMessageId[activeMessageId] ?? 0;
-    return Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+    return clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
   }, [
     activeDraftEditor?.messageId,
     isSelectedDraftThread,
@@ -6142,13 +5552,11 @@ function ChatPageContent() {
   ]);
   const draftEditorSerializedContent = useMemo(
     () =>
-      isSelectedDraftThread
-        ? joinThreadPosts(
-            ensureEditableThreadPosts(editorDraftPosts)
-              .map((post) => post.trim())
-              .filter(Boolean),
-          )
-        : editorDraftText,
+      buildDraftEditorSerializedContent({
+        isThreadDraft: isSelectedDraftThread,
+        editorDraftPosts,
+        editorDraftText,
+      }),
     [editorDraftPosts, editorDraftText, isSelectedDraftThread],
   );
   const selectedDraftReplyPlan = selectedDraftArtifact?.replyPlan ?? [];
@@ -6182,37 +5590,33 @@ function ChatPageContent() {
       }),
     [activeDraftEditor, composerCharacterLimit, messages],
   );
-  const selectedDraftTimelineIndex = useMemo(
-    () =>
-      selectedDraftTimeline.findIndex(
-        (entry) =>
-          entry.messageId === activeDraftEditor?.messageId &&
-          entry.versionId === activeDraftEditor?.versionId,
-      ),
-    [activeDraftEditor, selectedDraftTimeline],
-  );
   const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
   const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
   const selectedDraftMessageId = activeDraftEditor?.messageId ?? null;
-  const selectedDraftTimelinePosition =
-    selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
-  const latestDraftTimelineEntry =
-    selectedDraftTimeline.length > 0
-      ? selectedDraftTimeline[selectedDraftTimeline.length - 1]
-      : null;
-  const canNavigateDraftBack = selectedDraftTimelineIndex > 0;
-  const canNavigateDraftForward =
-    selectedDraftTimelineIndex >= 0 &&
-    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
-  const isViewingHistoricalDraftVersion =
-    selectedDraftTimelineIndex >= 0 &&
-    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
-  const hasDraftEditorChanges =
-    selectedDraftVersion !== null &&
-    draftEditorSerializedContent.trim().length > 0 &&
-    draftEditorSerializedContent.trim() !== selectedDraftVersion.content.trim();
-  const shouldShowRevertDraftCta =
-    isViewingHistoricalDraftVersion && !hasDraftEditorChanges;
+  const {
+    selectedDraftTimelineIndex,
+    selectedDraftTimelinePosition,
+    latestDraftTimelineEntry,
+    canNavigateDraftBack,
+    canNavigateDraftForward,
+    isViewingHistoricalDraftVersion,
+    hasDraftEditorChanges,
+    shouldShowRevertDraftCta,
+  } = useMemo(
+    () =>
+      resolveDraftTimelineState({
+        timeline: selectedDraftTimeline,
+        activeDraftSelection: activeDraftEditor,
+        serializedContent: draftEditorSerializedContent,
+        selectedDraftVersionContent,
+      }),
+    [
+      activeDraftEditor,
+      draftEditorSerializedContent,
+      selectedDraftTimeline,
+      selectedDraftVersionContent,
+    ],
+  );
   const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
     ? "Revert to this Version"
     : "Save As New Version";
@@ -6235,21 +5639,15 @@ function ChatPageContent() {
   );
 
   useEffect(() => {
-    if (!selectedDraftVersionId) {
-      setEditorDraftText("");
-      setEditorDraftPosts([]);
-      setHasCopiedDraftEditorText(false);
-      return;
-    }
+    const hydratedDraftEditorState = buildDraftEditorHydrationState({
+      selectedDraftVersionId,
+      isThreadDraft: isSelectedDraftThread,
+      artifact: selectedDraftArtifact,
+      content: selectedDraftVersionContent,
+    });
 
-    setEditorDraftText(selectedDraftVersionContent);
-    setEditorDraftPosts(
-      isSelectedDraftThread
-        ? ensureEditableThreadPosts(
-            buildEditableThreadPosts(selectedDraftArtifact, selectedDraftVersionContent),
-          )
-        : [],
-    );
+    setEditorDraftText(hydratedDraftEditorState.editorDraftText);
+    setEditorDraftPosts(hydratedDraftEditorState.editorDraftPosts);
     setHasCopiedDraftEditorText(false);
   }, [
     activeDraftEditor?.messageId,
@@ -6268,7 +5666,7 @@ function ChatPageContent() {
 
     setSelectedThreadPostByMessageId((current) => {
       const rawIndex = current[activeMessageId] ?? 0;
-      const clampedIndex = Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+      const clampedIndex = clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
 
       if (rawIndex === clampedIndex) {
         return current;
@@ -6287,41 +5685,30 @@ function ChatPageContent() {
 
   const navigateDraftTimeline = useCallback(
     (direction: "back" | "forward") => {
-      if (selectedDraftTimelineIndex < 0) {
+      const navigation = resolveDraftTimelineNavigation({
+        direction,
+        timeline: selectedDraftTimeline,
+        selectedDraftTimelineIndex,
+        activeDraftSelection: activeDraftEditor,
+      });
+      if (!navigation) {
         return;
       }
 
-      const targetIndex =
-        direction === "back"
-          ? selectedDraftTimelineIndex - 1
-          : selectedDraftTimelineIndex + 1;
-      const targetEntry = selectedDraftTimeline[targetIndex];
-      if (!targetEntry) {
-        return;
-      }
-
-      if (targetEntry.messageId !== activeDraftEditor?.messageId) {
+      if (navigation.scrollToMessageId) {
         window.requestAnimationFrame(() => {
-          messageRefs.current[targetEntry.messageId]?.scrollIntoView({
+          messageRefs.current[navigation.scrollToMessageId!]?.scrollIntoView({
             behavior: "smooth",
             block: "center",
           });
         });
         window.setTimeout(() => {
-          setActiveDraftEditor({
-            messageId: targetEntry.messageId,
-            versionId: targetEntry.versionId,
-            revisionChainId: targetEntry.revisionChainId,
-          });
+          setActiveDraftEditor(navigation.targetSelection);
         }, DRAFT_TIMELINE_FOCUS_DELAY_MS);
         return;
       }
 
-      setActiveDraftEditor({
-        messageId: targetEntry.messageId,
-        versionId: targetEntry.versionId,
-        revisionChainId: targetEntry.revisionChainId,
-      });
+      setActiveDraftEditor(navigation.targetSelection);
     },
     [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
   );
@@ -6331,40 +5718,25 @@ function ChatPageContent() {
     versionId?: string,
     threadPostIndex?: number,
   ) => {
-    const message = messages.find((item) => item.id === messageId);
-    if (!message) {
+    const openState = resolveOpenDraftEditorState({
+      message: messages.find((item) => item.id === messageId) ?? null,
+      fallbackCharacterLimit: composerCharacterLimit,
+      versionId,
+      threadPostIndex,
+    });
+    if (!openState) {
       return;
     }
 
-    const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
-    if (!bundle) {
-      return;
-    }
-
-    const selectedArtifact =
-      bundle.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
-    const isThreadDraft =
-      selectedArtifact?.kind === "thread_seed" || message.outputShape === "thread_seed";
-
-    if (isThreadDraft) {
+    if (openState.shouldExpandInlineThreadPreview) {
       setExpandedInlineThreadPreviewId(messageId);
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]:
-          typeof threadPostIndex === "number" && Number.isFinite(threadPostIndex)
-            ? Math.max(0, threadPostIndex)
-            : 0,
+        [messageId]: openState.selectedThreadPostIndex,
       }));
     }
 
-    setActiveDraftEditor({
-      messageId,
-      versionId:
-        versionId && bundle.versions.some((version) => version.id === versionId)
-          ? versionId
-          : bundle.activeVersionId,
-      revisionChainId: message.revisionChainId ?? undefined,
-    });
+    setActiveDraftEditor(openState.selection);
   }, [composerCharacterLimit, messages]);
 
   const updateThreadDraftPost = useCallback((index: number, content: string) => {
@@ -6375,104 +5747,108 @@ function ChatPageContent() {
 
   const moveThreadDraftPost = useCallback((index: number, direction: "up" | "down") => {
     const messageId = activeDraftEditor?.messageId;
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      if (index < 0 || index >= current.length || targetIndex < 0 || targetIndex >= current.length) {
+      const nextState = moveThreadDraftPostState({
+        posts: current,
+        index,
+        direction,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const next = [...current];
-      const [movedPost] = next.splice(index, 1);
-      next.splice(targetIndex, 0, movedPost);
-      return next;
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId && targetIndex >= 0) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: targetIndex,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const splitThreadDraftPost = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      const target = current[index] ?? "";
-      const split = splitThreadPostAtBoundary(target);
-      if (!split) {
+      const nextState = splitThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const next = [...current];
-      next.splice(index, 1, split[0], split[1]);
-      return next;
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: index,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const mergeThreadDraftPostDown = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      if (index < 0 || index >= current.length - 1) {
+      const nextState = mergeThreadDraftPostDownState({
+        posts: current,
+        index,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const currentPost = current[index]?.trim() ?? "";
-      const nextPost = current[index + 1]?.trim() ?? "";
-      const merged = [currentPost, nextPost].filter(Boolean).join("\n\n");
-      const next = [...current];
-      next.splice(index, 2, merged);
-      return ensureEditableThreadPosts(next);
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: index,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const addThreadDraftPost = useCallback((index?: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex = 0;
     setEditorDraftPosts((current) => {
-      const next = [...current];
-      const insertionIndex =
-        typeof index === "number" && Number.isFinite(index)
-          ? Math.max(0, Math.min(next.length, index))
-          : next.length;
-      next.splice(insertionIndex, 0, "");
-      return ensureEditableThreadPosts(next);
+      const nextState = addThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
     if (messageId) {
-      const insertionIndex =
-        typeof index === "number" && Number.isFinite(index)
-          ? Math.max(0, index)
-          : editorDraftPosts.length;
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: insertionIndex,
+        [messageId]: nextSelectedIndex,
       }));
     }
-  }, [activeDraftEditor?.messageId, editorDraftPosts.length]);
+  }, [activeDraftEditor?.messageId]);
 
   const removeThreadDraftPost = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex = 0;
     setEditorDraftPosts((current) => {
-      if (current.length <= 1) {
-        return [""];
-      }
-
-      return ensureEditableThreadPosts(current.filter((_, postIndex) => postIndex !== index));
+      const nextState = removeThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
     if (messageId) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: Math.max(0, index - 1),
+        [messageId]: nextSelectedIndex,
       }));
     }
   }, [activeDraftEditor?.messageId]);
@@ -6631,26 +6007,18 @@ function ChatPageContent() {
       return;
     }
 
-    const nextPosts = isSelectedDraftThread
-      ? ensureEditableThreadPosts(editorDraftPosts)
-          .map((post) => post.trim())
-          .filter(Boolean)
-      : [];
-    const nextContent = (isSelectedDraftThread
-      ? joinThreadPosts(nextPosts)
-      : editorDraftText).trim();
-    if (!nextContent) {
+    const draftPromotion = prepareDraftPromotionRequest({
+      activeDraftEditorRevisionChainId: activeDraftEditor.revisionChainId,
+      selectedDraftMessage,
+      selectedDraftVersion,
+      selectedDraftArtifact,
+      isSelectedDraftThread,
+      editorDraftPosts,
+      editorDraftText,
+    });
+    if (draftPromotion.status !== "ready") {
       return;
     }
-
-    if (nextContent === selectedDraftVersion.content.trim()) {
-      return;
-    }
-
-    const revisionChainId =
-      selectedDraftMessage.revisionChainId ||
-      activeDraftEditor.revisionChainId ||
-      `revision-chain-${selectedDraftMessage.id}`;
 
     try {
       const response = await fetchWorkspace(
@@ -6660,46 +6028,7 @@ function ChatPageContent() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            content: nextContent,
-            outputShape: selectedDraftMessage.outputShape ?? "short_form_post",
-            supportAsset:
-              selectedDraftVersion.supportAsset ??
-              getDraftVersionSupportAsset(selectedDraftMessage),
-            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-            ...(nextPosts.length ? { posts: nextPosts } : {}),
-            ...(selectedDraftArtifact?.replyPlan?.length
-              ? { replyPlan: selectedDraftArtifact.replyPlan }
-              : {}),
-            ...(selectedDraftArtifact?.voiceTarget
-              ? { voiceTarget: selectedDraftArtifact.voiceTarget }
-              : {}),
-            ...(selectedDraftArtifact?.noveltyNotes?.length
-              ? { noveltyNotes: selectedDraftArtifact.noveltyNotes }
-              : {}),
-            ...(selectedDraftArtifact?.groundingSources?.length
-              ? { groundingSources: selectedDraftArtifact.groundingSources }
-              : {}),
-            ...(selectedDraftArtifact?.groundingMode
-              ? { groundingMode: selectedDraftArtifact.groundingMode }
-              : {}),
-            ...(selectedDraftArtifact?.groundingExplanation
-              ? { groundingExplanation: selectedDraftArtifact.groundingExplanation }
-              : {}),
-            ...(selectedDraftArtifact?.threadFramingStyle
-              ? { threadFramingStyle: selectedDraftArtifact.threadFramingStyle }
-              : {}),
-            revisionChainId,
-            basedOn: {
-              messageId: selectedDraftMessage.id,
-              versionId: selectedDraftVersion.id,
-              content: selectedDraftVersion.content,
-              source: selectedDraftVersion.source,
-              createdAt: selectedDraftVersion.createdAt,
-              maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-              revisionChainId,
-            },
-          }),
+          body: JSON.stringify(draftPromotion.requestBody),
         },
       );
       if (!response.ok) {
@@ -6780,72 +6109,17 @@ function ChatPageContent() {
       return;
     }
 
-    const nextContent = selectedDraftVersion.content.trim();
-    if (!nextContent) {
+    const revertUpdate = resolveDraftVersionRevertUpdate({
+      activeDraftEditorRevisionChainId: activeDraftEditor?.revisionChainId,
+      selectedDraftMessage,
+      selectedDraftVersion,
+      selectedDraftBundleVersions: selectedDraftBundle?.versions,
+      isSelectedDraftThread,
+      fallbackCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
+    });
+    if (!revertUpdate) {
       return;
     }
-
-    const revisionChainId =
-      selectedDraftMessage.revisionChainId ??
-      activeDraftEditor?.revisionChainId ??
-      `revision-chain-${selectedDraftMessage.id}`;
-    const nextVersions =
-      selectedDraftMessage.draftVersions && selectedDraftMessage.draftVersions.length > 0
-        ? selectedDraftMessage.draftVersions
-        : (selectedDraftBundle?.versions ?? [selectedDraftVersion]);
-    const sourceArtifact =
-      selectedDraftVersion.artifact ?? selectedDraftMessage.draftArtifacts?.[0];
-    const restoredPosts =
-      isSelectedDraftThread || sourceArtifact?.kind === "thread_seed"
-        ? buildEditableThreadPosts(sourceArtifact, nextContent)
-        : [];
-    const threadPostMaxCharacterLimit = getThreadPostCharacterLimit(
-      sourceArtifact,
-      getXCharacterLimitForAccount(isVerifiedAccount),
-    );
-    const activeDraftArtifact = buildDraftArtifactWithLimit({
-      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
-      title: sourceArtifact?.title ?? "Draft",
-      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
-      content: nextContent,
-      supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      ...(sourceArtifact?.kind === "thread_seed" || isSelectedDraftThread
-        ? { threadPostMaxCharacterLimit }
-        : {}),
-      ...(restoredPosts.length ? { posts: restoredPosts } : {}),
-      ...(sourceArtifact?.replyPlan?.length ? { replyPlan: sourceArtifact.replyPlan } : {}),
-      ...(sourceArtifact?.voiceTarget ? { voiceTarget: sourceArtifact.voiceTarget } : {}),
-      ...(sourceArtifact?.noveltyNotes?.length ? { noveltyNotes: sourceArtifact.noveltyNotes } : {}),
-      ...(sourceArtifact?.groundingSources?.length
-        ? { groundingSources: sourceArtifact.groundingSources }
-        : {}),
-      ...(sourceArtifact?.groundingMode ? { groundingMode: sourceArtifact.groundingMode } : {}),
-      ...(sourceArtifact?.groundingExplanation
-        ? { groundingExplanation: sourceArtifact.groundingExplanation }
-        : {}),
-      ...(sourceArtifact?.threadFramingStyle
-        ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
-        : {}),
-    });
-    const nextDraftVersions = replaceDraftVersionEntry({
-      versions: nextVersions,
-      versionId: selectedDraftVersion.id,
-      content: nextContent,
-      artifact: activeDraftArtifact,
-    });
-    const nextDraftCollections = buildDraftCollectionsFromVersions({
-      versions: nextDraftVersions,
-      activeVersionId: selectedDraftVersion.id,
-      fallbackDrafts: selectedDraftMessage.drafts,
-      fallbackArtifacts: selectedDraftMessage.draftArtifacts,
-    });
-    const nextDraftBundle = syncDraftBundleSelection({
-      draftBundle: selectedDraftMessage.draftBundle,
-      versionId: selectedDraftVersion.id,
-      content: nextContent,
-      artifact: activeDraftArtifact,
-    });
 
     setMessages((current) =>
       current.map((message) => {
@@ -6855,13 +6129,13 @@ function ChatPageContent() {
 
         return {
           ...message,
-          draft: nextDraftCollections.draft,
-          drafts: nextDraftCollections.drafts,
-          draftArtifacts: nextDraftCollections.draftArtifacts,
-          draftVersions: nextDraftVersions,
+          draft: revertUpdate.nextDraftCollections.draft,
+          drafts: revertUpdate.nextDraftCollections.drafts,
+          draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
+          draftVersions: revertUpdate.nextDraftVersions,
           activeDraftVersionId: selectedDraftVersion.id,
-          draftBundle: nextDraftBundle,
-          revisionChainId,
+          draftBundle: revertUpdate.nextDraftBundle,
+          revisionChainId: revertUpdate.revisionChainId,
         };
       }),
     );
@@ -6869,7 +6143,7 @@ function ChatPageContent() {
     setActiveDraftEditor({
       messageId: selectedDraftMessage.id,
       versionId: selectedDraftVersion.id,
-      revisionChainId,
+      revisionChainId: revertUpdate.revisionChainId,
     });
 
     if (!activeThreadId) {
@@ -6885,13 +6159,13 @@ function ChatPageContent() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            draftVersions: nextDraftVersions,
+            draftVersions: revertUpdate.nextDraftVersions,
             activeDraftVersionId: selectedDraftVersion.id,
-            draft: nextDraftCollections.draft,
-            drafts: nextDraftCollections.drafts,
-            draftArtifacts: nextDraftCollections.draftArtifacts,
-            draftBundle: nextDraftBundle,
-            revisionChainId,
+            draft: revertUpdate.nextDraftCollections.draft,
+            drafts: revertUpdate.nextDraftCollections.drafts,
+            draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
+            draftBundle: revertUpdate.nextDraftBundle,
+            revisionChainId: revertUpdate.revisionChainId,
           }),
         },
       );
@@ -7106,6 +6380,47 @@ function ChatPageContent() {
     scrollThreadToBottom,
   ]);
 
+  const applyAssistantReplyPlan = useCallback(
+    (replyPlan: CreatorAssistantReplyPlan) => {
+      if (replyPlan.nextBilling) {
+        setBillingState(replyPlan.nextBilling);
+      }
+
+      setMessages((current) => [
+        ...current,
+        replyPlan.buildAssistantMessage(current.length),
+      ]);
+      scrollThreadToBottom();
+
+      if (replyPlan.nextDraftEditor) {
+        setActiveDraftEditor(replyPlan.nextDraftEditor);
+      }
+
+      if (replyPlan.nextConversationMemory) {
+        setConversationMemory(replyPlan.nextConversationMemory);
+      }
+
+      if (replyPlan.nextThreadTitle) {
+        syncThreadTitle(
+          replyPlan.nextThreadTitle.threadId,
+          replyPlan.nextThreadTitle.title,
+        );
+      }
+
+      if (replyPlan.createdThreadPlan) {
+        applyCreatedThreadWorkspaceUpdate(
+          replyPlan.createdThreadPlan.threadId,
+          replyPlan.createdThreadPlan.title,
+        );
+      }
+    },
+    [
+      applyCreatedThreadWorkspaceUpdate,
+      scrollThreadToBottom,
+      syncThreadTitle,
+    ],
+  );
+
   const requestAssistantReply = useCallback(
     async (options: {
       prompt?: string;
@@ -7214,85 +6529,53 @@ function ChatPageContent() {
         });
 
         const contentType = response.headers.get("content-type") ?? "";
+        const starterQuickReplies = buildDefaultExampleQuickReplies(
+          shouldUseLowercaseChipVoice(context),
+        );
+        const replyPlanArgs = {
+          activeThreadId,
+          trimmedPrompt,
+          artifactKind: options.artifactContext?.kind ?? null,
+          defaultQuickReplies: starterQuickReplies,
+          selectedDraftContext: effectiveSelectedDraftContext,
+          accountName,
+        } as const;
 
         if (contentType.includes("application/json")) {
           const data: CreatorChatResponse = await response.json();
+          const outcome = resolveAssistantReplyJsonOutcome({
+            responseOk: response.ok,
+            responseStatus: response.status,
+            response: data,
+            failureMessage: "Failed to generate a reply.",
+            replyPlanArgs: {
+              ...replyPlanArgs,
+              mode: "json",
+            },
+          });
 
-          if (!response.ok || !data.ok) {
-            const failure = data as CreatorChatFailure;
-            if (failure.data?.billing) {
+          if (outcome.kind === "failure") {
+            const nextBillingSnapshot =
+              outcome.nextBillingSnapshot as BillingSnapshotPayload | null;
+
+            if (nextBillingSnapshot) {
               setBillingState((current) =>
                 current
                   ? {
                     ...current,
-                    billing: failure.data?.billing ?? current.billing,
+                    billing: nextBillingSnapshot,
                   }
                   : current,
               );
             }
-            if (response.status === 402 || response.status === 403) {
+            if (outcome.shouldOpenPricingModal) {
               setPricingModalOpen(true);
             }
-            setErrorMessage(
-              failure.errors?.[0]?.message ?? "Failed to generate a reply.",
-            );
+            setErrorMessage(outcome.errorMessage);
             return;
           }
 
-          if (data.data.billing) {
-            setBillingState(data.data.billing);
-          }
-
-          const starterQuickReplies = buildDefaultExampleQuickReplies(
-            shouldUseLowercaseChipVoice(context),
-          );
-          setMessages((current) => [
-            ...current,
-            buildAssistantMessageFromChatResult({
-              result: data.data,
-              activeThreadId,
-              existingMessageCount: current.length,
-              trimmedPrompt,
-              artifactKind: options.artifactContext?.kind ?? null,
-              defaultQuickReplies: starterQuickReplies,
-            }),
-          ]);
-          scrollThreadToBottom();
-
-          const nextDraftEditor = resolveNextDraftEditorSelection({
-            result: data.data,
-            selectedDraftContext: effectiveSelectedDraftContext,
-            mode: "json",
-          });
-          if (nextDraftEditor) {
-            setActiveDraftEditor(nextDraftEditor);
-          }
-
-          // Store returned memory blob
-          if (data.data.memory) {
-            setConversationMemory(data.data.memory);
-          }
-
-          const responseThreadId = data.data.newThreadId ?? activeThreadId;
-          if (responseThreadId && data.data.threadTitle) {
-            syncThreadTitle(responseThreadId, data.data.threadTitle);
-          }
-
-          // Re-map the newly created backend thread if we just instantiated it
-          const createdThreadPlan = resolveCreatedThreadPlan({
-            newThreadId: data.data.newThreadId,
-            threadTitle: data.data.threadTitle,
-            activeThreadId,
-            accountName,
-          });
-          if (createdThreadPlan) {
-            setActiveThreadId(createdThreadPlan.threadId);
-            threadCreatedInSessionRef.current = true;
-            window.history.replaceState({}, "", buildWorkspaceChatHref(createdThreadPlan.threadId));
-            setChatThreads((current) =>
-              applyCreatedThreadPlanToList(current, createdThreadPlan),
-            );
-          }
+          applyAssistantReplyPlan(outcome.replyPlan as CreatorAssistantReplyPlan);
 
           return;
         }
@@ -7305,65 +6588,13 @@ function ChatPageContent() {
           body: response.body,
           onStatus: (message) => setStreamStatus(message),
         });
-
-        if (streamedResult.billing) {
-          setBillingState(streamedResult.billing);
-        }
-
-        const starterQuickReplies = buildDefaultExampleQuickReplies(
-          shouldUseLowercaseChipVoice(context),
-        );
-        setMessages((current) => [
-          ...current,
-          buildAssistantMessageFromChatResult({
+        applyAssistantReplyPlan(
+          resolveAssistantReplyPlan({
+            ...replyPlanArgs,
             result: streamedResult,
-            activeThreadId,
-            existingMessageCount: current.length,
-            trimmedPrompt,
-            artifactKind: options.artifactContext?.kind ?? null,
-            defaultQuickReplies: starterQuickReplies,
-          }),
-        ]);
-        scrollThreadToBottom();
-
-        const nextDraftEditor = resolveNextDraftEditorSelection({
-          result: streamedResult,
-          selectedDraftContext: effectiveSelectedDraftContext,
-          mode: "stream",
-        });
-        if (nextDraftEditor) {
-          setActiveDraftEditor(nextDraftEditor);
-        }
-
-        // Store returned memory blob from stream
-        if (streamedResult.memory) {
-          setConversationMemory(streamedResult.memory);
-        }
-
-        const responseThreadId = streamedResult.newThreadId ?? activeThreadId;
-        if (responseThreadId && streamedResult.threadTitle) {
-          syncThreadTitle(responseThreadId, streamedResult.threadTitle);
-        }
-
-        // Re-map the newly created backend thread if we just instantiated it
-        const createdThreadPlan = resolveCreatedThreadPlan({
-          newThreadId: streamedResult.newThreadId,
-          threadTitle: streamedResult.threadTitle,
-          activeThreadId,
-          accountName,
-        });
-        if (createdThreadPlan) {
-          setActiveThreadId(createdThreadPlan.threadId);
-          threadCreatedInSessionRef.current = true;
-          window.history.replaceState(
-            {},
-            "",
-            buildWorkspaceChatHref(createdThreadPlan.threadId),
-          );
-          setChatThreads((current) =>
-            applyCreatedThreadPlanToList(current, createdThreadPlan),
-          );
-        }
+            mode: "stream",
+          }) as CreatorAssistantReplyPlan,
+        );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -7391,9 +6622,9 @@ function ChatPageContent() {
       preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
+      applyAssistantReplyPlan,
       accountName,
       activeThreadId,
-      syncThreadTitle,
     ],
   );
 
@@ -7403,125 +6634,37 @@ function ChatPageContent() {
       prompt: string,
       threadFramingStyleOverride?: ThreadFramingStyle | null,
     ) => {
-      const message = messages.find((item) => item.id === messageId);
-      if (!message) {
-        return;
-      }
-
-      const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
-      if (!bundle) {
-        return;
-      }
-
-      const selectedVersion = bundle.activeVersion;
-      const currentThreadFramingStyle =
-        bundle.activeVersion.artifact?.kind === "thread_seed" ||
-        message.outputShape === "thread_seed"
-          ? getThreadFramingStyle(
-              bundle.activeVersion.artifact ?? message.draftArtifacts?.[0],
-              bundle.activeVersion.content,
-            )
-          : null;
-      const revisionChainId =
-        message.revisionChainId ??
-        message.previousVersionSnapshot?.revisionChainId ??
-        `legacy-chain-${messageId}`;
-
-      setActiveDraftEditor({
+      const draftAction = resolveDraftCardRevisionAction({
         messageId,
-        versionId: selectedVersion.id,
-        revisionChainId,
-      });
-
-      await requestAssistantReply({
         prompt,
-        appendUserMessage: true,
-        turnSource: "draft_action",
-        artifactContext: {
-          kind: "draft_selection",
-          action: "edit",
-          selectedDraftContext: {
-            messageId,
-            versionId: selectedVersion.id,
-            content: selectedVersion.content,
-            source: selectedVersion.source,
-            createdAt: selectedVersion.createdAt,
-            maxCharacterLimit: selectedVersion.maxCharacterLimit,
-            revisionChainId,
-          },
-        },
-        intent: "edit",
-        ...(threadFramingStyleOverride || currentThreadFramingStyle
-          ? {
-              threadFramingStyleOverride:
-                threadFramingStyleOverride ?? currentThreadFramingStyle,
-            }
-          : {}),
-        selectedDraftContextOverride: {
-          messageId,
-          versionId: selectedVersion.id,
-          content: selectedVersion.content,
-          source: selectedVersion.source,
-          createdAt: selectedVersion.createdAt,
-          maxCharacterLimit: selectedVersion.maxCharacterLimit,
-          revisionChainId,
-        },
+        messages,
+        composerCharacterLimit,
+        threadFramingStyleOverride,
       });
+      if (!draftAction) {
+        return;
+      }
+
+      setActiveDraftEditor(draftAction.activeDraftEditor);
+      await requestAssistantReply(draftAction.request);
     },
     [composerCharacterLimit, messages, requestAssistantReply],
   );
 
   const requestSelectedThreadFramingChange = useCallback(
     async (style: ThreadFramingStyle) => {
-      if (
-        !selectedDraftMessage ||
-        !selectedDraftVersion ||
-        !selectedDraftThreadFramingStyle ||
-        selectedDraftThreadFramingStyle === style
-      ) {
+      const draftAction = resolveSelectedThreadFramingChangeAction({
+        selectedDraftMessage,
+        selectedDraftVersion,
+        selectedDraftThreadFramingStyle,
+        nextStyle: style,
+      });
+      if (!draftAction) {
         return;
       }
 
-      const revisionChainId =
-        selectedDraftMessage.revisionChainId ??
-        selectedDraftMessage.previousVersionSnapshot?.revisionChainId ??
-        `revision-chain-${selectedDraftMessage.id}`;
-
-      setActiveDraftEditor({
-        messageId: selectedDraftMessage.id,
-        versionId: selectedDraftVersion.id,
-        revisionChainId,
-      });
-
-      await requestAssistantReply({
-        prompt: buildThreadFramingRevisionPrompt(style),
-        appendUserMessage: true,
-        turnSource: "draft_action",
-        artifactContext: {
-          kind: "draft_selection",
-          action: "edit",
-          selectedDraftContext: {
-            messageId: selectedDraftMessage.id,
-            versionId: selectedDraftVersion.id,
-            content: selectedDraftVersion.content,
-            source: selectedDraftVersion.source,
-            createdAt: selectedDraftVersion.createdAt,
-            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-            revisionChainId,
-          },
-        },
-        intent: "edit",
-        threadFramingStyleOverride: style,
-        selectedDraftContextOverride: {
-          messageId: selectedDraftMessage.id,
-          versionId: selectedDraftVersion.id,
-          content: selectedDraftVersion.content,
-          source: selectedDraftVersion.source,
-          createdAt: selectedDraftVersion.createdAt,
-          maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-          revisionChainId,
-        },
-      });
+      setActiveDraftEditor(draftAction.activeDraftEditor);
+      await requestAssistantReply(draftAction.request);
     },
     [
       requestAssistantReply,
@@ -7554,22 +6697,15 @@ function ChatPageContent() {
           const res = await fetchWorkspace(`/api/creator/v2/threads/${activeThreadId}`);
           const data = await res.json();
           if (data.ok && data.data?.messages?.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const mappedMessages: ChatMessage[] = data.data.messages.map((m: any) => ({
-              id: m.id,
-              role: m.role as "assistant" | "user",
-              content: m.content,
-              createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
-              ...(m.data || {}),
-              threadId: typeof m.threadId === "string" ? m.threadId : activeThreadId ?? undefined,
-              feedbackValue:
-                m.feedbackValue === "up" || m.feedbackValue === "down"
-                  ? m.feedbackValue
-                  : null,
-            }));
-            setMessages(mappedMessages);
+            const hydration = resolveThreadHistoryHydration<ChatMessage>({
+              rawMessages: data.data.messages,
+              activeThreadId,
+              shouldJumpToBottomAfterSwitch:
+                shouldJumpToBottomAfterThreadSwitchRef.current,
+            });
+            setMessages(hydration.messages);
 
-            if (shouldJumpToBottomAfterThreadSwitchRef.current) {
+            if (hydration.shouldJumpToBottom) {
               shouldJumpToBottomAfterThreadSwitchRef.current = false;
               window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(() => {
@@ -7673,79 +6809,49 @@ function ChatPageContent() {
 
   const handleQuickReplySelect = useCallback(
     (quickReply: ChatQuickReply) => {
-      if (isMainChatLocked) {
+      const quickReplyUpdate = resolveComposerQuickReplyUpdate({
+        quickReply,
+        isMainChatLocked,
+      });
+      if (!quickReplyUpdate.shouldApply) {
         return;
       }
 
-      if (quickReply.kind === "content_focus") {
-        setActiveContentFocus(quickReply.value as ChatContentFocus);
-        setDraftInput(`i want to focus on ${quickReply.label.toLowerCase()}`);
+      if (quickReplyUpdate.nextActiveContentFocus) {
+        setActiveContentFocus(quickReplyUpdate.nextActiveContentFocus);
+      }
+
+      setDraftInput(quickReplyUpdate.nextDraftInput);
+      if (quickReplyUpdate.shouldClearError) {
         setErrorMessage(null);
-        return;
       }
-
-      if (quickReply.suggestedFocus) {
-        setActiveContentFocus(quickReply.suggestedFocus);
-      }
-
-      setDraftInput(quickReply.value);
-      setErrorMessage(null);
     },
-    [
-      activeContentFocus,
-      isMainChatLocked,
-    ],
+    [isMainChatLocked],
   );
 
-  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmedInput = draftInput.trim();
-    if (!trimmedInput || !context || !contract || isMainChatLocked) {
-      return;
-    }
-
-    if (!activeStrategyInputs || !activeToneInputs) {
-      setErrorMessage("The planning model is still loading.");
-      return;
-    }
-
-    const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
-
-    if (shouldAnimateHeroExit) {
-      setIsLeavingHero(true);
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
-      });
-    }
-
-    setDraftInput("");
-
-    await requestAssistantReply({
-      prompt: trimmedInput,
-      appendUserMessage: true,
-      turnSource: "free_text",
-      strategyInputOverride: activeStrategyInputs,
-      toneInputOverride: activeToneInputs,
-      contentFocusOverride: activeContentFocus,
-    });
-  }
-
-  const submitQuickStarter = useCallback(
+  const submitComposerPrompt = useCallback(
     async (prompt: string) => {
-      const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt || !context || !contract || isMainChatLocked) {
+      const submission = prepareComposerSubmission({
+        prompt,
+        hasContext: Boolean(context),
+        hasContract: Boolean(contract),
+        hasStrategyInputs: Boolean(activeStrategyInputs),
+        hasToneInputs: Boolean(activeToneInputs),
+        isMainChatLocked,
+        activeThreadId,
+        messagesLength: messages.length,
+      });
+
+      if (submission.status === "skip") {
         return;
       }
 
-      if (!activeStrategyInputs || !activeToneInputs) {
-        setErrorMessage("The planning model is still loading.");
+      if (submission.status === "blocked") {
+        setErrorMessage(submission.errorMessage);
         return;
       }
 
-      const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
-
-      if (shouldAnimateHeroExit) {
+      if (submission.shouldAnimateHeroExit) {
         setIsLeavingHero(true);
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
@@ -7755,11 +6861,11 @@ function ChatPageContent() {
       setDraftInput("");
 
       await requestAssistantReply({
-        prompt: trimmedPrompt,
+        prompt: submission.trimmedPrompt,
         appendUserMessage: true,
         turnSource: "free_text",
-        strategyInputOverride: activeStrategyInputs,
-        toneInputOverride: activeToneInputs,
+        strategyInputOverride: activeStrategyInputs as ChatStrategyInputs,
+        toneInputOverride: activeToneInputs as ChatToneInputs,
         contentFocusOverride: activeContentFocus,
       });
     },
@@ -7776,21 +6882,22 @@ function ChatPageContent() {
     ],
   );
 
+  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitComposerPrompt(draftInput);
+  }
+
+  const submitQuickStarter = useCallback(
+    async (prompt: string) => {
+      await submitComposerPrompt(prompt);
+    },
+    [submitComposerPrompt],
+  );
+
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-
-      if (
-        !context ||
-        !contract ||
-        !activeStrategyInputs ||
-        !activeToneInputs ||
-        !draftInput.trim() ||
-        isMainChatLocked
-      ) {
-        return;
-      }
-      void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
+      void submitComposerPrompt(draftInput);
     }
   };
 
@@ -8078,11 +7185,11 @@ function ChatPageContent() {
       ? draftEditorSerializedContent
       : editorDraftText;
     const footerCounterLabel = isSelectedDraftThread
-      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
           selectedDraftVersion.maxCharacterLimit,
           composerCharacterLimit,
         )} chars`
-      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
           selectedDraftVersion.maxCharacterLimit,
           composerCharacterLimit,
         )} chars`;
@@ -9970,9 +9077,9 @@ function ChatPageContent() {
                                 const displayName =
                                   context?.creatorProfile?.identity?.displayName || username;
                                 const avatarUrl = context?.avatarUrl || null;
-                                const draftCounter = getXCharacterCounterMeta(
+                                const draftCounter = buildDraftCharacterCounterMeta(
                                   option.content,
-                                  getDisplayedDraftCharacterLimit(
+                                  resolveDisplayedDraftCharacterLimit(
                                     option.artifact.maxCharacterLimit,
                                     composerCharacterLimit,
                                   ),
@@ -10097,570 +9204,61 @@ function ChatPageContent() {
                               const username = context?.creatorProfile?.identity?.username || "user";
                               const displayName = context?.creatorProfile?.identity?.displayName || username;
                               const avatarUrl = context?.avatarUrl || null;
-                              const draftBundle = normalizeDraftVersionBundle(
+                              const previewState = resolveInlineDraftPreviewState({
                                 message,
                                 composerCharacterLimit,
-                              );
-                              const previewArtifact =
-                                draftBundle?.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
-                              const previewDraft =
-                                draftBundle?.activeVersion.content ??
-                                message.draftArtifacts?.[0]?.content ??
-                                message.draft ??
-                                "";
-                              const previewPosts = previewArtifact
-                                ? getArtifactPosts(previewArtifact)
-                                : splitThreadContent(previewDraft);
-                              const isThreadPreview =
-                                previewArtifact?.kind === "thread_seed" ||
-                                message.outputShape === "thread_seed" ||
-                                previewPosts.length > 1;
-                              const threadFramingStyle = isThreadPreview
-                                ? getThreadFramingStyle(previewArtifact, previewDraft)
-                                : null;
-                              const selectedThreadPreviewPostIndex = isThreadPreview
-                                ? Math.max(
-                                    0,
-                                    Math.min(
-                                      previewPosts.length - 1,
-                                      selectedThreadPostByMessageId[message.id] ?? 0,
-                                    ),
-                                  )
-                                : 0;
-                              const threadPostCharacterLimit = getThreadPostCharacterLimit(
-                                previewArtifact,
-                                getXCharacterLimitForAccount(isVerifiedAccount),
-                              );
-                              const orderedThreadPreviewPosts = isThreadPreview
-                                ? [
-                                    ...previewPosts
-                                      .slice(selectedThreadPreviewPostIndex)
-                                      .map((post, index) => ({
-                                        content: post,
-                                        originalIndex:
-                                          selectedThreadPreviewPostIndex + index,
-                                      })),
-                                    ...previewPosts
-                                      .slice(0, selectedThreadPreviewPostIndex)
-                                      .map((post, index) => ({
-                                        content: post,
-                                        originalIndex: index,
-                                      })),
-                                  ]
-                                : [];
-                              const threadDeckPosts = isThreadPreview
-                                ? orderedThreadPreviewPosts.slice(0, 4)
-                                : [];
-                              const hiddenThreadPostCount = Math.max(
-                                0,
-                                previewPosts.length - threadDeckPosts.length,
-                              );
-                              const threadDeckHeight = 220 + Math.max(0, threadDeckPosts.length - 1) * 28;
-                              const isExpandedThreadPreview =
-                                isThreadPreview && expandedInlineThreadPreviewId === message.id;
-                              const draftCounter = getXCharacterCounterMeta(
-                                previewDraft,
-                                getDisplayedDraftCharacterLimit(
-                                  draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
-                                  composerCharacterLimit,
-                                ),
-                              );
-                              const isLongformPreview =
-                                !isThreadPreview &&
-                                (message.outputShape === "long_form_post" ||
-                                  (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280);
-                              const canToggleDraftFormat =
-                                !isThreadPreview && (isVerifiedAccount || isLongformPreview);
-                              const transformDraftPrompt = isLongformPreview
-                                ? "turn this into a shortform post under 280 characters"
-                                : "turn this into a longform post with more detail";
-                              const convertToThreadPrompt =
-                                `turn this into a thread with 4 to 6 posts. keep every post under ${threadPostCharacterLimit.toLocaleString()} characters, make the opener clearly signal the thread, and keep the flow native to x.`;
-                              const isFocusedDraftPreview =
-                                selectedDraftMessageId === message.id;
-                              const previewRevealKey = message.draftBundle?.selectedOptionId
-                                ? buildDraftBundleRevealKey(message.draftBundle.selectedOptionId)
-                                : previewArtifact?.id
-                                  ? buildDraftArtifactRevealKey(previewArtifact.id)
-                                  : draftBundle?.activeVersion.id
-                                    ? buildDraftVersionRevealKey(draftBundle.activeVersion.id)
-                                    : message.activeDraftVersionId
-                                      ? buildDraftVersionRevealKey(message.activeDraftVersionId)
-                                      : buildDraftMessageRevealKey(message.id);
+                                isVerifiedAccount,
+                                selectedThreadPreviewPostIndex:
+                                  selectedThreadPostByMessageId[message.id],
+                                expandedInlineThreadPreviewId,
+                                selectedDraftMessageId,
+                              });
+                              const previewRevealKey = previewState.previewRevealKey;
                               return (
-                                <div className="mt-4 border-t border-white/10 pt-4">
-                                  {/* X Post Card */}
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => openDraftEditor(message.id)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        openDraftEditor(message.id);
-                                      }
-                                    }}
-                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${isFocusedDraftPreview
-                                      ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
-                                      : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                      } ${buildDraftRevealClasses(previewRevealKey)}`}
-                                    aria-current={isFocusedDraftPreview ? "true" : undefined}
-                                  >
-                                    {/* Header: avatar + name + handle */}
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                          {avatarUrl ? (
-                                            <div
-                                              className="h-full w-full bg-cover bg-center"
-                                              style={{ backgroundImage: `url(${avatarUrl})` }}
-                                              role="img"
-                                              aria-label={`${displayName} profile photo`}
-                                            />
-                                          ) : (
-                                            displayName.charAt(0)
-                                          )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-1">
-                                            <span className="truncate text-sm font-bold text-white">{displayName}</span>
-                                            {isVerifiedAccount ? (
-                                              <Image
-                                                src="/x-verified.svg"
-                                                alt="Verified account"
-                                                width={16}
-                                                height={16}
-                                                className="h-4 w-4 shrink-0"
-                                              />
-                                            ) : null}
-                                          </div>
-                                          <span className="text-xs text-zinc-500">@{username}</span>
-                                        </div>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openDraftEditor(message.id);
-                                        }}
-                                        className="rounded-full p-2 text-zinc-500"
-                                        aria-label="Edit draft"
-                                      >
-                                        <Edit3 className="h-4 w-4" />
-                                      </button>
-                                    </div>
-
-                                    {/* Post Content */}
-                                    <div className="mt-3">
-                                      {isThreadPreview ? (
-                                        <div className="space-y-3">
-                                          {isExpandedThreadPreview ? (
-                                            <div className="rounded-2xl border border-white/[0.08] bg-[#050505] px-4 py-3">
-                                              <div className="space-y-1">
-                                                {previewPosts.map((post, postIndex) => {
-                                                  const postCharacterLimit =
-                                                    previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
-                                                    threadPostCharacterLimit;
-                                                  const weightedPostCount =
-                                                    computeXWeightedCharacterCount(post);
-                                                  const isLastPost =
-                                                    postIndex === previewPosts.length - 1;
-
-                                                  return (
-                                                    <div
-                                                      key={`${message.id}-expanded-thread-post-${postIndex}`}
-                                                      className={`relative pl-14 ${isLastPost ? "" : "pb-4"}`}
-                                                    >
-                                                      {!isLastPost ? (
-                                                        <span className="absolute left-[19px] top-11 bottom-0 w-px bg-white/[0.14]" />
-                                                      ) : null}
-                                                      <div className="absolute left-0 top-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold uppercase text-white">
-                                                        {avatarUrl ? (
-                                                          <div
-                                                            className="h-full w-full bg-cover bg-center"
-                                                            style={{ backgroundImage: `url(${avatarUrl})` }}
-                                                            role="img"
-                                                            aria-label={`${displayName} profile photo`}
-                                                          />
-                                                        ) : (
-                                                          displayName.charAt(0)
-                                                        )}
-                                                      </div>
-                                                      <button
-                                                        type="button"
-                                                        onClick={(event) => {
-                                                          event.stopPropagation();
-                                                          openDraftEditor(
-                                                            message.id,
-                                                            undefined,
-                                                            postIndex,
-                                                          );
-                                                        }}
-                                                        className={`w-full rounded-2xl border bg-[#000000] px-4 py-3 text-left transition ${
-                                                          selectedThreadPreviewPostIndex === postIndex
-                                                            ? "border-white/[0.18] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
-                                                            : "border-white/[0.06] hover:border-white/[0.12]"
-                                                        }`}
-                                                      >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                          <div className="min-w-0 flex-1">
-                                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                              <span className="truncate text-[15px] font-bold text-white">
-                                                                {displayName}
-                                                              </span>
-                                                              {isVerifiedAccount ? (
-                                                                <Image
-                                                                  src="/x-verified.svg"
-                                                                  alt="Verified account"
-                                                                  width={16}
-                                                                  height={16}
-                                                                  className="h-4 w-4 shrink-0"
-                                                                />
-                                                              ) : null}
-                                                              <span className="text-[13px] text-zinc-500">
-                                                                @{username}
-                                                              </span>
-                                                            </div>
-                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
-                                                              <span>Post {postIndex + 1}</span>
-                                                              <span>·</span>
-                                                              <span>Just now</span>
-                                                            </div>
-                                                          </div>
-                                                          <span
-                                                            className={`text-[11px] ${
-                                                              weightedPostCount > postCharacterLimit
-                                                                ? "text-red-400"
-                                                                : "text-zinc-500"
-                                                            }`}
-                                                          >
-                                                            {weightedPostCount}/{postCharacterLimit.toLocaleString()}
-                                                          </span>
-                                                        </div>
-                                                        <AnimatedDraftText
-                                                          text={post}
-                                                          className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100"
-                                                          animate={shouldAnimateDraftLines(
-                                                            previewRevealKey,
-                                                          )}
-                                                          baseDelayMs={postIndex * 60}
-                                                        />
-                                                      </button>
-                                                    </div>
-                                                  );
-                                                })}
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <div
-                                              className="relative"
-                                              style={{ height: `${threadDeckHeight}px` }}
-                                            >
-                                              {[...threadDeckPosts].reverse().map((postEntry, reversedIndex) => {
-                                                const originalIndex =
-                                                  threadDeckPosts.length - reversedIndex - 1;
-                                                const depthOffset = originalIndex * 16;
-                                                const lateralOffset = originalIndex * 8;
-                                                const isFrontCard = originalIndex === 0;
-                                                const isBackCard =
-                                                  originalIndex === threadDeckPosts.length - 1;
-                                                const post = postEntry.content;
-                                                const postIndex = postEntry.originalIndex;
-
-                                                return (
-                                                  <div
-                                                    key={`${message.id}-preview-post-${postIndex}`}
-                                                    className={`absolute overflow-hidden rounded-2xl border bg-[#000000] p-4 transition-all ${isFrontCard
-                                                      ? "border-white/[0.12] shadow-[0_24px_70px_rgba(0,0,0,0.42)]"
-                                                      : "border-white/[0.08] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
-                                                      }`}
-                                                    style={{
-                                                      top: `${depthOffset}px`,
-                                                      left: `${lateralOffset}px`,
-                                                      right: `${Math.max(0, 12 - lateralOffset / 2)}px`,
-                                                      zIndex: threadDeckPosts.length - originalIndex,
-                                                    }}
-                                                  >
-                                                    <div className="flex items-start justify-between gap-3">
-                                                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                                          {avatarUrl ? (
-                                                            <div
-                                                              className="h-full w-full bg-cover bg-center"
-                                                              style={{ backgroundImage: `url(${avatarUrl})` }}
-                                                              role="img"
-                                                              aria-label={`${displayName} profile photo`}
-                                                            />
-                                                          ) : (
-                                                            displayName.charAt(0)
-                                                          )}
-                                                        </div>
-                                                        <div className="min-w-0 flex-1">
-                                                          <div className="flex items-center gap-1">
-                                                            <span className="truncate text-sm font-bold text-white">
-                                                              {displayName}
-                                                            </span>
-                                                            {isVerifiedAccount ? (
-                                                              <Image
-                                                                src="/x-verified.svg"
-                                                                alt="Verified account"
-                                                                width={16}
-                                                                height={16}
-                                                                className="h-4 w-4 shrink-0"
-                                                              />
-                                                            ) : null}
-                                                          </div>
-                                                          <span className="text-xs text-zinc-500">
-                                                            @{username}
-                                                          </span>
-                                                        </div>
-                                                      </div>
-                                                      <div className="flex items-center gap-2">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                                          Post {postIndex + 1}
-                                                        </span>
-                                                        {(() => {
-                                                          const postCharacterLimit =
-                                                            previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
-                                                            threadPostCharacterLimit;
-                                                          const weightedPostCount =
-                                                            computeXWeightedCharacterCount(post);
-
-                                                          return (
-                                                            <span
-                                                              className={`text-[11px] ${weightedPostCount > postCharacterLimit ? "text-red-400" : "text-zinc-500"}`}
-                                                            >
-                                                              {weightedPostCount}/{postCharacterLimit.toLocaleString()}
-                                                            </span>
-                                                          );
-                                                        })()}
-                                                      </div>
-                                                    </div>
-                                                    <AnimatedDraftText
-                                                      text={post}
-                                                      className={`mt-3 whitespace-pre-wrap text-zinc-100 ${isFrontCard
-                                                        ? "line-clamp-5 text-[15px] leading-6"
-                                                        : "line-clamp-3 text-[14px] leading-5"
-                                                        }`}
-                                                      animate={shouldAnimateDraftLines(
-                                                        previewRevealKey,
-                                                      )}
-                                                      baseDelayMs={postIndex * 60}
-                                                    />
-                                                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
-                                                      <span>Just now</span>
-                                                      <span>·</span>
-                                                      <span>Post {postIndex + 1}</span>
-                                                      {hiddenThreadPostCount > 0 && isBackCard ? (
-                                                        <>
-                                                          <span>·</span>
-                                                          <span>+{hiddenThreadPostCount} more</span>
-                                                        </>
-                                                      ) : null}
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <AnimatedDraftText
-                                          text={previewDraft}
-                                          className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
-                                          animate={shouldAnimateDraftLines(previewRevealKey)}
-                                        />
-                                      )}
-                                    </div>
-
-                                    {/* Timestamp */}
-                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
-                                      <span>Just now</span>
-                                      <span>·</span>
-                                      {isThreadPreview ? (
-                                        <>
-                                          <span>{previewPosts.length} posts</span>
-                                          <span>·</span>
-                                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                            {getThreadFramingStyleLabel(threadFramingStyle)}
-                                          </span>
-                                          <span>·</span>
-                                        </>
-                                      ) : null}
-                                      <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="mt-3 border-t border-white/[0.06]" />
-
-                                    {/* Action Buttons */}
-                                    <div className="mt-2 flex items-center justify-between gap-3">
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it shorter",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Shorter
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it longer and more detailed",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Longer
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it softer",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Softer
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it punchier",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Punchier
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it less negative",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Less Negative
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it more specific",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          More Specific
-                                        </button>
-                                        {canToggleDraftFormat ? (
-                                          <button
-                                            type="button"
-                                            disabled={isMainChatLocked}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void requestDraftCardRevision(
-                                                message.id,
-                                                transformDraftPrompt,
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                          >
-                                            {isLongformPreview
-                                              ? "Turn into Shortform"
-                                              : "Turn into Longform"}
-                                          </button>
-                                        ) : null}
-                                        {isThreadPreview ? (
-                                          <button
-                                            type="button"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              setExpandedInlineThreadPreviewId((current) =>
-                                                current === message.id ? null : message.id,
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                          >
-                                            {isExpandedThreadPreview ? "Collapse" : "Expand"}
-                                          </button>
-                                        ) : null}
-                                        {!isThreadPreview ? (
-                                          <button
-                                            type="button"
-                                            disabled={isMainChatLocked}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void requestDraftCardRevision(
-                                                message.id,
-                                                convertToThreadPrompt,
-                                                "soft_signal",
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                          >
-                                            Turn into Thread
-                                          </button>
-                                        ) : null}
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void copyPreviewDraft(message.id, previewDraft);
-                                          }}
-                                          className="rounded-full p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                          aria-label="Copy draft"
-                                        >
-                                          {copiedPreviewDraftMessageId === message.id ? (
-                                            <Check className="h-4 w-4" />
-                                          ) : (
-                                            <Copy className="h-4 w-4" />
-                                          )}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            shareDraftEditorToX();
-                                          }}
-                                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200"
-                                        >
-                                          Post
-                                          <ArrowUpRight className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
+                                <InlineDraftPreviewCard
+                                  identity={{
+                                    username,
+                                    displayName,
+                                    avatarUrl,
+                                  }}
+                                  previewState={previewState}
+                                  isVerifiedAccount={isVerifiedAccount}
+                                  isMainChatLocked={isMainChatLocked}
+                                  hasCopiedDraft={copiedPreviewDraftMessageId === message.id}
+                                  revealClassName={buildDraftRevealClasses(previewRevealKey)}
+                                  shouldAnimateLines={shouldAnimateDraftLines(
+                                    previewRevealKey,
+                                  )}
+                                  onOpenDraftEditor={(threadPostIndex) =>
+                                    openDraftEditor(
+                                      message.id,
+                                      undefined,
+                                      threadPostIndex,
+                                    )}
+                                  onRequestRevision={(
+                                    prompt,
+                                    threadFramingStyleOverride,
+                                  ) => {
+                                    void requestDraftCardRevision(
+                                      message.id,
+                                      prompt,
+                                      threadFramingStyleOverride,
+                                    );
+                                  }}
+                                  onToggleExpanded={() =>
+                                    setExpandedInlineThreadPreviewId((current) =>
+                                      current === message.id ? null : message.id,
+                                    )}
+                                  onCopy={() => {
+                                    void copyPreviewDraft(
+                                      message.id,
+                                      previewState.previewDraft,
+                                    );
+                                  }}
+                                  onShare={() => {
+                                    shareDraftEditorToX();
+                                  }}
+                                />
                               );
                             })() : null}
 
