@@ -5,7 +5,7 @@ import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles.ts";
-import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
+import { runDraftBundleCandidateWorkers } from "../workers/draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "../responses/feedbackMemoryNotice.ts";
 import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 import type {

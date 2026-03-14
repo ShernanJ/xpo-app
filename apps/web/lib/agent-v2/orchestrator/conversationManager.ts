@@ -45,7 +45,7 @@ import {
   extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
 } from "../grounding/sourceMaterials";
-import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { loadInitialContextWorkers } from "../workers/contextLoadWorkers.ts";
 import {
   looksLikeMechanicalEdit,
   looksLikeNegativeFeedback,

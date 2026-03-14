@@ -4,12 +4,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
-import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { loadInitialContextWorkers } from "../workers/contextLoadWorkers.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
-import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
-import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
-import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
-import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
+import { runDraftBundleCandidateWorkers } from "../workers/draftBundleCandidateWorkers.ts";
+import { runDraftGuardValidationWorkers } from "../workers/draftGuardValidationWorkers.ts";
+import { loadHistoricalTextWorkers } from "../workers/historicalTextWorkers.ts";
+import { hydrateTurnContextWorkers } from "../workers/turnContextHydrationWorkers.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
 import {
   buildRuntimeValidationResult,
@@ -566,6 +566,56 @@ test("response helper leaf modules stay out of orchestrator once ownership moves
     new URL("../capabilities/", import.meta.url),
     new URL("../responses/", import.meta.url),
     new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("worker adapter leaf modules stay out of orchestrator once ownership moves", () => {
+  const deletedModulePaths = [
+    "./contextLoadWorkers.ts",
+    "./historicalTextWorkers.ts",
+    "./turnContextHydrationWorkers.ts",
+    "./draftGuardValidationWorkers.ts",
+    "./draftBundleCandidateWorkers.ts",
+  ];
+
+  for (const modulePath of deletedModulePaths) {
+    assert.equal(existsSync(new URL(modulePath, import.meta.url)), false, modulePath);
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/contextLoadWorkers(?:\.ts)?/,
+    /agent-v2\/orchestrator\/historicalTextWorkers(?:\.ts)?/,
+    /agent-v2\/orchestrator\/turnContextHydrationWorkers(?:\.ts)?/,
+    /agent-v2\/orchestrator\/draftGuardValidationWorkers(?:\.ts)?/,
+    /agent-v2\/orchestrator\/draftBundleCandidateWorkers(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/contextLoadWorkers(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/historicalTextWorkers(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/turnContextHydrationWorkers(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftGuardValidationWorkers(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftBundleCandidateWorkers(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("../workers/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),

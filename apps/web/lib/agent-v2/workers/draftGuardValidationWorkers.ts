@@ -10,7 +10,7 @@ import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
   resolveRuntimeValidationStatus,
-} from "./workerPlane.ts";
+} from "../orchestrator/workerPlane.ts";
 
 export interface DraftGuardValidationRequest {
   capability: "drafting";

@@ -24,7 +24,7 @@ import {
 import { retrieveAnchors } from "../core/retrieval";
 import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
-import { loadHistoricalTextWorkers } from "../orchestrator/historicalTextWorkers.ts";
+import { loadHistoricalTextWorkers } from "../workers/historicalTextWorkers.ts";
 import {
   buildSourceMaterialIdentityKey,
   serializeSourceMaterialAsset,

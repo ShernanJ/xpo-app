@@ -18,7 +18,7 @@ import {
   buildConcreteSceneRetryConstraint,
 } from "../../grounding/draftGrounding.ts";
 import { checkDraftClaimsAgainstGrounding } from "../../grounding/claimChecker.ts";
-import { runDraftGuardValidationWorkers } from "../../orchestrator/draftGuardValidationWorkers.ts";
+import { runDraftGuardValidationWorkers } from "../../workers/draftGuardValidationWorkers.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,

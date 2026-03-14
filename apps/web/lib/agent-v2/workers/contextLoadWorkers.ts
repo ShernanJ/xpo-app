@@ -1,7 +1,7 @@
 import type { ConversationServices } from "../runtime/services.ts";
 import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
-import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
+import { buildRuntimeWorkerExecution } from "../orchestrator/workerPlane.ts";
 
 const INITIAL_CONTEXT_LOAD_GROUP_ID = "initial_context_load";
 
