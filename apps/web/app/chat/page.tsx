@@ -22,7 +22,6 @@ import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
-  inferThreadFramingStyleFromPosts,
   type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
@@ -102,7 +101,6 @@ import {
   mergeThreadDraftPostDown as mergeThreadDraftPostDownState,
   moveThreadDraftPost as moveThreadDraftPostState,
   removeThreadDraftPost as removeThreadDraftPostState,
-  splitThreadContent,
   splitThreadDraftPost as splitThreadDraftPostState,
 } from "./chatDraftEditorState";
 import {
@@ -110,6 +108,17 @@ import {
   prepareDraftPromotionRequest,
   resolveDraftVersionRevertUpdate,
 } from "./chatDraftPersistenceState";
+import {
+  buildDraftArtifactRevealKey,
+  buildDraftBundleRevealKey,
+  buildDraftCharacterCounterMeta,
+  getArtifactPosts,
+  getThreadFramingStyle,
+  getThreadFramingStyleLabel,
+  resolveDisplayedDraftCharacterLimit,
+  resolveInlineDraftPreviewState,
+  resolvePrimaryDraftRevealKey,
+} from "./chatDraftPreviewState";
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
@@ -894,22 +903,6 @@ const DRAFT_REVEAL_DURATION_MS = 1250;
 const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
 
-function buildDraftBundleRevealKey(optionId: string): string {
-  return `bundle:${optionId}`;
-}
-
-function buildDraftArtifactRevealKey(artifactId: string): string {
-  return `artifact:${artifactId}`;
-}
-
-function buildDraftVersionRevealKey(versionId: string): string {
-  return `version:${versionId}`;
-}
-
-function buildDraftMessageRevealKey(messageId: string): string {
-  return `message:${messageId}`;
-}
-
 function isDraftPendingWorkflow(
   workflow: PendingStatusWorkflow | null | undefined,
 ): workflow is "plan_then_draft" | "revise_draft" {
@@ -923,34 +916,6 @@ function messageHasDraftOutput(message: ChatMessage): boolean {
       message.draftBundle?.options?.length ||
       message.draftVersions?.length,
   );
-}
-
-function resolvePrimaryDraftRevealKey(message: ChatMessage): string {
-  if (message.draftBundle?.options?.length) {
-    const selectedOption =
-      message.draftBundle.options.find(
-        (option) =>
-          option.id === message.draftBundle?.selectedOptionId ||
-          option.versionId === message.activeDraftVersionId,
-      ) ?? message.draftBundle.options[0];
-    return buildDraftBundleRevealKey(selectedOption.id);
-  }
-
-  if (message.draftArtifacts?.[0]?.id) {
-    return buildDraftArtifactRevealKey(message.draftArtifacts[0].id);
-  }
-
-  if (message.activeDraftVersionId) {
-    return buildDraftVersionRevealKey(message.activeDraftVersionId);
-  }
-
-  if (message.draftVersions?.length) {
-    return buildDraftVersionRevealKey(
-      message.draftVersions[message.draftVersions.length - 1].id,
-    );
-  }
-
-  return buildDraftMessageRevealKey(message.id);
 }
 
 function hasActiveDraftReveal(
@@ -1804,43 +1769,6 @@ function buildHeroGreeting(params: {
   return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
 
-function getXCharacterCounterMeta(text: string, maxCharacterLimit: number): {
-  label: string;
-  toneClassName: string;
-} {
-  const usedCharacterCount = computeXWeightedCharacterCount(text);
-  const isOverLimit = usedCharacterCount > maxCharacterLimit;
-
-  return {
-    label: `${usedCharacterCount.toLocaleString()} / ${maxCharacterLimit.toLocaleString()} chars`,
-    toneClassName: isOverLimit ? "text-red-400" : "text-zinc-500",
-  };
-}
-
-function getDisplayedDraftCharacterLimit(
-  storedMaxCharacterLimit: number,
-  fallbackCharacterLimit: number,
-): number {
-  return Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
-}
-
-function getThreadFramingStyle(
-  artifact: DraftArtifact | null | undefined,
-  fallbackContent?: string,
-): ThreadFramingStyle {
-  if (artifact?.threadFramingStyle) {
-    return artifact.threadFramingStyle;
-  }
-
-  const posts = artifact
-    ? getArtifactPosts(artifact)
-    : fallbackContent
-      ? splitThreadContent(fallbackContent)
-      : [];
-
-  return inferThreadFramingStyleFromPosts(posts);
-}
-
 function buildThreadFramingRevisionPrompt(style: ThreadFramingStyle): string {
   switch (style) {
     case "numbered":
@@ -1851,30 +1779,6 @@ function buildThreadFramingRevisionPrompt(style: ThreadFramingStyle): string {
     default:
       return "keep the same thread but remove thread numbering and make the flow feel natural without explicit thread labels.";
   }
-}
-
-function getThreadFramingStyleLabel(style: ThreadFramingStyle | null | undefined): string {
-  switch (style) {
-    case "numbered":
-      return "Numbered";
-    case "soft_signal":
-      return "Soft Intro";
-    case "none":
-    default:
-      return "Natural";
-  }
-}
-
-function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] {
-  if (!artifact) {
-    return [];
-  }
-
-  if (artifact.posts?.length) {
-    return artifact.posts.map((post) => post.content);
-  }
-
-  return artifact.content ? [artifact.content] : [];
 }
 
 function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
@@ -4287,7 +4191,7 @@ function ChatPageContent() {
   ]);
   const preferencesPreviewCounter = useMemo(
     () =>
-      getXCharacterCounterMeta(
+      buildDraftCharacterCounterMeta(
         preferencesPreviewDraft,
         effectivePreferenceMaxCharacters,
       ),
@@ -7454,11 +7358,11 @@ function ChatPageContent() {
       ? draftEditorSerializedContent
       : editorDraftText;
     const footerCounterLabel = isSelectedDraftThread
-      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
           selectedDraftVersion.maxCharacterLimit,
           composerCharacterLimit,
         )} chars`
-      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${getDisplayedDraftCharacterLimit(
+      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
           selectedDraftVersion.maxCharacterLimit,
           composerCharacterLimit,
         )} chars`;
@@ -9346,9 +9250,9 @@ function ChatPageContent() {
                                 const displayName =
                                   context?.creatorProfile?.identity?.displayName || username;
                                 const avatarUrl = context?.avatarUrl || null;
-                                const draftCounter = getXCharacterCounterMeta(
+                                const draftCounter = buildDraftCharacterCounterMeta(
                                   option.content,
-                                  getDisplayedDraftCharacterLimit(
+                                  resolveDisplayedDraftCharacterLimit(
                                     option.artifact.maxCharacterLimit,
                                     composerCharacterLimit,
                                   ),
@@ -9473,96 +9377,33 @@ function ChatPageContent() {
                               const username = context?.creatorProfile?.identity?.username || "user";
                               const displayName = context?.creatorProfile?.identity?.displayName || username;
                               const avatarUrl = context?.avatarUrl || null;
-                              const draftBundle = normalizeDraftVersionBundle(
+                              const previewState = resolveInlineDraftPreviewState({
                                 message,
                                 composerCharacterLimit,
-                              );
-                              const previewArtifact =
-                                draftBundle?.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
-                              const previewDraft =
-                                draftBundle?.activeVersion.content ??
-                                message.draftArtifacts?.[0]?.content ??
-                                message.draft ??
-                                "";
-                              const previewPosts = previewArtifact
-                                ? getArtifactPosts(previewArtifact)
-                                : splitThreadContent(previewDraft);
-                              const isThreadPreview =
-                                previewArtifact?.kind === "thread_seed" ||
-                                message.outputShape === "thread_seed" ||
-                                previewPosts.length > 1;
-                              const threadFramingStyle = isThreadPreview
-                                ? getThreadFramingStyle(previewArtifact, previewDraft)
-                                : null;
-                              const selectedThreadPreviewPostIndex = isThreadPreview
-                                ? Math.max(
-                                    0,
-                                    Math.min(
-                                      previewPosts.length - 1,
-                                      selectedThreadPostByMessageId[message.id] ?? 0,
-                                    ),
-                                  )
-                                : 0;
-                              const threadPostCharacterLimit = getThreadPostCharacterLimit(
-                                previewArtifact,
-                                getXCharacterLimitForAccount(isVerifiedAccount),
-                              );
-                              const orderedThreadPreviewPosts = isThreadPreview
-                                ? [
-                                    ...previewPosts
-                                      .slice(selectedThreadPreviewPostIndex)
-                                      .map((post, index) => ({
-                                        content: post,
-                                        originalIndex:
-                                          selectedThreadPreviewPostIndex + index,
-                                      })),
-                                    ...previewPosts
-                                      .slice(0, selectedThreadPreviewPostIndex)
-                                      .map((post, index) => ({
-                                        content: post,
-                                        originalIndex: index,
-                                      })),
-                                  ]
-                                : [];
-                              const threadDeckPosts = isThreadPreview
-                                ? orderedThreadPreviewPosts.slice(0, 4)
-                                : [];
-                              const hiddenThreadPostCount = Math.max(
-                                0,
-                                previewPosts.length - threadDeckPosts.length,
-                              );
-                              const threadDeckHeight = 220 + Math.max(0, threadDeckPosts.length - 1) * 28;
-                              const isExpandedThreadPreview =
-                                isThreadPreview && expandedInlineThreadPreviewId === message.id;
-                              const draftCounter = getXCharacterCounterMeta(
+                                isVerifiedAccount,
+                                selectedThreadPreviewPostIndex:
+                                  selectedThreadPostByMessageId[message.id],
+                                expandedInlineThreadPreviewId,
+                                selectedDraftMessageId,
+                              });
+                              const {
+                                threadPreviewPosts,
                                 previewDraft,
-                                getDisplayedDraftCharacterLimit(
-                                  draftBundle?.activeVersion.maxCharacterLimit ?? composerCharacterLimit,
-                                  composerCharacterLimit,
-                                ),
-                              );
-                              const isLongformPreview =
-                                !isThreadPreview &&
-                                (message.outputShape === "long_form_post" ||
-                                  (draftBundle?.activeVersion.maxCharacterLimit ?? 280) > 280);
-                              const canToggleDraftFormat =
-                                !isThreadPreview && (isVerifiedAccount || isLongformPreview);
-                              const transformDraftPrompt = isLongformPreview
-                                ? "turn this into a shortform post under 280 characters"
-                                : "turn this into a longform post with more detail";
-                              const convertToThreadPrompt =
-                                `turn this into a thread with 4 to 6 posts. keep every post under ${threadPostCharacterLimit.toLocaleString()} characters, make the opener clearly signal the thread, and keep the flow native to x.`;
-                              const isFocusedDraftPreview =
-                                selectedDraftMessageId === message.id;
-                              const previewRevealKey = message.draftBundle?.selectedOptionId
-                                ? buildDraftBundleRevealKey(message.draftBundle.selectedOptionId)
-                                : previewArtifact?.id
-                                  ? buildDraftArtifactRevealKey(previewArtifact.id)
-                                  : draftBundle?.activeVersion.id
-                                    ? buildDraftVersionRevealKey(draftBundle.activeVersion.id)
-                                    : message.activeDraftVersionId
-                                      ? buildDraftVersionRevealKey(message.activeDraftVersionId)
-                                      : buildDraftMessageRevealKey(message.id);
+                                isThreadPreview,
+                                threadFramingStyle,
+                                selectedThreadPreviewPostIndex,
+                                threadDeckPosts,
+                                hiddenThreadPostCount,
+                                threadDeckHeight,
+                                isExpandedThreadPreview,
+                                draftCounter,
+                                isLongformPreview,
+                                canToggleDraftFormat,
+                                transformDraftPrompt,
+                                convertToThreadPrompt,
+                                isFocusedDraftPreview,
+                                previewRevealKey,
+                              } = previewState;
                               return (
                                 <div className="mt-4 border-t border-white/10 pt-4">
                                   {/* X Post Card */}
@@ -9633,14 +9474,11 @@ function ChatPageContent() {
                                           {isExpandedThreadPreview ? (
                                             <div className="rounded-2xl border border-white/[0.08] bg-[#050505] px-4 py-3">
                                               <div className="space-y-1">
-                                                {previewPosts.map((post, postIndex) => {
-                                                  const postCharacterLimit =
-                                                    previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
-                                                    threadPostCharacterLimit;
-                                                  const weightedPostCount =
-                                                    computeXWeightedCharacterCount(post);
+                                                {threadPreviewPosts.map((postEntry) => {
+                                                  const post = postEntry.content;
+                                                  const postIndex = postEntry.originalIndex;
                                                   const isLastPost =
-                                                    postIndex === previewPosts.length - 1;
+                                                    postIndex === threadPreviewPosts.length - 1;
 
                                                   return (
                                                     <div
@@ -9705,12 +9543,14 @@ function ChatPageContent() {
                                                           </div>
                                                           <span
                                                             className={`text-[11px] ${
-                                                              weightedPostCount > postCharacterLimit
+                                                              postEntry.weightedCharacterCount >
+                                                              postEntry.maxCharacterLimit
                                                                 ? "text-red-400"
                                                                 : "text-zinc-500"
                                                             }`}
                                                           >
-                                                            {weightedPostCount}/{postCharacterLimit.toLocaleString()}
+                                                            {postEntry.weightedCharacterCount}/
+                                                            {postEntry.maxCharacterLimit.toLocaleString()}
                                                           </span>
                                                         </div>
                                                         <AnimatedDraftText
@@ -9795,21 +9635,12 @@ function ChatPageContent() {
                                                         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                                                           Post {postIndex + 1}
                                                         </span>
-                                                        {(() => {
-                                                          const postCharacterLimit =
-                                                            previewArtifact?.posts[postIndex]?.maxCharacterLimit ??
-                                                            threadPostCharacterLimit;
-                                                          const weightedPostCount =
-                                                            computeXWeightedCharacterCount(post);
-
-                                                          return (
-                                                            <span
-                                                              className={`text-[11px] ${weightedPostCount > postCharacterLimit ? "text-red-400" : "text-zinc-500"}`}
-                                                            >
-                                                              {weightedPostCount}/{postCharacterLimit.toLocaleString()}
-                                                            </span>
-                                                          );
-                                                        })()}
+                                                        <span
+                                                          className={`text-[11px] ${postEntry.weightedCharacterCount > postEntry.maxCharacterLimit ? "text-red-400" : "text-zinc-500"}`}
+                                                        >
+                                                          {postEntry.weightedCharacterCount}/
+                                                          {postEntry.maxCharacterLimit.toLocaleString()}
+                                                        </span>
                                                       </div>
                                                     </div>
                                                     <AnimatedDraftText
@@ -9855,7 +9686,7 @@ function ChatPageContent() {
                                       <span>·</span>
                                       {isThreadPreview ? (
                                         <>
-                                          <span>{previewPosts.length} posts</span>
+                                          <span>{threadPreviewPosts.length} posts</span>
                                           <span>·</span>
                                           <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
                                             {getThreadFramingStyleLabel(threadFramingStyle)}
