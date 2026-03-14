@@ -7,6 +7,7 @@ import {
 } from "./draftBundles.ts";
 import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "./feedbackMemoryNotice.ts";
+import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
@@ -184,6 +185,24 @@ export async function executeDraftBundleCapability(
     );
 
     if (!noveltyCheck.isNovel && earlierDrafts.length > 0) {
+      workers.push(
+        buildRuntimeWorkerExecution({
+          worker: "retry_bundle_candidate_for_sibling_novelty",
+          capability: args.capability,
+          phase: "execution",
+          mode: "sequential",
+          status: "completed",
+          groupId: "draft_bundle_sibling_retry",
+          details: {
+            briefId: brief.id,
+            label: brief.label,
+            reason: noveltyCheck.reason,
+            dependsOnEarlierOptions: true,
+            earlierOptionCount: earlierDrafts.length,
+          },
+        }),
+      );
+
       bundleDraftResult = await services.runSingleDraft({
         plan: {
           ...bundlePlan,

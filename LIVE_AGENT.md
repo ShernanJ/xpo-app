@@ -304,8 +304,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by deciding whether the remaining sibling-novelty retry path in `draftBundleExecutor.ts` should stay intentionally sequential now that explicit no-double-write regression coverage is pinned at the route persistence boundary
-- Use that regression as the guardrail while finishing worker-plane/runtime-contract cleanup around sequential ownership
+- Continue Phase 4 by using the now-explicit sequential sibling-novelty retry trace in `draftBundleExecutor.ts` plus the route persistence regression as guardrails while finishing worker-plane/runtime-contract cleanup around sequential ownership
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`

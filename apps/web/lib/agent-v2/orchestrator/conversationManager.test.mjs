@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
@@ -506,6 +507,138 @@ test("draft bundle candidate workers parallelize initial sibling generation and 
   assert.deepEqual(
     result.validations.map((validation) => validation.validator),
     ["claim_checker", "claim_checker"],
+  );
+});
+
+test("draft bundle capability keeps sibling novelty retries sequential and explicit", async () => {
+  const seenDraftRequests = [];
+  const execution = await executeDraftBundleCapability({
+    workflow: "plan_then_draft",
+    capability: "drafting",
+    context: {
+      userMessage: "write 4 post options about lessons from fixing onboarding",
+      memory: {
+        rollingSummary: null,
+      },
+      plan: {
+        objective: "Share onboarding lessons",
+        angle: "Use a concrete onboarding moment",
+        targetLane: "original",
+        mustInclude: ["Keep it concrete."],
+        mustAvoid: ["No generic advice."],
+        hookType: "story",
+        pitchResponse: "here are a few routes",
+        formatPreference: "shortform",
+      },
+      activeConstraints: ["Stay grounded."],
+      sourceMaterials: [],
+      draftPreference: "balanced",
+      topicSummary: "onboarding lessons",
+      groundingPacket: undefined,
+      historicalTexts: [],
+      turnFormatPreference: "shortform",
+      nextAssistantTurnCount: 3,
+      refreshRollingSummary: false,
+      feedbackMemoryNotice: null,
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+    },
+    services: {
+      runSingleDraft: async ({ plan, sourceUserMessage, activeConstraints }) => {
+        seenDraftRequests.push({
+          sourceUserMessage,
+          activeConstraints,
+        });
+
+        const isSequentialRetry = sourceUserMessage.includes(
+          "Keep it clearly distinct from the earlier bundle options.",
+        );
+        const draftToDeliver = isSequentialRetry
+          ? "proof option rewritten to be distinct"
+          : plan.hookType === "lesson" || plan.hookType === "proof"
+            ? "shared sibling draft"
+            : `unique draft for ${plan.hookType}`;
+
+        return {
+          kind: "success",
+          writerOutput: {
+            angle: plan.angle,
+            draft: draftToDeliver,
+            supportAsset: `asset for ${plan.hookType}`,
+            whyThisWorks: "",
+            watchOutFor: "",
+          },
+          criticOutput: {
+            approved: true,
+            finalAngle: plan.angle,
+            finalDraft: draftToDeliver,
+            issues: [],
+          },
+          draftToDeliver,
+          voiceTarget: {
+            casing: "normal",
+            compression: "tight",
+            formality: "neutral",
+            hookStyle: "blunt",
+            emojiPolicy: "none",
+            ctaPolicy: "none",
+            risk: "safe",
+            lane: "original",
+            summary: "tight original post",
+            rationale: [],
+          },
+          retrievalReasons: [`anchor for ${plan.hookType}`],
+          threadFramingStyle: null,
+          workers: [],
+          validations: [],
+        };
+      },
+      checkDeterministicNovelty: (draft, historicalTexts) => ({
+        isNovel: !historicalTexts.includes(draft),
+        reason: historicalTexts.includes(draft) ? "matched earlier sibling draft" : null,
+        maxSimilarity: historicalTexts.includes(draft) ? 0.96 : 0.12,
+      }),
+      buildNoveltyNotes: ({ noveltyCheck }) =>
+        noveltyCheck?.reason ? [noveltyCheck.reason] : [],
+    },
+  });
+
+  assert.equal(execution.output.kind, "draft_bundle_ready");
+  assert.equal(
+    seenDraftRequests.filter((request) =>
+      request.sourceUserMessage.includes("Keep it clearly distinct from the earlier bundle options."),
+    ).length,
+    1,
+  );
+  assert.ok(
+    seenDraftRequests.some((request) =>
+      request.activeConstraints.includes(
+        'Sibling novelty: make "Proof / Result" clearly distinct from the earlier bundle options.',
+      ),
+    ),
+  );
+  assert.deepEqual(
+    execution.workers.filter(
+      (worker) => worker.worker === "retry_bundle_candidate_for_sibling_novelty",
+    ),
+    [
+      {
+        worker: "retry_bundle_candidate_for_sibling_novelty",
+        capability: "drafting",
+        phase: "execution",
+        mode: "sequential",
+        status: "completed",
+        groupId: "draft_bundle_sibling_retry",
+        details: {
+          briefId: "proof_result",
+          label: "Proof / Result",
+          reason: "matched earlier sibling draft",
+          dependsOnEarlierOptions: true,
+          earlierOptionCount: 1,
+        },
+      },
+    ],
   );
 });
 
