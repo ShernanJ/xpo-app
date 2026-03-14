@@ -2,11 +2,11 @@ import {
   executePlanningCapability,
 } from "./planningCapability.ts";
 import { handleAutoApprovedPlanTurn } from "./autoApprovedPlanTurn.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
 import type {
-  ConversationServices,
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

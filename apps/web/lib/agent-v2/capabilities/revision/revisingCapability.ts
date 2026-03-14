@@ -28,10 +28,8 @@ import type {
 import {
   resolveDraftOutputShape,
 } from "../../orchestrator/conversationManagerLogic.ts";
-import type {
-  ConversationServices,
-  OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,

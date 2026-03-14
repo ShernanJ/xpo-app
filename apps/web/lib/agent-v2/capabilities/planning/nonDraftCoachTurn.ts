@@ -9,9 +9,7 @@ import {
   looksLikeConfusionPing,
 } from "../../orchestrator/correctionRepair.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
-import type {
-  OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {
   StrategyPlan,
   V2ConversationMemory,

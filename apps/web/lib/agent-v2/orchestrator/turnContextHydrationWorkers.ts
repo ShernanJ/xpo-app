@@ -1,4 +1,4 @@
-import type { ConversationServices } from "./draftPipelineHelpers";
+import type { ConversationServices } from "../runtime/services.ts";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";

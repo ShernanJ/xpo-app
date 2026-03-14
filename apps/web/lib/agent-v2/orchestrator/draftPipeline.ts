@@ -1,14 +1,15 @@
 import {
-  buildGroundedTopicDraftInput,
   inferDraftPreference,
-  extractPriorUserTurn,
   buildDraftGroundingSummary,
   inferDraftFormatPreference,
   resolveRequestedThreadFramingStyle,
-  type ConversationServices,
-  type OrchestratorResponse,
-  type RoutingTracePatch,
-} from "./draftPipelineHelpers";
+} from "../grounding/preferences.ts";
+import {
+  buildGroundedTopicDraftInput,
+  extractPriorUserTurn,
+} from "../capabilities/planning/clarificationHeuristics.ts";
+import type { ConversationServices } from "../runtime/services.ts";
+import type { OrchestratorResponse, RoutingTracePatch } from "../runtime/types.ts";
 import {
   isBareDraftRequest,
   isMultiDraftRequest,

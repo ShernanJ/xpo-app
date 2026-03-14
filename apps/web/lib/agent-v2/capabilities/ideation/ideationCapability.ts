@@ -2,9 +2,9 @@ import {
   extractIdeaTitlesFromIdeas,
   inferTopicFromIdeaTitles,
   looksGenericTopicSummary,
-  type ConversationServices,
-  type OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../planning/clarificationHeuristics.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import { buildIdeationReply } from "../../orchestrator/ideationReply.ts";
 import { buildIdeationQuickReplies } from "../../orchestrator/ideationQuickReplies.ts";
 import {

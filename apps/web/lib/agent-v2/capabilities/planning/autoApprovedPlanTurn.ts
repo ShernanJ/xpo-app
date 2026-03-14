@@ -6,7 +6,7 @@ import {
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

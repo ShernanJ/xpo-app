@@ -1,10 +1,12 @@
 import {
   buildPlanPitch,
-  withPlanPreferences,
-  type ConversationServices,
-  type OrchestratorResponse,
-  type RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../core/planPitch.ts";
+import { withPlanPreferences } from "../../grounding/preferences.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
+import type {
+  OrchestratorResponse,
+  RoutingTracePatch,
+} from "../../runtime/types.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
 import { interpretPlannerFeedback } from "../../orchestrator/plannerFeedback.ts";
 import { buildPlannerQuickReplies } from "../../orchestrator/plannerQuickReplies.ts";

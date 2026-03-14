@@ -3,8 +3,11 @@ import { planTurn } from "./turnPlanner";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
 import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
-import type { OrchestratorInput } from "./conversationManager";
-import type { ConversationServices } from "./draftPipelineHelpers.ts";
+import {
+  normalizeHandleForContext,
+  type ConversationServices,
+} from "../runtime/services.ts";
+import type { OrchestratorInput } from "../runtime/types.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "./groundingPacket";
 import type { VoiceStyleCard } from "../core/styleProfile";
@@ -39,15 +42,6 @@ export interface TurnContext {
   styleCard: VoiceStyleCard | null;
   anchors: RetrievalResult;
   initialWorkerExecutions: RuntimeWorkerExecution[];
-}
-
-export function normalizeHandleForContext(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.trim().replace(/^@+/, "").toLowerCase();
-  return normalized || null;
 }
 
 export async function buildTurnContext(

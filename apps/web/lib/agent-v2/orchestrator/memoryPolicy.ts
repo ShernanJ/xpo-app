@@ -8,7 +8,7 @@ import {
 import { countNewMemoryEntries } from "./feedbackMemoryNotice";
 import {
 } from "./sourceMaterials";
-import type { ConversationServices } from "./draftPipelineHelpers.ts";
+import type { ConversationServices } from "../runtime/services.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { SourceMaterialAssetInput, SourceMaterialAssetRecord } from "./sourceMaterials";

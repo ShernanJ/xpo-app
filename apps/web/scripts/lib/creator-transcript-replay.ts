@@ -11,7 +11,7 @@ import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
   OrchestratorResponse,
 } from "../../lib/agent-v2/orchestrator/conversationManager";
-import type { ConversationServices } from "../../lib/agent-v2/orchestrator/draftPipelineHelpers";
+import type { ConversationServices } from "../../lib/agent-v2/runtime/services";
 import type {
   SourceMaterialAssetInput,
   SourceMaterialAssetRecord,

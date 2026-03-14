@@ -1,4 +1,4 @@
-import type { ConversationServices } from "./draftPipelineHelpers";
+import type { ConversationServices } from "../runtime/services.ts";
 import type { SourceMaterialAssetRecord } from "./sourceMaterials";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
 import { buildRuntimeWorkerExecution } from "./workerPlane.ts";

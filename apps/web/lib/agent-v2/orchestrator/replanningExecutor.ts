@@ -9,11 +9,8 @@ import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
-import type {
-  ConversationServices,
-  OrchestratorResponse,
-  RoutingTracePatch,
-} from "./draftPipelineHelpers.ts";
+import type { ConversationServices } from "../runtime/services.ts";
+import type { OrchestratorResponse, RoutingTracePatch } from "../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

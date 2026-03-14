@@ -10,9 +10,7 @@ import {
   isDraftMeaningQuestion,
 } from "../../orchestrator/draftGrounding.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
-import type {
-  OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";
 
 type RawOrchestratorResponse = Omit<

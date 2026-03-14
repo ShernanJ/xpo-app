@@ -11,7 +11,7 @@ import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
-} from "./draftPipelineHelpers.ts";
+} from "../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

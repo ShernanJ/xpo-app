@@ -4,7 +4,6 @@ import { resolveRoutingPolicy } from "./routingPolicy";
 import { executeDraftPipeline } from "./draftPipeline";
 import { syncStyleProfileMemory, syncAutoSourceMaterials } from "./memoryPolicy";
 import {
-  createDefaultConversationServices,
   isLazyDraftRequest,
   looksGenericTopicSummary,
   inferMissingSpecificQuestion,
@@ -17,12 +16,17 @@ import {
   inferLooseClarificationSeed,
   looksLikeOpaqueEntityTopic,
   buildGroundedTopicDraftInput,
+} from "../capabilities/planning/clarificationHeuristics.ts";
+import {
   inferDraftPreference,
   inferDraftFormatPreference,
   resolveRequestedThreadFramingStyle,
   withPlanPreferences,
+} from "../grounding/preferences.ts";
+import {
+  createDefaultConversationServices,
   type ConversationServices,
-} from "./draftPipelineHelpers";
+} from "../runtime/services.ts";
 import {
   getDurableFactsFromStyleCard,
   type VoiceStyleCard,

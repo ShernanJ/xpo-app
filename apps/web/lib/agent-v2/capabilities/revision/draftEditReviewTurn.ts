@@ -8,11 +8,11 @@ import { prisma } from "../../../db";
 import {
   executeRevisingCapability,
 } from "./revisingCapability.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
 import type {
-  ConversationServices,
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
@@ -427,6 +427,33 @@ test("conversation manager no longer acts as a helper or service barrel", () => 
 
 test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
   assert.equal(existsSync(new URL("./revisionValidationWorkers.ts", import.meta.url)), false);
+});
+
+test("draft pipeline helper blob stays deleted once ownership is split", () => {
+  assert.equal(existsSync(new URL("./draftPipelineHelpers.ts", import.meta.url)), false);
+
+  const sourceRoots = [
+    new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      assert.equal(
+        /from ["'][^"']*draftPipelineHelpers(?:\.ts)?["']/.test(source),
+        false,
+        relativePath,
+      );
+    }
+  }
 });
 
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {

@@ -10,7 +10,7 @@ import type { GroundingPacket } from "../../orchestrator/groundingPacket.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../runtime/types.ts";
 import type { DraftingCapabilityRunResult } from "./draftingCapability.ts";
 import {
   buildGroundedProductRetryConstraint,

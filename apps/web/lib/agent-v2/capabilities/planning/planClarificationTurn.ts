@@ -16,10 +16,8 @@ import {
   inferAbstractTopicSeed,
   looksGenericTopicSummary,
   looksLikeOpaqueEntityTopic,
-} from "../../orchestrator/draftPipelineHelpers.ts";
-import type {
-  OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "./clarificationHeuristics.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   StrategyPlan,

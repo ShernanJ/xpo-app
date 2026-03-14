@@ -1,9 +1,9 @@
 import {
   buildPlanPitch,
-  withPlanPreferences,
-  type ConversationServices,
-  type OrchestratorResponse,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../core/planPitch.ts";
+import { withPlanPreferences } from "../../grounding/preferences.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
+import type { OrchestratorResponse } from "../../runtime/types.ts";
 import { buildPlanFailureResponse } from "../../orchestrator/conversationManagerLogic.ts";
 import { withNoFabricationPlanGuardrail } from "../../orchestrator/draftGrounding.ts";
 import {

@@ -28,11 +28,11 @@ import type {
 import {
   resolveDraftOutputShape,
 } from "../../orchestrator/conversationManagerLogic.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
 import type {
-  ConversationServices,
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../../orchestrator/draftPipelineHelpers.ts";
+} from "../../runtime/types.ts";
 import type { GroundingPacketSourceMaterial } from "../../orchestrator/groundingPacket.ts";
 
 type RawOrchestratorResponse = Omit<

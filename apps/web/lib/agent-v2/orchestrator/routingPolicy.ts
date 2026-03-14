@@ -5,8 +5,8 @@ import type { TurnContext } from "./turnContextBuilder.ts";
 import type {
   RawOrchestratorResponse,
   RoutingTrace,
-} from "./conversationManager.ts";
-import type { ConversationServices } from "./draftPipelineHelpers.ts";
+} from "../runtime/types.ts";
+import type { ConversationServices } from "../runtime/services.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
 import { resolveRuntimeAction } from "../runtime/resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
