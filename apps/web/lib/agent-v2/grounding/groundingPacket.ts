@@ -1,4 +1,4 @@
-import type { DraftContextSlots } from "../orchestrator/draftContextSlots.ts";
+import type { DraftContextSlots } from "../capabilities/planning/draftContextSlots.ts";
 
 export interface GroundingPacketSourceMaterial {
   type: "story" | "playbook" | "framework" | "case_study";

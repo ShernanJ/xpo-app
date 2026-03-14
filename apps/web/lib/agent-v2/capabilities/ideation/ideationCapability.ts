@@ -11,7 +11,7 @@ import {
   isBareDraftRequest,
   isBareIdeationRequest,
 } from "../../orchestrator/conversationManagerLogic.ts";
-import { isOpenEndedWildcardDraftRequest } from "../../orchestrator/draftFastStart.ts";
+import { isOpenEndedWildcardDraftRequest } from "../planning/draftFastStart.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import {
   buildRollingSummary,

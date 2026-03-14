@@ -1,5 +1,5 @@
-import type { V2ChatIntent } from "../contracts/chat.ts";
-import { isBareDraftRequest, isMultiDraftRequest } from "./conversationManagerLogic.ts";
+import type { V2ChatIntent } from "../../contracts/chat.ts";
+import { isBareDraftRequest, isMultiDraftRequest } from "../../orchestrator/conversationManagerLogic.ts";
 
 export function isOpenEndedWildcardDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase().replace(/\s+/g, " ");

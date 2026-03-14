@@ -30,7 +30,7 @@ import {
   getXCharacterLimitForAccount,
   type ThreadFramingStyle,
 } from "../../onboarding/shared/draftArtifacts.ts";
-import { buildClarificationTree } from "./clarificationTree";
+import { buildClarificationTree } from "../capabilities/planning/clarificationTree";
 import {
   hasConcreteCorrectionDetail,
   looksLikeConfusionPing,
@@ -53,10 +53,10 @@ import {
   isOpenEndedWildcardDraftRequest,
   shouldForceLooseDraftIdeation,
   shouldFastStartGroundedDraft,
-} from "./draftFastStart.ts";
+} from "../capabilities/planning/draftFastStart.ts";
 import { stripSelectedAnglePromptPrefix } from "./selectedAnglePrompt.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine";
-import { evaluateDraftContextSlots } from "./draftContextSlots";
+import { evaluateDraftContextSlots } from "../capabilities/planning/draftContextSlots";
 import {
   shouldForceNoFabricationPlanGuardrail,
 } from "../grounding/draftGrounding";

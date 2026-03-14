@@ -6,7 +6,7 @@ import {
 import {
   inferBroadTopicDraftRequest,
   isOpenEndedWildcardDraftRequest,
-} from "../../orchestrator/draftFastStart.ts";
+} from "./draftFastStart.ts";
 import {
   buildAmbiguousReferenceQuestion,
   buildNaturalDraftClarificationQuestion,
@@ -23,7 +23,7 @@ import type {
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
-import type { DraftContextSlots } from "../../orchestrator/draftContextSlots.ts";
+import type { DraftContextSlots } from "./draftContextSlots.ts";
 import type { RoutingPolicyResult } from "../../orchestrator/routingPolicy.ts";
 
 type RawOrchestratorResponse = Omit<

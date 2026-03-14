@@ -1,10 +1,10 @@
-import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceStyleCard } from "../../core/styleProfile";
 import type {
   ClarificationBranchKey,
   ClarificationState,
   CreatorChatQuickReply,
   DraftFormatPreference,
-} from "../contracts/chat";
+} from "../../contracts/chat";
 import {
   buildCareerDirectionReply,
   buildDirectionChoiceReply,
@@ -12,9 +12,9 @@ import {
   buildLooseDirectionReply,
   buildPlanRejectReply,
   buildTopicFocusReply,
-} from "../responses/assistantReplyStyle";
-import { buildDynamicDraftChoices } from "../responses/clarificationDraftChips";
-import { buildPlannerQuickReplies } from "../responses/plannerQuickReplies";
+} from "../../responses/assistantReplyStyle";
+import { buildDynamicDraftChoices } from "../../responses/clarificationDraftChips";
+import { buildPlannerQuickReplies } from "../../responses/plannerQuickReplies";
 
 interface ClarificationTreeArgs {
   branchKey: ClarificationBranchKey;

@@ -14,14 +14,14 @@ import {
 } from "../../orchestrator/conversationManagerLogic";
 import {
   inferBroadTopicDraftRequest,
-} from "../../orchestrator/draftFastStart.ts";
+} from "./draftFastStart.ts";
 import {
   evaluateDraftContextSlots,
   hasFunctionalDetail,
   hasProblemDetail,
   hasRelationshipDetail,
   inferComparisonReference,
-} from "../../orchestrator/draftContextSlots";
+} from "./draftContextSlots";
 import { extractTopicGrounding } from "../../responses/correctionRepair";
 import {
   getTurnRelationContext,

@@ -8,7 +8,7 @@ import type {
   RoutingTracePatch,
 } from "../../runtime/types.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
-import { interpretPlannerFeedback } from "../../orchestrator/plannerFeedback.ts";
+import { interpretPlannerFeedback } from "./plannerFeedback.ts";
 import { buildPlannerQuickReplies } from "../../responses/plannerQuickReplies.ts";
 import {
   applyCreatorProfileHintsToPlan,
