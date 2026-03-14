@@ -11,7 +11,7 @@ import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
-import { executeRevisingCapability } from "./revisingExecutor.ts";
+import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,

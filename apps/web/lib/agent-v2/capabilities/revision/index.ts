@@ -4,4 +4,4 @@ export {
   type RevisingCapabilityMemoryPatch,
   type RevisingCapabilityOutput,
   type RevisingCapabilityReadyOutput,
-} from "../capabilities/revision/revisingCapability.ts";
+} from "./revisingCapability.ts";
