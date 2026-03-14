@@ -18,7 +18,7 @@ import {
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
 import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
-import { findDuplicateTurnReplayInMessages } from "./route.idempotency.ts";
+import { findDuplicateTurnReplayInMessages } from "./_lib/request/routeIdempotency.ts";
 import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
 import {
   buildChatSuccessResponse,
