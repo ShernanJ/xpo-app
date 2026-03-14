@@ -1,5 +1,5 @@
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
   buildReplyIntentPlanForDraft,
   buildReplyLearningNotes,

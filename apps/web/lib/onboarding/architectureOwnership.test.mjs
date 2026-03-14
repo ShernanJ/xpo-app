@@ -3,11 +3,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 test("onboarding root shims stay thin and point at landed domain folders", () => {
-  const agentContextShim = readFileSync(new URL("./agentContext.ts", import.meta.url), "utf8").trim();
-  const growthStrategyShim = readFileSync(
-    new URL("./growthStrategy.ts", import.meta.url),
-    "utf8",
-  ).trim();
   const serviceShim = readFileSync(new URL("./service.ts", import.meta.url), "utf8").trim();
   const typesShim = readFileSync(new URL("./types.ts", import.meta.url), "utf8").trim();
   const draftArtifactsShim = readFileSync(
@@ -15,15 +10,20 @@ test("onboarding root shims stay thin and point at landed domain folders", () =>
     "utf8",
   ).trim();
 
-  assert.equal(agentContextShim, 'export * from "./strategy/agentContext";');
-  assert.equal(growthStrategyShim, 'export * from "./strategy/growthStrategy";');
   assert.equal(serviceShim, 'export * from "./pipeline/service.ts";');
   assert.equal(typesShim, 'export * from "./contracts/types.ts";');
   assert.equal(draftArtifactsShim, 'export * from "./shared/draftArtifacts.ts";');
 
+  assert.equal(existsSync(new URL("./agentContext.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./growthStrategy.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./generationContract.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./store.ts", import.meta.url)), false);
   assert.equal(existsSync(new URL("./strategy/agentContext.ts", import.meta.url)), true);
+  assert.equal(existsSync(new URL("./strategy/growthStrategy.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./analysis/contentInsights.ts", import.meta.url)), true);
+  assert.equal(existsSync(new URL("./contracts/generationContract.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./pipeline/service.ts", import.meta.url)), true);
+  assert.equal(existsSync(new URL("./store/onboardingRunStore.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./contracts/types.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./shared/draftArtifacts.ts", import.meta.url)), true);
 });

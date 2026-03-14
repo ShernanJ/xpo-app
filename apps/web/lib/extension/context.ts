@@ -1,7 +1,7 @@
 import { prisma } from "../db.ts";
 import { StyleCardSchema, type VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
-import { buildCreatorAgentContext } from "../onboarding/agentContext.ts";
-import { readLatestOnboardingRunByHandle } from "../onboarding/store.ts";
+import { buildCreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
+import { readLatestOnboardingRunByHandle } from "../onboarding/store/onboardingRunStore.ts";
 
 export function normalizeXHandle(value: string | null | undefined): string | null {
   const normalized = value?.trim().replace(/^@+/, "").toLowerCase() || "";

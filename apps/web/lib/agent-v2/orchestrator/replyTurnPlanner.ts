@@ -1,5 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../../onboarding/strategy/growthStrategy.ts";
 import type { V2ConversationMemory } from "../contracts/chat.ts";
 import {
   planReplyContinuation,

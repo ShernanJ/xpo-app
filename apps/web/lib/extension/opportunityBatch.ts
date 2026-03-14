@@ -1,7 +1,7 @@
 import { Prisma, type ReplyOpportunity } from "../generated/prisma/client.ts";
 import { prisma } from "../db.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import type {
   ExtensionExpectedValueLevel,
   ExtensionOpportunity,

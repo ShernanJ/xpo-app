@@ -1,7 +1,7 @@
 import { checkDraftClaimsAgainstGrounding } from "../agent-v2/orchestrator/claimChecker.ts";
 import type { GroundingPacket } from "../agent-v2/orchestrator/groundingPacket.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const STOPWORDS = new Set([
   "a",

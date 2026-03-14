@@ -1,5 +1,5 @@
-import { buildCreatorAgentContext } from "../../onboarding/agentContext.ts";
-import { buildCreatorGenerationContract } from "../../onboarding/generationContract.ts";
+import { buildCreatorAgentContext } from "../../onboarding/strategy/agentContext.ts";
+import { buildCreatorGenerationContract } from "../../onboarding/contracts/generationContract.ts";
 import type { CreatorProfile, OnboardingResult } from "../../onboarding/types.ts";
 import type { CreatorProfileHints } from "./groundingPacket.ts";
 

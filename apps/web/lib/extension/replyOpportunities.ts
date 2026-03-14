@@ -4,7 +4,7 @@ import {
   type ReplyOpportunity,
 } from "../generated/prisma/client.ts";
 import type { ReplyOpportunityLifecycleEvent } from "./types";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 export interface ReplyOpportunityLifecycleInput {
   userId: string;

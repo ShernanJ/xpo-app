@@ -5,7 +5,7 @@ import {
   buildReplyIntentPlanForDraft,
   buildReplyIntentPlansFromOpportunity,
 } from "./replyIntent.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategy: GrowthStrategySnapshot = {
   knownFor: "software and product through product positioning",

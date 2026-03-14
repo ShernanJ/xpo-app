@@ -1,4 +1,4 @@
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionOpportunity,

@@ -5,7 +5,7 @@ import {
   buildReplyInsights,
   buildStrategyAdjustments,
 } from "./replyOpportunities.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategySnapshot: GrowthStrategySnapshot = {
   knownFor: "software and product through product positioning",

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { sanitizeReplyText } from "./replyQuality.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategy: GrowthStrategySnapshot = {
   knownFor: "software and product through product positioning",

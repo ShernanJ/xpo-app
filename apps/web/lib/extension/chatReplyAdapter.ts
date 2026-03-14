@@ -1,5 +1,5 @@
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import { buildExtensionReplyDraft } from "./replyDraft.ts";
 import { buildExtensionReplyOptions } from "./replyOptions.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";

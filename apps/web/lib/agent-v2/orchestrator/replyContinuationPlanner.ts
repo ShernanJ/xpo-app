@@ -2,7 +2,7 @@ import type {
   ActiveReplyContext,
 } from "../contracts/chat.ts";
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../../onboarding/growthStrategy.ts";
+import type { GrowthStrategySnapshot } from "../../onboarding/strategy/growthStrategy.ts";
 import { buildChatReplyDraft, buildChatReplyOptions } from "../../extension/chatReplyAdapter.ts";
 import type { ExtensionReplyIntentMetadata } from "../../extension/types.ts";
 import type {
