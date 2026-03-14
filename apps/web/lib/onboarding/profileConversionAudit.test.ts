@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildProfileConversionAudit } from "./profileConversionAudit.ts";
+import { buildProfileConversionAudit } from "./profile/profileConversionAudit.ts";
 
 test("profile conversion audit flags broad bios and low coherence", () => {
   const audit = buildProfileConversionAudit({

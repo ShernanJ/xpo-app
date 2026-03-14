@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { buildCreatorProfile } from "@/lib/onboarding/creatorProfile";
+import { buildCreatorProfile } from "@/lib/onboarding/profile/creatorProfile";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
 
 interface CreatorProfileRequest {

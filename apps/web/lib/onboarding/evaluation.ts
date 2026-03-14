@@ -1,4 +1,4 @@
-import { buildCreatorProfile } from "./creatorProfile";
+import { buildCreatorProfile } from "./profile/creatorProfile";
 import type {
   AnalysisConfidenceBand,
   CreatorProfile,

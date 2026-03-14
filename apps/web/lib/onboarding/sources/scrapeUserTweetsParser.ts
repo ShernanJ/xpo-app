@@ -1,4 +1,4 @@
-import { normalizeXAvatarUrl } from "../avatarUrl";
+import { normalizeXAvatarUrl } from "../profile/avatarUrl";
 import { normalizeAccountInput } from "../validation";
 import type { XPublicPost, XPublicProfile } from "../types";
 

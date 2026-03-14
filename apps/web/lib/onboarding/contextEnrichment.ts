@@ -17,7 +17,7 @@ import {
 import {
   buildProfileConversionAudit,
   type ProfileConversionAudit,
-} from "./profileConversionAudit.ts";
+} from "./profile/profileConversionAudit.ts";
 import type { CreatorAgentContext } from "./agentContext.ts";
 import type { OnboardingResult } from "./types.ts";
 

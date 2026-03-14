@@ -1,4 +1,4 @@
-import { normalizeXAvatarUrl } from "../avatarUrl";
+import { normalizeXAvatarUrl } from "../profile/avatarUrl";
 import type { XPublicPost, XPublicProfile } from "../types";
 
 const X_API_BASE = "https://api.x.com/2";

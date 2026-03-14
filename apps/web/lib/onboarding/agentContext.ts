@@ -1,4 +1,4 @@
-import { buildCreatorProfile } from "./creatorProfile";
+import { buildCreatorProfile } from "./profile/creatorProfile";
 import {
   CREATOR_EVALUATION_RUBRIC_VERSION,
   CREATOR_PROFILE_MODEL_VERSION,
@@ -19,7 +19,7 @@ import type {
   ContentInsights,
 } from "./contentInsights";
 import type { OperatingQueueItem } from "./operatingQueue";
-import type { ProfileConversionAudit } from "./profileConversionAudit";
+import type { ProfileConversionAudit } from "./profile/profileConversionAudit";
 import type {
   CreatorProfile,
   CreatorRepresentativePost,

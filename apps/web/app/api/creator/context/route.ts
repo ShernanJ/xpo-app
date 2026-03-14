@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
-import { hydrateOnboardingProfile } from "@/lib/onboarding/profileHydration";
+import { hydrateOnboardingProfile } from "@/lib/onboarding/profile/profileHydration";
 import {
   applyCreatorStrategyOverrides,
   extractCreatorStrategyOverrides,

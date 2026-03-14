@@ -1,4 +1,4 @@
-import { resolveFreshOnboardingProfilePreview } from "../profilePreview";
+import { resolveFreshOnboardingProfilePreview } from "../profile/profilePreview";
 import {
   isScrapeCaptureExpired,
   readLatestScrapeCaptureByAccount,

@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   hydrateOnboardingProfile,
   mergeFreshProfileIntoOnboarding,
-} from "./profileHydration.ts";
+} from "./profile/profileHydration.ts";
 
 function createOnboarding(avatarUrl: string | null) {
   return {
