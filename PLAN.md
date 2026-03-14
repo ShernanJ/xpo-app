@@ -165,6 +165,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Executor response contracts standardized:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now owns shared `RuntimeResponseSeed`, `CapabilityResponseOutput`, and `CapabilityPatchedResponseOutput` types for executor boundaries
   - drafting, draft-bundle, replanning, revising, planning, ideation, analysis, and replying executors now consume those shared types so merge-only response ownership stays consistent without changing runtime behavior or client payloads
+- Reply finalization boundary thinned:
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
+  - `apps/web/app/api/creator/v2/chat/route.reply.ts` now stays limited to reply turn state resolution, planning, and memory snapshot shaping, which keeps route-only side effects out of the reply planning helper without changing reply behavior or payloads
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 

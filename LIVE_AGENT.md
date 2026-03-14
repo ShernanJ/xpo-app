@@ -304,7 +304,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by using the explicit sibling-novelty retry trace plus the route no-double-write regression as guardrails while reconciling the remaining reply/runtime ownership boundary
-- Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
-- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`
+- Continue Phase 4 by using the explicit sibling-novelty retry trace, the route no-double-write regression, and the new `route.replyFinalize.ts` boundary as guardrails while deciding whether the remaining parse/prompt wrapper in `route.reply.ts` should migrate further into runtime ownership
+- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` limited to reply parsing/planning helpers and `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` limited to route-boundary persistence/response work
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

@@ -61,10 +61,10 @@ import {
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import {
-  finalizeReplyTurn,
   planReplyTurn,
   resolveReplyTurnState,
 } from "./route.reply";
+import { finalizeReplyTurn } from "./route.replyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 
