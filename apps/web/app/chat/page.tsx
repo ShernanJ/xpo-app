@@ -108,6 +108,14 @@ import {
   splitThreadDraftPost as splitThreadDraftPostState,
 } from "./chatDraftEditorState";
 import {
+  buildDraftRevisionTimeline,
+  getDraftVersionSupportAsset,
+  normalizeDraftVersionBundle,
+  resolveDraftTimelineNavigation,
+  resolveDraftTimelineState,
+  resolveOpenDraftEditorState,
+} from "./chatDraftSessionState";
+import {
   buildAssistantMessageFromChatResult,
   readChatResponseStream,
   resolveNextDraftEditorSelection,
@@ -1829,10 +1837,6 @@ function resolveDraftArtifactKind(
   }
 }
 
-function getDraftVersionSupportAsset(message: ChatMessage): string | null {
-  return message.supportAsset ?? message.draftArtifacts?.[0]?.supportAsset ?? null;
-}
-
 function buildDraftArtifactWithLimit(params: {
   id: string;
   title: string;
@@ -2038,115 +2042,6 @@ function getDraftGroundingToneClasses(
   };
 }
 
-function normalizeDraftVersionBundle(
-  message: ChatMessage,
-  fallbackCharacterLimit: number,
-): {
-  versions: DraftVersionEntry[];
-  activeVersionId: string;
-  activeVersion: DraftVersionEntry;
-  previousSnapshot: DraftVersionSnapshot | null;
-} | null {
-  const supportAsset = getDraftVersionSupportAsset(message);
-  const rawVersions =
-    message.draftVersions?.length
-      ? message.draftVersions
-      : (() => {
-        const fallbackContent =
-          message.draft ??
-          message.drafts?.[0] ??
-          message.draftArtifacts?.[0]?.content ??
-          null;
-
-        if (!fallbackContent) {
-          return [];
-        }
-
-        return [
-          {
-            id: `${message.id}-v1`,
-            content: fallbackContent,
-            source: "assistant_generated" as const,
-            createdAt: message.createdAt ?? new Date(0).toISOString(),
-            basedOnVersionId: null,
-            weightedCharacterCount: computeXWeightedCharacterCount(fallbackContent),
-            maxCharacterLimit:
-              message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit,
-            supportAsset,
-            artifact: message.draftArtifacts?.[0],
-          },
-        ];
-      })();
-
-  if (!rawVersions.length) {
-    return null;
-  }
-
-  const mappedVersions = rawVersions.map((version) => {
-    const content = typeof version.content === "string" ? version.content : "";
-    const artifact = version.artifact;
-    const maxCharacterLimit =
-      typeof version.maxCharacterLimit === "number" && version.maxCharacterLimit > 0
-        ? version.maxCharacterLimit
-        : artifact?.maxCharacterLimit ?? message.draftArtifacts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
-
-    return {
-      id: version.id,
-      content,
-      source: version.source,
-      createdAt: version.createdAt,
-      basedOnVersionId: version.basedOnVersionId ?? null,
-      weightedCharacterCount: computeXWeightedCharacterCount(content),
-      maxCharacterLimit,
-      supportAsset: version.supportAsset ?? supportAsset,
-      artifact,
-    };
-  });
-
-  const activeVersionId =
-    message.activeDraftVersionId &&
-      mappedVersions.some((version) => version.id === message.activeDraftVersionId)
-      ? message.activeDraftVersionId
-      : mappedVersions[mappedVersions.length - 1].id;
-  const activeVersionIndex = mappedVersions.findIndex(
-    (version) => version.id === activeVersionId,
-  );
-  const versions =
-    activeVersionIndex >= 0 && activeVersionIndex < mappedVersions.length - 1
-      ? [
-        ...mappedVersions.slice(0, activeVersionIndex),
-        ...mappedVersions.slice(activeVersionIndex + 1),
-        mappedVersions[activeVersionIndex],
-      ]
-      : mappedVersions;
-  const currentVersionIndex = Math.max(
-    0,
-    versions.findIndex((version) => version.id === activeVersionId),
-  );
-  const activeVersion = versions[currentVersionIndex];
-  const inferredPreviousVersion =
-    (activeVersion.basedOnVersionId
-      ? versions.find((version) => version.id === activeVersion.basedOnVersionId) ?? null
-      : null) ?? (currentVersionIndex > 0 ? versions[currentVersionIndex - 1] : null);
-  const previousSnapshot = message.previousVersionSnapshot
-    ? message.previousVersionSnapshot
-    : inferredPreviousVersion
-      ? {
-        messageId: message.id,
-        versionId: inferredPreviousVersion.id,
-        content: inferredPreviousVersion.content,
-        source: inferredPreviousVersion.source,
-        createdAt: inferredPreviousVersion.createdAt,
-      }
-      : null;
-  return {
-    versions,
-    activeVersionId,
-    activeVersion,
-    previousSnapshot,
-  };
-}
-
 function replaceDraftVersionEntry(args: {
   versions: DraftVersionEntry[];
   versionId: string;
@@ -2252,196 +2147,6 @@ function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
     message.surfaceMode === "generate_full_output" ||
     message.surfaceMode === "revise_and_return"
   );
-}
-
-function buildDraftRevisionTimeline(args: {
-  messages: ChatMessage[];
-  activeDraftSelection: DraftDrawerSelection | null;
-  fallbackCharacterLimit: number;
-}): DraftTimelineEntry[] {
-  if (!args.activeDraftSelection) {
-    return [];
-  }
-
-  const selectedMessage =
-    args.messages.find((message) => message.id === args.activeDraftSelection?.messageId) ?? null;
-  if (!selectedMessage) {
-    return [];
-  }
-
-  const selectedBundle = normalizeDraftVersionBundle(
-    selectedMessage,
-    args.fallbackCharacterLimit,
-  );
-  if (!selectedBundle) {
-    return [];
-  }
-
-  const resolvedChainId =
-    args.activeDraftSelection.revisionChainId?.trim() ||
-    selectedMessage.revisionChainId?.trim() ||
-    selectedMessage.previousVersionSnapshot?.revisionChainId?.trim() ||
-    `legacy-chain-${selectedMessage.id}`;
-
-  const chainedEntries = resolvedChainId
-    ? args.messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          typeof message.revisionChainId === "string" &&
-          message.revisionChainId.trim() === resolvedChainId,
-      )
-      .sort((left, right) =>
-        (left.createdAt ?? "").localeCompare(right.createdAt ?? ""),
-      )
-      .flatMap((message) => {
-        const bundle = normalizeDraftVersionBundle(message, args.fallbackCharacterLimit);
-        if (!bundle) {
-          return [];
-        }
-
-        return bundle.versions.map((version) => ({
-          messageId: message.id,
-          versionId: version.id,
-          content: version.content,
-          createdAt: version.createdAt,
-          source: version.source,
-          revisionChainId: resolvedChainId,
-          maxCharacterLimit: version.maxCharacterLimit,
-          isCurrentMessageVersion: message.id === selectedMessage.id,
-        }));
-      })
-    : [];
-
-  if (chainedEntries.length > 0) {
-    const selectedMessageEntries = chainedEntries.some(
-      (entry) => entry.messageId === selectedMessage.id,
-    )
-      ? []
-      : selectedBundle.versions.map((version) => ({
-        messageId: selectedMessage.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: true,
-      }));
-    const combinedEntries = [...selectedMessageEntries, ...chainedEntries].sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt),
-    );
-    const previousSnapshot = selectedBundle.previousSnapshot;
-    if (!previousSnapshot) {
-      return combinedEntries;
-    }
-
-    const snapshotAlreadyPresent = combinedEntries.some(
-      (entry) =>
-        entry.messageId === previousSnapshot.messageId &&
-        entry.versionId === previousSnapshot.versionId,
-    );
-    if (snapshotAlreadyPresent) {
-      return combinedEntries;
-    }
-
-    return [
-      {
-        messageId: previousSnapshot.messageId,
-        versionId: previousSnapshot.versionId,
-        content: previousSnapshot.content,
-        createdAt: previousSnapshot.createdAt,
-        source: previousSnapshot.source,
-        revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
-        maxCharacterLimit:
-          previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
-        isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
-      },
-      ...combinedEntries,
-    ];
-  }
-
-  const legacyChainSourceId =
-    args.activeDraftSelection.revisionChainId?.startsWith("legacy-chain-")
-      ? args.activeDraftSelection.revisionChainId.slice("legacy-chain-".length)
-      : "";
-  const legacyChainSource =
-    legacyChainSourceId && legacyChainSourceId !== selectedMessage.id
-      ? args.messages.find((message) => message.id === legacyChainSourceId) ?? null
-      : null;
-
-  if (legacyChainSource) {
-    const legacySourceBundle = normalizeDraftVersionBundle(
-      legacyChainSource,
-      args.fallbackCharacterLimit,
-    );
-    if (legacySourceBundle) {
-      const currentEntries = selectedBundle.versions.map((version) => ({
-        messageId: selectedMessage.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: true,
-      }));
-      const anchorEntries = legacySourceBundle.versions.map((version) => ({
-        messageId: legacyChainSource.id,
-        versionId: version.id,
-        content: version.content,
-        createdAt: version.createdAt,
-        source: version.source,
-        revisionChainId: resolvedChainId,
-        maxCharacterLimit: version.maxCharacterLimit,
-        isCurrentMessageVersion: false,
-      }));
-
-      return [...currentEntries, ...anchorEntries].sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt),
-      );
-    }
-  }
-
-  const fallbackEntries = selectedBundle.versions.map((version) => ({
-    messageId: selectedMessage.id,
-    versionId: version.id,
-    content: version.content,
-    createdAt: version.createdAt,
-    source: version.source,
-    revisionChainId: resolvedChainId,
-    maxCharacterLimit: version.maxCharacterLimit,
-    isCurrentMessageVersion: true,
-  }));
-  const previousSnapshot = selectedBundle.previousSnapshot;
-
-  if (!previousSnapshot) {
-    return fallbackEntries;
-  }
-
-  const snapshotAlreadyPresent = fallbackEntries.some(
-    (entry) =>
-      entry.messageId === previousSnapshot.messageId &&
-      entry.versionId === previousSnapshot.versionId,
-  );
-  if (snapshotAlreadyPresent) {
-    return fallbackEntries;
-  }
-
-  return [
-    {
-      messageId: previousSnapshot.messageId,
-      versionId: previousSnapshot.versionId,
-      content: previousSnapshot.content,
-      createdAt: previousSnapshot.createdAt,
-      source: previousSnapshot.source,
-      revisionChainId: previousSnapshot.revisionChainId?.trim() || resolvedChainId,
-      maxCharacterLimit:
-        previousSnapshot.maxCharacterLimit ?? selectedBundle.activeVersion.maxCharacterLimit,
-      isCurrentMessageVersion: previousSnapshot.messageId === selectedMessage.id,
-    },
-    ...fallbackEntries,
-  ];
 }
 
 // V3: inferComposerIntent was removed. The backend turn planner and LLM
@@ -6182,37 +5887,33 @@ function ChatPageContent() {
       }),
     [activeDraftEditor, composerCharacterLimit, messages],
   );
-  const selectedDraftTimelineIndex = useMemo(
-    () =>
-      selectedDraftTimeline.findIndex(
-        (entry) =>
-          entry.messageId === activeDraftEditor?.messageId &&
-          entry.versionId === activeDraftEditor?.versionId,
-      ),
-    [activeDraftEditor, selectedDraftTimeline],
-  );
   const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
   const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
   const selectedDraftMessageId = activeDraftEditor?.messageId ?? null;
-  const selectedDraftTimelinePosition =
-    selectedDraftTimelineIndex >= 0 ? selectedDraftTimelineIndex + 1 : 0;
-  const latestDraftTimelineEntry =
-    selectedDraftTimeline.length > 0
-      ? selectedDraftTimeline[selectedDraftTimeline.length - 1]
-      : null;
-  const canNavigateDraftBack = selectedDraftTimelineIndex > 0;
-  const canNavigateDraftForward =
-    selectedDraftTimelineIndex >= 0 &&
-    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
-  const isViewingHistoricalDraftVersion =
-    selectedDraftTimelineIndex >= 0 &&
-    selectedDraftTimelineIndex < selectedDraftTimeline.length - 1;
-  const hasDraftEditorChanges =
-    selectedDraftVersion !== null &&
-    draftEditorSerializedContent.trim().length > 0 &&
-    draftEditorSerializedContent.trim() !== selectedDraftVersion.content.trim();
-  const shouldShowRevertDraftCta =
-    isViewingHistoricalDraftVersion && !hasDraftEditorChanges;
+  const {
+    selectedDraftTimelineIndex,
+    selectedDraftTimelinePosition,
+    latestDraftTimelineEntry,
+    canNavigateDraftBack,
+    canNavigateDraftForward,
+    isViewingHistoricalDraftVersion,
+    hasDraftEditorChanges,
+    shouldShowRevertDraftCta,
+  } = useMemo(
+    () =>
+      resolveDraftTimelineState({
+        timeline: selectedDraftTimeline,
+        activeDraftSelection: activeDraftEditor,
+        serializedContent: draftEditorSerializedContent,
+        selectedDraftVersionContent,
+      }),
+    [
+      activeDraftEditor,
+      draftEditorSerializedContent,
+      selectedDraftTimeline,
+      selectedDraftVersionContent,
+    ],
+  );
   const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
     ? "Revert to this Version"
     : "Save As New Version";
@@ -6281,41 +5982,30 @@ function ChatPageContent() {
 
   const navigateDraftTimeline = useCallback(
     (direction: "back" | "forward") => {
-      if (selectedDraftTimelineIndex < 0) {
+      const navigation = resolveDraftTimelineNavigation({
+        direction,
+        timeline: selectedDraftTimeline,
+        selectedDraftTimelineIndex,
+        activeDraftSelection: activeDraftEditor,
+      });
+      if (!navigation) {
         return;
       }
 
-      const targetIndex =
-        direction === "back"
-          ? selectedDraftTimelineIndex - 1
-          : selectedDraftTimelineIndex + 1;
-      const targetEntry = selectedDraftTimeline[targetIndex];
-      if (!targetEntry) {
-        return;
-      }
-
-      if (targetEntry.messageId !== activeDraftEditor?.messageId) {
+      if (navigation.scrollToMessageId) {
         window.requestAnimationFrame(() => {
-          messageRefs.current[targetEntry.messageId]?.scrollIntoView({
+          messageRefs.current[navigation.scrollToMessageId!]?.scrollIntoView({
             behavior: "smooth",
             block: "center",
           });
         });
         window.setTimeout(() => {
-          setActiveDraftEditor({
-            messageId: targetEntry.messageId,
-            versionId: targetEntry.versionId,
-            revisionChainId: targetEntry.revisionChainId,
-          });
+          setActiveDraftEditor(navigation.targetSelection);
         }, DRAFT_TIMELINE_FOCUS_DELAY_MS);
         return;
       }
 
-      setActiveDraftEditor({
-        messageId: targetEntry.messageId,
-        versionId: targetEntry.versionId,
-        revisionChainId: targetEntry.revisionChainId,
-      });
+      setActiveDraftEditor(navigation.targetSelection);
     },
     [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
   );
@@ -6325,40 +6015,25 @@ function ChatPageContent() {
     versionId?: string,
     threadPostIndex?: number,
   ) => {
-    const message = messages.find((item) => item.id === messageId);
-    if (!message) {
+    const openState = resolveOpenDraftEditorState({
+      message: messages.find((item) => item.id === messageId) ?? null,
+      fallbackCharacterLimit: composerCharacterLimit,
+      versionId,
+      threadPostIndex,
+    });
+    if (!openState) {
       return;
     }
 
-    const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
-    if (!bundle) {
-      return;
-    }
-
-    const selectedArtifact =
-      bundle.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
-    const isThreadDraft =
-      selectedArtifact?.kind === "thread_seed" || message.outputShape === "thread_seed";
-
-    if (isThreadDraft) {
+    if (openState.shouldExpandInlineThreadPreview) {
       setExpandedInlineThreadPreviewId(messageId);
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]:
-          typeof threadPostIndex === "number" && Number.isFinite(threadPostIndex)
-            ? Math.max(0, threadPostIndex)
-            : 0,
+        [messageId]: openState.selectedThreadPostIndex,
       }));
     }
 
-    setActiveDraftEditor({
-      messageId,
-      versionId:
-        versionId && bundle.versions.some((version) => version.id === versionId)
-          ? versionId
-          : bundle.activeVersionId,
-      revisionChainId: message.revisionChainId ?? undefined,
-    });
+    setActiveDraftEditor(openState.selection);
   }, [composerCharacterLimit, messages]);
 
   const updateThreadDraftPost = useCallback((index: number, content: string) => {
