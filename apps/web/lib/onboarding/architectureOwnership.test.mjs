@@ -140,3 +140,19 @@ test("onboarding and creator routes import landed onboarding domain folders dire
   assert.match(latestScrapeRoute, /from "@\/lib\/onboarding\/store\/scrapeCaptureStore";/);
   assert.equal(/from "@\/lib\/onboarding\/scrapeStore";/.test(latestScrapeRoute), false);
 });
+
+test("backend helpers import onboarding contracts directly instead of root compatibility barrels", () => {
+  const welcomeMessageSource = readFileSync(
+    new URL("../agent-v2/welcomeMessage.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    welcomeMessageSource,
+    /from "@\/lib\/onboarding\/contracts\/types";/,
+  );
+  assert.equal(
+    /from "@\/lib\/onboarding\/types";/.test(welcomeMessageSource),
+    false,
+  );
+});

@@ -1,4 +1,4 @@
-import type { CreatorProfile } from "@/lib/onboarding/types";
+import type { CreatorProfile } from "@/lib/onboarding/contracts/types";
 
 interface WelcomeVoiceContextParams {
   creatorProfile?: CreatorProfile | null;

@@ -530,6 +530,26 @@ test("critic prompt rejects flat middle beats and payoff-as-close endings in thr
   );
 });
 
+test("critic leaves delivery cleanup to validation workers instead of patching output inline", () => {
+  const criticSource = readFileSync(
+    fileURLToPath(new URL("./critic.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.equal(criticSource.includes("repairAbruptEnding("), false);
+  assert.equal(criticSource.includes("stripTrailingPromptEcho("), false);
+  assert.equal(criticSource.includes("stripThreadishLeadLabel("), false);
+  assert.equal(criticSource.includes('Cleaned up an abrupt ending.'), false);
+  assert.equal(
+    criticSource.includes('Removed a trailing prompt echo from the draft.'),
+    false,
+  );
+  assert.equal(
+    criticSource.includes('Removed thread-style labeling from a standalone post.'),
+    false,
+  );
+});
+
 test("planner writer reviser and critic share JSON output contracts", () => {
   const jsonPromptContractsSource = readFileSync(
     fileURLToPath(new URL("./jsonPromptContracts.ts", import.meta.url)),

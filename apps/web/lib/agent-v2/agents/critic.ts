@@ -24,11 +24,6 @@ import {
 } from "../../onboarding/draftArtifacts";
 import { applyFinalDraftPolicyWithReport } from "../core/finalDraftPolicy";
 import {
-  repairAbruptEnding,
-  stripThreadishLeadLabel,
-  stripTrailingPromptEcho,
-} from "./draftCompletion";
-import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
 } from "../prompts/promptHydrator";
@@ -215,35 +210,6 @@ ${buildCriticJsonContract()}
         ...nextIssues,
         `Trimmed to fit the ${maxCharacterLimit.toLocaleString()}-char X limit.`,
       ];
-    }
-    const repairedAbruptEndingDraft = repairAbruptEnding(styleAlignedDraft);
-    if (repairedAbruptEndingDraft !== styleAlignedDraft) {
-      styleAlignedDraft = repairedAbruptEndingDraft;
-      nextIssues = [
-        ...nextIssues,
-        "Cleaned up an abrupt ending.",
-      ];
-    }
-    const promptEchoStrippedDraft = stripTrailingPromptEcho(
-      styleAlignedDraft,
-      options?.sourceUserMessage,
-    );
-    if (promptEchoStrippedDraft !== styleAlignedDraft) {
-      styleAlignedDraft = promptEchoStrippedDraft;
-      nextIssues = [
-        ...nextIssues,
-        "Removed a trailing prompt echo from the draft.",
-      ];
-    }
-    if (formatPreference !== "thread") {
-      const strippedThreadishLeadDraft = stripThreadishLeadLabel(styleAlignedDraft);
-      if (strippedThreadishLeadDraft !== styleAlignedDraft) {
-        styleAlignedDraft = strippedThreadishLeadDraft;
-        nextIssues = [
-          ...nextIssues,
-          "Removed thread-style labeling from a standalone post.",
-        ];
-      }
     }
     let approved =
       parsed.approved &&
