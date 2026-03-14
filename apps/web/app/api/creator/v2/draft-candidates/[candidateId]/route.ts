@@ -7,7 +7,7 @@ import { recordProductEvent } from "@/lib/productEvents";
 import {
   buildDraftArtifact,
   type DraftArtifactDetails,
-} from "@/lib/onboarding/draftArtifacts";
+} from "@/lib/onboarding/shared/draftArtifacts";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 interface CandidatePatchRequest extends Record<string, unknown> {

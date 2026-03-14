@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
-import { buildCreatorGenerationContract } from "@/lib/onboarding/generationContract";
+import { buildCreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
 import {
   applyCreatorToneOverrides,

@@ -4,7 +4,7 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
-import type { DraftGroundingSource } from "@/lib/onboarding/draftArtifacts";
+import type { DraftGroundingSource } from "@/lib/onboarding/shared/draftArtifacts";
 import {
   isMissingDraftCandidateTableError,
   isMissingSourceMaterialAssetTableError,

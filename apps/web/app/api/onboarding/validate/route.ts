@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { parseOnboardingInput } from "@/lib/onboarding/validation";
+import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 
 export async function POST(request: Request) {
   let body: unknown;

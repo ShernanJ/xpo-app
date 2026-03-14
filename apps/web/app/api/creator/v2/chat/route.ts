@@ -13,7 +13,7 @@ import {
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
   resolveThreadFramingStyle,
-} from "@/lib/onboarding/draftArtifacts";
+} from "@/lib/onboarding/shared/draftArtifacts";
 import {
   applyGrowthStrategyToCreatorProfileHints,
   buildCreatorProfileHintsFromOnboarding,

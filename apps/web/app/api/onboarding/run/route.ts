@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 
-import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/backfill";
-import { runOnboarding } from "@/lib/onboarding/service";
+import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
+import { runOnboarding } from "@/lib/onboarding/pipeline/service";
 import { persistOnboardingRun, syncOnboardingPostsToDb } from "@/lib/onboarding/store";
-import { parseOnboardingInput } from "@/lib/onboarding/validation";
+import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 test("generation contract encodes positioning and fail-closed growth guardrails", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./generationContract.ts", import.meta.url)),
+    fileURLToPath(new URL("./contracts/generationContract.ts", import.meta.url)),
     "utf8",
   );
 

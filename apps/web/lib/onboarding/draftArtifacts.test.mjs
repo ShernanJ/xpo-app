@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildDraftArtifact, inferThreadFramingStyleFromPrompt } from "./draftArtifacts.ts";
+import {
+  buildDraftArtifact,
+  inferThreadFramingStyleFromPrompt,
+} from "./shared/draftArtifacts.ts";
 
 function buildThreadArtifact(content) {
   return buildDraftArtifact({

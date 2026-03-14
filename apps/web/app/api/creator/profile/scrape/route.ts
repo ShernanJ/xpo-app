@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 
-import { runOnboarding } from "@/lib/onboarding/service";
+import { runOnboarding } from "@/lib/onboarding/pipeline/service";
 import {
   persistOnboardingRun,
   readLatestOnboardingRunByHandle,
   syncOnboardingPostsToDb,
 } from "@/lib/onboarding/store";
 import { probeLatestScrapePosts } from "@/lib/onboarding/sources/scrapeBootstrap";
-import type { OnboardingInput } from "@/lib/onboarding/types";
+import type { OnboardingInput } from "@/lib/onboarding/contracts/types";
 import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 

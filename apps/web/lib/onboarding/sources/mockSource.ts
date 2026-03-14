@@ -1,5 +1,5 @@
-import { buildMockAccountData } from "../mockData";
-import type { OnboardingInput } from "../types";
+import { buildMockAccountData } from "../shared/mockData";
+import type { OnboardingInput } from "../contracts/types";
 import type { OnboardingDataSource } from "./types";
 
 export function buildMockDataSource(

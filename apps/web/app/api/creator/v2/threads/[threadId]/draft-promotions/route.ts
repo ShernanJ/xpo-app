@@ -13,7 +13,7 @@ import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
-} from "@/lib/onboarding/draftArtifacts";
+} from "@/lib/onboarding/shared/draftArtifacts";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,

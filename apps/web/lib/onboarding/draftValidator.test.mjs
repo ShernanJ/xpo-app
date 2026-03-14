@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { validateDraft } from "./draftValidator.ts";
+import { validateDraft } from "./contracts/draftValidator.ts";
 
 const exemplarText = [
   "I’m planning to be more intentional on Twitter in 2026, so here’s who I am and what I do:",
