@@ -133,6 +133,7 @@ import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "./ideationExecutor.ts";
 import { executePlanningCapability } from "./planningExecutor.ts";
 import { executeDraftingCapability } from "./draftingExecutor.ts";
+import { executeRevisingCapability } from "./revisingExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -2421,177 +2422,64 @@ User Profile Summary:
         draftInstruction,
         effectiveActiveDraft,
       );
-      const reviserOutput = await services.generateRevisionDraft({
-        activeDraft: effectiveActiveDraft,
-        revision,
-        styleCard,
-        topicAnchors: relevantTopicAnchors,
-        activeConstraints: revisionActiveConstraints,
-        recentHistory: effectiveContext,
-        options: {
-          conversationState: "editing",
-          antiPatterns,
+      const execution = await executeRevisingCapability({
+        workflow: "revise_draft",
+        capability: "revising",
+        activeContextRefs: [
+          "memory.latestRefinementInstruction",
+          "memory.activeDraftRef",
+          "memory.topicSummary",
+          "memory.rollingSummary",
+        ],
+        context: {
+          memory,
+          activeDraft: effectiveActiveDraft,
+          revision,
+          revisionActiveConstraints,
+          effectiveContext,
+          relevantTopicAnchors,
+          styleCard,
           maxCharacterLimit,
           goal,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
+          antiPatterns,
+          turnDraftPreference,
+          turnFormatPreference,
           threadPostMaxCharacterLimit,
-          threadFramingStyle: turnThreadFramingStyle,
-          sourceUserMessage: userMessage,
+          turnThreadFramingStyle,
+          userMessage,
           groundingPacket,
-        },
-      });
-
-      if (!reviserOutput) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to revise draft.",
-          memory,
-        };
-      }
-
-      const criticOutput = await services.critiqueDrafts(
-        {
-          angle: "Targeted revision",
-          draft: reviserOutput.revisedDraft,
-          supportAsset: reviserOutput.supportAsset ?? "",
-          whyThisWorks: "",
-          watchOutFor: "",
-        },
-        revisionActiveConstraints,
-        styleCard,
-        {
-          maxCharacterLimit,
-          draftPreference: turnDraftPreference,
-          formatPreference: turnFormatPreference,
-          threadPostMaxCharacterLimit,
-          threadFramingStyle: turnThreadFramingStyle,
-          previousDraft: effectiveActiveDraft,
-          revisionChangeKind: revision.changeKind,
-          sourceUserMessage: userMessage,
-          groundingPacket,
-        },
-      );
-
-      if (!criticOutput) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to finalize revised draft.",
-          memory,
-        };
-      }
-
-      const claimCheck = checkDraftClaimsAgainstGrounding({
-        draft: criticOutput.finalDraft,
-        groundingPacket,
-      });
-      const revisionValidationStatus = claimCheck.needsClarification
-        ? "clarification_required"
-        : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
-          ? "failed"
-          : "passed";
-      routingTrace.workerExecutions.push({
-        worker: "claim_checker",
-        capability: "revising",
-        phase: "validation",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          status: revisionValidationStatus,
-          issueCount: claimCheck.issues.length,
-        },
-      });
-      routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
-        routingTrace.workerExecutions,
-      );
-      routingTrace.validations.push({
-        validator: "claim_checker",
-        capability: "revising",
-        status: revisionValidationStatus,
-        issues: claimCheck.issues,
-        corrected: Boolean(claimCheck.draft && claimCheck.draft !== criticOutput.finalDraft),
-      });
-      if (claimCheck.needsClarification) {
-        return returnClarificationQuestion({
-          question: buildGroundedProductClarificationQuestion(
-            effectiveActiveDraft || memory.topicSummary || userMessage,
-          ),
-        });
-      }
-
-      const revisionWasRejectedByCritic = !criticOutput.approved;
-      const finalizedRevisionDraft =
-        claimCheck.draft ||
-        (revisionWasRejectedByCritic ? effectiveActiveDraft : criticOutput.finalDraft) ||
-        reviserOutput.revisedDraft;
-      const revisionVoiceTarget = resolveVoiceTarget({
-        styleCard,
-        userMessage,
-        draftPreference: turnDraftPreference,
-        formatPreference: turnFormatPreference,
-      });
-      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
-        ? buildRollingSummary({
-          currentSummary: memory.rollingSummary,
-          topicSummary: memory.topicSummary,
-          approvedPlan: memory.pendingPlan,
-          activeConstraints: revisionActiveConstraints,
-          latestDraftStatus: "Draft revised",
-          formatPreference: memory.formatPreference || turnFormatPreference,
-        })
-        : memory.rollingSummary;
-
-      const issuesFixed = Array.from(
-        new Set([
-          ...(reviserOutput.issuesFixed || []),
-          ...criticOutput.issues,
-          ...claimCheck.issues,
-          ...(revisionWasRejectedByCritic
-            ? ["Kept the revision closer to the original edit scope."]
-            : []),
-        ]),
-      );
-
-      await writeMemoryLocal({
-        conversationState: "editing",
-        activeConstraints: revisionActiveConstraints,
-        pendingPlan: null,
-        clarificationState: null,
-        rollingSummary,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference: turnFormatPreference,
-        latestRefinementInstruction: draftInstruction,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "draft",
-        outputShape: resolveDraftOutputShape(turnFormatPreference),
-        response: prependFeedbackMemoryNotice(
-          buildDraftReply({
-            userMessage,
-            draftPreference: turnDraftPreference,
-            isEdit: true,
-            issuesFixed,
-            styleCard,
-            revisionChangeKind: revision.changeKind,
-          }),
           feedbackMemoryNotice,
-        ),
-        data: {
-          draft: finalizedRevisionDraft,
-          supportAsset: reviserOutput.supportAsset,
-          issuesFixed,
-          voiceTarget: revisionVoiceTarget,
-          noveltyNotes: buildNoveltyNotes({}),
-          threadFramingStyle: turnThreadFramingStyle,
+          nextAssistantTurnCount,
+          refreshRollingSummary: shouldRefreshRollingSummary(
+            nextAssistantTurnCount,
+            false,
+          ),
+          latestRefinementInstruction: draftInstruction,
           groundingSources: groundingSourcesForTurn,
           groundingMode: draftGroundingSummary.groundingMode,
           groundingExplanation: draftGroundingSummary.groundingExplanation,
         },
+        services: {
+          generateRevisionDraft: services.generateRevisionDraft,
+          critiqueDrafts: services.critiqueDrafts,
+          buildClarificationResponse: () =>
+            returnClarificationQuestion({
+              question: buildGroundedProductClarificationQuestion(
+                effectiveActiveDraft || memory.topicSummary || userMessage,
+              ),
+            }),
+        },
+      });
+
+      mergeCapabilityExecutionMeta(execution);
+      if (execution.output.kind === "response") {
+        return execution.output.response;
+      }
+
+      await writeMemoryLocal(execution.output.memoryPatch);
+
+      return {
+        ...execution.output.responseSeed,
         memory,
       };
     }

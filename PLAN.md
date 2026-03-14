@@ -111,13 +111,13 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - ideation now runs through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts` using `CapabilityExecutionRequest` / `CapabilityExecutionResult`, with `draftPipeline.ts` applying the returned memory patch and worker trace metadata.
   - initial plan generation and plan-presentation seeding now run through `apps/web/lib/agent-v2/orchestrator/planningExecutor.ts`, with `draftPipeline.ts` consuming the returned plan payload, memory patch, and worker trace metadata before any draft handoff.
   - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, and worker trace metadata for plan approval, rough auto-draft, and plan-to-draft fallback paths.
+  - targeted draft revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, validation metadata, and worker trace metadata for edit/review turns.
 - Break `draftPipeline.ts` into capability executors:
-  - revising
   - replying
   - analysis
 - Migration debt inside Phase 3:
   - multi-draft bundle generation still lives inline in `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
-  - replanning branches inside revision/edit flows are still inline in `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - plan-to-draft fallback and replanning branches inside revision/edit flows are still inline in `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
   - `CapabilityExecutionRequest`
