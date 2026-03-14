@@ -45,6 +45,7 @@ User turn
 - Current code still shapes the orchestrator response before route persistence and thread updates.
 - `pipeline_continuation` in runtime traces is migration debt, not a steady-state owner.
 - Runtime trace currently standardizes normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
+- As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
 
 ## Current ownership boundaries
 ### Transport
@@ -100,8 +101,21 @@ User turn
 - `apps/web/app/chat/page.tsx`
 - Current reality:
   - main chat turn-resolution and transport payload construction now delegate through `apps/web/app/chat/chatTransport.ts`
-  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, and thread remap planning now delegate through `apps/web/app/chat/chatReplyState.ts`
-  - workspace/session/composer state still lives mainly in the page
+  - main chat result parsing, assistant-message assembly, reply outcome planning, draft-editor follow-up selection, and thread remap planning now delegate through `apps/web/app/chat/chatReplyState.ts`
+  - page-local client seams now delegate through dedicated helpers/modules:
+    - workspace/session/composer:
+      - `apps/web/app/chat/chatWorkspaceState.ts`
+      - `apps/web/app/chat/chatComposerState.ts`
+      - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+    - draft editor/session/persistence/preview/action/history:
+      - `apps/web/app/chat/chatDraftEditorState.ts`
+      - `apps/web/app/chat/chatDraftSessionState.ts`
+      - `apps/web/app/chat/chatDraftPersistenceState.ts`
+      - `apps/web/app/chat/chatDraftPreviewState.ts`
+      - `apps/web/app/chat/chatDraftActionState.ts`
+      - `apps/web/app/chat/chatThreadHistoryState.ts`
+    - inline preview presentation:
+      - `apps/web/app/chat/chatDraftPreviewCard.tsx`
   - the page is thin enough for the Phase 2 boundary cleanup, but not yet a fully ideal transport/view boundary
 - Target architecture ownership:
   - view state
@@ -197,6 +211,22 @@ User turn
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
 - Treat those legacy routing paths as migration debt paths, not equal peers to the target runtime owner.
 
+### Chat client thinning
+- If you are debugging client-only chat behavior first inspect:
+  - `apps/web/app/chat/chatTransport.ts`
+  - `apps/web/app/chat/chatReplyState.ts`
+  - `apps/web/app/chat/chatWorkspaceState.ts`
+  - `apps/web/app/chat/chatComposerState.ts`
+  - `apps/web/app/chat/chatDraftEditorState.ts`
+  - `apps/web/app/chat/chatDraftSessionState.ts`
+  - `apps/web/app/chat/chatDraftPersistenceState.ts`
+  - `apps/web/app/chat/chatDraftPreviewState.ts`
+  - `apps/web/app/chat/chatDraftActionState.ts`
+  - `apps/web/app/chat/chatThreadHistoryState.ts`
+  - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+  - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+- Reach for `apps/web/app/chat/page.tsx` after those helpers, because many of the highest-risk state transitions have been centralized already.
+
 ### Validation failures
 - Check deterministic validation hooks in:
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
@@ -215,6 +245,8 @@ User turn
 - Do not let handle-scoped context fall back across handles.
 - Do not route vague fresh asks through stale topic summaries.
 - Do not add more patch cleanup when the upstream issue belongs in workflow ownership or validator logic.
+- Do not move extracted page-local state seams back into `apps/web/app/chat/page.tsx`.
+- Do not change chat transport payload shape or route/orchestrator behavior as part of client-only page-thinning work.
 
 ## Test commands
 ### Gate families
@@ -231,6 +263,18 @@ User turn
 - `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/contracts/chatTransport.test.ts`
 - `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/resolveRuntimeAction.test.mjs`
 - `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/runtimeContracts.test.ts`
+
+### Targeted chat-client checks
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatReplyState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatWorkspaceState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatComposerState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftEditorState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftSessionState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftPersistenceState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftPreviewState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftActionState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatThreadHistoryState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatWorkspaceLoadState.test.ts`
 
 ## Manual QA checklist
 ### Ideation to draft

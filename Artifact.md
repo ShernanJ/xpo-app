@@ -4,8 +4,8 @@
 - Program: `Agent Runtime vNext`
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
-- Last updated: 2026-03-13
-- Current slice: Phase 1 control-plane hardening in progress
+- Last updated: 2026-03-14
+- Current slice: Phase 2 client page-thinning follow-on completed; Phase 1 control-plane hardening still in progress at the program level
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -100,7 +100,22 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Multi-handle isolation remains required behavior.
 
 ## Transitional notes
-- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline and now delegates chat result parsing/state planning through `apps/web/app/chat/chatTransport.ts` and `apps/web/app/chat/chatReplyState.ts`, but it still owns too much workspace/session/composer state to be the long-term ideal client boundary.
+- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline and now delegates chat result parsing/state planning through `apps/web/app/chat/chatTransport.ts` and `apps/web/app/chat/chatReplyState.ts`.
+- The main chat page has been thinned further by extracting page-local client seams into dedicated helpers:
+  - workspace/session/composer:
+    - `apps/web/app/chat/chatWorkspaceState.ts`
+    - `apps/web/app/chat/chatComposerState.ts`
+    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+  - draft editor/session/persistence/preview/action/history:
+    - `apps/web/app/chat/chatDraftEditorState.ts`
+    - `apps/web/app/chat/chatDraftSessionState.ts`
+    - `apps/web/app/chat/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/chatDraftActionState.ts`
+    - `apps/web/app/chat/chatThreadHistoryState.ts`
+  - preview presentation:
+    - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+- `apps/web/app/chat/page.tsx` still owns too much async orchestration and some large presentational surfaces to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
@@ -137,7 +152,19 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 ### Phase 2: Thin the client and route
 - Landed:
   - main chat turn-resolution and transport payload construction now flow through `apps/web/app/chat/chatTransport.ts`
-  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, and thread remap planning now flow through `apps/web/app/chat/chatReplyState.ts`
+  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning now flow through `apps/web/app/chat/chatReplyState.ts`
+  - workspace/session/composer client seams now flow through dedicated client helpers:
+    - `apps/web/app/chat/chatWorkspaceState.ts`
+    - `apps/web/app/chat/chatComposerState.ts`
+    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+  - draft editor/session/persistence/preview/action/history client seams now flow through dedicated client helpers:
+    - `apps/web/app/chat/chatDraftEditorState.ts`
+    - `apps/web/app/chat/chatDraftSessionState.ts`
+    - `apps/web/app/chat/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/chatDraftActionState.ts`
+    - `apps/web/app/chat/chatThreadHistoryState.ts`
+  - inline draft preview presentation now flows through `apps/web/app/chat/chatDraftPreviewCard.tsx`
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
@@ -224,10 +251,17 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Keep this visible as required coverage even if it is not yet a standalone gate family
 
 ## Active blockers and risks
-- `apps/web/app/chat/page.tsx` still owns too much request and workspace logic.
+- `apps/web/app/chat/page.tsx` still owns too much async request orchestration and some large presentational/editor surfaces.
 - `apps/web/app/api/creator/v2/chat/route.ts` still owns too much workflow and persistence assembly.
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still mixes generation, continuation, grounding, revision, and salvage logic.
 - Output cleanup helpers still exist because validator + retry is incomplete.
+
+## Recent chat-client paydown
+- Highest-ROI page-local state seams were extracted from `apps/web/app/chat/page.tsx` and pinned with focused tests.
+- The remaining step from the most recent local pass is reassessment, not a required architectural follow-on.
+- If the next agent continues thinning the client, the best remaining candidates are:
+  - additional presentational extraction from the draft editor surface
+  - any remaining async orchestration in `requestAssistantReply` only if it still materially reduces page complexity without changing transport or route ownership
 
 ## Do not regress
 - Do not move assistant machine state back into transcript history.
