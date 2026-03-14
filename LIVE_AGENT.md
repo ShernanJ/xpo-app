@@ -119,12 +119,11 @@ User turn
   - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`
   - multi-draft bundle generation now runs through `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
   - targeted revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
+  - edit/review replan-then-draft continuation now runs through `apps/web/lib/agent-v2/orchestrator/replanningExecutor.ts`
   - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`
   - the `analyze_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/analysisExecutor.ts`
 - Remaining target executors:
   - none; named executor extraction is complete
-- Current migration debt inside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - plan-to-draft fallback and replanning inside revision/edit flows are still inline
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
   - route-level reply artifact generation and continuation still live in `apps/web/app/api/creator/v2/chat/route.ts`
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
@@ -135,7 +134,7 @@ User turn
   - `CapabilityExecutionResult`
   - `RuntimeValidationResult`
 - `activeContextRefs` belongs to capability execution context, not the normalized turn.
-- Named executor extraction is landed for ideation, planning, drafting, draft bundles, revising, replying, and analysis; remaining migration debt is in inline fallback/continuation branches and adjacent route-level reply handling.
+- Named executor extraction is landed for ideation, planning, drafting, draft bundles, revising, replanning continuation, replying, and analysis; remaining migration debt is primarily adjacent route-level reply handling and coach-style reply/analysis internals.
 
 ## Concurrency rules
 ### Allowed in parallel
@@ -280,6 +279,6 @@ User turn
 
 ## Next structural targets
 - Start Phase 4 worker-plane cleanup or isolate remaining Phase 3 migration debt into dedicated follow-up seams
-- Move plan-to-draft fallback/replanning continuation branches behind the shared capability contract or isolate them as explicit migration debt
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
+- Reconcile route-level reply artifact generation with the runtime capability boundary
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

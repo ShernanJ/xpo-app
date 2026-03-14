@@ -133,6 +133,7 @@ import { executeRevisingCapability } from "./revisingExecutor.ts";
 import { executeReplyingCapability } from "./replyingExecutor.ts";
 import { executeAnalysisCapability } from "./analysisExecutor.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
+import { executeReplanningCapability } from "./replanningExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -2338,123 +2339,65 @@ User Profile Summary:
       userId,
       xHandle: effectiveXHandle,
     });
-
-    let planFailureReason: string | null = null;
-    const plan = await services.generatePlan(
-      draftInstruction,
-      memory.topicSummary,
-      Array.from(
-        new Set([
-          ...revisionActiveConstraints,
-          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-        ]),
-      ),
-      effectiveContext,
-      activeDraft,
-      {
-        goal,
-        conversationState: memory.conversationState,
-        antiPatterns,
-        draftPreference: turnDraftPreference,
-        formatPreference: turnFormatPreference,
-        activePlan: memory.pendingPlan,
-        latestRefinementInstruction: memory.latestRefinementInstruction,
-        lastIdeationAngles: memory.lastIdeationAngles,
-        voiceTarget: baseVoiceTarget,
-        groundingPacket,
-        creatorProfileHints,
-        onFailureReason: (reason: string) => {
-          planFailureReason = reason;
-        },
-      },
-    );
-
-    if (!plan) {
-      routingTrace.planFailure = planFailureReason
-        ? { reason: planFailureReason }
-        : { reason: "the planner request failed" };
-      return {
-        mode: "error",
-        outputShape: "coach_question",
-        response: buildPlanFailureResponse(planFailureReason),
-        memory,
-      };
-    }
-
-    routingTrace.planFailure = null;
-
-    const planWithPreference = applySourceMaterialBiasToPlan(
-      applyCreatorProfileHintsToPlan(
-        withPlanPreferences(
-          plan,
-          turnDraftPreference,
-          turnFormatPreference,
-        ),
-        creatorProfileHints,
-      ),
-      selectedSourceMaterials,
-      {
-        hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
-      },
-    );
-    const guardedPlan = shouldForceNoFabricationGuardrailForTurn
-      ? withNoFabricationPlanGuardrail(planWithPreference)
-      : planWithPreference;
-    const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
-      ? appendNoFabricationConstraint(revisionActiveConstraints)
-      : revisionActiveConstraints;
-    const draftGroundingPacket = buildGroundingPacketForContext(
-      draftActiveConstraints,
-      draftInstruction,
-    );
-
-    const execution = await executeDraftingCapability({
+    const execution = await executeReplanningCapability({
       workflow: "plan_then_draft",
-      capability: "drafting",
+      capability: "planning",
       activeContextRefs: [
         "memory.pendingPlan",
+        "memory.latestRefinementInstruction",
         "memory.topicSummary",
         "memory.rollingSummary",
       ],
       context: {
         memory,
-        plan: guardedPlan,
-        activeConstraints: draftActiveConstraints,
-        historicalTexts,
         userMessage,
-        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+        draftInstruction,
+        revisionActiveConstraints,
+        effectiveContext,
+        activeDraft,
+        historicalTexts,
+        goal,
+        antiPatterns,
+        turnDraftPreference,
         turnFormatPreference,
+        baseVoiceTarget,
+        creatorProfileHints,
+        selectedSourceMaterials,
+        shouldForceNoFabricationGuardrailForTurn,
         styleCard,
-        feedbackMemoryNotice,
         nextAssistantTurnCount,
-        latestDraftStatus: "Draft delivered",
         refreshRollingSummary: shouldRefreshRollingSummary(
           nextAssistantTurnCount,
           false,
         ),
+        feedbackMemoryNotice,
+        turnThreadFramingStyle,
+        groundingPacket,
         groundingSources: groundingSourcesForTurn,
         groundingMode: draftGroundingSummary.groundingMode,
         groundingExplanation: draftGroundingSummary.groundingExplanation,
       },
       services: {
+        generatePlan: services.generatePlan,
         checkDeterministicNovelty: services.checkDeterministicNovelty,
-        runDraft: () =>
+        buildGroundingPacketForContext,
+        runDraft: ({ plan, activeConstraints, groundingPacket }) =>
           generateDraftWithGroundingRetry({
-            plan: guardedPlan,
-            activeConstraints: draftActiveConstraints,
+            plan,
+            activeConstraints,
             activeDraft,
             sourceUserMessage: draftInstruction,
-            draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-            formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+            draftPreference: plan.deliveryPreference || turnDraftPreference,
+            formatPreference: plan.formatPreference || turnFormatPreference,
             threadFramingStyle: turnThreadFramingStyle,
             fallbackToWriterWhenCriticRejected: false,
-            topicSummary: guardedPlan.objective,
-            groundingPacket: draftGroundingPacket,
+            topicSummary: plan.objective,
+            groundingPacket,
           }),
-        handleNoveltyConflict: () =>
+        handleNoveltyConflict: (planObjective) =>
           returnClarificationTree({
             branchKey: "plan_reject",
-            seedTopic: plan.objective,
+            seedTopic: planObjective,
             pendingPlan: null,
             replyOverride:
               "that version felt too close to something you've already posted. let's shift it.",
@@ -2464,14 +2407,23 @@ User Profile Summary:
     });
 
     mergeCapabilityExecutionMeta(execution);
+    if (execution.output.kind === "plan_failure") {
+      routingTrace.planFailure = execution.output.failureReason
+        ? { reason: execution.output.failureReason }
+        : { reason: "the planner request failed" };
+      return {
+        ...execution.output.responseSeed,
+        memory,
+      };
+    }
+
+    routingTrace.planFailure = null;
+
     if (execution.output.kind === "response") {
       return execution.output.response;
     }
 
-    await writeMemoryLocal({
-      ...execution.output.memoryPatch,
-      activeConstraints: draftActiveConstraints,
-    });
+    await writeMemoryLocal(execution.output.memoryPatch);
 
     return {
       ...execution.output.responseSeed,
