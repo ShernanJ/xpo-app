@@ -1,6 +1,6 @@
-import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
-import type { VoiceStyleCard } from "./styleProfile";
-import { inferLowercasePreference } from "./voiceSignals";
+import type { DraftFormatPreference, DraftPreference } from "../contracts/chat.ts";
+import type { VoiceStyleCard } from "./styleProfile.ts";
+import { inferLowercasePreference } from "./voiceSignals.ts";
 
 export type VoiceTargetCompression = "tight" | "medium" | "spacious";
 export type VoiceTargetFormality = "casual" | "neutral" | "formal";
