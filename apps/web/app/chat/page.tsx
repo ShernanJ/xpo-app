@@ -20,7 +20,6 @@ import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, 
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
-  buildDraftArtifact,
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
   inferThreadFramingStyleFromPosts,
@@ -100,7 +99,6 @@ import {
   buildEditableThreadPosts,
   clampThreadPostIndex,
   ensureEditableThreadPosts,
-  joinThreadPosts,
   mergeThreadDraftPostDown as mergeThreadDraftPostDownState,
   moveThreadDraftPost as moveThreadDraftPostState,
   removeThreadDraftPost as removeThreadDraftPostState,
@@ -108,8 +106,12 @@ import {
   splitThreadDraftPost as splitThreadDraftPostState,
 } from "./chatDraftEditorState";
 import {
+  getThreadPostCharacterLimit,
+  prepareDraftPromotionRequest,
+  resolveDraftVersionRevertUpdate,
+} from "./chatDraftPersistenceState";
+import {
   buildDraftRevisionTimeline,
-  getDraftVersionSupportAsset,
   normalizeDraftVersionBundle,
   resolveDraftTimelineNavigation,
   resolveDraftTimelineState,
@@ -1822,77 +1824,6 @@ function getDisplayedDraftCharacterLimit(
   return Math.max(storedMaxCharacterLimit, fallbackCharacterLimit);
 }
 
-function resolveDraftArtifactKind(
-  outputShape?: CreatorChatSuccess["data"]["outputShape"],
-): DraftArtifact["kind"] {
-  switch (outputShape) {
-    case "long_form_post":
-    case "thread_seed":
-    case "reply_candidate":
-    case "quote_candidate":
-    case "short_form_post":
-      return outputShape;
-    default:
-      return "short_form_post";
-  }
-}
-
-function buildDraftArtifactWithLimit(params: {
-  id: string;
-  title: string;
-  kind: DraftArtifact["kind"];
-  content: string;
-  supportAsset: string | null;
-  maxCharacterLimit: number;
-  threadPostMaxCharacterLimit?: number;
-  posts?: string[];
-  replyPlan?: string[];
-  voiceTarget?: DraftArtifact["voiceTarget"];
-  noveltyNotes?: string[];
-  groundingSources?: DraftArtifact["groundingSources"];
-  groundingMode?: DraftArtifact["groundingMode"];
-  groundingExplanation?: DraftArtifact["groundingExplanation"];
-  threadFramingStyle?: DraftArtifact["threadFramingStyle"];
-}): DraftArtifact {
-  const artifact = buildDraftArtifact({
-    id: params.id,
-    title: params.title,
-    kind: params.kind,
-    content: params.content,
-    supportAsset: params.supportAsset,
-    ...(params.threadPostMaxCharacterLimit
-      ? { threadPostMaxCharacterLimit: params.threadPostMaxCharacterLimit }
-      : {}),
-    ...(params.posts?.length ? { posts: params.posts } : {}),
-    ...(params.replyPlan?.length ? { replyPlan: params.replyPlan } : {}),
-    ...(params.voiceTarget ? { voiceTarget: params.voiceTarget } : {}),
-    ...(params.noveltyNotes?.length ? { noveltyNotes: params.noveltyNotes } : {}),
-    ...(params.groundingSources?.length ? { groundingSources: params.groundingSources } : {}),
-    ...(params.groundingMode ? { groundingMode: params.groundingMode } : {}),
-    ...(params.groundingExplanation ? { groundingExplanation: params.groundingExplanation } : {}),
-    ...(params.threadFramingStyle
-      ? { threadFramingStyle: params.threadFramingStyle }
-      : {}),
-  });
-
-  if (artifact.maxCharacterLimit === params.maxCharacterLimit) {
-    return artifact;
-  }
-
-  return {
-    ...artifact,
-    maxCharacterLimit: params.maxCharacterLimit,
-    isWithinXLimit: artifact.weightedCharacterCount <= params.maxCharacterLimit,
-  };
-}
-
-function getThreadPostCharacterLimit(
-  artifact: DraftArtifact | null | undefined,
-  fallbackCharacterLimit: number,
-): number {
-  return artifact?.posts?.[0]?.maxCharacterLimit ?? fallbackCharacterLimit;
-}
-
 function getThreadFramingStyle(
   artifact: DraftArtifact | null | undefined,
   fallbackContent?: string,
@@ -2042,78 +1973,6 @@ function getDraftGroundingToneClasses(
   };
 }
 
-function replaceDraftVersionEntry(args: {
-  versions: DraftVersionEntry[];
-  versionId: string;
-  content: string;
-  artifact: DraftArtifact;
-}): DraftVersionEntry[] {
-  return args.versions.map((version) =>
-    version.id === args.versionId
-      ? {
-          ...version,
-          content: args.content,
-          weightedCharacterCount: computeXWeightedCharacterCount(args.content),
-          maxCharacterLimit: args.artifact.maxCharacterLimit,
-          supportAsset: args.artifact.supportAsset ?? version.supportAsset,
-          artifact: args.artifact,
-        }
-      : version,
-  );
-}
-
-function buildDraftCollectionsFromVersions(args: {
-  versions: DraftVersionEntry[];
-  activeVersionId: string;
-  fallbackDrafts?: string[];
-  fallbackArtifacts?: DraftArtifact[];
-}): {
-  draft: string;
-  drafts: string[];
-  draftArtifacts: DraftArtifact[];
-} {
-  const activeVersion =
-    args.versions.find((version) => version.id === args.activeVersionId) ??
-    args.versions[args.versions.length - 1];
-  const drafts = args.versions.map((version) => version.content).filter(Boolean);
-  const draftArtifacts = args.versions
-    .map((version) => version.artifact)
-    .filter((artifact): artifact is DraftArtifact => Boolean(artifact));
-
-  return {
-    draft: activeVersion?.content ?? args.fallbackDrafts?.[0] ?? "",
-    drafts: drafts.length > 0 ? drafts : args.fallbackDrafts ?? [],
-    draftArtifacts: draftArtifacts.length > 0 ? draftArtifacts : args.fallbackArtifacts ?? [],
-  };
-}
-
-function syncDraftBundleSelection(args: {
-  draftBundle: DraftBundlePayload | null | undefined;
-  versionId: string;
-  content: string;
-  artifact: DraftArtifact;
-}): DraftBundlePayload | null {
-  if (!args.draftBundle) {
-    return null;
-  }
-
-  const selectedOption =
-    args.draftBundle.options.find((option) => option.versionId === args.versionId) ?? null;
-
-  return {
-    ...args.draftBundle,
-    selectedOptionId: selectedOption?.id ?? args.draftBundle.selectedOptionId,
-    options: args.draftBundle.options.map((option) =>
-      option.versionId === args.versionId
-        ? {
-            ...option,
-            content: args.content,
-            artifact: args.artifact,
-          }
-        : option,
-    ),
-  };
-}
 
 function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
   if (!message.quickReplies?.length) {
@@ -6304,26 +6163,18 @@ function ChatPageContent() {
       return;
     }
 
-    const nextPosts = isSelectedDraftThread
-      ? ensureEditableThreadPosts(editorDraftPosts)
-          .map((post) => post.trim())
-          .filter(Boolean)
-      : [];
-    const nextContent = (isSelectedDraftThread
-      ? joinThreadPosts(nextPosts)
-      : editorDraftText).trim();
-    if (!nextContent) {
+    const draftPromotion = prepareDraftPromotionRequest({
+      activeDraftEditorRevisionChainId: activeDraftEditor.revisionChainId,
+      selectedDraftMessage,
+      selectedDraftVersion,
+      selectedDraftArtifact,
+      isSelectedDraftThread,
+      editorDraftPosts,
+      editorDraftText,
+    });
+    if (draftPromotion.status !== "ready") {
       return;
     }
-
-    if (nextContent === selectedDraftVersion.content.trim()) {
-      return;
-    }
-
-    const revisionChainId =
-      selectedDraftMessage.revisionChainId ||
-      activeDraftEditor.revisionChainId ||
-      `revision-chain-${selectedDraftMessage.id}`;
 
     try {
       const response = await fetchWorkspace(
@@ -6333,46 +6184,7 @@ function ChatPageContent() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            content: nextContent,
-            outputShape: selectedDraftMessage.outputShape ?? "short_form_post",
-            supportAsset:
-              selectedDraftVersion.supportAsset ??
-              getDraftVersionSupportAsset(selectedDraftMessage),
-            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-            ...(nextPosts.length ? { posts: nextPosts } : {}),
-            ...(selectedDraftArtifact?.replyPlan?.length
-              ? { replyPlan: selectedDraftArtifact.replyPlan }
-              : {}),
-            ...(selectedDraftArtifact?.voiceTarget
-              ? { voiceTarget: selectedDraftArtifact.voiceTarget }
-              : {}),
-            ...(selectedDraftArtifact?.noveltyNotes?.length
-              ? { noveltyNotes: selectedDraftArtifact.noveltyNotes }
-              : {}),
-            ...(selectedDraftArtifact?.groundingSources?.length
-              ? { groundingSources: selectedDraftArtifact.groundingSources }
-              : {}),
-            ...(selectedDraftArtifact?.groundingMode
-              ? { groundingMode: selectedDraftArtifact.groundingMode }
-              : {}),
-            ...(selectedDraftArtifact?.groundingExplanation
-              ? { groundingExplanation: selectedDraftArtifact.groundingExplanation }
-              : {}),
-            ...(selectedDraftArtifact?.threadFramingStyle
-              ? { threadFramingStyle: selectedDraftArtifact.threadFramingStyle }
-              : {}),
-            revisionChainId,
-            basedOn: {
-              messageId: selectedDraftMessage.id,
-              versionId: selectedDraftVersion.id,
-              content: selectedDraftVersion.content,
-              source: selectedDraftVersion.source,
-              createdAt: selectedDraftVersion.createdAt,
-              maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-              revisionChainId,
-            },
-          }),
+          body: JSON.stringify(draftPromotion.requestBody),
         },
       );
       if (!response.ok) {
@@ -6453,72 +6265,17 @@ function ChatPageContent() {
       return;
     }
 
-    const nextContent = selectedDraftVersion.content.trim();
-    if (!nextContent) {
+    const revertUpdate = resolveDraftVersionRevertUpdate({
+      activeDraftEditorRevisionChainId: activeDraftEditor?.revisionChainId,
+      selectedDraftMessage,
+      selectedDraftVersion,
+      selectedDraftBundleVersions: selectedDraftBundle?.versions,
+      isSelectedDraftThread,
+      fallbackCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
+    });
+    if (!revertUpdate) {
       return;
     }
-
-    const revisionChainId =
-      selectedDraftMessage.revisionChainId ??
-      activeDraftEditor?.revisionChainId ??
-      `revision-chain-${selectedDraftMessage.id}`;
-    const nextVersions =
-      selectedDraftMessage.draftVersions && selectedDraftMessage.draftVersions.length > 0
-        ? selectedDraftMessage.draftVersions
-        : (selectedDraftBundle?.versions ?? [selectedDraftVersion]);
-    const sourceArtifact =
-      selectedDraftVersion.artifact ?? selectedDraftMessage.draftArtifacts?.[0];
-    const restoredPosts =
-      isSelectedDraftThread || sourceArtifact?.kind === "thread_seed"
-        ? buildEditableThreadPosts(sourceArtifact, nextContent)
-        : [];
-    const threadPostMaxCharacterLimit = getThreadPostCharacterLimit(
-      sourceArtifact,
-      getXCharacterLimitForAccount(isVerifiedAccount),
-    );
-    const activeDraftArtifact = buildDraftArtifactWithLimit({
-      id: sourceArtifact?.id ?? `${selectedDraftMessage.id}-${selectedDraftVersion.id}`,
-      title: sourceArtifact?.title ?? "Draft",
-      kind: sourceArtifact?.kind ?? resolveDraftArtifactKind(selectedDraftMessage.outputShape),
-      content: nextContent,
-      supportAsset: selectedDraftVersion.supportAsset ?? getDraftVersionSupportAsset(selectedDraftMessage),
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      ...(sourceArtifact?.kind === "thread_seed" || isSelectedDraftThread
-        ? { threadPostMaxCharacterLimit }
-        : {}),
-      ...(restoredPosts.length ? { posts: restoredPosts } : {}),
-      ...(sourceArtifact?.replyPlan?.length ? { replyPlan: sourceArtifact.replyPlan } : {}),
-      ...(sourceArtifact?.voiceTarget ? { voiceTarget: sourceArtifact.voiceTarget } : {}),
-      ...(sourceArtifact?.noveltyNotes?.length ? { noveltyNotes: sourceArtifact.noveltyNotes } : {}),
-      ...(sourceArtifact?.groundingSources?.length
-        ? { groundingSources: sourceArtifact.groundingSources }
-        : {}),
-      ...(sourceArtifact?.groundingMode ? { groundingMode: sourceArtifact.groundingMode } : {}),
-      ...(sourceArtifact?.groundingExplanation
-        ? { groundingExplanation: sourceArtifact.groundingExplanation }
-        : {}),
-      ...(sourceArtifact?.threadFramingStyle
-        ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
-        : {}),
-    });
-    const nextDraftVersions = replaceDraftVersionEntry({
-      versions: nextVersions,
-      versionId: selectedDraftVersion.id,
-      content: nextContent,
-      artifact: activeDraftArtifact,
-    });
-    const nextDraftCollections = buildDraftCollectionsFromVersions({
-      versions: nextDraftVersions,
-      activeVersionId: selectedDraftVersion.id,
-      fallbackDrafts: selectedDraftMessage.drafts,
-      fallbackArtifacts: selectedDraftMessage.draftArtifacts,
-    });
-    const nextDraftBundle = syncDraftBundleSelection({
-      draftBundle: selectedDraftMessage.draftBundle,
-      versionId: selectedDraftVersion.id,
-      content: nextContent,
-      artifact: activeDraftArtifact,
-    });
 
     setMessages((current) =>
       current.map((message) => {
@@ -6528,13 +6285,13 @@ function ChatPageContent() {
 
         return {
           ...message,
-          draft: nextDraftCollections.draft,
-          drafts: nextDraftCollections.drafts,
-          draftArtifacts: nextDraftCollections.draftArtifacts,
-          draftVersions: nextDraftVersions,
+          draft: revertUpdate.nextDraftCollections.draft,
+          drafts: revertUpdate.nextDraftCollections.drafts,
+          draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
+          draftVersions: revertUpdate.nextDraftVersions,
           activeDraftVersionId: selectedDraftVersion.id,
-          draftBundle: nextDraftBundle,
-          revisionChainId,
+          draftBundle: revertUpdate.nextDraftBundle,
+          revisionChainId: revertUpdate.revisionChainId,
         };
       }),
     );
@@ -6542,7 +6299,7 @@ function ChatPageContent() {
     setActiveDraftEditor({
       messageId: selectedDraftMessage.id,
       versionId: selectedDraftVersion.id,
-      revisionChainId,
+      revisionChainId: revertUpdate.revisionChainId,
     });
 
     if (!activeThreadId) {
@@ -6558,13 +6315,13 @@ function ChatPageContent() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            draftVersions: nextDraftVersions,
+            draftVersions: revertUpdate.nextDraftVersions,
             activeDraftVersionId: selectedDraftVersion.id,
-            draft: nextDraftCollections.draft,
-            drafts: nextDraftCollections.drafts,
-            draftArtifacts: nextDraftCollections.draftArtifacts,
-            draftBundle: nextDraftBundle,
-            revisionChainId,
+            draft: revertUpdate.nextDraftCollections.draft,
+            drafts: revertUpdate.nextDraftCollections.drafts,
+            draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
+            draftBundle: revertUpdate.nextDraftBundle,
+            revisionChainId: revertUpdate.revisionChainId,
           }),
         },
       );
