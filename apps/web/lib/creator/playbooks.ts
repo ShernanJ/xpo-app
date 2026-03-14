@@ -1,5 +1,5 @@
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
-import type { RecommendedPlaybookSummary } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
+import type { RecommendedPlaybookSummary } from "@/lib/agent-v2/runtime/diagnostics";
 
 export type PlaybookStageKey = "0-1k" | "1k-10k" | "10k-50k" | "50k+";
 export type PlaybookTemplateTab = "hook" | "reply" | "thread" | "cta";

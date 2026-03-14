@@ -27,7 +27,7 @@ import type {
   DraftGroundingMode,
   ThreadFramingStyle,
 } from "../../onboarding/shared/draftArtifacts.ts";
-import type { ConversationalDiagnosticContext } from "../orchestrator/conversationalDiagnostics.ts";
+import type { ConversationalDiagnosticContext } from "./diagnostics.ts";
 import type { ConversationRouterState } from "../orchestrator/conversationRouterMachine.ts";
 import type {
   CreatorProfileHints,

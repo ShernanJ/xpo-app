@@ -1398,7 +1398,9 @@ function ChatPageContent() {
     setErrorMessage,
     setContext,
     setContract,
-    applyBillingSnapshot,
+    applyBillingSnapshot: (billing) => {
+      applyBillingSnapshot(billing as BillingSnapshotPayload | null | undefined);
+    },
     onPlanRequired: () => {
       setPricingModalOpen(true);
     },

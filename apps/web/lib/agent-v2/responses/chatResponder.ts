@@ -1,7 +1,7 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
 import { generateCoachReply } from "../agents/coach.ts";
-import type { ConversationalDiagnosticContext } from "../orchestrator/conversationalDiagnostics.ts";
+import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
 import {
   buildConstraintAcknowledgment,
   isConstraintDeclaration,

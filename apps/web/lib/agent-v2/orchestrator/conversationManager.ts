@@ -53,7 +53,7 @@ import {
 import {
   countNewMemoryEntries,
 } from "../responses/feedbackMemoryNotice";
-import type { ConversationalDiagnosticContext } from "./conversationalDiagnostics.ts";
+import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
 import {
   type ConversationRouterState,
 } from "./conversationRouterMachine";

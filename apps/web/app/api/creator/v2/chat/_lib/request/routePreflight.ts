@@ -27,7 +27,7 @@ import {
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
-import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
+import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
 import type {
   CreatorProfileHints,
 } from "@/lib/agent-v2/grounding/groundingPacket";
