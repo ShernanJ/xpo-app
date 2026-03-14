@@ -119,7 +119,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Break `draftPipeline.ts` into capability executors:
   - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
-  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns the remaining route-boundary persistence/response work and `apps/web/app/api/creator/v2/chat/route.reply.ts` / `apps/web/app/api/creator/v2/chat/reply.logic.ts` remain compatibility shims
+  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns the remaining route-boundary persistence/response work
   - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
@@ -167,20 +167,20 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - drafting, draft-bundle, replanning, revising, planning, ideation, analysis, and replying executors now consume those shared types so merge-only response ownership stays consistent without changing runtime behavior or client payloads
 - Reply finalization boundary thinned:
   - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
-  - `apps/web/app/api/creator/v2/chat/route.reply.ts` now stays limited to reply turn state resolution, planning, and memory snapshot shaping, which keeps route-only side effects out of the reply planning helper without changing reply behavior or payloads
+  - `apps/web/app/api/creator/v2/chat/route.ts` now imports reply turn state resolution and planning directly from the runtime-owned planner, which keeps route-only side effects out of reply planning without changing reply behavior or payloads
 - Reply parse/planning moved under runtime ownership:
   - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` now owns the pure reply parse/artifact helper logic, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now owns reply turn state resolution, planning, and memory snapshot shaping
-  - `apps/web/app/api/creator/v2/chat/reply.logic.ts` and `apps/web/app/api/creator/v2/chat/route.reply.ts` now remain as thin route-facing re-export shims so the route surface stays stable while reply capability logic lives in the runtime layer
-- Reply shims reduced to compatibility-only:
-  - `route.ts`, `route.replyFinalize.ts`, `route.logic.ts`, and `route.response.ts` now import reply planning and reply artifact types directly from the runtime-owned modules instead of going back through the route shims
-  - this removes the last meaningful internal route dependency on `route.reply.ts` / `reply.logic.ts`, keeping those files as compatibility shims instead of hidden ownership boundaries
+  - `route.ts`, `route.replyFinalize.ts`, `route.logic.ts`, and `route.response.ts` now import reply planning and reply artifact types directly from the runtime-owned modules, so reply capability logic lives fully in the runtime layer
+- Reply shim deletion completed:
+  - `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` have been removed now that route-internal consumers and focused tests import the runtime-owned reply modules directly
+  - this removes the last reply-specific compatibility layer from the route boundary without changing client payloads or reply behavior
 - Reply seam-audit regression landed:
-  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins `route.reply.ts` and `reply.logic.ts` as thin re-export shims and requires route-internal reply consumers to import the runtime-owned reply modules directly
-  - this turns the last Phase 4 reply-boundary audit into an automated guardrail, so compatibility shims stay compatibility-only unless we intentionally delete them in a later phase
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the absence of `route.reply.ts` / `reply.logic.ts` and requires route-internal reply consumers to import the runtime-owned reply modules directly
+  - this turns the last Phase 4 reply-boundary audit into an automated guardrail, so shim-based ownership drift cannot silently return
 - Guardrails now in force:
   - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
   - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
-- Phase 4 implementation cleanup is functionally complete; any remaining compatibility-shim deletion moves to Phase 6.
+- Phase 4 implementation cleanup is complete.
 
 ### Phase 5: Replace patching with validation and retry
 - Add deterministic validators for:

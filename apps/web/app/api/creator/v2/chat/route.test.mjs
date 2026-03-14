@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   buildChatRoutePersistencePlan,
@@ -1455,12 +1455,7 @@ test("conversation context builder can exclude the current user turn when thread
   assert.equal(context.recentHistory.includes("assistant_context:"), false);
 });
 
-test("reply route ownership stays in runtime modules while route shims remain compatibility-only", () => {
-  const routeShimSource = readFileSync(new URL("./route.reply.ts", import.meta.url), "utf8");
-  const replyLogicShimSource = readFileSync(
-    new URL("./reply.logic.ts", import.meta.url),
-    "utf8",
-  );
+test("reply route ownership stays in runtime modules without shim files or shim imports", () => {
   const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
   const routeReplyFinalizeSource = readFileSync(
     new URL("./route.replyFinalize.ts", import.meta.url),
@@ -1472,14 +1467,8 @@ test("reply route ownership stays in runtime modules while route shims remain co
     "utf8",
   );
 
-  assert.match(
-    routeShimSource,
-    /export \* from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
-  );
-  assert.match(
-    replyLogicShimSource,
-    /export \* from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
-  );
+  assert.equal(existsSync(new URL("./route.reply.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./reply.logic.ts", import.meta.url)), false);
 
   assert.match(
     routeSource,

@@ -125,7 +125,7 @@ User turn
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization and `apps/web/app/api/creator/v2/chat/route.reply.ts` / `apps/web/app/api/creator/v2/chat/reply.logic.ts` remain compatibility shims
+  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ## Capability contract
@@ -302,10 +302,10 @@ User turn
 - multi-tab same-profile different-handle isolation
 - reply workflow not hijacking non-reply turns
 - no double-write behavior from worker fan-out
-- reply route shims stay compatibility-only while route-internal consumers import runtime-owned reply modules directly
+- reply route shim files stay absent while route-internal consumers import runtime-owned reply modules directly
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Treat Phase 4 worker-plane cleanup as functionally complete: use the explicit sibling-novelty retry trace, the route no-double-write regression, and the reply seam-audit regression as guardrails against ownership drift
-- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` as thin compatibility shims only until a later deletion phase; do not let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`, and do not route internal consumers back through those shims
-- Revisit residual route/client migration debt only when it blocks later runtime rollout or Phase 6 deletion work
+- Phase 4 worker-plane cleanup is complete; use the explicit sibling-novelty retry trace, the route no-double-write regression, and the reply seam-audit regression as guardrails against ownership drift
+- Do not reintroduce route-local reply shims or let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`
+- Revisit residual route/client migration debt only when it blocks later runtime rollout, Phase 5 validation work, or broader Phase 6 deletion work

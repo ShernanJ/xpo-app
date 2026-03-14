@@ -5,7 +5,7 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-14
-- Current slice: Phase 4 worker-plane closeout guardrails
+- Current slice: Phase 4 complete
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -105,7 +105,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
 - Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
-- Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns handled-reply persistence/finalization. `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` now remain as compatibility shims only.
+- Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns handled-reply persistence/finalization.
 - Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
@@ -172,7 +172,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - keep the reply compatibility shims thin while `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` remain the runtime-owned reply capability boundary and `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` remains the route-boundary finalization helper
+  - keep `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` as the runtime-owned reply capability boundary while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` remains the route-boundary finalization helper
 - Status: complete with accepted migration debt.
 
 ### Phase 4: Formalize the parallel worker plane
@@ -194,14 +194,13 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins explicit no-double-write coverage so sequential memory persistence remains single-write even when draft-candidate writes finish out of order
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records explicit sequential sibling-novelty retry trace entries so the remaining bundle retry path is formalized as a dependent control-plane step instead of implicit worker fan-out
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now standardizes executor response and response-seed contracts, and the main executor seams now consume those shared types instead of local one-off response output shapes
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `apps/web/app/api/creator/v2/chat/route.reply.ts` stays limited to reply state resolution and reply-turn planning
-  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, while `apps/web/app/api/creator/v2/chat/reply.logic.ts` and `apps/web/app/api/creator/v2/chat/route.reply.ts` are thin re-export shims
-  - route-internal consumers now import those runtime-owned reply modules directly, so the route shims are compatibility-only instead of being part of the active ownership path
-  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the reply seam audit so `route.reply.ts` / `reply.logic.ts` stay thin compatibility re-exports and route-internal reply consumers keep importing the runtime-owned reply modules directly
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `route.ts`, `route.logic.ts`, and `route.response.ts` import reply planning and reply artifact types directly from the runtime-owned modules
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, and the transitional `apps/web/app/api/creator/v2/chat/reply.logic.ts` / `apps/web/app/api/creator/v2/chat/route.reply.ts` shims have been removed
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the reply seam audit so those shim files stay absent and route-internal reply consumers keep importing the runtime-owned reply modules directly
 - Guardrails now in force:
   - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
   - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
-- Status: complete with accepted compatibility-shim deletion deferred to Phase 6.
+- Status: complete.
 
 ### Phase 5: Validation and retry
 - Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.
