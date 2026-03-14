@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server.js";
 import type {
   SurfaceMode,
   V2ConversationMemory,
@@ -192,10 +191,10 @@ export async function buildChatSuccessResponse(args: {
   createdAssistantMessageId?: string;
   newThreadId?: string;
   loadBilling: () => Promise<unknown>;
-}): Promise<NextResponse> {
+}): Promise<Response> {
   const billing = await args.loadBilling();
 
-  return NextResponse.json(
+  return Response.json(
     {
       ok: true,
       data: {

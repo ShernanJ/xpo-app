@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  planReplyTurn,
   resolveReplyTurnState,
 } from "./route.reply.ts";
 
@@ -46,75 +45,6 @@ function createReplyContext() {
   };
 }
 
-test("planReplyTurn builds reply options for high-confidence embedded reply requests", () => {
-  const planned = planReplyTurn({
-    activeReplyContext: null,
-    replyContinuation: null,
-    replyParseResult: {
-      classification: "reply_request_with_embedded_post",
-      context: {
-        sourceText: "Founders should write every day even if nobody reads it yet.",
-        sourceUrl: "https://x.com/example/status/1",
-        authorHandle: "example",
-        quotedUserAsk: "how should i reply?",
-        confidence: "high",
-        parseReason: "reply_request_with_embedded_post",
-      },
-    },
-    defaultReplyStage: "1k_to_10k",
-    defaultReplyTone: "builder",
-    defaultReplyGoal: "followers",
-    replyStrategy: baseStrategy,
-    replyInsights: null,
-    styleCard: null,
-  });
-
-  assert.ok(planned);
-  assert.equal(planned.outputShape, "reply_candidate");
-  assert.equal(planned.surfaceMode, "offer_options");
-  assert.equal(planned.replyArtifacts?.kind, "reply_options");
-  assert.ok((planned.activeReplyContext?.latestReplyOptions.length || 0) >= 1);
-});
-
-test("planReplyTurn converts a selected reply option into a reply draft artifact", () => {
-  const activeReplyContext = createReplyContext();
-  activeReplyContext.latestReplyOptions = [
-    {
-      id: "option_1",
-      label: "Option 1",
-      text: "Agree and add one useful layer.",
-      intent: {
-        label: "nuance",
-        strategyPillar: "useful nuance",
-        anchor: "disagree gently",
-        rationale: "Adds a useful layer.",
-      },
-    },
-  ];
-
-  const planned = planReplyTurn({
-    activeReplyContext,
-    replyContinuation: { type: "select_option", optionIndex: 0 },
-    replyParseResult: {
-      classification: "plain_chat",
-      context: null,
-    },
-    defaultReplyStage: "1k_to_10k",
-    defaultReplyTone: "builder",
-    defaultReplyGoal: "followers",
-    replyStrategy: baseStrategy,
-    replyInsights: null,
-    styleCard: null,
-  });
-
-  assert.ok(planned);
-  assert.equal(planned.outputShape, "reply_candidate");
-  assert.equal(planned.surfaceMode, "generate_full_output");
-  assert.equal(planned.replyArtifacts?.kind, "reply_draft");
-  assert.equal(planned.selectedReplyOptionId, "option_1");
-  assert.equal(planned.activeReplyContext?.selectedReplyOptionId, "option_1");
-});
-
 test("resolveReplyTurnState derives continuation and reset behavior from route inputs", () => {
   const activeReplyContext = createReplyContext();
   activeReplyContext.awaitingConfirmation = true;
@@ -145,4 +75,39 @@ test("resolveReplyTurnState derives continuation and reset behavior from route i
   assert.equal(state.defaultReplyTone, "bold");
   assert.equal(state.defaultReplyGoal, "authority");
   assert.equal(state.replyStrategy.knownFor, "useful nuance");
+});
+
+test("resolveReplyTurnState prefers structured artifact continuations at the route boundary", () => {
+  const activeReplyContext = createReplyContext();
+  activeReplyContext.latestReplyOptions = [
+    {
+      id: "option_1",
+      label: "Option 1",
+      text: "Agree and add one useful layer.",
+      intent: null,
+    },
+  ];
+
+  const state = resolveReplyTurnState({
+    activeHandle: "example",
+    creatorAgentContext: {
+      growthStrategySnapshot: baseStrategy,
+      creatorProfile: null,
+    },
+    effectiveMessage: "ignore this free text and use the structured action",
+    structuredReplyContext: null,
+    artifactContext: {
+      kind: "reply_option_select",
+      optionIndex: 0,
+    },
+    turnSource: "reply_action",
+    shouldBypassReplyHandling: false,
+    activeReplyContext,
+    toneRisk: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(state.replyContinuation?.type, "select_option");
+  assert.equal(state.replyContinuation?.optionIndex, 0);
+  assert.equal(state.shouldResetReplyWorkflow, true);
 });
