@@ -118,11 +118,14 @@ import {
   buildDraftCharacterCounterMeta,
   getArtifactPosts,
   getThreadFramingStyle,
-  getThreadFramingStyleLabel,
   resolveDisplayedDraftCharacterLimit,
   resolveInlineDraftPreviewState,
   resolvePrimaryDraftRevealKey,
 } from "./chatDraftPreviewState";
+import {
+  AnimatedDraftText,
+  InlineDraftPreviewCard,
+} from "./chatDraftPreviewCard";
 import { resolveThreadHistoryHydration } from "./chatThreadHistoryState";
 import {
   buildDraftRevisionTimeline,
@@ -905,7 +908,6 @@ interface ChatQuickReply {
 }
 
 const DRAFT_REVEAL_DURATION_MS = 1250;
-const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
 
 function isDraftPendingWorkflow(
@@ -928,37 +930,6 @@ function hasActiveDraftReveal(
   messageId: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(activeDraftRevealByMessageId, messageId);
-}
-
-function AnimatedDraftText(props: {
-  text: string;
-  className: string;
-  animate: boolean;
-  baseDelayMs?: number;
-}) {
-  if (!props.animate) {
-    return <p className={props.className}>{props.text}</p>;
-  }
-
-  const lines = props.text.split("\n");
-
-  return (
-    <p className={props.className}>
-      {lines.map((line, index) => (
-        <Fragment key={`${index}-${line.length}`}>
-          <span
-            className="draft-reveal-line inline-block whitespace-pre-wrap"
-            style={{
-              animationDelay: `${(props.baseDelayMs ?? 0) + index * DRAFT_REVEAL_LINE_STAGGER_MS}ms`,
-            }}
-          >
-            {line || "\u00A0"}
-          </span>
-          {index < lines.length - 1 ? <br /> : null}
-        </Fragment>
-      ))}
-    </p>
-  );
 }
 
 interface ChatStrategyInputs {
@@ -9266,488 +9237,52 @@ function ChatPageContent() {
                                 expandedInlineThreadPreviewId,
                                 selectedDraftMessageId,
                               });
-                              const {
-                                threadPreviewPosts,
-                                previewDraft,
-                                isThreadPreview,
-                                threadFramingStyle,
-                                selectedThreadPreviewPostIndex,
-                                threadDeckPosts,
-                                hiddenThreadPostCount,
-                                threadDeckHeight,
-                                isExpandedThreadPreview,
-                                draftCounter,
-                                isLongformPreview,
-                                canToggleDraftFormat,
-                                transformDraftPrompt,
-                                convertToThreadPrompt,
-                                isFocusedDraftPreview,
-                                previewRevealKey,
-                              } = previewState;
+                              const previewRevealKey = previewState.previewRevealKey;
                               return (
-                                <div className="mt-4 border-t border-white/10 pt-4">
-                                  {/* X Post Card */}
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => openDraftEditor(message.id)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        openDraftEditor(message.id);
-                                      }
-                                    }}
-                                    className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${isFocusedDraftPreview
-                                      ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
-                                      : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                      } ${buildDraftRevealClasses(previewRevealKey)}`}
-                                    aria-current={isFocusedDraftPreview ? "true" : undefined}
-                                  >
-                                    {/* Header: avatar + name + handle */}
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                          {avatarUrl ? (
-                                            <div
-                                              className="h-full w-full bg-cover bg-center"
-                                              style={{ backgroundImage: `url(${avatarUrl})` }}
-                                              role="img"
-                                              aria-label={`${displayName} profile photo`}
-                                            />
-                                          ) : (
-                                            displayName.charAt(0)
-                                          )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-1">
-                                            <span className="truncate text-sm font-bold text-white">{displayName}</span>
-                                            {isVerifiedAccount ? (
-                                              <Image
-                                                src="/x-verified.svg"
-                                                alt="Verified account"
-                                                width={16}
-                                                height={16}
-                                                className="h-4 w-4 shrink-0"
-                                              />
-                                            ) : null}
-                                          </div>
-                                          <span className="text-xs text-zinc-500">@{username}</span>
-                                        </div>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openDraftEditor(message.id);
-                                        }}
-                                        className="rounded-full p-2 text-zinc-500"
-                                        aria-label="Edit draft"
-                                      >
-                                        <Edit3 className="h-4 w-4" />
-                                      </button>
-                                    </div>
-
-                                    {/* Post Content */}
-                                    <div className="mt-3">
-                                      {isThreadPreview ? (
-                                        <div className="space-y-3">
-                                          {isExpandedThreadPreview ? (
-                                            <div className="rounded-2xl border border-white/[0.08] bg-[#050505] px-4 py-3">
-                                              <div className="space-y-1">
-                                                {threadPreviewPosts.map((postEntry) => {
-                                                  const post = postEntry.content;
-                                                  const postIndex = postEntry.originalIndex;
-                                                  const isLastPost =
-                                                    postIndex === threadPreviewPosts.length - 1;
-
-                                                  return (
-                                                    <div
-                                                      key={`${message.id}-expanded-thread-post-${postIndex}`}
-                                                      className={`relative pl-14 ${isLastPost ? "" : "pb-4"}`}
-                                                    >
-                                                      {!isLastPost ? (
-                                                        <span className="absolute left-[19px] top-11 bottom-0 w-px bg-white/[0.14]" />
-                                                      ) : null}
-                                                      <div className="absolute left-0 top-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold uppercase text-white">
-                                                        {avatarUrl ? (
-                                                          <div
-                                                            className="h-full w-full bg-cover bg-center"
-                                                            style={{ backgroundImage: `url(${avatarUrl})` }}
-                                                            role="img"
-                                                            aria-label={`${displayName} profile photo`}
-                                                          />
-                                                        ) : (
-                                                          displayName.charAt(0)
-                                                        )}
-                                                      </div>
-                                                      <button
-                                                        type="button"
-                                                        onClick={(event) => {
-                                                          event.stopPropagation();
-                                                          openDraftEditor(
-                                                            message.id,
-                                                            undefined,
-                                                            postIndex,
-                                                          );
-                                                        }}
-                                                        className={`w-full rounded-2xl border bg-[#000000] px-4 py-3 text-left transition ${
-                                                          selectedThreadPreviewPostIndex === postIndex
-                                                            ? "border-white/[0.18] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
-                                                            : "border-white/[0.06] hover:border-white/[0.12]"
-                                                        }`}
-                                                      >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                          <div className="min-w-0 flex-1">
-                                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                              <span className="truncate text-[15px] font-bold text-white">
-                                                                {displayName}
-                                                              </span>
-                                                              {isVerifiedAccount ? (
-                                                                <Image
-                                                                  src="/x-verified.svg"
-                                                                  alt="Verified account"
-                                                                  width={16}
-                                                                  height={16}
-                                                                  className="h-4 w-4 shrink-0"
-                                                                />
-                                                              ) : null}
-                                                              <span className="text-[13px] text-zinc-500">
-                                                                @{username}
-                                                              </span>
-                                                            </div>
-                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
-                                                              <span>Post {postIndex + 1}</span>
-                                                              <span>·</span>
-                                                              <span>Just now</span>
-                                                            </div>
-                                                          </div>
-                                                          <span
-                                                            className={`text-[11px] ${
-                                                              postEntry.weightedCharacterCount >
-                                                              postEntry.maxCharacterLimit
-                                                                ? "text-red-400"
-                                                                : "text-zinc-500"
-                                                            }`}
-                                                          >
-                                                            {postEntry.weightedCharacterCount}/
-                                                            {postEntry.maxCharacterLimit.toLocaleString()}
-                                                          </span>
-                                                        </div>
-                                                        <AnimatedDraftText
-                                                          text={post}
-                                                          className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100"
-                                                          animate={shouldAnimateDraftLines(
-                                                            previewRevealKey,
-                                                          )}
-                                                          baseDelayMs={postIndex * 60}
-                                                        />
-                                                      </button>
-                                                    </div>
-                                                  );
-                                                })}
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <div
-                                              className="relative"
-                                              style={{ height: `${threadDeckHeight}px` }}
-                                            >
-                                              {[...threadDeckPosts].reverse().map((postEntry, reversedIndex) => {
-                                                const originalIndex =
-                                                  threadDeckPosts.length - reversedIndex - 1;
-                                                const depthOffset = originalIndex * 16;
-                                                const lateralOffset = originalIndex * 8;
-                                                const isFrontCard = originalIndex === 0;
-                                                const isBackCard =
-                                                  originalIndex === threadDeckPosts.length - 1;
-                                                const post = postEntry.content;
-                                                const postIndex = postEntry.originalIndex;
-
-                                                return (
-                                                  <div
-                                                    key={`${message.id}-preview-post-${postIndex}`}
-                                                    className={`absolute overflow-hidden rounded-2xl border bg-[#000000] p-4 transition-all ${isFrontCard
-                                                      ? "border-white/[0.12] shadow-[0_24px_70px_rgba(0,0,0,0.42)]"
-                                                      : "border-white/[0.08] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
-                                                      }`}
-                                                    style={{
-                                                      top: `${depthOffset}px`,
-                                                      left: `${lateralOffset}px`,
-                                                      right: `${Math.max(0, 12 - lateralOffset / 2)}px`,
-                                                      zIndex: threadDeckPosts.length - originalIndex,
-                                                    }}
-                                                  >
-                                                    <div className="flex items-start justify-between gap-3">
-                                                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                                                          {avatarUrl ? (
-                                                            <div
-                                                              className="h-full w-full bg-cover bg-center"
-                                                              style={{ backgroundImage: `url(${avatarUrl})` }}
-                                                              role="img"
-                                                              aria-label={`${displayName} profile photo`}
-                                                            />
-                                                          ) : (
-                                                            displayName.charAt(0)
-                                                          )}
-                                                        </div>
-                                                        <div className="min-w-0 flex-1">
-                                                          <div className="flex items-center gap-1">
-                                                            <span className="truncate text-sm font-bold text-white">
-                                                              {displayName}
-                                                            </span>
-                                                            {isVerifiedAccount ? (
-                                                              <Image
-                                                                src="/x-verified.svg"
-                                                                alt="Verified account"
-                                                                width={16}
-                                                                height={16}
-                                                                className="h-4 w-4 shrink-0"
-                                                              />
-                                                            ) : null}
-                                                          </div>
-                                                          <span className="text-xs text-zinc-500">
-                                                            @{username}
-                                                          </span>
-                                                        </div>
-                                                      </div>
-                                                      <div className="flex items-center gap-2">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                                          Post {postIndex + 1}
-                                                        </span>
-                                                        <span
-                                                          className={`text-[11px] ${postEntry.weightedCharacterCount > postEntry.maxCharacterLimit ? "text-red-400" : "text-zinc-500"}`}
-                                                        >
-                                                          {postEntry.weightedCharacterCount}/
-                                                          {postEntry.maxCharacterLimit.toLocaleString()}
-                                                        </span>
-                                                      </div>
-                                                    </div>
-                                                    <AnimatedDraftText
-                                                      text={post}
-                                                      className={`mt-3 whitespace-pre-wrap text-zinc-100 ${isFrontCard
-                                                        ? "line-clamp-5 text-[15px] leading-6"
-                                                        : "line-clamp-3 text-[14px] leading-5"
-                                                        }`}
-                                                      animate={shouldAnimateDraftLines(
-                                                        previewRevealKey,
-                                                      )}
-                                                      baseDelayMs={postIndex * 60}
-                                                    />
-                                                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
-                                                      <span>Just now</span>
-                                                      <span>·</span>
-                                                      <span>Post {postIndex + 1}</span>
-                                                      {hiddenThreadPostCount > 0 && isBackCard ? (
-                                                        <>
-                                                          <span>·</span>
-                                                          <span>+{hiddenThreadPostCount} more</span>
-                                                        </>
-                                                      ) : null}
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <AnimatedDraftText
-                                          text={previewDraft}
-                                          className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
-                                          animate={shouldAnimateDraftLines(previewRevealKey)}
-                                        />
-                                      )}
-                                    </div>
-
-                                    {/* Timestamp */}
-                                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
-                                      <span>Just now</span>
-                                      <span>·</span>
-                                      {isThreadPreview ? (
-                                        <>
-                                          <span>{threadPreviewPosts.length} posts</span>
-                                          <span>·</span>
-                                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                            {getThreadFramingStyleLabel(threadFramingStyle)}
-                                          </span>
-                                          <span>·</span>
-                                        </>
-                                      ) : null}
-                                      <span className={draftCounter.toneClassName}>{draftCounter.label}</span>
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="mt-3 border-t border-white/[0.06]" />
-
-                                    {/* Action Buttons */}
-                                    <div className="mt-2 flex items-center justify-between gap-3">
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it shorter",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Shorter
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it longer and more detailed",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Longer
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it softer",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Softer
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it punchier",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Punchier
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it less negative",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          Less Negative
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isMainChatLocked}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void requestDraftCardRevision(
-                                              message.id,
-                                              "make it more specific",
-                                            );
-                                          }}
-                                          className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                        >
-                                          More Specific
-                                        </button>
-                                        {canToggleDraftFormat ? (
-                                          <button
-                                            type="button"
-                                            disabled={isMainChatLocked}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void requestDraftCardRevision(
-                                                message.id,
-                                                transformDraftPrompt,
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                          >
-                                            {isLongformPreview
-                                              ? "Turn into Shortform"
-                                              : "Turn into Longform"}
-                                          </button>
-                                        ) : null}
-                                        {isThreadPreview ? (
-                                          <button
-                                            type="button"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              setExpandedInlineThreadPreviewId((current) =>
-                                                current === message.id ? null : message.id,
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                          >
-                                            {isExpandedThreadPreview ? "Collapse" : "Expand"}
-                                          </button>
-                                        ) : null}
-                                        {!isThreadPreview ? (
-                                          <button
-                                            type="button"
-                                            disabled={isMainChatLocked}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void requestDraftCardRevision(
-                                                message.id,
-                                                convertToThreadPrompt,
-                                                "soft_signal",
-                                              );
-                                            }}
-                                            className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-                                          >
-                                            Turn into Thread
-                                          </button>
-                                        ) : null}
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void copyPreviewDraft(message.id, previewDraft);
-                                          }}
-                                          className="rounded-full p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
-                                          aria-label="Copy draft"
-                                        >
-                                          {copiedPreviewDraftMessageId === message.id ? (
-                                            <Check className="h-4 w-4" />
-                                          ) : (
-                                            <Copy className="h-4 w-4" />
-                                          )}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            shareDraftEditorToX();
-                                          }}
-                                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200"
-                                        >
-                                          Post
-                                          <ArrowUpRight className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
+                                <InlineDraftPreviewCard
+                                  identity={{
+                                    username,
+                                    displayName,
+                                    avatarUrl,
+                                  }}
+                                  previewState={previewState}
+                                  isVerifiedAccount={isVerifiedAccount}
+                                  isMainChatLocked={isMainChatLocked}
+                                  hasCopiedDraft={copiedPreviewDraftMessageId === message.id}
+                                  revealClassName={buildDraftRevealClasses(previewRevealKey)}
+                                  shouldAnimateLines={shouldAnimateDraftLines(
+                                    previewRevealKey,
+                                  )}
+                                  onOpenDraftEditor={(threadPostIndex) =>
+                                    openDraftEditor(
+                                      message.id,
+                                      undefined,
+                                      threadPostIndex,
+                                    )}
+                                  onRequestRevision={(
+                                    prompt,
+                                    threadFramingStyleOverride,
+                                  ) => {
+                                    void requestDraftCardRevision(
+                                      message.id,
+                                      prompt,
+                                      threadFramingStyleOverride,
+                                    );
+                                  }}
+                                  onToggleExpanded={() =>
+                                    setExpandedInlineThreadPreviewId((current) =>
+                                      current === message.id ? null : message.id,
+                                    )}
+                                  onCopy={() => {
+                                    void copyPreviewDraft(
+                                      message.id,
+                                      previewState.previewDraft,
+                                    );
+                                  }}
+                                  onShare={() => {
+                                    shareDraftEditorToX();
+                                  }}
+                                />
                               );
                             })() : null}
 
