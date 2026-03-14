@@ -138,6 +138,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Landed first seam:
   - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts` now owns the `initial_context_load` worker fan-out for style-rule extraction, core-fact extraction, and source-material asset loading
   - the helper returns merge-only worker outputs plus runtime worker-trace metadata, while `conversationManager.ts` remains the sequential owner for memory/style/artifact/thread writes
+- Landed second seam:
+  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
+  - `turnContextBuilder.ts` now returns those worker executions into the runtime path, and `routingPolicy.ts` becomes the first trace owner that records them before workflow resolution
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 

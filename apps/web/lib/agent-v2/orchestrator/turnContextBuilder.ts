@@ -1,5 +1,6 @@
 import { buildCreatorProfileHintsFromOnboarding } from "./creatorProfileHints";
 import { planTurn } from "./turnPlanner";
+import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
 import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
 import type { ConversationServices, OrchestratorInput } from "./conversationManager";
@@ -7,6 +8,7 @@ import type { V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "./groundingPacket";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
+import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
 
 export interface TurnContext {
   userId: string;
@@ -35,6 +37,7 @@ export interface TurnContext {
   
   styleCard: VoiceStyleCard | null;
   anchors: RetrievalResult;
+  initialWorkerExecutions: RuntimeWorkerExecution[];
 }
 
 export function normalizeHandleForContext(value: string | null | undefined): string | null {
@@ -134,14 +137,17 @@ export async function buildTurnContext(
     explicitIntent,
   });
 
-  const [styleCard, anchors] = await Promise.all([
-    services.generateStyleProfile(userId, effectiveXHandle, 20),
-    services.retrieveAnchors(
-      userId,
-      effectiveXHandle,
-      userMessage || memory.topicSummary || "growth",
-    ),
-  ]);
+  const {
+    styleCard,
+    anchors,
+    workerExecutions: initialWorkerExecutions,
+  } = await hydrateTurnContextWorkers({
+    userId,
+    effectiveXHandle,
+    userMessage,
+    topicSummary: memory.topicSummary,
+    services,
+  });
 
   return {
     userId,
@@ -168,5 +174,6 @@ export async function buildTurnContext(
     turnPlan,
     styleCard,
     anchors,
+    initialWorkerExecutions,
   };
 }

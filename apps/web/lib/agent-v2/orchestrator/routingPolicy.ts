@@ -48,6 +48,7 @@ export async function resolveRoutingPolicy(
     diagnosticContext,
     styleCard,
     anchors,
+    initialWorkerExecutions,
   } = context;
 
   const routingTrace: RoutingTrace = {
@@ -59,8 +60,8 @@ export async function resolveRoutingPolicy(
       resolvedWorkflow: resolvedWorkflow || null,
     },
     runtimeResolution: null,
-    workerExecutions: [],
-    workerExecutionSummary: summarizeRuntimeWorkerExecutions([]),
+    workerExecutions: [...initialWorkerExecutions],
+    workerExecutionSummary: summarizeRuntimeWorkerExecutions(initialWorkerExecutions),
     validations: [],
     turnPlan: turnPlan
       ? {

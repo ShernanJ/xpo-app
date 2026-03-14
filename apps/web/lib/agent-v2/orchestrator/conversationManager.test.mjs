@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 
 import {
   evaluateDraftContextSlots,
@@ -164,6 +165,96 @@ test("initial context load workers skip anonymous users without changing outputs
     result.workerExecutions.map((execution) => execution.status),
     ["skipped", "skipped", "skipped"],
   );
+});
+
+test("turn context hydration workers return style profile and anchors as mergeable outputs", async () => {
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write about onboarding",
+    topicSummary: "fallback topic",
+    services: {
+      generateStyleProfile: async () => ({
+        sentenceOpenings: [],
+        sentenceClosers: [],
+        pacing: "direct",
+        emojiPatterns: [],
+        slangAndVocabulary: [],
+        formattingRules: [],
+        customGuidelines: [],
+        contextAnchors: [],
+        factLedger: {
+          durableFacts: [],
+          allowedFirstPersonClaims: [],
+          allowedNumbers: [],
+          forbiddenClaims: [],
+          sourceMaterials: [],
+        },
+        antiExamples: [],
+      }),
+      retrieveAnchors: async () => ({
+        topicAnchors: ["onboarding systems"],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      }),
+    },
+  });
+
+  assert.equal(result.styleCard?.pacing, "direct");
+  assert.deepEqual(result.anchors.topicAnchors, ["onboarding systems"]);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "load_style_profile",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "turn_context_hydration",
+      },
+      {
+        worker: "retrieve_anchors",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "turn_context_hydration",
+      },
+    ],
+  );
+});
+
+test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
+  let seenFocusTopic = null;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "",
+    topicSummary: "x growth systems",
+    services: {
+      generateStyleProfile: async () => null,
+      retrieveAnchors: async (_userId, _xHandle, focusTopic) => {
+        seenFocusTopic = focusTopic;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(seenFocusTopic, "x growth systems");
+  assert.equal(result.workerExecutions[0]?.details?.hasStyleCard, false);
+  assert.equal(result.workerExecutions[1]?.details?.focusTopic, "x growth systems");
 });
 
 test("generic draft prompts are treated as bare draft requests", () => {

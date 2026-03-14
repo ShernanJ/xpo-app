@@ -208,8 +208,11 @@ User turn
   - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts`
 - The sequential merge/write owner remains:
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
-- Pre-routing style/profile + anchor hydration still happens in:
+- Pre-routing style/profile + anchor hydration now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts`
+- The pre-routing merge/trace handoff remains:
   - `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts`
+  - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
 - Worker summaries are standardized by:
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 
@@ -282,7 +285,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by isolating the pre-routing style/profile + anchor hydration seam in `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts`
+- Continue Phase 4 by isolating executor-local candidate-generation and validation/scoring fan-out behind merge-only worker seams
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`
