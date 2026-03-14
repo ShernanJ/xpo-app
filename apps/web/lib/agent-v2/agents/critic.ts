@@ -17,7 +17,7 @@ import type { GroundingPacket } from "../grounding/groundingPacket";
 // The CriticOutputSchema could be extended with optional fields:
 //   hookScore, clarityScore, noveltyScore, voiceMatchScore
 // to power best-of-N selection. See contracts/chat.ts for the DraftScore type.
-import type { DraftRevisionChangeKind } from "../orchestrator/draftRevision";
+import type { DraftRevisionChangeKind } from "../capabilities/revision/draftRevision";
 import {
   computeXWeightedCharacterCount,
   trimToXCharacterLimit,

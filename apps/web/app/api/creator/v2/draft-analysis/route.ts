@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { inspectDraft, type DraftInspectorMode } from "@/lib/agent-v2/agents/draftInspector";
-import { buildDraftReviewPrompt } from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
+import { buildDraftReviewPrompt } from "@/lib/agent-v2/responses/assistantReplyStyle";
 import { prisma } from "@/lib/db";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";

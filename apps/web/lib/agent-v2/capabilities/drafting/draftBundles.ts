@@ -1,8 +1,8 @@
-import type { StrategyPlan } from "../contracts/chat.ts";
-import type { VoiceTarget } from "../core/voiceTarget.ts";
-import type { DraftGroundingMode, ThreadFramingStyle } from "../../onboarding/draftArtifacts.ts";
-import type { GroundingPacketSourceMaterial } from "../grounding/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials.ts";
+import type { StrategyPlan } from "../../contracts/chat.ts";
+import type { VoiceTarget } from "../../core/voiceTarget.ts";
+import type { DraftGroundingMode, ThreadFramingStyle } from "../../../onboarding/draftArtifacts.ts";
+import type { GroundingPacketSourceMaterial } from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 
 export type DraftBundleFraming =
   | "lesson_reflection"

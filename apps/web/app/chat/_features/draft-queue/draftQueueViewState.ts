@@ -10,6 +10,46 @@ export type DraftCandidateStatus =
 
 type DraftArtifact = DraftArtifactDetails;
 
+export interface DraftQueueCandidate {
+  id: string;
+  title: string;
+  sourcePrompt: string;
+  sourcePlaybook: string | null;
+  outputShape: string;
+  status: DraftCandidateStatus;
+  artifact: DraftArtifact;
+  voiceTarget: DraftArtifact["voiceTarget"];
+  noveltyNotes: string[] | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt: string | null;
+  editedAt: string | null;
+  postedAt: string | null;
+  observedAt: string | null;
+  observedMetrics: Record<string, unknown> | null;
+}
+
+export type DraftQueueMutationAction =
+  | "approve"
+  | "reject"
+  | "edit"
+  | "posted"
+  | "observed"
+  | "regenerate";
+
+export interface DraftQueueMutationPayload {
+  action: DraftQueueMutationAction;
+  content?: string;
+  rejectionReason?: string;
+  observedMetrics?: Record<string, unknown>;
+}
+
+export type DraftQueueObservedMetricsCandidate = Pick<
+  DraftQueueCandidate,
+  "id" | "observedMetrics"
+>;
+
 function formatEnumLabel(value: string): string {
   return value
     .split("_")

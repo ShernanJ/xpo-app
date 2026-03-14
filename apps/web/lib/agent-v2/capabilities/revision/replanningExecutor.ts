@@ -1,41 +1,41 @@
 import {
   appendNoFabricationConstraint,
   hasNoFabricationPlanGuardrail,
-} from "../grounding/draftGrounding.ts";
+} from "../../grounding/draftGrounding.ts";
 import {
   executePlanningCapability,
-} from "../capabilities/planning/planningCapability.ts";
+} from "../planning/planningCapability.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
-} from "../capabilities/drafting/draftingCapability.ts";
-import type { ConversationServices } from "../runtime/services.ts";
-import type { OrchestratorResponse, RoutingTracePatch } from "../runtime/types.ts";
+} from "../drafting/draftingCapability.ts";
+import type { ConversationServices } from "../../runtime/services.ts";
+import type { OrchestratorResponse, RoutingTracePatch } from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
   StrategyPlan,
   V2ConversationMemory,
-} from "../contracts/chat.ts";
-import type { VoiceStyleCard } from "../core/styleProfile.ts";
-import type { VoiceTarget } from "../core/voiceTarget.ts";
+} from "../../contracts/chat.ts";
+import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { VoiceTarget } from "../../core/voiceTarget.ts";
 import type {
   CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
   RuntimeResponseSeed,
-} from "../runtime/runtimeContracts.ts";
+} from "../../runtime/runtimeContracts.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
   GroundingPacketSourceMaterial,
-} from "../grounding/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials.ts";
+} from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
   ThreadFramingStyle,
-} from "../../onboarding/draftArtifacts.ts";
-import { mergeRuntimeExecutionMeta } from "./workerPlane.ts";
+} from "../../../onboarding/draftArtifacts.ts";
+import { mergeRuntimeExecutionMeta } from "../../orchestrator/workerPlane.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

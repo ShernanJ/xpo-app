@@ -2,8 +2,8 @@ import {
   shouldUseRevisionDraftPath,
 } from "../../orchestrator/conversationManagerLogic.ts";
 import { isConstraintDeclaration } from "../../responses/chatResponder.ts";
-import { normalizeDraftRevisionInstruction } from "../../orchestrator/draftRevision.ts";
-import { executeReplanningCapability } from "../../orchestrator/replanningExecutor.ts";
+import { normalizeDraftRevisionInstruction } from "./draftRevision.ts";
+import { executeReplanningCapability } from "./replanningExecutor.ts";
 import { prisma } from "../../../db";
 import {
   executeRevisingCapability,

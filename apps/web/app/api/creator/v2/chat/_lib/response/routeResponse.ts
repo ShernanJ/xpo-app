@@ -9,7 +9,7 @@ import {
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
-} from "../../../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
+} from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 import type { RoutingTrace } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
 
 type ReplySurfaceMode = Extract<

@@ -6,7 +6,7 @@ import {
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
-} from "../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
+} from "../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 
 test("parseEmbeddedReplyRequest detects a pasted post plus reply ask", () => {
   const result = parseEmbeddedReplyRequest({

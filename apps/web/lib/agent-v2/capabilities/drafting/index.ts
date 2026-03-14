@@ -11,3 +11,17 @@ export {
   runGroundedDraftRetry,
   type DraftingAttemptResult,
 } from "./groundedDraftRetry.ts";
+export {
+  buildDraftBundleBriefs,
+  type DraftBundleBrief,
+  type DraftBundleFraming,
+  type DraftBundleOptionResult,
+  type DraftBundleResult,
+} from "./draftBundles.ts";
+export {
+  executeDraftBundleCapability,
+  type DraftBundleCapabilityContext,
+  type DraftBundleCapabilityMemoryPatch,
+  type DraftBundleCapabilityOutput,
+  type DraftBundleCapabilityReadyOutput,
+} from "./draftBundleExecutor.ts";

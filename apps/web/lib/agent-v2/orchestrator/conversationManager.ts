@@ -63,7 +63,7 @@ import {
 } from "../grounding/groundingPacket";
 import {
   type DraftBundleResult,
-} from "./draftBundles";
+} from "../capabilities/drafting/draftBundles";
 import { finalizeResponseEnvelope } from "./responseEnvelope";
 import type {
   CreatorChatQuickReply,

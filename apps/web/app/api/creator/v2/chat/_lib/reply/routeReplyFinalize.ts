@@ -1,6 +1,6 @@
 import type { V2ConversationMemory } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type { NormalizedChatTurnDiagnostics } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
-import { buildReplyMemorySnapshot } from "../../../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
+import { buildReplyMemorySnapshot } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnPlanner.ts";
 import type { PreparedHandledReplyTurn } from "../../../../../../../lib/agent-v2/capabilities/reply/handledReplyTurn.ts";
 import { applyRuntimePersistenceTracePatch } from "../../../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 import { persistAssistantTurn } from "../persistence/routePersistence.ts";

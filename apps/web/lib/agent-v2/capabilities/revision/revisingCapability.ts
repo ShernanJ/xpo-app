@@ -34,7 +34,7 @@ import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
 } from "../../grounding/groundingPacket.ts";
-import type { DraftRevisionDirective } from "../../orchestrator/draftRevision.ts";
+import type { DraftRevisionDirective } from "./draftRevision.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

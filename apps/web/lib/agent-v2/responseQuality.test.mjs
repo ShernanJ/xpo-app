@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { buildDynamicDraftChoices } from "./responses/clarificationDraftChips.ts";
-import { normalizeDraftRevisionInstruction } from "./orchestrator/draftRevision.ts";
+import { normalizeDraftRevisionInstruction } from "./capabilities/revision/draftRevision.ts";
 import { buildDraftReply } from "./responses/draftReply.ts";
 import { buildIdeationReply } from "./responses/ideationReply.ts";
 import { buildIdeationQuickReplies } from "./responses/ideationQuickReplies.ts";

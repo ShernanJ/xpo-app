@@ -5,7 +5,6 @@ import { ArrowUpRight, Check, Copy } from "lucide-react";
 import {
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
-  type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 
 import { getArtifactPosts } from "../draft-editor/chatDraftPreviewState";
@@ -13,30 +12,13 @@ import {
   formatDraftQueueStatusLabel,
   getDraftGroundingLabel,
   getDraftGroundingToneClasses,
+  type DraftQueueCandidate,
+  type DraftQueueMutationPayload,
+  type DraftQueueObservedMetricsCandidate,
   getDraftQueueStatusClassName,
   summarizeGroundingSource,
   summarizeVoiceTarget,
-  type DraftCandidateStatus,
 } from "./draftQueueViewState";
-
-interface DraftQueueCandidate {
-  id: string;
-  title: string;
-  sourcePrompt: string;
-  sourcePlaybook: string | null;
-  status: DraftCandidateStatus;
-  artifact: DraftArtifactDetails;
-  voiceTarget: DraftArtifactDetails["voiceTarget"];
-  noveltyNotes: string[] | null;
-  updatedAt: string;
-  observedAt: string | null;
-  observedMetrics: Record<string, unknown> | null;
-}
-
-export type DraftQueueObservedMetricsCandidate = Pick<
-  DraftQueueCandidate,
-  "id" | "observedMetrics"
->;
 
 interface DraftQueueDialogProps {
   open: boolean;
@@ -56,12 +38,7 @@ interface DraftQueueDialogProps {
   onEditCandidateTextChange: (value: string) => void;
   onMutateCandidate: (
     candidateId: string,
-    payload: {
-      action: "approve" | "reject" | "edit" | "posted" | "observed" | "regenerate";
-      content?: string;
-      rejectionReason?: string;
-      observedMetrics?: Record<string, unknown>;
-    },
+    payload: DraftQueueMutationPayload,
   ) => void;
   onOpenObservedMetrics: (candidate: DraftQueueObservedMetricsCandidate) => void;
   onOpenSourceMaterial: (params: { title?: string | null }) => void;

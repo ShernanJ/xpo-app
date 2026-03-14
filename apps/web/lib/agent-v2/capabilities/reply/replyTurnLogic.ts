@@ -3,11 +3,11 @@ import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyOption,
   ExtensionReplyOptionChoice,
-} from "../../extension/types.ts";
+} from "../../../extension/types.ts";
 import type {
   ActiveReplyArtifactRef,
   ActiveReplyContext,
-} from "../contracts/chat.ts";
+} from "../../contracts/chat.ts";
 
 export type { ActiveReplyArtifactRef, ActiveReplyContext };
 

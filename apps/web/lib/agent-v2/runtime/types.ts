@@ -33,7 +33,7 @@ import type {
   CreatorProfileHints,
   GroundingPacketSourceMaterial,
 } from "../grounding/groundingPacket.ts";
-import type { DraftBundleResult } from "../orchestrator/draftBundles.ts";
+import type { DraftBundleResult } from "../capabilities/drafting/draftBundles.ts";
 
 export interface OrchestratorInput {
   userId: string;

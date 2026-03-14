@@ -1,35 +1,35 @@
 import {
   buildRollingSummary,
-} from "../memory/summaryManager.ts";
+} from "../../memory/summaryManager.ts";
 import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles.ts";
-import { runDraftBundleCandidateWorkers } from "../workers/draftBundleCandidateWorkers.ts";
-import { prependFeedbackMemoryNotice } from "../responses/feedbackMemoryNotice.ts";
-import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
+import { runDraftBundleCandidateWorkers } from "../../workers/draftBundleCandidateWorkers.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
+import { buildRuntimeWorkerExecution } from "../../orchestrator/workerPlane.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,
-} from "../runtime/types.ts";
+} from "../../runtime/types.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
   StrategyPlan,
   V2ConversationMemory,
-} from "../contracts/chat.ts";
+} from "../../contracts/chat.ts";
 import type {
   DraftGroundingMode,
-} from "../../onboarding/draftArtifacts.ts";
+} from "../../../onboarding/draftArtifacts.ts";
 import type {
   CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
   RuntimeResponseSeed,
-} from "../runtime/runtimeContracts.ts";
-import type { GroundingPacket, GroundingPacketSourceMaterial } from "../grounding/groundingPacket.ts";
-import type { SourceMaterialAssetRecord } from "../grounding/sourceMaterials.ts";
-import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
+} from "../../runtime/runtimeContracts.ts";
+import type { GroundingPacket, GroundingPacketSourceMaterial } from "../../grounding/groundingPacket.ts";
+import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
+import type { DraftingCapabilityRunResult } from "./draftingCapability.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

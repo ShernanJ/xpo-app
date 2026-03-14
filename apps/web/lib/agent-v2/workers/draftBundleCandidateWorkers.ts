@@ -8,7 +8,7 @@ import type {
   RuntimeValidationResult,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
-import type { DraftBundleBrief } from "../orchestrator/draftBundles.ts";
+import type { DraftBundleBrief } from "../capabilities/drafting/draftBundles.ts";
 import type { DraftingCapabilityRunResult } from "../capabilities/drafting/draftingCapability.ts";
 import type { GroundingPacket } from "../grounding/groundingPacket.ts";
 import {

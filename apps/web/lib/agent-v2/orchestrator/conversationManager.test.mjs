@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "../workers/contextLoadWorkers.ts";
-import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
+import { executeDraftBundleCapability } from "../capabilities/drafting/draftBundleExecutor.ts";
 import { runDraftBundleCandidateWorkers } from "../workers/draftBundleCandidateWorkers.ts";
 import { runDraftGuardValidationWorkers } from "../workers/draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "../workers/historicalTextWorkers.ts";
@@ -47,7 +47,7 @@ import {
 } from "../responses/assistantReplyStyle.ts";
 import {
   buildDraftBundleBriefs,
-} from "./draftBundles.ts";
+} from "../capabilities/drafting/draftBundles.ts";
 import {
   buildPlanFailureResponse,
   hasStrongDraftCommand,
@@ -664,6 +664,61 @@ test("planning helper leaf modules stay out of orchestrator once ownership moves
     new URL("../capabilities/", import.meta.url),
     new URL("../grounding/", import.meta.url),
     new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("workflow helper leaf modules stay out of orchestrator once ownership moves", () => {
+  const deletedModulePaths = [
+    "./draftBundles.ts",
+    "./draftBundleExecutor.ts",
+    "./draftRevision.ts",
+    "./replanningExecutor.ts",
+    "./replyTurnPlanner.ts",
+    "./replyTurnLogic.ts",
+  ];
+
+  for (const modulePath of deletedModulePaths) {
+    assert.equal(existsSync(new URL(modulePath, import.meta.url)), false, modulePath);
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/draftBundles(?:\.ts)?/,
+    /agent-v2\/orchestrator\/draftBundleExecutor(?:\.ts)?/,
+    /agent-v2\/orchestrator\/draftRevision(?:\.ts)?/,
+    /agent-v2\/orchestrator\/replanningExecutor(?:\.ts)?/,
+    /agent-v2\/orchestrator\/replyTurnPlanner(?:\.ts)?/,
+    /agent-v2\/orchestrator\/replyTurnLogic(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftBundles(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftBundleExecutor(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftRevision(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replanningExecutor(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replyTurnPlanner(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replyTurnLogic(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../capabilities/", import.meta.url),
+    new URL("../grounding/", import.meta.url),
+    new URL("../responses/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("../workers/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),

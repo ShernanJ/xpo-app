@@ -15,7 +15,7 @@ import {
   type PlannedReplyTurn,
   type ReplyAgentContext,
   type StructuredReplyContextInput,
-} from "../../orchestrator/replyTurnPlanner.ts";
+} from "./replyTurnPlanner.ts";
 
 type ReplyInsights = Parameters<typeof planReplyTurn>[0]["replyInsights"];
 

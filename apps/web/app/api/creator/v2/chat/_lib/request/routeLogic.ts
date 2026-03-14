@@ -29,13 +29,13 @@ import {
   resolveThreadFramingStyle,
   type DraftArtifactDetails,
 } from "../../../../../../../lib/onboarding/draftArtifacts.ts";
-import type { DraftBundleResult } from "../../../../../../../lib/agent-v2/orchestrator/draftBundles.ts";
+import type { DraftBundleResult } from "../../../../../../../lib/agent-v2/capabilities/drafting/draftBundles.ts";
 import { shapeAssistantResponse } from "../../../../../../../lib/agent-v2/orchestrator/responseShaper.ts";
 import { selectResponseShapePlan } from "../../../../../../../lib/agent-v2/orchestrator/surfaceModeSelector.ts";
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
-} from "../../../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
+} from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";

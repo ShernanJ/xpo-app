@@ -1,4 +1,4 @@
-import { executeDraftBundleCapability } from "../../orchestrator/draftBundleExecutor.ts";
+import { executeDraftBundleCapability } from "../drafting/draftBundleExecutor.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,

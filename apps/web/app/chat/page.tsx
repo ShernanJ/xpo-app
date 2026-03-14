@@ -27,7 +27,7 @@ import {
   buildDraftReviewFailureLabel,
   buildDraftReviewLoadingLabel,
   buildDraftReviewPrompt,
-} from "@/lib/agent-v2/orchestrator/assistantReplyStyle";
+} from "@/lib/agent-v2/responses/assistantReplyStyle";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
@@ -49,16 +49,15 @@ import {
 } from "@/lib/creator/playbooks";
 import {
   ObservedMetricsModal,
-  type ObservedMetricsFormState,
 } from "./_dialogs/ObservedMetricsModal";
 import {
-  resolveBillingViewState,
   type BillingSnapshotPayload,
   type BillingStatePayload,
 } from "./_features/billing/billingViewState";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { PricingDialog } from "./_features/billing/PricingDialog";
 import { SettingsDialog } from "./_features/billing/SettingsDialog";
+import { useBillingState } from "./_features/billing/useBillingState";
 import {
   DesktopDraftEditorDock,
   MobileDraftEditorDock,
@@ -104,13 +103,8 @@ import {
   getThreadFramingStyle,
   resolvePrimaryDraftRevealKey,
 } from "./_features/draft-editor/chatDraftPreviewState";
-import {
-  type DraftCandidateStatus,
-} from "./_features/draft-queue/draftQueueViewState";
-import {
-  DraftQueueDialog,
-  type DraftQueueObservedMetricsCandidate,
-} from "./_features/draft-queue/DraftQueueDialog";
+import { DraftQueueDialog } from "./_features/draft-queue/DraftQueueDialog";
+import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import {
   FEEDBACK_MAX_FILE_SIZE_BYTES,
   FEEDBACK_MAX_FILES,
@@ -253,28 +247,6 @@ type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
 
-interface BillingStateSuccess {
-  ok: true;
-  data: BillingStatePayload;
-}
-
-interface BillingStateFailure {
-  ok: false;
-  code?:
-  | "INSUFFICIENT_CREDITS"
-  | "PLAN_REQUIRED"
-  | "RATE_LIMITED"
-  | "SOLD_OUT"
-  | "ALREADY_SUBSCRIBED"
-  | "PLAN_SWITCH_IN_PORTAL";
-  errors: ValidationError[];
-  data?: {
-    billing?: BillingSnapshotPayload;
-  };
-}
-
-type BillingStateResponse = BillingStateSuccess | BillingStateFailure;
-
 interface DraftInspectorSuccess {
   ok: true;
   data: {
@@ -338,90 +310,6 @@ interface DraftPromotionFailure {
 }
 
 type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
-
-interface DraftQueueCandidate {
-  id: string;
-  title: string;
-  sourcePrompt: string;
-  sourcePlaybook: string | null;
-  outputShape: CreatorChatSuccess["data"]["outputShape"] | string;
-  status: DraftCandidateStatus;
-  artifact: DraftArtifact;
-  voiceTarget: DraftArtifact["voiceTarget"];
-  noveltyNotes: string[] | null;
-  rejectionReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-  approvedAt: string | null;
-  editedAt: string | null;
-  postedAt: string | null;
-  observedAt: string | null;
-  observedMetrics: Record<string, unknown> | null;
-}
-
-interface DraftQueueSuccess {
-  ok: true;
-  data: {
-    candidates: DraftQueueCandidate[];
-  };
-}
-
-interface DraftQueueFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-type DraftQueueResponse = DraftQueueSuccess | DraftQueueFailure;
-
-interface DraftQueueCandidateMutationSuccess {
-  ok: true;
-  data: {
-    candidate: DraftQueueCandidate;
-  };
-}
-
-type DraftQueueCandidateMutationResponse =
-  | DraftQueueCandidateMutationSuccess
-  | DraftQueueFailure;
-
-function createEmptyObservedMetricsForm(): ObservedMetricsFormState {
-  return {
-    likeCount: "",
-    replyCount: "",
-    profileClicks: "",
-    followerDelta: "",
-  };
-}
-
-function normalizeObservedMetricValue(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function buildObservedMetricsPayload(
-  value: ObservedMetricsFormState,
-): Record<string, number> | null {
-  const likeCount = normalizeObservedMetricValue(value.likeCount);
-  const replyCount = normalizeObservedMetricValue(value.replyCount);
-  if (likeCount === undefined || replyCount === undefined) {
-    return null;
-  }
-
-  const profileClicks = normalizeObservedMetricValue(value.profileClicks);
-  const followerDelta = normalizeObservedMetricValue(value.followerDelta);
-
-  return {
-    likeCount,
-    replyCount,
-    ...(profileClicks !== undefined ? { profileClicks } : {}),
-    ...(followerDelta !== undefined ? { followerDelta } : {}),
-  };
-}
 
 interface SourceMaterialsSuccess {
   ok: true;
@@ -1618,77 +1506,67 @@ function ChatPageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [billingState, setBillingState] = useState<BillingStatePayload | null>(null);
-  const [isBillingLoading, setIsBillingLoading] = useState(false);
-  const [dismissedBillingWarningLevel, setDismissedBillingWarningLevel] = useState<
-    "low" | "critical" | null
-  >(null);
-  const [pricingModalOpen, setPricingModalOpen] = useState(false);
-  const [checkoutLoadingOffer, setCheckoutLoadingOffer] = useState<
-    "pro_monthly" | "pro_annual" | "lifetime" | null
-  >(null);
-  const [isOpeningBillingPortal, setIsOpeningBillingPortal] = useState(false);
-  const [selectedModalProCadence, setSelectedModalProCadence] = useState<"monthly" | "annual">(
-    "monthly",
-  );
-  const [draftQueueOpen, setDraftQueueOpen] = useState(false);
-  const [draftQueueItems, setDraftQueueItems] = useState<DraftQueueCandidate[]>([]);
-  const [isDraftQueueLoading, setIsDraftQueueLoading] = useState(false);
-  const [draftQueueActionById, setDraftQueueActionById] = useState<Record<string, string>>({});
-  const [draftQueueError, setDraftQueueError] = useState<string | null>(null);
+  const {
+    billingState,
+    setBillingState,
+    applyBillingSnapshot,
+    billingViewState,
+    lifetimeOffer,
+    supportEmail,
+    planStatusLabel,
+    pricingModalOpen,
+    setPricingModalOpen,
+    handlePricingModalOpenChange,
+    settingsModalOpen,
+    setSettingsModalOpen,
+    setSelectedModalProCadence,
+    isOpeningBillingPortal,
+    openBillingPortal,
+    openCheckoutForOffer,
+    isSelectedModalProCheckoutLoading,
+    setDismissedBillingWarningLevel,
+    acknowledgePricingModal,
+  } = useBillingState({
+    monetizationEnabled,
+    sessionUserId: session?.user?.id,
+    billingQueryStatus,
+    billingQuerySessionId,
+    onErrorMessage: setErrorMessage,
+  });
+  const {
+    draftQueueOpen,
+    draftQueueItems,
+    isDraftQueueLoading,
+    draftQueueActionById,
+    draftQueueError,
+    editingDraftCandidateId,
+    editingDraftCandidateText,
+    observedMetricsCandidate,
+    observedMetricsCandidateId,
+    observedMetricsForm,
+    setDraftQueueItems,
+    setDraftQueueError,
+    setEditingDraftCandidateId,
+    setEditingDraftCandidateText,
+    openDraftQueue,
+    handleDraftQueueOpenChange,
+    startEditingDraftCandidate,
+    cancelEditingDraftCandidate,
+    mutateDraftQueueCandidate,
+    openObservedMetricsModal,
+    closeObservedMetricsModal,
+    submitObservedMetrics,
+    updateObservedMetricsField,
+  } = useDraftQueueState({
+    activeThreadId,
+    fetchWorkspace,
+    monetizationEnabled,
+    sessionUserId: session?.user?.id,
+  });
   const [expandedInlineThreadPreviewId, setExpandedInlineThreadPreviewId] = useState<string | null>(null);
   const [selectedThreadPostByMessageId, setSelectedThreadPostByMessageId] = useState<
     Record<string, number>
   >({});
-  const [editingDraftCandidateId, setEditingDraftCandidateId] = useState<string | null>(null);
-  const [editingDraftCandidateText, setEditingDraftCandidateText] = useState("");
-  const [observedMetricsCandidateId, setObservedMetricsCandidateId] = useState<string | null>(null);
-  const [observedMetricsForm, setObservedMetricsForm] = useState<ObservedMetricsFormState>(
-    createEmptyObservedMetricsForm(),
-  );
-
-  const loadBillingState = useCallback(
-    async (options?: {
-      openModalIfFirstVisit?: boolean;
-      checkoutSessionId?: string;
-    }) => {
-      if (!monetizationEnabled) {
-        setBillingState(null);
-        setPricingModalOpen(false);
-        return;
-      }
-
-      if (!session?.user?.id) {
-        return;
-      }
-
-      setIsBillingLoading(true);
-      try {
-        const checkoutSessionId = options?.checkoutSessionId?.trim();
-        const query = checkoutSessionId
-          ? `?session_id=${encodeURIComponent(checkoutSessionId)}`
-          : "";
-        const response = await fetch(`/api/billing/state${query}`, {
-          method: "GET",
-        });
-        const data = (await response.json()) as BillingStateResponse;
-
-        if (!response.ok || !data.ok) {
-          return;
-        }
-
-        setBillingState(data.data);
-        if (options?.openModalIfFirstVisit && data.data.billing.showFirstPricingModal) {
-          setPricingModalOpen(true);
-        }
-      } catch (error) {
-        console.error("Failed to load billing state", error);
-      } finally {
-        setIsBillingLoading(false);
-      }
-    },
-    [session?.user?.id],
-  );
 
   useEffect(() => {
     if (!accountName) return;
@@ -1701,242 +1579,6 @@ function ChatPageContent() {
       })
       .catch(err => console.error("Failed to fetch threads:", err));
   }, [accountName, fetchWorkspace]);
-
-  const loadDraftQueue = useCallback(async () => {
-    if (!monetizationEnabled || !session?.user?.id) {
-      return;
-    }
-
-    setIsDraftQueueLoading(true);
-    setDraftQueueError(null);
-
-    try {
-      const query = activeThreadId
-        ? `?threadId=${encodeURIComponent(activeThreadId)}`
-        : "";
-      const response = await fetchWorkspace(`/api/creator/v2/draft-candidates${query}`, {
-        method: "GET",
-      });
-      const data = (await response.json()) as DraftQueueResponse;
-
-      if (!response.ok || !data.ok) {
-        const failure = data as DraftQueueFailure;
-        throw new Error(failure.errors?.[0]?.message || "Failed to load the draft queue.");
-      }
-
-      setDraftQueueItems(data.data.candidates);
-    } catch (error) {
-      setDraftQueueItems([]);
-      setDraftQueueError(
-        error instanceof Error ? error.message : "Failed to load the draft queue.",
-      );
-    } finally {
-      setIsDraftQueueLoading(false);
-    }
-  }, [activeThreadId, fetchWorkspace, session?.user?.id]);
-
-  const mutateDraftQueueCandidate = useCallback(
-    async (
-      candidateId: string,
-      payload: {
-        action: "approve" | "reject" | "edit" | "posted" | "observed" | "regenerate";
-        content?: string;
-        rejectionReason?: string;
-        observedMetrics?: Record<string, unknown>;
-      },
-    ) => {
-      setDraftQueueActionById((current) => ({
-        ...current,
-        [candidateId]: payload.action,
-      }));
-      setDraftQueueError(null);
-
-      try {
-        const response = await fetchWorkspace(
-          `/api/creator/v2/draft-candidates/${encodeURIComponent(candidateId)}`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          },
-        );
-        const data = (await response.json()) as DraftQueueCandidateMutationResponse;
-
-        if (!response.ok || !data.ok) {
-          const failure = data as DraftQueueFailure;
-          throw new Error(failure.errors?.[0]?.message || "Failed to update the candidate.");
-        }
-
-        setDraftQueueItems((current) =>
-          current.map((candidate) =>
-            candidate.id === candidateId ? data.data.candidate : candidate,
-          ),
-        );
-
-        if (payload.action === "edit") {
-          setEditingDraftCandidateId(null);
-          setEditingDraftCandidateText("");
-        }
-        return true;
-      } catch (error) {
-        setDraftQueueError(
-          error instanceof Error ? error.message : "Failed to update the candidate.",
-        );
-        return false;
-      } finally {
-        setDraftQueueActionById((current) => {
-          const next = { ...current };
-          delete next[candidateId];
-          return next;
-        });
-      }
-    },
-    [fetchWorkspace],
-  );
-
-  const observedMetricsCandidate = useMemo(
-    () =>
-      observedMetricsCandidateId
-        ? draftQueueItems.find((candidate) => candidate.id === observedMetricsCandidateId) ?? null
-        : null,
-    [draftQueueItems, observedMetricsCandidateId],
-  );
-
-  const closeObservedMetricsModal = useCallback(() => {
-    setObservedMetricsCandidateId(null);
-    setObservedMetricsForm(createEmptyObservedMetricsForm());
-  }, []);
-
-  const openObservedMetricsModal = useCallback((candidate: DraftQueueObservedMetricsCandidate) => {
-    const metrics = (candidate.observedMetrics ?? {}) as Record<string, unknown>;
-    setObservedMetricsCandidateId(candidate.id);
-    setObservedMetricsForm({
-      likeCount:
-        typeof metrics.likeCount === "number" || typeof metrics.likeCount === "string"
-          ? String(metrics.likeCount)
-          : "",
-      replyCount:
-        typeof metrics.replyCount === "number" || typeof metrics.replyCount === "string"
-          ? String(metrics.replyCount)
-          : "",
-      profileClicks:
-        typeof metrics.profileClicks === "number" || typeof metrics.profileClicks === "string"
-          ? String(metrics.profileClicks)
-          : "",
-      followerDelta:
-        typeof metrics.followerDelta === "number" || typeof metrics.followerDelta === "string"
-          ? String(metrics.followerDelta)
-          : "",
-    });
-  }, []);
-
-  const submitObservedMetrics = useCallback(async () => {
-    if (!observedMetricsCandidateId) {
-      return;
-    }
-
-    const observedMetrics = buildObservedMetricsPayload(observedMetricsForm);
-    if (!observedMetrics) {
-      setDraftQueueError("Likes and replies are required before saving observed metrics.");
-      return;
-    }
-
-    const didSave = await mutateDraftQueueCandidate(observedMetricsCandidateId, {
-      action: "observed",
-      observedMetrics,
-    });
-    if (didSave) {
-      closeObservedMetricsModal();
-    }
-  }, [
-    closeObservedMetricsModal,
-    mutateDraftQueueCandidate,
-    observedMetricsCandidateId,
-    observedMetricsForm,
-  ]);
-
-  useEffect(() => {
-    if (!draftQueueOpen) {
-      return;
-    }
-
-    void loadDraftQueue();
-  }, [draftQueueOpen, loadDraftQueue]);
-
-  useEffect(() => {
-    if (!session?.user?.id) {
-      return;
-    }
-
-    void loadBillingState({
-      openModalIfFirstVisit: true,
-      checkoutSessionId:
-        billingQueryStatus === "success" && billingQuerySessionId
-          ? billingQuerySessionId
-          : undefined,
-    });
-  }, [
-    billingQuerySessionId,
-    billingQueryStatus,
-    loadBillingState,
-    session?.user?.id,
-  ]);
-
-  useEffect(() => {
-    if (!monetizationEnabled || !billingQueryStatus || !session?.user?.id) {
-      return;
-    }
-
-    if (billingQueryStatus === "success") {
-      setPricingModalOpen(false);
-      setErrorMessage(null);
-      void loadBillingState({
-        checkoutSessionId: billingQuerySessionId || undefined,
-      });
-    }
-  }, [
-    billingQuerySessionId,
-    billingQueryStatus,
-    loadBillingState,
-    session?.user?.id,
-  ]);
-
-  useEffect(() => {
-    if (!monetizationEnabled) {
-      setDismissedBillingWarningLevel(null);
-      return;
-    }
-
-    const lowCreditWarning = billingState?.billing?.lowCreditWarning ?? false;
-    const criticalCreditWarning =
-      billingState?.billing?.criticalCreditWarning ?? false;
-
-    if (!lowCreditWarning && !criticalCreditWarning) {
-      setDismissedBillingWarningLevel(null);
-    }
-  }, [
-    billingState?.billing?.criticalCreditWarning,
-    billingState?.billing?.lowCreditWarning,
-  ]);
-
-  useEffect(() => {
-    if (!monetizationEnabled) {
-      return;
-    }
-
-    const billingPlan = billingState?.billing?.plan ?? null;
-    const billingCycle = billingState?.billing?.billingCycle ?? null;
-
-    if (!billingPlan) {
-      return;
-    }
-
-    if (billingPlan === "pro") {
-      setSelectedModalProCadence(billingCycle === "annual" ? "annual" : "monthly");
-    }
-  }, [billingState?.billing?.billingCycle, billingState?.billing?.plan]);
 
   const syncThreadTitle = useCallback((threadId: string, title: string) => {
     const cleanTitle = title.trim();
@@ -1980,117 +1622,6 @@ function ChatPageContent() {
     },
     [accountName, activeThreadId, buildWorkspaceChatHref],
   );
-
-  const acknowledgePricingModal = useCallback(async () => {
-    if (!monetizationEnabled) {
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/billing/ack-pricing-modal", {
-        method: "POST",
-      });
-      const data = (await response.json()) as BillingStateResponse;
-      if (response.ok && data.ok) {
-        setBillingState(data.data);
-      }
-    } catch (error) {
-      console.error("Failed to acknowledge pricing modal", error);
-    }
-  }, []);
-
-  const openCheckoutForOffer = useCallback(
-    async (offer: "pro_monthly" | "pro_annual" | "lifetime") => {
-      if (!monetizationEnabled) {
-        return;
-      }
-
-      setCheckoutLoadingOffer(offer);
-      try {
-        const response = await fetch("/api/billing/checkout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            offer,
-            successPath: "/chat",
-            cancelPath: "/chat",
-          }),
-        });
-
-        const data = (await response.json()) as
-          | {
-            ok: true;
-            data: { checkoutUrl?: string | null };
-          }
-          | BillingStateFailure;
-
-        if (!response.ok || !data.ok) {
-          const failed = data as BillingStateFailure;
-          setErrorMessage(
-            failed.errors?.[0]?.message || "Failed to initialize checkout.",
-          );
-          if (failed.data?.billing && billingState) {
-            setBillingState({
-              ...billingState,
-              billing: failed.data.billing,
-            });
-          } else if (failed.data?.billing) {
-            void loadBillingState();
-          }
-          return;
-        }
-
-        if (data.data.checkoutUrl) {
-          window.location.href = data.data.checkoutUrl;
-          return;
-        }
-
-        setErrorMessage("Checkout did not return a valid URL.");
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Failed to initialize checkout.",
-        );
-      } finally {
-        setCheckoutLoadingOffer(null);
-      }
-    },
-    [billingState, loadBillingState],
-  );
-
-  const openBillingPortal = useCallback(async () => {
-    if (!monetizationEnabled) {
-      return;
-    }
-
-    setIsOpeningBillingPortal(true);
-    try {
-      const response = await fetch("/api/billing/portal", {
-        method: "POST",
-      });
-      const data = (await response.json()) as
-        | { ok: true; data: { url?: string } }
-        | { ok: false; errors?: ValidationError[] };
-
-      if (!response.ok || !data.ok || !data.data?.url) {
-        const message =
-          !data.ok && data.errors?.[0]?.message
-            ? data.errors[0].message
-            : "Failed to open billing portal.";
-        setErrorMessage(message);
-        return;
-      }
-
-      window.open(data.data.url, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to open billing portal.",
-      );
-    } finally {
-      setIsOpeningBillingPortal(false);
-    }
-  }, []);
 
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
@@ -2822,14 +2353,7 @@ function ChatPageContent() {
 
       if (!response.ok || !data.ok) {
         if (!data.ok && data.data?.billing) {
-          setBillingState((current) =>
-            current
-              ? {
-                ...current,
-                billing: data.data?.billing ?? current.billing,
-              }
-              : current,
-          );
+          applyBillingSnapshot(data.data.billing);
         }
         if (response.status === 403) {
           setPricingModalOpen(true);
@@ -2860,11 +2384,13 @@ function ChatPageContent() {
     }
   }, [
     accountName,
+    applyBillingSnapshot,
     finalizeAddedAccount,
     hasValidAddAccountPreview,
     isAddAccountPreviewLoading,
     normalizedAddAccount,
     readyAccountHandle,
+    setPricingModalOpen,
     setAvailableHandles,
   ]);
 
@@ -2903,14 +2429,7 @@ function ChatPageContent() {
       const data = (await response.json().catch(() => null)) as OnboardingRunResponse | null;
       if (!response.ok || !data || !data.ok) {
         if (data && !data.ok && data.data?.billing) {
-          setBillingState((current) =>
-            current
-              ? {
-                ...current,
-                billing: data.data?.billing ?? current.billing,
-              }
-              : current,
-          );
+          applyBillingSnapshot(data.data.billing);
         }
         if (response.status === 403) {
           setPricingModalOpen(true);
@@ -2934,7 +2453,7 @@ function ChatPageContent() {
     } finally {
       setIsWorkspaceInitializing(false);
     }
-  }, [accountName]);
+  }, [accountName, applyBillingSnapshot, setPricingModalOpen]);
 
   const loadWorkspace = useCallback(
     async (
@@ -3137,6 +2656,10 @@ function ChatPageContent() {
     setAnalysisOpen,
     setAnalysisScrapeCooldownUntil,
     setAnalysisScrapeNotice,
+    setDraftQueueError,
+    setDraftQueueItems,
+    setEditingDraftCandidateId,
+    setEditingDraftCandidateText,
     setIsAnalysisScrapeRefreshing,
   ]);
   const handleNewChat = useCallback(() => {
@@ -4226,14 +3749,7 @@ function ChatPageContent() {
       if (!response.ok || !data.ok) {
         const failure = data as DraftInspectorFailure;
         if (failure.data?.billing) {
-          setBillingState((current) =>
-            current
-              ? {
-                ...current,
-                billing: failure.data?.billing ?? current.billing,
-              }
-              : current,
-          );
+          applyBillingSnapshot(failure.data.billing);
         }
         if (response.status === 402 || response.status === 403) {
           setPricingModalOpen(true);
@@ -4301,11 +3817,14 @@ function ChatPageContent() {
     activeThreadId,
     activeDraftEditor?.messageId,
     activeDraftEditor?.versionId,
+    applyBillingSnapshot,
     draftEditorSerializedContent,
     fetchWorkspace,
     isViewingHistoricalDraftVersion,
     latestDraftTimelineEntry,
     selectedDraftVersion,
+    setBillingState,
+    setPricingModalOpen,
     scrollThreadToBottom,
   ]);
 
@@ -4348,6 +3867,7 @@ function ChatPageContent() {
     [
       applyCreatedThreadWorkspaceUpdate,
       scrollThreadToBottom,
+      setBillingState,
       syncThreadTitle,
     ],
   );
@@ -4490,14 +4010,7 @@ function ChatPageContent() {
               outcome.nextBillingSnapshot as BillingSnapshotPayload | null;
 
             if (nextBillingSnapshot) {
-              setBillingState((current) =>
-                current
-                  ? {
-                    ...current,
-                    billing: nextBillingSnapshot,
-                  }
-                  : current,
-              );
+              applyBillingSnapshot(nextBillingSnapshot);
             }
             if (outcome.shouldOpenPricingModal) {
               setPricingModalOpen(true);
@@ -4552,9 +4065,11 @@ function ChatPageContent() {
       preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
+      applyBillingSnapshot,
       applyAssistantReplyPlan,
       accountName,
       activeThreadId,
+      setPricingModalOpen,
     ],
   );
 
@@ -4851,25 +4366,7 @@ function ChatPageContent() {
     accountName,
     sessionEmail: session?.user?.email ?? null,
   });
-  const billingOffers = billingState?.offers ?? [];
-  const lifetimeOffer = billingOffers.find((offer) => offer.offer === "lifetime");
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
-  const billingViewState = useMemo(
-    () =>
-      resolveBillingViewState({
-        monetizationEnabled,
-        billingState,
-        dismissedBillingWarningLevel,
-        isBillingLoading,
-        selectedModalProCadence,
-      }),
-    [
-      billingState,
-      dismissedBillingWarningLevel,
-      isBillingLoading,
-      selectedModalProCadence,
-    ],
-  );
   const {
     activeBillingSnapshot,
     billingCreditsLabel,
@@ -4897,7 +4394,6 @@ function ChatPageContent() {
     showBillingWarningBanner,
     showRateLimitUpgradeCta,
   } = billingViewState;
-  const isSelectedModalProCheckoutLoading = checkoutLoadingOffer === selectedModalProOffer;
   const canAddAccount = true;
   const isInlineDraftEditorOpen = Boolean(
     selectedDraftVersion && selectedDraftBundle,
@@ -4935,8 +4431,7 @@ function ChatPageContent() {
         return;
       }
       if (tool.key === "draft_review") {
-        setDraftQueueError(null);
-        setDraftQueueOpen(true);
+        openDraftQueue();
         return;
       }
       if (tool.key === "profile_breakdown") {
@@ -5402,25 +4897,13 @@ function ChatPageContent() {
         copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
         canGenerateInChat={Boolean(context?.runId)}
         isVerifiedAccount={isVerifiedAccount}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDraftQueueOpen(false);
-            setEditingDraftCandidateId(null);
-            setEditingDraftCandidateText("");
-          }
-        }}
+        onOpenChange={handleDraftQueueOpenChange}
         onGenerateInChat={() => {
-          setDraftQueueOpen(false);
+          handleDraftQueueOpenChange(false);
           void submitQuickStarter("draft 4 posts from what you know about me");
         }}
-        onStartEditingCandidate={(candidateId, content) => {
-          setEditingDraftCandidateId(candidateId);
-          setEditingDraftCandidateText(content);
-        }}
-        onCancelEditingCandidate={() => {
-          setEditingDraftCandidateId(null);
-          setEditingDraftCandidateText("");
-        }}
+        onStartEditingCandidate={startEditingDraftCandidate}
+        onCancelEditingCandidate={cancelEditingDraftCandidate}
         onEditCandidateTextChange={setEditingDraftCandidateText}
         onMutateCandidate={(candidateId, payload) => {
           void mutateDraftQueueCandidate(candidateId, payload);
@@ -5440,12 +4923,7 @@ function ChatPageContent() {
         value={observedMetricsForm}
         isSubmitting={draftQueueActionById[observedMetricsCandidateId || ""] === "observed"}
         errorMessage={draftQueueError}
-        onChange={(field, nextValue) => {
-          setObservedMetricsForm((current) => ({
-            ...current,
-            [field]: nextValue,
-          }));
-        }}
+        onChange={updateObservedMetricsField}
         onOpenChange={(open) => {
           if (!open) {
             closeObservedMetricsModal();
@@ -5460,15 +4938,7 @@ function ChatPageContent() {
         open={settingsModalOpen}
         onOpenChange={setSettingsModalOpen}
         monetizationEnabled={monetizationEnabled}
-        planStatusLabel={
-          activeBillingSnapshot?.status === "past_due"
-            ? "Past due"
-            : activeBillingSnapshot?.status === "blocked_fair_use"
-              ? "Fair use review"
-              : activeBillingSnapshot?.status === "canceled"
-                ? "Canceled"
-                : "Active"
-        }
+        planStatusLabel={planStatusLabel}
         settingsPlanLabel={settingsPlanLabel}
         rateLimitResetLabel={rateLimitResetLabel}
         isOpeningBillingPortal={isOpeningBillingPortal}
@@ -5487,7 +4957,7 @@ function ChatPageContent() {
         settingsCreditsUsed={settingsCreditsUsed}
         settingsCreditLimit={settingsCreditLimit}
         settingsCreditsRemainingPercent={settingsCreditsRemainingPercent}
-        supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+        supportEmail={supportEmail}
         onSignOut={() => {
           void signOut({ callbackUrl: "/" });
         }}
@@ -5496,12 +4966,7 @@ function ChatPageContent() {
       {monetizationEnabled ? (
         <PricingDialog
           open={pricingModalOpen}
-          onOpenChange={(open) => {
-            setPricingModalOpen(open);
-            if (!open) {
-              void acknowledgePricingModal();
-            }
-          }}
+          onOpenChange={handlePricingModalOpenChange}
           onOpenPricingPage={() => {
             setPricingModalOpen(false);
             void acknowledgePricingModal();
@@ -5530,7 +4995,7 @@ function ChatPageContent() {
           lifetimeAmountCents={lifetimeOffer?.amountCents ?? 0}
           lifetimeSlotSummary={lifetimeSlotSummary}
           lifetimeOfferEnabled={lifetimeOffer?.enabled !== false}
-          supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+          supportEmail={supportEmail}
         />
       ) : null}
 

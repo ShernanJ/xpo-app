@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   resolveReplyTurnState,
-} from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
+} from "../../../../../lib/agent-v2/capabilities/reply/replyTurnPlanner.ts";
 
 const baseStrategy = {
   knownFor: "useful nuance",

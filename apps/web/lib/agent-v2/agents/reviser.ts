@@ -15,7 +15,7 @@ import {
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
-import type { DraftRevisionDirective } from "../orchestrator/draftRevision";
+import type { DraftRevisionDirective } from "../capabilities/revision/draftRevision";
 import {
   type GroundingPacket,
 } from "../grounding/groundingPacket";
