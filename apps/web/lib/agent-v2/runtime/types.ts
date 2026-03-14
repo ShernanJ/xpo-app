@@ -28,7 +28,7 @@ import type {
   ThreadFramingStyle,
 } from "../../onboarding/shared/draftArtifacts.ts";
 import type { ConversationalDiagnosticContext } from "./diagnostics.ts";
-import type { ConversationRouterState } from "../orchestrator/conversationRouterMachine.ts";
+import type { ConversationRouterState } from "./conversationRouterMachine.ts";
 import type {
   CreatorProfileHints,
   GroundingPacketSourceMaterial,

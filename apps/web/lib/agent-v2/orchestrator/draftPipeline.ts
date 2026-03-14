@@ -55,7 +55,7 @@ import {
   shouldFastStartGroundedDraft,
 } from "../capabilities/planning/draftFastStart.ts";
 import { stripSelectedAnglePromptPrefix } from "../capabilities/drafting/selectedAnglePrompt.ts";
-import { resolveConversationRouterState } from "./conversationRouterMachine";
+import { resolveConversationRouterState } from "../runtime/conversationRouterMachine";
 import { evaluateDraftContextSlots } from "../capabilities/planning/draftContextSlots";
 import {
   shouldForceNoFabricationPlanGuardrail,

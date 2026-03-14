@@ -56,7 +56,7 @@ import {
 import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
 import {
   type ConversationRouterState,
-} from "./conversationRouterMachine";
+} from "../runtime/conversationRouterMachine";
 import {
   type CreatorProfileHints,
   type GroundingPacketSourceMaterial,
