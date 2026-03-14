@@ -5,8 +5,13 @@ import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles.ts";
+import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "./feedbackMemoryNotice.ts";
-import type { OrchestratorResponse } from "./draftPipelineHelpers.ts";
+import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
+import type {
+  OrchestratorResponse,
+  RoutingTracePatch,
+} from "./draftPipelineHelpers.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
@@ -17,8 +22,10 @@ import type {
   DraftGroundingMode,
 } from "../../onboarding/draftArtifacts.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import type { GroundingPacket, GroundingPacketSourceMaterial } from "./groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "./sourceMaterials.ts";
@@ -29,7 +36,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface DraftBundleCapabilityContext {
   userMessage: string;
@@ -69,14 +76,9 @@ export interface DraftBundleCapabilityReadyOutput {
   memoryPatch: DraftBundleCapabilityMemoryPatch;
 }
 
-export interface DraftBundleCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-}
-
 export type DraftBundleCapabilityOutput =
   | DraftBundleCapabilityReadyOutput
-  | DraftBundleCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeDraftBundleCapability(
   args: CapabilityExecutionRequest<DraftBundleCapabilityContext> & {
@@ -137,32 +139,38 @@ export async function executeDraftBundleCapability(
   }
 
   const options: DraftBundleResult["options"] = [];
+  const initialCandidates = await runDraftBundleCandidateWorkers({
+    capability: args.capability,
+    basePlan: context.plan,
+    bundleBriefs,
+    activeConstraints: context.activeConstraints,
+    draftPreference: context.draftPreference,
+    topicSummary: context.topicSummary,
+    groundingPacket: context.groundingPacket,
+    turnFormatPreference: context.turnFormatPreference,
+    services: {
+      runSingleDraft: services.runSingleDraft,
+    },
+  });
+  const workers = [...initialCandidates.workerExecutions];
+  const validations = [...initialCandidates.validations];
 
-  for (const brief of bundleBriefs) {
-    const bundlePlan: StrategyPlan = {
-      ...context.plan,
-      objective: brief.objective,
-      angle: brief.angle,
-      hookType: brief.hookType,
-      mustInclude: Array.from(new Set([...context.plan.mustInclude, ...brief.mustInclude])),
-      mustAvoid: Array.from(new Set([...context.plan.mustAvoid, ...brief.mustAvoid])),
-      formatPreference: "shortform",
-    };
-
-    let bundleDraftResult = await services.runSingleDraft({
-      plan: bundlePlan,
-      activeConstraints: context.activeConstraints,
-      sourceUserMessage: brief.prompt,
-      draftPreference: context.draftPreference,
-      topicSummary: context.topicSummary,
-      groundingPacket: context.groundingPacket,
-    });
+  for (const candidate of initialCandidates.candidates) {
+    const { brief } = candidate;
+    const bundlePlan = candidate.plan;
+    let bundleDraftResult = candidate.draftResult;
 
     if (bundleDraftResult.kind === "response") {
       return {
         workflow: args.workflow,
         capability: args.capability,
-        output: bundleDraftResult,
+        output: {
+          kind: "response",
+          response: bundleDraftResult.response,
+          routingTracePatch: bundleDraftResult.routingTracePatch,
+        },
+        workers,
+        validations,
       };
     }
 
@@ -173,6 +181,24 @@ export async function executeDraftBundleCapability(
     );
 
     if (!noveltyCheck.isNovel && earlierDrafts.length > 0) {
+      workers.push(
+        buildRuntimeWorkerExecution({
+          worker: "retry_bundle_candidate_for_sibling_novelty",
+          capability: args.capability,
+          phase: "execution",
+          mode: "sequential",
+          status: "completed",
+          groupId: "draft_bundle_sibling_retry",
+          details: {
+            briefId: brief.id,
+            label: brief.label,
+            reason: noveltyCheck.reason,
+            dependsOnEarlierOptions: true,
+            earlierOptionCount: earlierDrafts.length,
+          },
+        }),
+      );
+
       bundleDraftResult = await services.runSingleDraft({
         plan: {
           ...bundlePlan,
@@ -199,9 +225,18 @@ export async function executeDraftBundleCapability(
         return {
           workflow: args.workflow,
           capability: args.capability,
-          output: bundleDraftResult,
+          output: {
+            kind: "response",
+            response: bundleDraftResult.response,
+            routingTracePatch: bundleDraftResult.routingTracePatch,
+          },
+          workers: [...workers, ...(bundleDraftResult.workers ?? [])],
+          validations: [...validations, ...(bundleDraftResult.validations ?? [])],
         };
       }
+
+      workers.push(...(bundleDraftResult.workers ?? []));
+      validations.push(...(bundleDraftResult.validations ?? []));
 
       noveltyCheck = services.checkDeterministicNovelty(
         bundleDraftResult.draftToDeliver,
@@ -311,6 +346,7 @@ export async function executeDraftBundleCapability(
       },
     },
     workers: [
+      ...workers,
       {
         worker: "draft_bundle_builder",
         capability: args.capability,
@@ -323,5 +359,6 @@ export async function executeDraftBundleCapability(
         },
       },
     ],
+    validations,
   };
 }

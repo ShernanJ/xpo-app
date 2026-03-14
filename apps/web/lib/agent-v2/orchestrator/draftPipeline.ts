@@ -17,6 +17,7 @@ import {
   resolveRequestedThreadFramingStyle,
   type ConversationServices,
   type OrchestratorResponse,
+  type RoutingTracePatch,
 } from "./draftPipelineHelpers";
 import {
   buildPlanFailureResponse,
@@ -62,8 +63,6 @@ import {
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
-  assessGroundedProductDrift,
-  assessConcreteSceneDrift,
   buildGroundedProductRetryConstraint,
   buildUnsupportedClaimRetryConstraint,
   buildConcreteSceneRetryConstraint,
@@ -95,6 +94,7 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
+import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
@@ -114,6 +114,11 @@ import {
   selectRelevantSourceMaterials,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -128,7 +133,10 @@ import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "./ideationExecutor.ts";
 import { executePlanningCapability } from "./planningExecutor.ts";
-import { executeDraftingCapability } from "./draftingExecutor.ts";
+import {
+  executeDraftingCapability,
+  type DraftingCapabilityRunResult,
+} from "./draftingExecutor.ts";
 import { executeRevisingCapability } from "./revisingExecutor.ts";
 import { executeReplyingCapability } from "./replyingExecutor.ts";
 import { executeAnalysisCapability } from "./analysisExecutor.ts";
@@ -239,6 +247,27 @@ export async function executeDraftPipeline(args: {
     if (args.validations?.length) {
       routingTrace.validations.push(...args.validations);
     }
+  };
+  const applyRoutingTracePatch = (patch?: RoutingTracePatch) => {
+    if (patch?.clarification) {
+      routingTrace.clarification = patch.clarification;
+    }
+    if (patch?.draftGuard) {
+      routingTrace.draftGuard = patch.draftGuard;
+    }
+  };
+  const loadHistoricalTextsWithTrace = async (capability: "drafting" | "planning") => {
+    const result = await services.loadHistoricalTexts({
+      userId,
+      xHandle: effectiveXHandle,
+      capability,
+    });
+
+    mergeCapabilityExecutionMeta({
+      workers: result.workerExecutions,
+    });
+
+    return result.texts;
   };
 
   // We rewrite writeMemory locally to call saveConversationTurnMemory
@@ -790,22 +819,11 @@ User Profile Summary:
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
     groundingPacket?: GroundingPacket;
-  }): Promise<
-    | {
-        kind: "success";
-        writerOutput: WriterOutput;
-        criticOutput: CriticOutput;
-        draftToDeliver: string;
-        voiceTarget: VoiceTarget;
-        retrievalReasons: string[];
-        threadFramingStyle: ThreadFramingStyle | null;
-    }
-    | {
-      kind: "response";
-        response: RawOrchestratorResponse;
-      }
-  > {
+  }): Promise<DraftingCapabilityRunResult> {
     const draftGroundingPacket = args.groundingPacket || groundingPacket;
+    const localWorkers: NonNullable<typeof routingTrace.workerExecutions> = [];
+    const localValidations: NonNullable<typeof routingTrace.validations> = [];
+    let routingTracePatch: RoutingTracePatch | undefined;
     const applyClaimCheck = (attempt: {
       writerOutput: WriterOutput;
       criticOutput: CriticOutput;
@@ -818,12 +836,11 @@ User Profile Summary:
         draft: attempt.draftToDeliver,
         groundingPacket: draftGroundingPacket,
       });
-      const validationStatus = claimCheck.needsClarification
-        ? "clarification_required"
-        : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
-          ? "failed"
-          : "passed";
-      routingTrace.workerExecutions.push({
+      const validationStatus = resolveRuntimeValidationStatus({
+        needsClarification: claimCheck.needsClarification,
+        hasFailure: claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0,
+      });
+      localWorkers.push(buildRuntimeWorkerExecution({
         worker: "claim_checker",
         capability: "drafting",
         phase: "validation",
@@ -834,17 +851,14 @@ User Profile Summary:
           status: validationStatus,
           issueCount: claimCheck.issues.length,
         },
-      });
-      routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
-        routingTrace.workerExecutions,
-      );
-      routingTrace.validations.push({
+      }));
+      localValidations.push(buildRuntimeValidationResult({
         validator: "claim_checker",
         capability: "drafting",
         status: validationStatus,
         issues: claimCheck.issues,
         corrected: Boolean(claimCheck.draft && claimCheck.draft !== attempt.draftToDeliver),
-      });
+      }));
 
       return {
         ...attempt,
@@ -979,6 +993,8 @@ User Profile Summary:
           response: "Failed to write draft.",
           memory,
         },
+        workers: localWorkers,
+        validations: localValidations,
       };
     }
 
@@ -991,6 +1007,8 @@ User Profile Summary:
           response: "Failed to critique draft.",
           memory,
         },
+        workers: localWorkers,
+        validations: localValidations,
       };
     }
 
@@ -1003,9 +1021,12 @@ User Profile Summary:
       threadFramingStyle: firstAttempt.threadFramingStyle,
     });
     if (firstAttemptWithClaimCheck.claimNeedsClarification) {
-      routingTrace.draftGuard = {
-        reason: "claim_needs_clarification",
-        issues: firstAttemptWithClaimCheck.criticOutput.issues,
+      routingTracePatch = {
+        ...routingTracePatch,
+        draftGuard: {
+          reason: "claim_needs_clarification",
+          issues: firstAttemptWithClaimCheck.criticOutput.issues,
+        },
       };
       return {
         kind: "response",
@@ -1021,18 +1042,23 @@ User Profile Summary:
             ? { pendingPlan: args.pendingPlan }
             : {}),
         }),
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
-    const firstAssessment = assessConcreteSceneDrift({
-      sourceUserMessage: args.sourceUserMessage,
-      draft: firstAttemptWithClaimCheck.draftToDeliver,
-    });
-    const firstProductAssessment = assessGroundedProductDrift({
+    const firstValidation = await runDraftGuardValidationWorkers({
+      capability: "drafting",
+      groupId: "draft_guard_validation_initial",
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
       draft: firstAttemptWithClaimCheck.draftToDeliver,
     });
+    localWorkers.push(...firstValidation.workerExecutions);
+    localValidations.push(...firstValidation.validations);
+    const firstAssessment = firstValidation.concreteSceneAssessment;
+    const firstProductAssessment = firstValidation.groundedProductAssessment;
 
     if (
       !firstAssessment.hasDrift &&
@@ -1047,6 +1073,9 @@ User Profile Summary:
         voiceTarget: firstAttemptWithClaimCheck.voiceTarget,
         retrievalReasons: firstAttemptWithClaimCheck.retrievalReasons,
         threadFramingStyle: firstAttemptWithClaimCheck.threadFramingStyle,
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
@@ -1074,6 +1103,9 @@ User Profile Summary:
           response: "Failed to write draft.",
           memory,
         },
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
@@ -1086,6 +1118,9 @@ User Profile Summary:
           response: "Failed to critique draft.",
           memory,
         },
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
@@ -1098,9 +1133,12 @@ User Profile Summary:
       threadFramingStyle: secondAttempt.threadFramingStyle,
     });
     if (secondAttemptWithClaimCheck.claimNeedsClarification) {
-      routingTrace.draftGuard = {
-        reason: "claim_needs_clarification",
-        issues: secondAttemptWithClaimCheck.criticOutput.issues,
+      routingTracePatch = {
+        ...routingTracePatch,
+        draftGuard: {
+          reason: "claim_needs_clarification",
+          issues: secondAttemptWithClaimCheck.criticOutput.issues,
+        },
       };
       return {
         kind: "response",
@@ -1116,29 +1154,39 @@ User Profile Summary:
             ? { pendingPlan: args.pendingPlan }
             : {}),
         }),
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
-    const secondAssessment = assessConcreteSceneDrift({
-      sourceUserMessage: args.sourceUserMessage,
-      draft: secondAttemptWithClaimCheck.draftToDeliver,
-    });
-    const secondProductAssessment = assessGroundedProductDrift({
+    const secondValidation = await runDraftGuardValidationWorkers({
+      capability: "drafting",
+      groupId: retryConstraints.length > 0
+        ? "draft_guard_validation_retry"
+        : "draft_guard_validation_initial",
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
       draft: secondAttemptWithClaimCheck.draftToDeliver,
     });
+    localWorkers.push(...secondValidation.workerExecutions);
+    localValidations.push(...secondValidation.validations);
+    const secondAssessment = secondValidation.concreteSceneAssessment;
+    const secondProductAssessment = secondValidation.groundedProductAssessment;
 
     if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
-      routingTrace.draftGuard = secondAssessment.hasDrift
-        ? {
-            reason: "concrete_scene_drift",
-            issues: [secondAssessment.reason || "Concrete scene drift."],
-          }
-        : {
-            reason: "product_drift",
-            issues: [secondProductAssessment.reason || "Grounded product drift."],
-          };
+      routingTracePatch = {
+        ...routingTracePatch,
+        draftGuard: secondAssessment.hasDrift
+          ? {
+              reason: "concrete_scene_drift",
+              issues: [secondAssessment.reason || "Concrete scene drift."],
+            }
+          : {
+              reason: "product_drift",
+              issues: [secondProductAssessment.reason || "Grounded product drift."],
+            },
+      };
       return {
         kind: "response",
         response: secondAssessment.hasDrift
@@ -1166,6 +1214,9 @@ User Profile Summary:
                 ? { pendingPlan: args.pendingPlan }
                 : {}),
             }),
+        workers: localWorkers,
+        validations: localValidations,
+        routingTracePatch,
       };
     }
 
@@ -1177,6 +1228,9 @@ User Profile Summary:
       voiceTarget: secondAttemptWithClaimCheck.voiceTarget,
       retrievalReasons: secondAttemptWithClaimCheck.retrievalReasons,
       threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,
+      workers: localWorkers,
+      validations: localValidations,
+      routingTracePatch,
     };
   }
 
@@ -1319,10 +1373,7 @@ User Profile Summary:
 
     if (decision === "approve") {
       const approvedPlan = memory.pendingPlan;
-      const historicalTexts = await services.getHistoricalPosts({
-        userId,
-        xHandle: effectiveXHandle,
-      });
+      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
       const approvedPlanGroundingPacket = buildGroundingPacketForContext(
         draftActiveConstraints,
         buildPlanSourceMessage(approvedPlan),
@@ -2065,10 +2116,7 @@ User Profile Summary:
         shouldFastStartFromGroundedContext)
     ) {
       if (isMultiDraftTurn) {
-        const historicalTexts = await services.getHistoricalPosts({
-          userId,
-          xHandle: effectiveXHandle,
-        });
+        const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
         const execution = await executeDraftBundleCapability({
           workflow: "plan_then_draft",
           capability: "drafting",
@@ -2123,6 +2171,7 @@ User Profile Summary:
         mergeCapabilityExecutionMeta(execution);
 
         if (execution.output.kind === "response" && execution.output.response.mode === "error") {
+          applyRoutingTracePatch(execution.output.routingTracePatch);
           await writeMemoryLocal(planMemoryPatch);
           return {
             ...planResponseSeed,
@@ -2131,6 +2180,7 @@ User Profile Summary:
         }
 
         if (execution.output.kind === "response") {
+          applyRoutingTracePatch(execution.output.routingTracePatch);
           return execution.output.response;
         }
 
@@ -2154,6 +2204,11 @@ User Profile Summary:
         topicSummary: guardedPlan.objective,
         groundingPacket: planGroundingPacket,
       });
+      mergeCapabilityExecutionMeta({
+        workers: draftResult.workers,
+        validations: draftResult.validations,
+      });
+      applyRoutingTracePatch(draftResult.routingTracePatch);
 
       if (draftResult.kind === "response" && draftResult.response.mode === "error") {
         // Fall through to plan presentation if draft generation fails.
@@ -2168,10 +2223,7 @@ User Profile Summary:
         return draftResult.response;
       }
 
-      const historicalTexts = await services.getHistoricalPosts({
-        userId,
-        xHandle: effectiveXHandle,
-      });
+      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
       const execution = await executeDraftingCapability({
         workflow: "plan_then_draft",
         capability: "drafting",
@@ -2357,10 +2409,7 @@ User Profile Summary:
       };
     }
 
-    const historicalTexts = await services.getHistoricalPosts({
-      userId,
-      xHandle: effectiveXHandle,
-    });
+    const historicalTexts = await loadHistoricalTextsWithTrace("planning");
     const execution = await executeReplanningCapability({
       workflow: "plan_then_draft",
       capability: "planning",
@@ -2442,6 +2491,7 @@ User Profile Summary:
     routingTrace.planFailure = null;
 
     if (execution.output.kind === "response") {
+      applyRoutingTracePatch(execution.output.routingTracePatch);
       return execution.output.response;
     }
 

@@ -41,6 +41,7 @@ import {
   extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
 } from "./sourceMaterials";
+import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
 import {
   looksLikeMechanicalEdit,
   looksLikeNegativeFeedback,
@@ -318,63 +319,20 @@ export async function manageConversationTurnRaw(
   }
 
   // Heavy Orchestration
-  const [extractedRules, extractedFacts, rawSourceMaterialAssets] = await Promise.all([
-    context.userId !== "anonymous"
-      ? services.extractStyleRules(context.userMessage, context.recentHistory)
-      : Promise.resolve(null),
-    context.userId !== "anonymous"
-      ? services.extractCoreFacts(context.userMessage, context.recentHistory)
-      : Promise.resolve(null),
-    context.userId !== "anonymous"
-      ? services.getSourceMaterialAssets({
-          userId: context.userId,
-          xHandle: context.effectiveXHandle,
-        })
-      : Promise.resolve([]),
-  ]);
+  const {
+    extractedRules,
+    extractedFacts,
+    sourceMaterialAssets: rawSourceMaterialAssets,
+    workerExecutions,
+  } = await loadInitialContextWorkers({
+    userId: context.userId,
+    effectiveXHandle: context.effectiveXHandle,
+    userMessage: context.userMessage,
+    recentHistory: context.recentHistory,
+    services,
+  });
 
-  route.routingTrace.workerExecutions.push(
-    {
-      worker: "extract_style_rules",
-      capability: "shared",
-      phase: "context_load",
-      mode: "parallel",
-      status: context.userId !== "anonymous" ? "completed" : "skipped",
-      groupId: "initial_context_load",
-      details:
-        context.userId !== "anonymous"
-          ? { hasRules: Array.isArray(extractedRules) && extractedRules.length > 0 }
-          : { reason: "anonymous_user" },
-    },
-    {
-      worker: "extract_core_facts",
-      capability: "shared",
-      phase: "context_load",
-      mode: "parallel",
-      status: context.userId !== "anonymous" ? "completed" : "skipped",
-      groupId: "initial_context_load",
-      details:
-        context.userId !== "anonymous"
-          ? { hasFacts: Array.isArray(extractedFacts) && extractedFacts.length > 0 }
-          : { reason: "anonymous_user" },
-    },
-    {
-      worker: "load_source_material_assets",
-      capability: "shared",
-      phase: "context_load",
-      mode: "parallel",
-      status: context.userId !== "anonymous" ? "completed" : "skipped",
-      groupId: "initial_context_load",
-      details:
-        context.userId !== "anonymous"
-          ? {
-              assetCount: Array.isArray(rawSourceMaterialAssets)
-                ? rawSourceMaterialAssets.length
-                : 0,
-            }
-          : { reason: "anonymous_user" },
-    },
-  );
+  route.routingTrace.workerExecutions.push(...workerExecutions);
   route.routingTrace.workerExecutionSummary = summarizeRuntimeWorkerExecutions(
     route.routingTrace.workerExecutions,
   );

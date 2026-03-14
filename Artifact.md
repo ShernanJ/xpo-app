@@ -5,7 +5,7 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-14
-- Current slice: Phase 2 client page-thinning follow-on completed; Phase 1 control-plane hardening still in progress at the program level
+- Current slice: Phase 4 complete; Phase 1 persisted-state tracing remains open at the program level
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -120,7 +120,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
 - Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
-- Structured reply-action translation and handled-reply persistence/finalization now flow through `apps/web/app/api/creator/v2/chat/route.reply.ts`, while reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`.
+- Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns handled-reply persistence/finalization.
 - Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
@@ -199,14 +199,35 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - reply continuation generation, reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` now owns only structured reply-action translation and handled-reply persistence/finalization
+  - keep `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` as the runtime-owned reply capability boundary while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` remains the route-boundary finalization helper
 - Status: complete with accepted migration debt.
 
 ### Phase 4: Formalize the parallel worker plane
 - Allow worker fan-out only for retrieval, source-material loading, style/profile loading, candidate generation, and validation/scoring.
-- Add merge rules for worker outputs.
-- Prohibit ambiguous side effects from worker fan-out.
-- Status: not started.
+- Landed:
+  - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts` now owns the `initial_context_load` fan-out for style-rule extraction, core-fact extraction, and source-material asset loading
+  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now consumes that helper as a merge-only worker seam and keeps all memory/style/artifact/thread writes in the sequential path
+  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
+  - `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts` now returns that worker metadata into the runtime path, and `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts` records it before workflow resolution
+  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts` now owns the `historical_text_load` fan-out for shipped posts and queued draft candidates used by novelty scoring
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now records that retrieval seam inside the chosen workflow before drafting, draft bundles, and replanning novelty checks
+  - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts` now owns the deterministic `draft_guard_validation_*` fan-out for concrete-scene drift and grounded-product drift checks
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now merges that validation seam into runtime trace before retry and clarification decisions, while keeping the retry/write path sequential
+  - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts` now owns the `draft_bundle_initial_candidates` fan-out for first-pass sibling option generation
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now returns merge-only drafting trace metadata so `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` can parallelize only the safe initial candidate pass while keeping novelty retries and write ownership sequential
+  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts` now owns the deterministic `revision_validation` merge seam for revision claim checking
+  - `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts` now consumes that validation seam while keeping clarification, response shaping, and memory writes in the same sequential owner path
+  - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts` now standardizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging across the landed worker seams
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins explicit no-double-write coverage so sequential memory persistence remains single-write even when draft-candidate writes finish out of order
+  - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records explicit sequential sibling-novelty retry trace entries so the remaining bundle retry path is formalized as a dependent control-plane step instead of implicit worker fan-out
+  - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now standardizes executor response and response-seed contracts, and the main executor seams now consume those shared types instead of local one-off response output shapes
+  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `route.ts`, `route.logic.ts`, and `route.response.ts` import reply planning and reply artifact types directly from the runtime-owned modules
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, and the transitional `apps/web/app/api/creator/v2/chat/reply.logic.ts` / `apps/web/app/api/creator/v2/chat/route.reply.ts` shims have been removed
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the reply seam audit so those shim files stay absent and route-internal reply consumers keep importing the runtime-owned reply modules directly
+- Guardrails now in force:
+  - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
+  - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
+- Status: complete.
 
 ### Phase 5: Validation and retry
 - Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.

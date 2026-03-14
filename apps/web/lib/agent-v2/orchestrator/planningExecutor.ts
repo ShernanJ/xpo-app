@@ -25,6 +25,7 @@ import type { VoiceTarget } from "../core/voiceTarget.ts";
 import type {
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import type {
   CreatorProfileHints,
@@ -38,7 +39,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface PlanningCapabilityContext {
   planInputMessage: string;

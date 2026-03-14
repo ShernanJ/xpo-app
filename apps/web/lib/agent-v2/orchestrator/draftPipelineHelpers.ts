@@ -61,6 +61,7 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
+import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import {
   buildSemanticCorrectionAcknowledgment,
   buildSemanticRepairDirective,
@@ -198,6 +199,7 @@ import type {
   ChatTurnSource,
 } from "../contracts/turnContract";
 import type {
+  CapabilityName,
   AgentRuntimeWorkflow,
   RuntimeResolutionSource,
   RuntimeValidationResult,
@@ -304,6 +306,11 @@ export interface RoutingTrace {
     | null;
 }
 
+export interface RoutingTracePatch {
+  clarification?: RoutingTrace["clarification"];
+  draftGuard?: RoutingTrace["draftGuard"];
+}
+
 export type OrchestratorResponse = {
   mode: "coach" | "ideate" | "plan" | "draft" | "error";
   outputShape: V2ChatOutputShape;
@@ -340,6 +347,14 @@ export interface ConversationServices {
   saveStyleProfile: typeof saveStyleProfile;
   checkDeterministicNovelty: typeof checkDeterministicNovelty;
   getOnboardingRun: (runId?: string) => Promise<Record<string, unknown> | null>;
+  loadHistoricalTexts: (args: {
+    userId: string;
+    xHandle?: string | null;
+    capability: CapabilityName;
+  }) => Promise<{
+    texts: string[];
+    workerExecutions: RuntimeWorkerExecution[];
+  }>;
   getHistoricalPosts: (args: {
     userId: string;
     xHandle?: string | null;
@@ -412,6 +427,51 @@ export function buildDraftGroundingSummary(args: {
 }
 
 export function createDefaultConversationServices(): ConversationServices {
+  const loadHistoricalTexts = async (args: {
+    userId: string;
+    xHandle?: string | null;
+    capability: CapabilityName;
+  }) => {
+    const normalizedHandle = normalizeHandleForContext(args.xHandle);
+
+    return loadHistoricalTextWorkers({
+      userId: args.userId,
+      xHandle: normalizedHandle,
+      capability: args.capability,
+      loadPosts: ({ userId, xHandle }) =>
+        prisma.post.findMany({
+          where: {
+            userId,
+            ...(xHandle ? { xHandle } : {}),
+          },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+          select: { text: true },
+        }),
+      loadDraftCandidates: ({ userId, xHandle }) =>
+        prisma.draftCandidate
+          .findMany({
+            where: {
+              userId,
+              ...(xHandle ? { xHandle } : {}),
+              status: {
+                in: ["pending", "approved", "edited", "posted", "observed"],
+              },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 40,
+            select: { artifact: true },
+          })
+          .catch((error) => {
+            if (isMissingDraftCandidateTableError(error)) {
+              return [];
+            }
+
+            throw error;
+          }),
+    });
+  };
+
   return {
     controlTurn,
     generateCoachReply,
@@ -441,51 +501,14 @@ export function createDefaultConversationServices(): ConversationServices {
       return (record as unknown as Record<string, unknown> | null) || null;
     },
     async getHistoricalPosts(args: { userId: string; xHandle?: string | null }) {
-      const normalizedHandle = normalizeHandleForContext(args.xHandle);
-      const [posts, queuedCandidates] = await Promise.all([
-        prisma.post.findMany({
-          where: {
-            userId: args.userId,
-            ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
-          },
-          orderBy: { createdAt: "desc" },
-          take: 100,
-          select: { text: true },
-        }),
-        prisma.draftCandidate
-          .findMany({
-            where: {
-              userId: args.userId,
-              ...(normalizedHandle ? { xHandle: normalizedHandle } : {}),
-              status: {
-                in: ["pending", "approved", "edited", "posted", "observed"],
-              },
-            },
-            orderBy: { createdAt: "desc" },
-            take: 40,
-            select: { artifact: true },
-          })
-          .catch((error) => {
-            if (isMissingDraftCandidateTableError(error)) {
-              return [];
-            }
+      const result = await loadHistoricalTexts({
+        ...args,
+        capability: "shared",
+      });
 
-            throw error;
-          }),
-      ]);
-
-      const queuedDrafts = queuedCandidates
-        .map((candidate) => {
-          const artifact =
-            candidate.artifact && typeof candidate.artifact === "object" && !Array.isArray(candidate.artifact)
-              ? (candidate.artifact as Record<string, unknown>)
-              : null;
-          return typeof artifact?.content === "string" ? artifact.content : null;
-        })
-        .filter((value): value is string => Boolean(value));
-
-      return [...posts.map((post) => post.text), ...queuedDrafts];
+      return result.texts;
     },
+    loadHistoricalTexts,
     async getSourceMaterialAssets(args: { userId: string; xHandle?: string | null }) {
       const normalizedHandle = normalizeHandleForContext(args.xHandle);
 

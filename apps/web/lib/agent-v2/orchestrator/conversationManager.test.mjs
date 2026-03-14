@@ -4,6 +4,20 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
+import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
+import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
+import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
+import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
+import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
+import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  mergeRuntimeExecutionMeta,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
+
 import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
@@ -59,6 +73,674 @@ import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker.ts";
 import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
+
+test("initial context load workers return mergeable outputs for identified users", async () => {
+  const result = await loadInitialContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write about onboarding",
+    recentHistory: "assistant: none",
+    services: {
+      extractStyleRules: async () => ["avoid emojis"],
+      extractCoreFacts: async () => ["User rewrote onboarding in January"],
+      getSourceMaterialAssets: async () => [
+        {
+          id: "asset_1",
+          userId: "user_1",
+          xHandle: "stan",
+          type: "story",
+          title: "Onboarding rebuild",
+          tags: ["onboarding"],
+          verified: true,
+          claims: ["The onboarding rewrite cut friction."],
+          snippets: ["We rewrote onboarding after seeing drop-off."],
+          doNotClaim: [],
+          lastUsedAt: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(result.extractedRules, ["avoid emojis"]);
+  assert.deepEqual(result.extractedFacts, ["User rewrote onboarding in January"]);
+  assert.equal(result.sourceMaterialAssets.length, 1);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "extract_style_rules",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+      {
+        worker: "extract_core_facts",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+      {
+        worker: "load_source_material_assets",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+    ],
+  );
+});
+
+test("initial context load workers skip anonymous users without changing outputs", async () => {
+  let extractStyleRulesCalls = 0;
+  let extractCoreFactsCalls = 0;
+  let sourceMaterialCalls = 0;
+
+  const result = await loadInitialContextWorkers({
+    userId: "anonymous",
+    effectiveXHandle: "default",
+    userMessage: "write about onboarding",
+    recentHistory: "assistant: none",
+    services: {
+      extractStyleRules: async () => {
+        extractStyleRulesCalls += 1;
+        return ["avoid emojis"];
+      },
+      extractCoreFacts: async () => {
+        extractCoreFactsCalls += 1;
+        return ["User rewrote onboarding in January"];
+      },
+      getSourceMaterialAssets: async () => {
+        sourceMaterialCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  assert.equal(extractStyleRulesCalls, 0);
+  assert.equal(extractCoreFactsCalls, 0);
+  assert.equal(sourceMaterialCalls, 0);
+  assert.equal(result.extractedRules, null);
+  assert.equal(result.extractedFacts, null);
+  assert.deepEqual(result.sourceMaterialAssets, []);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => execution.status),
+    ["skipped", "skipped", "skipped"],
+  );
+});
+
+test("turn context hydration workers return style profile and anchors as mergeable outputs", async () => {
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write about onboarding",
+    topicSummary: "fallback topic",
+    services: {
+      generateStyleProfile: async () => ({
+        sentenceOpenings: [],
+        sentenceClosers: [],
+        pacing: "direct",
+        emojiPatterns: [],
+        slangAndVocabulary: [],
+        formattingRules: [],
+        customGuidelines: [],
+        contextAnchors: [],
+        factLedger: {
+          durableFacts: [],
+          allowedFirstPersonClaims: [],
+          allowedNumbers: [],
+          forbiddenClaims: [],
+          sourceMaterials: [],
+        },
+        antiExamples: [],
+      }),
+      retrieveAnchors: async () => ({
+        topicAnchors: ["onboarding systems"],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      }),
+    },
+  });
+
+  assert.equal(result.styleCard?.pacing, "direct");
+  assert.deepEqual(result.anchors.topicAnchors, ["onboarding systems"]);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "load_style_profile",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "turn_context_hydration",
+      },
+      {
+        worker: "retrieve_anchors",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "turn_context_hydration",
+      },
+    ],
+  );
+});
+
+test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
+  let seenFocusTopic = null;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "",
+    topicSummary: "x growth systems",
+    services: {
+      generateStyleProfile: async () => null,
+      retrieveAnchors: async (_userId, _xHandle, focusTopic) => {
+        seenFocusTopic = focusTopic;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(seenFocusTopic, "x growth systems");
+  assert.equal(result.workerExecutions[0]?.details?.hasStyleCard, false);
+  assert.equal(result.workerExecutions[1]?.details?.focusTopic, "x growth systems");
+});
+
+test("historical text workers merge posts and queued draft candidates for novelty checks", async () => {
+  const result = await loadHistoricalTextWorkers({
+    userId: "user_1",
+    xHandle: "stan",
+    capability: "drafting",
+    loadPosts: async () => [
+      { text: "first shipped post" },
+      { text: "second shipped post" },
+    ],
+    loadDraftCandidates: async () => [
+      { artifact: { content: "queued draft one" } },
+      { artifact: { content: "queued draft two" } },
+      { artifact: { content: 42 } },
+    ],
+  });
+
+  assert.deepEqual(result.texts, [
+    "first shipped post",
+    "second shipped post",
+    "queued draft one",
+    "queued draft two",
+  ]);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      capability: execution.capability,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "load_historical_posts",
+        capability: "drafting",
+        phase: "execution",
+        mode: "parallel",
+        status: "completed",
+        groupId: "historical_text_load",
+      },
+      {
+        worker: "load_queued_draft_candidates",
+        capability: "drafting",
+        phase: "execution",
+        mode: "parallel",
+        status: "completed",
+        groupId: "historical_text_load",
+      },
+    ],
+  );
+});
+
+test("draft guard validation workers merge deterministic drift checks as parallel validators", async () => {
+  const result = await runDraftGuardValidationWorkers({
+    capability: "drafting",
+    groupId: "draft_guard_validation_initial",
+    sourceUserMessage: "write one about playing league at the stan office against the ceo",
+    draft:
+      "I lost a league game at the stan office against the ceo and then built an analytics dashboard to fix growth.",
+    activeConstraints: [],
+  });
+
+  assert.equal(result.concreteSceneAssessment.hasDrift, true);
+  assert.equal(result.groundedProductAssessment.hasDrift, false);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "concrete_scene_guard",
+        phase: "validation",
+        mode: "parallel",
+        status: "completed",
+        groupId: "draft_guard_validation_initial",
+      },
+      {
+        worker: "grounded_product_guard",
+        phase: "validation",
+        mode: "parallel",
+        status: "completed",
+        groupId: "draft_guard_validation_initial",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.validator),
+    ["concrete_scene_guard", "grounded_product_guard"],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.status),
+    ["failed", "passed"],
+  );
+});
+
+test("draft bundle candidate workers parallelize initial sibling generation and preserve merge order", async () => {
+  const seenPrompts = [];
+  const result = await runDraftBundleCandidateWorkers({
+    capability: "drafting",
+    basePlan: {
+      objective: "Turn onboarding lessons into posts",
+      angle: "Use concrete onboarding wins",
+      targetLane: "original",
+      mustInclude: ["Keep it concrete."],
+      mustAvoid: ["No generic advice."],
+      hookType: "story",
+      pitchResponse: "let's draft a few options",
+      formatPreference: "shortform",
+    },
+    bundleBriefs: [
+      {
+        id: "lesson_reflection",
+        label: "Lesson / Reflection",
+        prompt: "Write the reflective option.",
+        objective: "Reflect on the onboarding lesson",
+        angle: "Lead with the shift in perspective",
+        hookType: "lesson",
+        mustInclude: ["Lead with the lesson."],
+        mustAvoid: ["Do not sound procedural."],
+      },
+      {
+        id: "proof_result",
+        label: "Proof / Result",
+        prompt: "Write the proof option.",
+        objective: "Show the onboarding result",
+        angle: "Lead with the result",
+        hookType: "proof",
+        mustInclude: ["Open with the result."],
+        mustAvoid: ["Do not sound vague."],
+      },
+    ],
+    activeConstraints: ["Keep it first person."],
+    draftPreference: "balanced",
+    topicSummary: "onboarding lessons",
+    turnFormatPreference: "shortform",
+    services: {
+      runSingleDraft: async ({ plan, sourceUserMessage }) => {
+        seenPrompts.push(sourceUserMessage);
+        return {
+          kind: "success",
+          writerOutput: {
+            angle: plan.angle,
+            draft: `draft for ${plan.objective}`,
+            supportAsset: `asset for ${plan.objective}`,
+            whyThisWorks: "",
+            watchOutFor: "",
+          },
+          criticOutput: {
+            approved: true,
+            finalAngle: plan.angle,
+            finalDraft: `final for ${plan.objective}`,
+            issues: [],
+          },
+          draftToDeliver: `final for ${plan.objective}`,
+          voiceTarget: {
+            casing: "normal",
+            compression: "tight",
+            formality: "neutral",
+            hookStyle: "blunt",
+            emojiPolicy: "none",
+            ctaPolicy: "none",
+            risk: "safe",
+            lane: "original",
+            summary: "tight original post",
+            rationale: [],
+          },
+          retrievalReasons: [`anchor for ${plan.objective}`],
+          threadFramingStyle: null,
+          workers: [
+            {
+              worker: "claim_checker",
+              capability: "drafting",
+              phase: "validation",
+              mode: "sequential",
+              status: "completed",
+              groupId: null,
+              details: {
+                status: "passed",
+              },
+            },
+          ],
+          validations: [
+            {
+              validator: "claim_checker",
+              capability: "drafting",
+              status: "passed",
+              issues: [],
+              corrected: false,
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(seenPrompts, [
+    "Write the reflective option.",
+    "Write the proof option.",
+  ]);
+  assert.deepEqual(
+    result.candidates.map((candidate) => candidate.brief.id),
+    ["lesson_reflection", "proof_result"],
+  );
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      mode: execution.mode,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "generate_bundle_candidate",
+        mode: "parallel",
+        groupId: "draft_bundle_initial_candidates",
+      },
+      {
+        worker: "claim_checker",
+        mode: "sequential",
+        groupId: null,
+      },
+      {
+        worker: "generate_bundle_candidate",
+        mode: "parallel",
+        groupId: "draft_bundle_initial_candidates",
+      },
+      {
+        worker: "claim_checker",
+        mode: "sequential",
+        groupId: null,
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.validator),
+    ["claim_checker", "claim_checker"],
+  );
+});
+
+test("draft bundle capability keeps sibling novelty retries sequential and explicit", async () => {
+  const seenDraftRequests = [];
+  const execution = await executeDraftBundleCapability({
+    workflow: "plan_then_draft",
+    capability: "drafting",
+    context: {
+      userMessage: "write 4 post options about lessons from fixing onboarding",
+      memory: {
+        rollingSummary: null,
+      },
+      plan: {
+        objective: "Share onboarding lessons",
+        angle: "Use a concrete onboarding moment",
+        targetLane: "original",
+        mustInclude: ["Keep it concrete."],
+        mustAvoid: ["No generic advice."],
+        hookType: "story",
+        pitchResponse: "here are a few routes",
+        formatPreference: "shortform",
+      },
+      activeConstraints: ["Stay grounded."],
+      sourceMaterials: [],
+      draftPreference: "balanced",
+      topicSummary: "onboarding lessons",
+      groundingPacket: undefined,
+      historicalTexts: [],
+      turnFormatPreference: "shortform",
+      nextAssistantTurnCount: 3,
+      refreshRollingSummary: false,
+      feedbackMemoryNotice: null,
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+    },
+    services: {
+      runSingleDraft: async ({ plan, sourceUserMessage, activeConstraints }) => {
+        seenDraftRequests.push({
+          sourceUserMessage,
+          activeConstraints,
+        });
+
+        const isSequentialRetry = sourceUserMessage.includes(
+          "Keep it clearly distinct from the earlier bundle options.",
+        );
+        const draftToDeliver = isSequentialRetry
+          ? "proof option rewritten to be distinct"
+          : plan.hookType === "lesson" || plan.hookType === "proof"
+            ? "shared sibling draft"
+            : `unique draft for ${plan.hookType}`;
+
+        return {
+          kind: "success",
+          writerOutput: {
+            angle: plan.angle,
+            draft: draftToDeliver,
+            supportAsset: `asset for ${plan.hookType}`,
+            whyThisWorks: "",
+            watchOutFor: "",
+          },
+          criticOutput: {
+            approved: true,
+            finalAngle: plan.angle,
+            finalDraft: draftToDeliver,
+            issues: [],
+          },
+          draftToDeliver,
+          voiceTarget: {
+            casing: "normal",
+            compression: "tight",
+            formality: "neutral",
+            hookStyle: "blunt",
+            emojiPolicy: "none",
+            ctaPolicy: "none",
+            risk: "safe",
+            lane: "original",
+            summary: "tight original post",
+            rationale: [],
+          },
+          retrievalReasons: [`anchor for ${plan.hookType}`],
+          threadFramingStyle: null,
+          workers: [],
+          validations: [],
+        };
+      },
+      checkDeterministicNovelty: (draft, historicalTexts) => ({
+        isNovel: !historicalTexts.includes(draft),
+        reason: historicalTexts.includes(draft) ? "matched earlier sibling draft" : null,
+        maxSimilarity: historicalTexts.includes(draft) ? 0.96 : 0.12,
+      }),
+      buildNoveltyNotes: ({ noveltyCheck }) =>
+        noveltyCheck?.reason ? [noveltyCheck.reason] : [],
+    },
+  });
+
+  assert.equal(execution.output.kind, "draft_bundle_ready");
+  assert.equal(
+    seenDraftRequests.filter((request) =>
+      request.sourceUserMessage.includes("Keep it clearly distinct from the earlier bundle options."),
+    ).length,
+    1,
+  );
+  assert.ok(
+    seenDraftRequests.some((request) =>
+      request.activeConstraints.includes(
+        'Sibling novelty: make "Proof / Result" clearly distinct from the earlier bundle options.',
+      ),
+    ),
+  );
+  assert.deepEqual(
+    execution.workers.filter(
+      (worker) => worker.worker === "retry_bundle_candidate_for_sibling_novelty",
+    ),
+    [
+      {
+        worker: "retry_bundle_candidate_for_sibling_novelty",
+        capability: "drafting",
+        phase: "execution",
+        mode: "sequential",
+        status: "completed",
+        groupId: "draft_bundle_sibling_retry",
+        details: {
+          briefId: "proof_result",
+          label: "Proof / Result",
+          reason: "matched earlier sibling draft",
+          dependsOnEarlierOptions: true,
+          earlierOptionCount: 1,
+        },
+      },
+    ],
+  );
+});
+
+test("revision validation workers isolate deterministic revision claim checks", () => {
+  const result = runRevisionValidationWorkers({
+    capability: "revising",
+    draft: [
+      "been in a rabbit hole this week learning how to grow on x.",
+      "a few tweaks actually moved the needle with real follower spikes.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: ["been in a rabbit hole this week learning how to grow on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: ["missing evidence for outcome claims"],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.claimCheck.hasUnsupportedClaims, true);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "claim_checker",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_validation",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.status),
+    ["failed"],
+  );
+});
+
+test("worker plane helpers preserve merge order and shared validation status rules", () => {
+  const meta = mergeRuntimeExecutionMeta(
+    {
+      workerExecutions: [
+        buildRuntimeWorkerExecution({
+          worker: "first_worker",
+          capability: "shared",
+          phase: "execution",
+          mode: "parallel",
+          status: "completed",
+          groupId: "group_a",
+        }),
+      ],
+      validations: [
+        buildRuntimeValidationResult({
+          validator: "first_validator",
+          capability: "shared",
+          status: resolveRuntimeValidationStatus({ hasFailure: false }),
+          issues: [],
+          corrected: false,
+        }),
+      ],
+    },
+    {
+      workerExecutions: [
+        buildRuntimeWorkerExecution({
+          worker: "second_worker",
+          capability: "drafting",
+          phase: "validation",
+          mode: "sequential",
+          status: "failed",
+          groupId: "group_b",
+          details: { reason: "test_failure" },
+        }),
+      ],
+      validations: [
+        buildRuntimeValidationResult({
+          validator: "second_validator",
+          capability: "drafting",
+          status: resolveRuntimeValidationStatus({ needsClarification: true }),
+          issues: ["Need clarification."],
+          corrected: true,
+        }),
+      ],
+    },
+  );
+
+  assert.deepEqual(
+    meta.workerExecutions.map((execution) => execution.worker),
+    ["first_worker", "second_worker"],
+  );
+  assert.deepEqual(
+    meta.validations.map((validation) => validation.status),
+    ["passed", "clarification_required"],
+  );
+});
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);

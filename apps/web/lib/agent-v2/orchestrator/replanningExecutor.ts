@@ -12,6 +12,7 @@ import {
 import type {
   ConversationServices,
   OrchestratorResponse,
+  RoutingTracePatch,
 } from "./draftPipelineHelpers.ts";
 import type {
   DraftFormatPreference,
@@ -22,10 +23,10 @@ import type {
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type { VoiceTarget } from "../core/voiceTarget.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
-  RuntimeValidationResult,
-  RuntimeWorkerExecution,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import type {
   CreatorProfileHints,
@@ -37,13 +38,14 @@ import type {
   DraftGroundingMode,
   ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts.ts";
+import { mergeRuntimeExecutionMeta } from "./workerPlane.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface ReplanningCapabilityContext {
   memory: V2ConversationMemory;
@@ -97,15 +99,10 @@ export interface ReplanningCapabilityPlanFailureOutput {
   responseSeed: RawResponseSeed;
 }
 
-export interface ReplanningCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-}
-
 export type ReplanningCapabilityOutput =
   | ReplanningCapabilityDraftReadyOutput
   | ReplanningCapabilityPlanFailureOutput
-  | ReplanningCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeReplanningCapability(
   args: CapabilityExecutionRequest<ReplanningCapabilityContext> & {
@@ -214,14 +211,16 @@ export async function executeReplanningCapability(
     },
   });
 
-  const workers: RuntimeWorkerExecution[] = [
-    ...(planningExecution.workers ?? []),
-    ...(draftingExecution.workers ?? []),
-  ];
-  const validations: RuntimeValidationResult[] = [
-    ...(planningExecution.validations ?? []),
-    ...(draftingExecution.validations ?? []),
-  ];
+  const { workerExecutions: workers, validations } = mergeRuntimeExecutionMeta(
+    {
+      workerExecutions: planningExecution.workers ?? [],
+      validations: planningExecution.validations ?? [],
+    },
+    {
+      workerExecutions: draftingExecution.workers ?? [],
+      validations: draftingExecution.validations ?? [],
+    },
+  );
 
   if (draftingExecution.output.kind === "response") {
     return {

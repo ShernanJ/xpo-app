@@ -10,12 +10,12 @@ import type {
   ChatReplyParseEnvelope,
   EmbeddedReplyParseResult,
   ReplyContinuationResult,
-} from "../../../app/api/creator/v2/chat/reply.logic.ts";
+} from "./replyTurnLogic.ts";
 import {
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
-} from "../../../app/api/creator/v2/chat/reply.logic.ts";
+} from "./replyTurnLogic.ts";
 import type { ChatTurnSource } from "../contracts/turnContract.ts";
 
 export type ReplyContinuationInsights = Parameters<

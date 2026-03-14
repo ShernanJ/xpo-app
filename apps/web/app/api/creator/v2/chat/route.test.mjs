@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   buildChatRoutePersistencePlan,
@@ -18,9 +19,11 @@ import {
 } from "./route.logic.ts";
 import { persistAssistantTurnWithDeps } from "./route.persistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./route.idempotency.ts";
+import { finalizeReplyTurnWithDeps } from "./route.replyFinalize.ts";
 import {
   buildChatSuccessResponse,
   buildReplyAssistantMessageData,
+  planReplyAssistantTurnProductEvents,
   planMainAssistantTurnProductEvents,
 } from "./route.response.ts";
 import { normalizeChatTurn } from "./turnNormalization.ts";
@@ -568,6 +571,144 @@ test("buildChatSuccessResponse merges billing and ids into the final API payload
   assert.equal(json.data.newThreadId, "thread-9");
 });
 
+test("finalizeReplyTurnWithDeps keeps reply planning separate from route persistence and response assembly", async () => {
+  let persistedArgs = null;
+  let dispatchedArgs = null;
+
+  const response = await finalizeReplyTurnWithDeps(
+    {
+      plannedTurn: {
+        reply: "ran with option 2 and tightened it into a full reply.",
+        outputShape: "reply_candidate",
+        surfaceMode: "generate_full_output",
+        quickReplies: [{ id: "reply_1", label: "Use this" }],
+        activeReplyContext: {
+          sourceText: "Founders should write every day even if nobody reads it yet.",
+          sourceUrl: "https://x.com/example/status/1",
+          authorHandle: "example",
+          quotedUserAsk: "how should i reply?",
+          confidence: "high",
+          parseReason: "reply_option_selected",
+          awaitingConfirmation: false,
+          stage: "1k_to_10k",
+          tone: "builder",
+          goal: "followers",
+          opportunityId: "chat-reply-1",
+          latestReplyOptions: [],
+          latestReplyDraftOptions: [],
+          selectedReplyOptionId: "option_2",
+        },
+        selectedReplyOptionId: "option_2",
+        replyArtifacts: {
+          kind: "reply_draft",
+          sourceText: "Founders should write every day even if nobody reads it yet.",
+          sourceUrl: "https://x.com/example/status/1",
+          authorHandle: "example",
+          options: [
+            {
+              id: "option_2",
+              label: "Option 2",
+              text: "agree with the principle, but i'd make the reps more deliberate than daily by default.",
+              intent: {
+                label: "useful nuance",
+                strategyPillar: "useful nuance",
+                anchor: "daily reps",
+                rationale: "adds one practical layer",
+              },
+            },
+          ],
+          notes: ["Keep it practical."],
+          selectedOptionId: "option_2",
+        },
+        replyParse: {
+          detected: true,
+          confidence: "high",
+          needsConfirmation: false,
+          parseReason: "reply_option_selected",
+        },
+        eventType: "chat_reply_draft_generated",
+      },
+      storedMemory: baseMemory,
+      routingDiagnostics: {
+        turnSource: "reply_action",
+        artifactKind: "reply_confirmation",
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "reply_to_post",
+      },
+      clientTurnId: "turn_reply_1",
+      defaultThreadTitle: "New Chat",
+      storedThreadId: "thread-reply-1",
+      storedThreadTitle: "Existing Reply Thread",
+      requestedThreadId: "",
+      userId: "user-reply-1",
+      activeHandle: "stan",
+      loadBilling: async () => ({ creditsRemaining: 8 }),
+      recordProductEvent: async () => null,
+    },
+    {
+      persistAssistantTurn: async (args) => {
+        persistedArgs = args;
+        return {
+          assistantMessageId: "assistant-msg-reply",
+          updatedThreadTitle: "Updated Reply Thread",
+        };
+      },
+      buildReplyAssistantMessageData,
+      planReplyAssistantTurnProductEvents,
+      dispatchPlannedProductEvents: (args) => {
+        dispatchedArgs = args;
+      },
+      buildChatSuccessResponse,
+    },
+  );
+
+  assert.equal(persistedArgs.threadId, "thread-reply-1");
+  assert.equal(
+    persistedArgs.assistantMessageData.reply,
+    "ran with option 2 and tightened it into a full reply.",
+  );
+  assert.deepEqual(
+    persistedArgs.buildMemoryUpdate("assistant-msg-reply"),
+    {
+      preferredSurfaceMode: "structured",
+      activeReplyContext: {
+        sourceText: "Founders should write every day even if nobody reads it yet.",
+        sourceUrl: "https://x.com/example/status/1",
+        authorHandle: "example",
+        quotedUserAsk: "how should i reply?",
+        confidence: "high",
+        parseReason: "reply_option_selected",
+        awaitingConfirmation: false,
+        stage: "1k_to_10k",
+        tone: "builder",
+        goal: "followers",
+        opportunityId: "chat-reply-1",
+        latestReplyOptions: [],
+        latestReplyDraftOptions: [],
+        selectedReplyOptionId: "option_2",
+      },
+      activeReplyArtifactRef: {
+        messageId: "assistant-msg-reply",
+        kind: "reply_draft",
+      },
+      selectedReplyOptionId: "option_2",
+    },
+  );
+  assert.equal(dispatchedArgs.events.length, 1);
+  assert.equal(dispatchedArgs.events[0].eventType, "chat_reply_draft_generated");
+  assert.equal(dispatchedArgs.threadId, "thread-reply-1");
+  assert.equal(dispatchedArgs.messageId, "assistant-msg-reply");
+
+  const json = await response.json();
+  assert.equal(json.ok, true);
+  assert.equal(json.data.threadTitle, "Updated Reply Thread");
+  assert.equal(json.data.messageId, "assistant-msg-reply");
+  assert.equal(json.data.newThreadId, "thread-reply-1");
+  assert.equal(json.data.replyArtifacts.kind, "reply_draft");
+  assert.equal(json.data.replyParse.parseReason, "reply_option_selected");
+});
+
 test("persistAssistantTurnWithDeps preserves sequential write order", async () => {
   const calls = [];
 
@@ -778,6 +919,7 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
         activeDraftRef: {
           messageId: assistantMessageId,
           versionId: "version-1",
+          revisionChainId: "revision-chain-1",
         },
       }),
       draftCandidateCreates: [
@@ -832,6 +974,87 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
     updateChatThread: 1,
   });
   assert.deepEqual(candidateTitles.sort(), ["Option one", "Option two"]);
+});
+
+test("persistAssistantTurnWithDeps does not double-write memory while candidate writes resolve out of order", async () => {
+  let updateConversationMemoryCalls = 0;
+  const calls = [];
+
+  await persistAssistantTurnWithDeps(
+    {
+      threadId: "thread-2",
+      assistantMessageData: {
+        reply: "bundle ready",
+        threadTitle: "Bundle thread",
+      },
+      threadUpdate: {
+        updatedAt: new Date("2026-03-13T16:00:00.000Z"),
+        title: "Bundle title",
+      },
+      buildMemoryUpdate: (assistantMessageId) => ({
+        preferredSurfaceMode: "structured",
+        activeDraftRef: {
+          messageId: assistantMessageId,
+          versionId: "bundle-version-1",
+          revisionChainId: "bundle-chain-1",
+        },
+      }),
+      draftCandidateCreates: [
+        {
+          title: "Slow option",
+          artifact: { id: "artifact-slow" },
+          voiceTarget: null,
+          noveltyNotes: ["slow note"],
+        },
+        {
+          title: "Fast option",
+          artifact: { id: "artifact-fast" },
+          voiceTarget: null,
+          noveltyNotes: ["fast note"],
+        },
+      ],
+      draftCandidateContext: {
+        userId: "user-2",
+        xHandle: "stan",
+        runId: "run-2",
+        sourcePrompt: "draft 4 posts",
+        sourcePlaybook: "chat_bundle",
+        outputShape: "short_form_post",
+      },
+    },
+    {
+      async createChatMessage() {
+        calls.push("createChatMessage");
+        return { id: "assistant-msg-2" };
+      },
+      async updateConversationMemory() {
+        updateConversationMemoryCalls += 1;
+        calls.push("updateConversationMemory");
+        return null;
+      },
+      async updateChatThread() {
+        calls.push("updateChatThread");
+        return { title: "Bundle title" };
+      },
+      async createDraftCandidate(args) {
+        calls.push(`start:${args.title}`);
+        await new Promise((resolve) => setTimeout(resolve, args.title === "Slow option" ? 20 : 1));
+        calls.push(`finish:${args.title}`);
+        return null;
+      },
+    },
+  );
+
+  assert.equal(updateConversationMemoryCalls, 1);
+  assert.deepEqual(calls.slice(0, 3), [
+    "createChatMessage",
+    "updateConversationMemory",
+    "updateChatThread",
+  ]);
+  assert.deepEqual(
+    calls.filter((entry) => entry === "updateConversationMemory"),
+    ["updateConversationMemory"],
+  );
 });
 
 test("persistAssistantTurnWithDeps skips writes when no thread is available", async () => {
@@ -1417,4 +1640,48 @@ test("conversation context builder can exclude the current user turn when thread
   assert.equal(context.recentHistory.includes("user: write it now"), false);
   assert.equal(context.recentHistory.includes("assistant: let's keep it on one lane"), true);
   assert.equal(context.recentHistory.includes("assistant_context:"), false);
+});
+
+test("reply route ownership stays in runtime modules without shim files or shim imports", () => {
+  const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  const routeReplyFinalizeSource = readFileSync(
+    new URL("./route.replyFinalize.ts", import.meta.url),
+    "utf8",
+  );
+  const routeLogicSource = readFileSync(new URL("./route.logic.ts", import.meta.url), "utf8");
+  const routeResponseSource = readFileSync(
+    new URL("./route.response.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(existsSync(new URL("./route.reply.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./reply.logic.ts", import.meta.url)), false);
+
+  assert.match(
+    routeSource,
+    /from "@\/lib\/agent-v2\/orchestrator\/replyTurnPlanner";/,
+  );
+  assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
+
+  assert.match(
+    routeReplyFinalizeSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
+  );
+  assert.equal(
+    /from "\.\/route\.reply(?:\.ts)?";/.test(routeReplyFinalizeSource),
+    false,
+  );
+
+  assert.match(
+    routeLogicSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+  );
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeLogicSource), false);
+
+  assert.match(
+    routeResponseSource,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+  );
+  assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeResponseSource), false);
 });

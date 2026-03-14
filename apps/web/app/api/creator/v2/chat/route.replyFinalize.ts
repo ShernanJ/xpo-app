@@ -1,17 +1,7 @@
 import type { V2ConversationMemory } from "../../../../../lib/agent-v2/contracts/chat.ts";
-import {
-  planReplyTurn,
-  resolveReplyTurnState as resolveReplyTurnStateInPlanner,
-  type PlannedReplyTurn,
-  type ReplyContinuationAction,
-  type ResolvedReplyTurnState,
-} from "../../../../../lib/agent-v2/orchestrator/replyContinuationPlanner.ts";
-import type {
-  ChatArtifactContext,
-  NormalizedChatTurnDiagnostics,
-  ChatTurnSource,
-} from "../../../../../lib/agent-v2/contracts/turnContract.ts";
-import { type ActiveReplyContext } from "./reply.logic.ts";
+import type { NormalizedChatTurnDiagnostics } from "../../../../../lib/agent-v2/contracts/turnContract.ts";
+import type { PlannedReplyTurn } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
+import { buildReplyMemorySnapshot } from "../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
 import { persistAssistantTurn } from "./route.persistence.ts";
 import {
   buildChatSuccessResponse,
@@ -20,77 +10,7 @@ import {
   planReplyAssistantTurnProductEvents,
 } from "./route.response.ts";
 
-export { planReplyTurn };
-
-export function buildReplyMemorySnapshot(args: {
-  storedMemory: V2ConversationMemory;
-  activeReplyContext: ActiveReplyContext | null;
-  selectedReplyOptionId?: string | null;
-}): V2ConversationMemory {
-  return {
-    ...args.storedMemory,
-    activeReplyContext: args.activeReplyContext,
-    activeReplyArtifactRef: args.storedMemory.activeReplyArtifactRef,
-    selectedReplyOptionId:
-      args.selectedReplyOptionId === undefined
-        ? args.storedMemory.selectedReplyOptionId
-        : args.selectedReplyOptionId,
-    preferredSurfaceMode: "structured",
-  };
-}
-
-interface StructuredReplyContextInput {
-  sourceText?: string | null;
-  sourceUrl?: string | null;
-  authorHandle?: string | null;
-}
-
-function resolveStructuredReplyContinuation(
-  artifactContext: ChatArtifactContext | null,
-): ReplyContinuationAction | null {
-  if (artifactContext?.kind === "reply_option_select") {
-    return {
-      type: "select_option",
-      optionIndex: artifactContext.optionIndex,
-    };
-  }
-
-  if (artifactContext?.kind === "reply_confirmation") {
-    return artifactContext.decision === "confirm"
-      ? { type: "confirm" }
-      : { type: "decline" };
-  }
-
-  return null;
-}
-
-export function resolveReplyTurnState(args: {
-  activeHandle: string | null;
-  creatorAgentContext: Parameters<typeof resolveReplyTurnStateInPlanner>[0]["creatorAgentContext"];
-  effectiveMessage: string;
-  structuredReplyContext: StructuredReplyContextInput | null;
-  artifactContext: ChatArtifactContext | null;
-  turnSource: ChatTurnSource;
-  shouldBypassReplyHandling: boolean;
-  activeReplyContext: ActiveReplyContext | null;
-  toneRisk: unknown;
-  goal: unknown;
-}): ResolvedReplyTurnState {
-  return resolveReplyTurnStateInPlanner({
-    activeHandle: args.activeHandle,
-    creatorAgentContext: args.creatorAgentContext,
-    effectiveMessage: args.effectiveMessage,
-    structuredReplyContext: args.structuredReplyContext,
-    turnSource: args.turnSource,
-    shouldBypassReplyHandling: args.shouldBypassReplyHandling,
-    activeReplyContext: args.activeReplyContext,
-    structuredReplyContinuation: resolveStructuredReplyContinuation(args.artifactContext),
-    toneRisk: args.toneRisk,
-    goal: args.goal,
-  });
-}
-
-export async function finalizeReplyTurn(args: {
+export interface FinalizeReplyTurnArgs {
   plannedTurn: PlannedReplyTurn;
   storedMemory: V2ConversationMemory;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
@@ -110,13 +30,40 @@ export async function finalizeReplyTurn(args: {
     eventType: string;
     properties: Record<string, unknown>;
   }) => Promise<unknown>;
-}): Promise<Response> {
+}
+
+export interface ReplyFinalizationDeps {
+  persistAssistantTurn: typeof persistAssistantTurn;
+  buildReplyAssistantMessageData: typeof buildReplyAssistantMessageData;
+  planReplyAssistantTurnProductEvents: typeof planReplyAssistantTurnProductEvents;
+  dispatchPlannedProductEvents: typeof dispatchPlannedProductEvents;
+  buildChatSuccessResponse: typeof buildChatSuccessResponse;
+}
+
+const DEFAULT_REPLY_FINALIZATION_DEPS: ReplyFinalizationDeps = {
+  persistAssistantTurn,
+  buildReplyAssistantMessageData,
+  planReplyAssistantTurnProductEvents,
+  dispatchPlannedProductEvents,
+  buildChatSuccessResponse,
+};
+
+export async function finalizeReplyTurn(
+  args: FinalizeReplyTurnArgs,
+): Promise<Response> {
+  return finalizeReplyTurnWithDeps(args, DEFAULT_REPLY_FINALIZATION_DEPS);
+}
+
+export async function finalizeReplyTurnWithDeps(
+  args: FinalizeReplyTurnArgs,
+  deps: ReplyFinalizationDeps,
+): Promise<Response> {
   const nextMemory = buildReplyMemorySnapshot({
     storedMemory: args.storedMemory,
     activeReplyContext: args.plannedTurn.activeReplyContext,
     selectedReplyOptionId: args.plannedTurn.selectedReplyOptionId,
   });
-  let mappedData = buildReplyAssistantMessageData({
+  let mappedData = deps.buildReplyAssistantMessageData({
     reply: args.plannedTurn.reply,
     outputShape: args.plannedTurn.outputShape,
     surfaceMode: args.plannedTurn.surfaceMode,
@@ -131,7 +78,7 @@ export async function finalizeReplyTurn(args: {
 
   let createdAssistantMessageId: string | undefined;
   if (args.storedThreadId) {
-    const persistenceResult = await persistAssistantTurn({
+    const persistenceResult = await deps.persistAssistantTurn({
       threadId: args.storedThreadId,
       assistantMessageData: mappedData,
       threadUpdate: { updatedAt: new Date() },
@@ -157,8 +104,8 @@ export async function finalizeReplyTurn(args: {
     };
   }
 
-  dispatchPlannedProductEvents({
-    events: planReplyAssistantTurnProductEvents({
+  deps.dispatchPlannedProductEvents({
+    events: deps.planReplyAssistantTurnProductEvents({
       eventType: args.plannedTurn.eventType,
       outputShape: args.plannedTurn.outputShape,
       surfaceMode: args.plannedTurn.surfaceMode,
@@ -172,7 +119,7 @@ export async function finalizeReplyTurn(args: {
     recordProductEvent: args.recordProductEvent,
   });
 
-  return await buildChatSuccessResponse({
+  return await deps.buildChatSuccessResponse({
     mappedData,
     createdAssistantMessageId,
     newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,

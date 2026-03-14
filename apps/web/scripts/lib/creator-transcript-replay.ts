@@ -828,6 +828,12 @@ export function createReplayServiceOverrides(
     async getHistoricalPosts() {
       return fixture.historicalPosts || [];
     },
+    async loadHistoricalTexts() {
+      return {
+        texts: fixture.historicalPosts || [],
+        workerExecutions: [],
+      };
+    },
     async getSourceMaterialAssets() {
       return sourceMaterialAssets;
     },

@@ -139,7 +139,8 @@ User turn
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation, reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` now sits at the route boundary only for structured reply-action translation and handled-reply persistence/finalization
+  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization
+  - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ## Capability contract
 - Shared capability types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
@@ -195,7 +196,8 @@ User turn
 - Critique:
   - `apps/web/lib/agent-v2/agents/critic.ts`
 - Reply / analysis helpers:
-  - `apps/web/app/api/creator/v2/chat/reply.logic.ts`
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 
 ## Debugging guide
@@ -233,8 +235,34 @@ User turn
   - `apps/web/lib/agent-v2/agents/critic.ts`
 
 ### Where worker fan-out already exists
-- Initial context hydration fan-out currently happens in:
+- Initial context hydration fan-out now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts`
+- The sequential merge/write owner remains:
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
+- Pre-routing style/profile + anchor hydration now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts`
+- The pre-routing merge/trace handoff remains:
+  - `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts`
+  - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
+- Novelty-input retrieval fan-out now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts`
+- The in-workflow merge/trace handoff remains:
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Deterministic draft-guard validation fan-out now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts`
+- The retry/clarification merge owner remains:
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Initial draft-bundle candidate fan-out now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts`
+- The sibling novelty retry/write owner remains:
+  - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Revision validation now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts`
+- The revision merge/write owner remains:
+  - `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
+- Worker-plane metadata rules are now standardized by:
+  - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts`
 - Worker summaries are standardized by:
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 
@@ -318,11 +346,10 @@ User turn
 - multi-tab same-profile different-handle isolation
 - reply workflow not hijacking non-reply turns
 - no double-write behavior from worker fan-out
+- reply route shim files stay absent while route-internal consumers import runtime-owned reply modules directly
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Start Phase 4 worker-plane cleanup or isolate remaining Phase 3 migration debt into dedicated follow-up seams
-- Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
-- Reconcile the remaining structured reply-action translation seam in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
-- Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`
-- Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction
+- Phase 4 worker-plane cleanup is complete; use the explicit sibling-novelty retry trace, the route no-double-write regression, and the reply seam-audit regression as guardrails against ownership drift
+- Do not reintroduce route-local reply shims or let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`
+- Revisit residual route/client migration debt only when it blocks later runtime rollout, Phase 5 validation work, or broader Phase 6 deletion work

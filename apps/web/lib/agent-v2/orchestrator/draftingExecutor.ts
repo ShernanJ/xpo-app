@@ -18,8 +18,12 @@ import type {
   ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
 import {
   resolveDraftOutputShape,
@@ -27,6 +31,7 @@ import {
 import type {
   ConversationServices,
   OrchestratorResponse,
+  RoutingTracePatch,
 } from "./draftPipelineHelpers.ts";
 import type { GroundingPacketSourceMaterial } from "./groundingPacket.ts";
 
@@ -35,7 +40,13 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
+
+interface DraftingCapabilityRunMeta {
+  workers?: RuntimeWorkerExecution[];
+  validations?: RuntimeValidationResult[];
+  routingTracePatch?: RoutingTracePatch;
+}
 
 export interface DraftingCapabilityRunSuccess {
   kind: "success";
@@ -48,11 +59,11 @@ export interface DraftingCapabilityRunSuccess {
 }
 
 export type DraftingCapabilityRunResult =
-  | DraftingCapabilityRunSuccess
-  | {
-      kind: "response";
-      response: RawOrchestratorResponse;
-    };
+  | (DraftingCapabilityRunSuccess & DraftingCapabilityRunMeta)
+  | (DraftingCapabilityRunMeta & CapabilityPatchedResponseOutput<
+      RawOrchestratorResponse,
+      RoutingTracePatch
+    >);
 
 export interface DraftingCapabilityContext {
   memory: V2ConversationMemory;
@@ -90,14 +101,9 @@ export interface DraftingCapabilityReadyOutput {
   memoryPatch: DraftingCapabilityMemoryPatch;
 }
 
-export interface DraftingCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-}
-
 export type DraftingCapabilityOutput =
   | DraftingCapabilityReadyOutput
-  | DraftingCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeDraftingCapability(
   args: CapabilityExecutionRequest<DraftingCapabilityContext> & {
@@ -119,6 +125,8 @@ export async function executeDraftingCapability(
       workflow: args.workflow,
       capability: args.capability,
       output: draftResult,
+      workers: draftResult.workers,
+      validations: draftResult.validations,
     };
   }
 
@@ -133,8 +141,10 @@ export async function executeDraftingCapability(
       output: {
         kind: "response",
         response: await services.handleNoveltyConflict(),
+        routingTracePatch: draftResult.routingTracePatch,
       },
       workers: [
+        ...(draftResult.workers ?? []),
         {
           worker: "draft_delivery",
           capability: "drafting",
@@ -148,6 +158,7 @@ export async function executeDraftingCapability(
           },
         },
       ],
+      validations: draftResult.validations,
     };
   }
 
@@ -210,6 +221,7 @@ export async function executeDraftingCapability(
       },
     },
     workers: [
+      ...(draftResult.workers ?? []),
       {
         worker: "draft_delivery",
         capability: "drafting",
@@ -224,5 +236,6 @@ export async function executeDraftingCapability(
         },
       },
     ],
+    validations: draftResult.validations,
   };
 }
