@@ -18,8 +18,10 @@ import type {
   ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
   RuntimeValidationResult,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
@@ -38,7 +40,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 interface DraftingCapabilityRunMeta {
   workers?: RuntimeWorkerExecution[];
@@ -58,10 +60,10 @@ export interface DraftingCapabilityRunSuccess {
 
 export type DraftingCapabilityRunResult =
   | (DraftingCapabilityRunSuccess & DraftingCapabilityRunMeta)
-  | (DraftingCapabilityRunMeta & {
-      kind: "response";
-      response: RawOrchestratorResponse;
-    });
+  | (DraftingCapabilityRunMeta & CapabilityPatchedResponseOutput<
+      RawOrchestratorResponse,
+      RoutingTracePatch
+    >);
 
 export interface DraftingCapabilityContext {
   memory: V2ConversationMemory;
@@ -99,15 +101,9 @@ export interface DraftingCapabilityReadyOutput {
   memoryPatch: DraftingCapabilityMemoryPatch;
 }
 
-export interface DraftingCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-  routingTracePatch?: RoutingTracePatch;
-}
-
 export type DraftingCapabilityOutput =
   | DraftingCapabilityReadyOutput
-  | DraftingCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeDraftingCapability(
   args: CapabilityExecutionRequest<DraftingCapabilityContext> & {

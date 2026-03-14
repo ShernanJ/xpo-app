@@ -23,8 +23,10 @@ import type {
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type { VoiceTarget } from "../core/voiceTarget.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import type {
   CreatorProfileHints,
@@ -43,7 +45,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface ReplanningCapabilityContext {
   memory: V2ConversationMemory;
@@ -97,16 +99,10 @@ export interface ReplanningCapabilityPlanFailureOutput {
   responseSeed: RawResponseSeed;
 }
 
-export interface ReplanningCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-  routingTracePatch?: RoutingTracePatch;
-}
-
 export type ReplanningCapabilityOutput =
   | ReplanningCapabilityDraftReadyOutput
   | ReplanningCapabilityPlanFailureOutput
-  | ReplanningCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeReplanningCapability(
   args: CapabilityExecutionRequest<ReplanningCapabilityContext> & {

@@ -25,6 +25,7 @@ import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type {
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 
 type RawOrchestratorResponse = Omit<
@@ -32,7 +33,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface IdeationCapabilityContext {
   userMessage: string;

@@ -193,6 +193,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts` now standardizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging across the landed worker seams
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins explicit no-double-write coverage so sequential memory persistence remains single-write even when draft-candidate writes finish out of order
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records explicit sequential sibling-novelty retry trace entries so the remaining bundle retry path is formalized as a dependent control-plane step instead of implicit worker fan-out
+  - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now standardizes executor response and response-seed contracts, and the main executor seams now consume those shared types instead of local one-off response output shapes
 - Add merge rules for worker outputs.
 - Prohibit ambiguous side effects from worker fan-out.
 - Status: in progress.

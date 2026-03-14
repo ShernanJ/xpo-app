@@ -66,6 +66,21 @@ export interface RuntimeValidationResult {
   corrected: boolean;
 }
 
+export type RuntimeResponseSeed<TResponse extends { memory: unknown }> = Omit<
+  TResponse,
+  "memory"
+>;
+
+export interface CapabilityResponseOutput<TResponse> {
+  kind: "response";
+  response: TResponse;
+}
+
+export type CapabilityPatchedResponseOutput<TResponse, TPatch> =
+  CapabilityResponseOutput<TResponse> & {
+    routingTracePatch?: TPatch;
+  };
+
 export interface CapabilityExecutionRequest<TContext = unknown> {
   workflow: AgentRuntimeWorkflow;
   capability: CapabilityName;

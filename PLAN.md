@@ -162,6 +162,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Bundle sibling novelty retry boundary made explicit:
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records `retry_bundle_candidate_for_sibling_novelty` as a sequential execution step when a later bundle option must be regenerated against earlier accepted sibling drafts
   - this formalizes why the remaining novelty retry path stays outside the worker plane today: it depends on already-selected sibling outputs, so it remains sequential while initial candidate generation stays parallel
+- Executor response contracts standardized:
+  - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now owns shared `RuntimeResponseSeed`, `CapabilityResponseOutput`, and `CapabilityPatchedResponseOutput` types for executor boundaries
+  - drafting, draft-bundle, replanning, revising, planning, ideation, analysis, and replying executors now consume those shared types so merge-only response ownership stays consistent without changing runtime behavior or client payloads
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 

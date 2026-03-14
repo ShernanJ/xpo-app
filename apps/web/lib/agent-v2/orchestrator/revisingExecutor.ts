@@ -18,8 +18,10 @@ import type {
   ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts.ts";
 import type {
+  CapabilityResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import {
   resolveDraftOutputShape,
@@ -36,7 +38,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface RevisingCapabilityContext {
   memory: V2ConversationMemory;
@@ -82,14 +84,9 @@ export interface RevisingCapabilityReadyOutput {
   memoryPatch: RevisingCapabilityMemoryPatch;
 }
 
-export interface RevisingCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-}
-
 export type RevisingCapabilityOutput =
   | RevisingCapabilityReadyOutput
-  | RevisingCapabilityResponseOutput;
+  | CapabilityResponseOutput<RawOrchestratorResponse>;
 
 export async function executeRevisingCapability(
   args: CapabilityExecutionRequest<RevisingCapabilityContext> & {

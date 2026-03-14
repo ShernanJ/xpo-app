@@ -22,8 +22,10 @@ import type {
   DraftGroundingMode,
 } from "../../onboarding/draftArtifacts.ts";
 import type {
+  CapabilityPatchedResponseOutput,
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeResponseSeed,
 } from "../runtime/runtimeContracts.ts";
 import type { GroundingPacket, GroundingPacketSourceMaterial } from "./groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "./sourceMaterials.ts";
@@ -34,7 +36,7 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
-type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
 export interface DraftBundleCapabilityContext {
   userMessage: string;
@@ -74,15 +76,9 @@ export interface DraftBundleCapabilityReadyOutput {
   memoryPatch: DraftBundleCapabilityMemoryPatch;
 }
 
-export interface DraftBundleCapabilityResponseOutput {
-  kind: "response";
-  response: RawOrchestratorResponse;
-  routingTracePatch?: RoutingTracePatch;
-}
-
 export type DraftBundleCapabilityOutput =
   | DraftBundleCapabilityReadyOutput
-  | DraftBundleCapabilityResponseOutput;
+  | CapabilityPatchedResponseOutput<RawOrchestratorResponse, RoutingTracePatch>;
 
 export async function executeDraftBundleCapability(
   args: CapabilityExecutionRequest<DraftBundleCapabilityContext> & {
