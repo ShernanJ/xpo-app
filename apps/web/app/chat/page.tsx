@@ -17,7 +17,7 @@ import {
 import Image from "next/image";
 import { useSearchParams, useParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
-import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, LogOut, MessageSquareText, MoreVertical, Plus, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type, Wrench } from "lucide-react";
+import { ArrowUpRight, Ban, BarChart3, BookOpen, Bug, ChevronDown, ChevronRight, ChevronUp, Check, Copy, Edit3, ImagePlus, Lightbulb, List, MessageSquareText, MoreVertical, RotateCw, Settings2, Smile, Sparkles, ThumbsDown, ThumbsUp, Trash2, Type, Wrench } from "lucide-react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
@@ -80,9 +80,17 @@ import {
   type ObservedMetricsFormState,
 } from "./_dialogs/ObservedMetricsModal";
 import {
+  resolveBillingViewState,
+  type BillingSnapshotPayload,
+  type BillingStatePayload,
+} from "./_features/billing/billingViewState";
+import { PricingDialog } from "./_features/billing/PricingDialog";
+import { SettingsDialog } from "./_features/billing/SettingsDialog";
+import {
   DesktopDraftEditorDock,
   MobileDraftEditorDock,
 } from "./_features/draft-editor/DraftEditorDock";
+import { DraftEditorPanel } from "./_features/draft-editor/DraftEditorPanel";
 import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
@@ -121,7 +129,6 @@ import {
   buildDraftArtifactRevealKey,
   buildDraftBundleRevealKey,
   buildDraftCharacterCounterMeta,
-  getArtifactPosts,
   getThreadFramingStyle,
   resolveDisplayedDraftCharacterLimit,
   resolveInlineDraftPreviewState,
@@ -131,6 +138,38 @@ import {
   AnimatedDraftText,
   InlineDraftPreviewCard,
 } from "./_features/draft-editor/chatDraftPreviewCard";
+import {
+  getDraftGroundingLabel,
+  getDraftGroundingToneClasses,
+  summarizeGroundingSource,
+  type DraftCandidateStatus,
+} from "./_features/draft-queue/draftQueueViewState";
+import {
+  DraftQueueDialog,
+  type DraftQueueObservedMetricsCandidate,
+} from "./_features/draft-queue/DraftQueueDialog";
+import {
+  FEEDBACK_CATEGORY_CONFIG,
+  FEEDBACK_CATEGORY_ORDER,
+  FEEDBACK_HISTORY_FILTER_OPTIONS,
+  FEEDBACK_MAX_FILE_SIZE_BYTES,
+  FEEDBACK_MAX_FILES,
+  buildDefaultFeedbackDrafts,
+  buildDefaultFeedbackTitles,
+  buildFeedbackImageThumbnailDataUrl,
+  extractFeedbackTemplateFields,
+  formatFeedbackStatusLabel,
+  getFeedbackHistoryActivityTimestamp,
+  getFeedbackStatusPillClassName,
+  isSupportedFeedbackFile,
+  normalizeFeedbackStatus,
+  readFeedbackFileSignatureHex,
+  type FeedbackAttachmentPayload,
+  type FeedbackCategory,
+  type FeedbackHistoryItem,
+  type FeedbackReportFilter,
+  type FeedbackReportStatus,
+} from "./_features/feedback/feedbackState";
 import { resolveThreadHistoryHydration } from "./_features/thread-history/chatThreadHistoryState";
 import {
   buildDraftRevisionTimeline,
@@ -154,6 +193,25 @@ import {
 import { resolveWorkspaceLoadState } from "./_features/workspace/chatWorkspaceLoadState";
 import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
 import { ChatMessageRow } from "./_features/thread-history/ChatMessageRow";
+import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
+import { AccountMenuPanel } from "./_features/workspace-chrome/AccountMenuPanel";
+import { ThreadDeleteDialog } from "./_features/workspace-chrome/ThreadDeleteDialog";
+import {
+  buildEmptySourceMaterialDraft,
+  buildSourceMaterialDraftFromAsset,
+  deriveSourceMaterialTitle,
+  formatFileSize,
+  formatSourceMaterialTypeLabel,
+  hasAdvancedSourceMaterialDraftFields,
+  normalizeSourceMaterialLookupValue,
+  parseCommaSeparatedList,
+  parseLineSeparatedList,
+  sortSourceMaterials,
+  type SourceMaterialAsset,
+  type SourceMaterialDraftState,
+  type SourceMaterialSeedOptions,
+  type SourceMaterialType,
+} from "./_features/source-materials/sourceMaterialsState";
 
 interface ValidationError {
   field: string;
@@ -254,45 +312,6 @@ type CreatorGenerationContractResponse =
   | CreatorGenerationContractSuccess
   | CreatorGenerationContractFailure;
 
-interface BillingSnapshotPayload {
-  plan: "free" | "pro" | "lifetime";
-  status: "active" | "past_due" | "canceled" | "blocked_fair_use";
-  billingCycle: "monthly" | "annual" | "lifetime";
-  creditsRemaining: number;
-  creditLimit: number;
-  creditCycleResetsAt: string;
-  showFirstPricingModal: boolean;
-  lowCreditWarning: boolean;
-  criticalCreditWarning: boolean;
-  fairUse: {
-    softWarningThreshold: number;
-    reviewThreshold: number;
-    hardStopThreshold: number;
-    isSoftWarning: boolean;
-    isReviewLevel: boolean;
-    isHardStopped: boolean;
-  };
-}
-
-interface BillingStatePayload {
-  billing: BillingSnapshotPayload;
-  lifetimeSlots: {
-    total: number;
-    sold: number;
-    reserved: number;
-    remaining: number;
-  };
-  offers: Array<{
-    offer: "pro_monthly" | "pro_annual" | "lifetime";
-    label: string;
-    amountCents: number;
-    cadence: "month" | "year" | "one_time";
-    productCopy: string;
-    enabled: boolean;
-  }>;
-  supportEmail: string;
-}
-
 interface BillingStateSuccess {
   ok: true;
   data: BillingStatePayload;
@@ -378,14 +397,6 @@ interface DraftPromotionFailure {
 }
 
 type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
-
-type DraftCandidateStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "edited"
-  | "posted"
-  | "observed";
 
 interface DraftQueueCandidate {
   id: string;
@@ -485,35 +496,6 @@ interface PreferencesFailure {
 
 type PreferencesResponse = PreferencesSuccess | PreferencesFailure;
 
-type SourceMaterialType = "story" | "playbook" | "framework" | "case_study";
-
-interface SourceMaterialAsset {
-  id: string;
-  userId: string;
-  xHandle: string | null;
-  type: SourceMaterialType;
-  title: string;
-  tags: string[];
-  verified: boolean;
-  claims: string[];
-  snippets: string[];
-  doNotClaim: string[];
-  lastUsedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface SourceMaterialDraftState {
-  id: string | null;
-  title: string;
-  type: SourceMaterialType;
-  verified: boolean;
-  tagsInput: string;
-  claimsInput: string;
-  snippetsInput: string;
-  doNotClaimInput: string;
-}
-
 interface SourceMaterialsSuccess {
   ok: true;
   data: {
@@ -529,11 +511,6 @@ interface SourceMaterialMutationSuccess {
   };
 }
 
-interface SourceMaterialSeedOptions {
-  silentIfEmpty?: boolean;
-  successNotice?: string | null;
-}
-
 interface SourceMaterialsFailure {
   ok: false;
   errors: ValidationError[];
@@ -543,20 +520,6 @@ type SourceMaterialsResponse =
   | SourceMaterialsSuccess
   | SourceMaterialMutationSuccess
   | SourceMaterialsFailure;
-
-type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
-type FeedbackReportStatus = "open" | "resolved" | "cancelled";
-type FeedbackReportFilter = "all" | FeedbackReportStatus;
-
-interface FeedbackAttachmentPayload {
-  id: string;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  status: "pending_upload";
-  signatureHex?: string | null;
-  thumbnailDataUrl?: string | null;
-}
 
 interface FeedbackSubmitSuccess {
   ok: true;
@@ -573,18 +536,6 @@ interface FeedbackSubmitFailure {
 }
 
 type FeedbackSubmitResponse = FeedbackSubmitSuccess | FeedbackSubmitFailure;
-
-interface FeedbackHistoryItem {
-  id: string;
-  createdAt: string;
-  category: FeedbackCategory;
-  status?: FeedbackReportStatus;
-  statusUpdatedAt?: string;
-  statusUpdatedByUserId?: string | null;
-  title?: string | null;
-  message: string;
-  attachments: FeedbackAttachmentPayload[];
-}
 
 interface FeedbackHistorySuccess {
   ok: true;
@@ -615,16 +566,6 @@ interface FeedbackStatusUpdateFailure {
 type FeedbackStatusUpdateResponse =
   | FeedbackStatusUpdateSuccess
   | FeedbackStatusUpdateFailure;
-
-const FEEDBACK_HISTORY_FILTER_OPTIONS: Array<{
-  value: FeedbackReportFilter;
-  label: string;
-}> = [
-    { value: "all", label: "All" },
-    { value: "open", label: "Open" },
-    { value: "resolved", label: "Resolved" },
-    { value: "cancelled", label: "Cancelled" },
-  ];
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -1061,67 +1002,6 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneRisk: "safe",
 };
 
-function formatUsdPrice(amountCents: number): string {
-  const displayCurrency =
-    process.env.NEXT_PUBLIC_BILLING_DISPLAY_CURRENCY?.trim().toUpperCase() === "USD"
-      ? "USD"
-      : "CAD";
-  return new Intl.NumberFormat(displayCurrency === "CAD" ? "en-CA" : "en-US", {
-    style: "currency",
-    currency: displayCurrency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amountCents / 100);
-}
-
-function parsePublicUsdToCents(rawValue: string | undefined, fallbackCents: number): number {
-  if (!rawValue) {
-    return fallbackCents;
-  }
-
-  const normalized = rawValue.trim().replace(/\$/g, "").replace(/,/g, "");
-  const parsed = Number.parseFloat(normalized);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallbackCents;
-  }
-
-  return Math.round(parsed * 100);
-}
-
-const DEFAULT_MODAL_PRO_MONTHLY_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_CAD ??
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_MONTHLY_USD,
-  1999,
-);
-const DEFAULT_MODAL_PRO_ANNUAL_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_CAD ??
-  process.env.NEXT_PUBLIC_BILLING_PRICE_PRO_ANNUAL_USD,
-  19999,
-);
-const DEFAULT_MODAL_LIFETIME_CENTS = parsePublicUsdToCents(
-  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_CAD ??
-  process.env.NEXT_PUBLIC_BILLING_PRICE_FOUNDER_PASS_USD ??
-  process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_CAD ??
-  process.env.NEXT_PUBLIC_BILLING_PRICE_LIFETIME_USD,
-  49900,
-);
-const MODAL_FREE_CREDITS_PER_MONTH = 50;
-const MODAL_PRO_CREDITS_PER_MONTH = 500;
-const MODAL_CHAT_TURN_CREDIT_COST = 2;
-const MODAL_DRAFT_TURN_CREDIT_COST = 5;
-const MODAL_FREE_APPROX_CHAT_TURNS = Math.floor(
-  MODAL_FREE_CREDITS_PER_MONTH / MODAL_CHAT_TURN_CREDIT_COST,
-);
-const MODAL_FREE_APPROX_DRAFT_TURNS = Math.floor(
-  MODAL_FREE_CREDITS_PER_MONTH / MODAL_DRAFT_TURN_CREDIT_COST,
-);
-const MODAL_PRO_APPROX_CHAT_TURNS = Math.floor(
-  MODAL_PRO_CREDITS_PER_MONTH / MODAL_CHAT_TURN_CREDIT_COST,
-);
-const MODAL_PRO_APPROX_DRAFT_TURNS = Math.floor(
-  MODAL_PRO_CREDITS_PER_MONTH / MODAL_DRAFT_TURN_CREDIT_COST,
-);
-
 const BASE_HERO_QUICK_ACTIONS = [
   {
     label: "Write a post",
@@ -1167,363 +1047,6 @@ function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
 
 const HERO_EXIT_TRANSITION_MS = 720;
 const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
-const FEEDBACK_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-const FEEDBACK_MAX_FILES = 6;
-const FEEDBACK_SUPPORTED_FILE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "video/mp4",
-]);
-
-interface FeedbackCategoryConfig {
-  label: string;
-  helper: string;
-  defaultTitle: string;
-  template: string;
-  exampleTitle: string;
-  exampleBody: string;
-}
-
-const FEEDBACK_CATEGORY_ORDER: FeedbackCategory[] = [
-  "feedback",
-  "feature_request",
-  "bug_report",
-];
-
-const FEEDBACK_CATEGORY_CONFIG: Record<FeedbackCategory, FeedbackCategoryConfig> = {
-  feature_request: {
-    label: "Feature Request",
-    helper: "Share the missing workflow and why it matters in your day-to-day.",
-    defaultTitle: "Feature request",
-    template:
-      "**🚧 Problem:**\nWhat slows you down right now?\n\n**✨ Requested feature:**\nWhat should happen instead?\n\n**📈 Expected impact:**\nHow this would improve your workflow or outcomes.",
-    exampleTitle: "Good example",
-    exampleBody:
-      "Problem: when i'm refining drafts, i keep opening each card to compare versions and lose context.\n\nRequested feature: add an inline diff toggle in the draft editor that shows added/removed lines between the selected version and current version.\n\nExpected impact: i'd ship revisions faster because i can compare changes in one view without bouncing around the thread.",
-  },
-  feedback: {
-    label: "Feedback",
-    helper: "Tell us what feels good and what still feels off in normal use.",
-    defaultTitle: "Feedback",
-    template:
-      "**✅ What worked well:**\n\n**🤔 What felt confusing or slow:**\n\n**🛠️ Suggested improvement:**\n\n**📝 Anything else:**",
-    exampleTitle: "Good example",
-    exampleBody:
-      "What worked well: the new growth guide is way easier to skim.\n\nWhat felt confusing or slow: evidence cards in profile analysis all look the same at first glance.\n\nSuggested improvement: add one-line labels that explain each card's unique signal before the post text.\n\nAnything else: i'm using this mostly on laptop + devtools split view.",
-  },
-  bug_report: {
-    label: "Bug Report",
-    helper: "Include repro steps + expected vs actual so we can fix it quickly.",
-    defaultTitle: "Bug report",
-    template:
-      "**🐞 Summary:**\n\n**🧪 Steps to reproduce:**\n1.\n2.\n3.\n\n**✅ Expected result:**\n\n**❌ Actual result:**\n\n**📊 Frequency / impact:**",
-    exampleTitle: "Good example",
-    exampleBody:
-      "Summary: draft editor jumps to 1/1 after pressing Back once.\n\nSteps to reproduce:\n1. open a draft with at least 3 versions.\n2. press Back in the version navigator.\n3. try pressing Forward.\n\nExpected result: forward returns to the newer version.\n\nActual result: it shows 1/1 and forward stays disabled.\n\nFrequency / impact: always reproducible. blocks revision workflow.",
-  },
-};
-
-function buildDefaultFeedbackDrafts(): Record<FeedbackCategory, string> {
-  return FEEDBACK_CATEGORY_ORDER.reduce(
-    (acc, category) => {
-      acc[category] = FEEDBACK_CATEGORY_CONFIG[category].template;
-      return acc;
-    },
-    {
-      feature_request: "",
-      feedback: "",
-      bug_report: "",
-    } as Record<FeedbackCategory, string>,
-  );
-}
-
-function buildDefaultFeedbackTitles(): Record<FeedbackCategory, string> {
-  return FEEDBACK_CATEGORY_ORDER.reduce(
-    (acc, category) => {
-      acc[category] = FEEDBACK_CATEGORY_CONFIG[category].defaultTitle;
-      return acc;
-    },
-    {
-      feedback: "",
-      feature_request: "",
-      bug_report: "",
-    } as Record<FeedbackCategory, string>,
-  );
-}
-
-function buildEmptySourceMaterialDraft(): SourceMaterialDraftState {
-  return {
-    id: null,
-    title: "",
-    type: "story",
-    verified: true,
-    tagsInput: "",
-    claimsInput: "",
-    snippetsInput: "",
-    doNotClaimInput: "",
-  };
-}
-
-function buildSourceMaterialDraftFromAsset(
-  asset: SourceMaterialAsset,
-): SourceMaterialDraftState {
-  return {
-    id: asset.id,
-    title: asset.title,
-    type: asset.type,
-    verified: asset.verified,
-    tagsInput: asset.tags.join(", "),
-    claimsInput: asset.claims.join("\n"),
-    snippetsInput: asset.snippets.join("\n"),
-    doNotClaimInput: asset.doNotClaim.join("\n"),
-  };
-}
-
-function isEmptySourceMaterialDraft(draft: SourceMaterialDraftState): boolean {
-  return (
-    draft.id === null &&
-    draft.title.trim().length === 0 &&
-    draft.tagsInput.trim().length === 0 &&
-    draft.claimsInput.trim().length === 0 &&
-    draft.snippetsInput.trim().length === 0 &&
-    draft.doNotClaimInput.trim().length === 0
-  );
-}
-
-function hasAdvancedSourceMaterialDraftFields(draft: SourceMaterialDraftState): boolean {
-  return (
-    draft.tagsInput.trim().length > 0 ||
-    draft.snippetsInput.trim().length > 0 ||
-    draft.doNotClaimInput.trim().length > 0
-  );
-}
-
-function parseCommaSeparatedList(value: string): string[] {
-  return dedupePreserveOrder(
-    value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  );
-}
-
-function parseLineSeparatedList(value: string): string[] {
-  return dedupePreserveOrder(
-    value
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  );
-}
-
-function formatSourceMaterialTypeLabel(type: SourceMaterialType): string {
-  return formatEnumLabel(type);
-}
-
-function normalizeSourceMaterialLookupValue(value: string | null | undefined): string {
-  return (value || "").trim().toLowerCase();
-}
-
-function deriveSourceMaterialTitle(draft: SourceMaterialDraftState): string {
-  const explicitTitle = draft.title.trim();
-  if (explicitTitle.length >= 3) {
-    return explicitTitle;
-  }
-
-  const firstClaim = parseLineSeparatedList(draft.claimsInput)[0];
-  if (firstClaim) {
-    return firstClaim.slice(0, 72);
-  }
-
-  const firstSnippet = parseLineSeparatedList(draft.snippetsInput)[0];
-  if (firstSnippet) {
-    return firstSnippet.slice(0, 72);
-  }
-
-  return `Saved ${formatSourceMaterialTypeLabel(draft.type).toLowerCase()}`;
-}
-
-function sortSourceMaterials(assets: SourceMaterialAsset[]): SourceMaterialAsset[] {
-  return [...assets].sort((left, right) => {
-    if (left.verified !== right.verified) {
-      return left.verified ? -1 : 1;
-    }
-
-    const leftLastUsed = left.lastUsedAt ? Date.parse(left.lastUsedAt) : 0;
-    const rightLastUsed = right.lastUsedAt ? Date.parse(right.lastUsedAt) : 0;
-    if (leftLastUsed !== rightLastUsed) {
-      return rightLastUsed - leftLastUsed;
-    }
-
-    return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
-  });
-}
-
-function formatFileSize(sizeBytes: number): string {
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-
-  const kb = sizeBytes / 1024;
-  if (kb < 1024) {
-    return `${kb.toFixed(1)} KB`;
-  }
-
-  const mb = kb / 1024;
-  return `${mb.toFixed(1)} MB`;
-}
-
-async function readFeedbackFileSignatureHex(file: File): Promise<string | null> {
-  try {
-    const signatureBytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-    if (signatureBytes.length === 0) {
-      return null;
-    }
-
-    return Array.from(signatureBytes)
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return null;
-  }
-}
-
-async function buildFeedbackImageThumbnailDataUrl(
-  file: File,
-): Promise<string | null> {
-  if (!file.type.toLowerCase().startsWith("image/")) {
-    return null;
-  }
-
-  try {
-    const sourceDataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          resolve(reader.result);
-        } else {
-          reject(new Error("Invalid image data"));
-        }
-      };
-      reader.onerror = () => reject(reader.error ?? new Error("Failed to read image"));
-      reader.readAsDataURL(file);
-    });
-
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const nextImage = new window.Image();
-      nextImage.onload = () => resolve(nextImage);
-      nextImage.onerror = () => reject(new Error("Failed to decode image"));
-      nextImage.src = sourceDataUrl;
-    });
-
-    const maxDimension = 220;
-    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
-    const width = Math.max(1, Math.round(image.width * scale));
-    const height = Math.max(1, Math.round(image.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return null;
-    }
-
-    context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", 0.72);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeFeedbackStatus(
-  status: FeedbackReportStatus | undefined,
-): FeedbackReportStatus {
-  return status ?? "open";
-}
-
-function formatFeedbackStatusLabel(status: FeedbackReportStatus): string {
-  switch (status) {
-    case "resolved":
-      return "Resolved";
-    case "cancelled":
-      return "Cancelled";
-    default:
-      return "Open";
-  }
-}
-
-function getFeedbackStatusPillClassName(status: FeedbackReportStatus): string {
-  if (status === "resolved") {
-    return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
-  }
-
-  if (status === "cancelled") {
-    return "border-rose-300/30 bg-rose-300/10 text-rose-200";
-  }
-
-  return "border-white/10 text-zinc-300";
-}
-
-function getFeedbackHistoryActivityTimestamp(entry: FeedbackHistoryItem): number {
-  const candidate = entry.statusUpdatedAt ?? entry.createdAt;
-  const parsed = Date.parse(candidate);
-  if (Number.isFinite(parsed)) {
-    return parsed;
-  }
-
-  const createdAt = Date.parse(entry.createdAt);
-  return Number.isFinite(createdAt) ? createdAt : 0;
-}
-
-function isSupportedFeedbackFile(file: File): boolean {
-  const mimeType = file.type.toLowerCase();
-  if (FEEDBACK_SUPPORTED_FILE_MIME_TYPES.has(mimeType)) {
-    return true;
-  }
-
-  const lowerName = file.name.toLowerCase();
-  return (
-    lowerName.endsWith(".png") ||
-    lowerName.endsWith(".jpg") ||
-    lowerName.endsWith(".jpeg") ||
-    lowerName.endsWith(".mp4")
-  );
-}
-
-function extractFeedbackTemplateFields(text: string): Record<string, string> {
-  const fields: Record<string, string> = {};
-  const lines = text.split(/\r?\n/);
-  let currentKey: string | null = null;
-  let currentValue: string[] = [];
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    const normalizedHeading = line.replace(/\*\*/g, "").trim();
-    if (/^[^:]{1,80}:$/.test(normalizedHeading)) {
-      if (currentKey && currentValue.length > 0) {
-        fields[currentKey] = currentValue.join(" ").trim();
-      }
-      currentKey = normalizedHeading.replace(/:$/, "").toLowerCase();
-      currentValue = [];
-      continue;
-    }
-
-    if (!line) {
-      continue;
-    }
-
-    if (currentKey) {
-      currentValue.push(line.replace(/^\d+\.\s*/, ""));
-    }
-  }
-
-  if (currentKey && currentValue.length > 0) {
-    fields[currentKey] = currentValue.join(" ").trim();
-  }
-
-  return fields;
-}
-
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -1809,103 +1332,6 @@ function buildHeroGreeting(params: {
 
   return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
-
-function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
-  switch (status) {
-    case "approved":
-      return "Approved";
-    case "rejected":
-      return "Rejected";
-    case "edited":
-      return "Edited";
-    case "posted":
-      return "Posted";
-    case "observed":
-      return "Observed";
-    case "pending":
-    default:
-      return "Pending";
-  }
-}
-
-function getDraftQueueStatusClassName(status: DraftCandidateStatus): string {
-  switch (status) {
-    case "approved":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
-    case "rejected":
-      return "border-red-500/30 bg-red-500/10 text-red-200";
-    case "edited":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-200";
-    case "posted":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-200";
-    case "observed":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-200";
-    case "pending":
-    default:
-      return "border-white/10 bg-white/[0.05] text-zinc-300";
-  }
-}
-
-function summarizeVoiceTarget(
-  voiceTarget: DraftArtifact["voiceTarget"] | null | undefined,
-): string | null {
-  if (!voiceTarget) {
-    return null;
-  }
-
-  const parts = [
-    voiceTarget.lane ? formatEnumLabel(voiceTarget.lane) : null,
-    voiceTarget.compression ? formatEnumLabel(voiceTarget.compression) : null,
-    voiceTarget.hookStyle ? formatEnumLabel(voiceTarget.hookStyle) : null,
-    voiceTarget.formality ? formatEnumLabel(voiceTarget.formality) : null,
-    voiceTarget.emojiPolicy ? formatEnumLabel(voiceTarget.emojiPolicy) : null,
-  ].filter(Boolean) as string[];
-
-  return parts.length > 0 ? parts.slice(0, 3).join(" • ") : null;
-}
-
-function summarizeGroundingSource(
-  source: DraftArtifact["groundingSources"][number],
-): string | null {
-  return source.claims[0] || source.snippets[0] || null;
-}
-
-function getDraftGroundingLabel(
-  artifact: Pick<DraftArtifact, "groundingMode">,
-): string | null {
-  switch (artifact.groundingMode) {
-    case "saved_sources":
-      return "Using saved stories";
-    case "current_chat":
-      return "Using this chat";
-    case "mixed":
-      return "Using saved stories + this chat";
-    case "safe_framework":
-      return "Safe framework mode";
-    default:
-      return null;
-  }
-}
-
-function getDraftGroundingToneClasses(
-  artifact: Pick<DraftArtifact, "groundingMode">,
-): {
-  container: string;
-  label: string;
-} {
-  if (artifact.groundingMode === "safe_framework") {
-    return {
-      container: "border-sky-500/20 bg-sky-500/[0.06]",
-      label: "text-sky-300/80",
-    };
-  }
-
-  return {
-    container: "border-emerald-500/20 bg-emerald-500/[0.06]",
-    label: "text-emerald-300/80",
-  };
-}
-
 
 function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
   if (!message.quickReplies?.length) {
@@ -2591,7 +2017,7 @@ function ChatPageContent() {
     setObservedMetricsForm(createEmptyObservedMetricsForm());
   }, []);
 
-  const openObservedMetricsModal = useCallback((candidate: DraftQueueCandidate) => {
+  const openObservedMetricsModal = useCallback((candidate: DraftQueueObservedMetricsCandidate) => {
     const metrics = (candidate.observedMetrics ?? {}) as Record<string, unknown>;
     setObservedMetricsCandidateId(candidate.id);
     setObservedMetricsForm({
@@ -6991,207 +6417,53 @@ function ChatPageContent() {
     "X";
   const accountProfileAriaLabel = `${accountName ?? session?.user?.email ?? "X"} profile photo`;
   const shouldCenterHero = isNewChatHero || isLeavingHero;
-  const activeBillingSnapshot = billingState?.billing ?? null;
   const billingOffers = billingState?.offers ?? [];
   const lifetimeOffer = billingOffers.find((offer) => offer.offer === "lifetime");
-  const proMonthlyOffer = billingOffers.find((offer) => offer.offer === "pro_monthly");
-  const proAnnualOffer = billingOffers.find((offer) => offer.offer === "pro_annual");
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
-  const modalMonthlyCents = proMonthlyOffer?.amountCents ?? DEFAULT_MODAL_PRO_MONTHLY_CENTS;
-  const modalAnnualCents = proAnnualOffer?.amountCents ?? DEFAULT_MODAL_PRO_ANNUAL_CENTS;
-  const isProActive =
-    activeBillingSnapshot?.plan === "pro" && activeBillingSnapshot?.status === "active";
-  const isProMonthlyCurrent = isProActive && activeBillingSnapshot?.billingCycle === "monthly";
-  const isProAnnualCurrent = isProActive && activeBillingSnapshot?.billingCycle === "annual";
-  const isFounderCurrent =
-    activeBillingSnapshot?.plan === "lifetime" && activeBillingSnapshot?.status === "active";
-  const pricingModalDismissLabel = activeBillingSnapshot?.plan === "free" ? "Continue Free" : "Close";
-  const proMonthlyButtonLabel = isFounderCurrent
-    ? "Included"
-    : isProMonthlyCurrent
-      ? "Current Plan"
-      : isProAnnualCurrent
-        ? "Switch to Monthly"
-        : "Go Pro";
-  const proAnnualButtonLabel = isFounderCurrent
-    ? "Included"
-    : isProAnnualCurrent
-      ? "Current Plan"
-      : isProMonthlyCurrent
-        ? "Switch to Annual"
-        : "Go Pro Annual";
-  const selectedModalProIsAnnual = selectedModalProCadence === "annual";
-  const selectedModalProCents = selectedModalProIsAnnual ? modalAnnualCents : modalMonthlyCents;
-  const selectedModalProPriceSuffix = selectedModalProIsAnnual ? " / year" : " / month";
-  const selectedModalProButtonLabel = selectedModalProIsAnnual
-    ? proAnnualButtonLabel
-    : proMonthlyButtonLabel;
-  const selectedModalProOffer = selectedModalProIsAnnual ? "pro_annual" : "pro_monthly";
-  const selectedModalProIsCurrent = selectedModalProIsAnnual
-    ? isProAnnualCurrent
-    : isProMonthlyCurrent;
-  const selectedModalProNeedsPortalSwitch = selectedModalProIsAnnual
-    ? isProMonthlyCurrent
-    : isProAnnualCurrent;
-  const selectedModalProOfferEnabled = selectedModalProIsAnnual
-    ? proAnnualOffer?.enabled !== false
-    : proMonthlyOffer?.enabled !== false;
+  const billingViewState = useMemo(
+    () =>
+      resolveBillingViewState({
+        billingState,
+        dismissedBillingWarningLevel,
+        isBillingLoading,
+        selectedModalProCadence,
+      }),
+    [
+      billingState,
+      dismissedBillingWarningLevel,
+      isBillingLoading,
+      selectedModalProCadence,
+    ],
+  );
+  const {
+    activeBillingSnapshot,
+    billingCreditsLabel,
+    billingWarningLevel,
+    isFounderCurrent,
+    isProActive,
+    pricingModalDismissLabel,
+    rateLimitResetLabel,
+    rateLimitUpgradeLabel,
+    rateLimitWindowLabel,
+    rateLimitsRemainingPercent,
+    selectedModalProButtonLabel,
+    selectedModalProCents,
+    selectedModalProIsAnnual,
+    selectedModalProIsCurrent,
+    selectedModalProNeedsPortalSwitch,
+    selectedModalProOffer,
+    selectedModalProOfferEnabled,
+    selectedModalProPriceSuffix,
+    settingsCreditsRemaining,
+    settingsCreditsRemainingPercent,
+    settingsCreditsUsed,
+    settingsCreditLimit,
+    settingsPlanLabel,
+    showBillingWarningBanner,
+    showRateLimitUpgradeCta,
+  } = billingViewState;
   const isSelectedModalProCheckoutLoading = checkoutLoadingOffer === selectedModalProOffer;
-  const billingCreditsLabel = activeBillingSnapshot
-    ? `${Math.max(0, activeBillingSnapshot.creditsRemaining)}/${Math.max(
-      0,
-      activeBillingSnapshot.creditLimit,
-    )} credits`
-    : "Credits loading";
-  const rateLimitsRemainingPercent = activeBillingSnapshot
-    ? Math.max(
-      0,
-      Math.min(
-        100,
-        Math.round(
-          (Math.max(0, activeBillingSnapshot.creditsRemaining) /
-            Math.max(1, activeBillingSnapshot.creditLimit)) *
-          100,
-        ),
-      ),
-    )
-    : null;
-  const rateLimitWindowLabel = activeBillingSnapshot
-    ? activeBillingSnapshot.plan === "lifetime"
-      ? "Founder Pass"
-      : activeBillingSnapshot.plan === "pro"
-        ? activeBillingSnapshot.billingCycle === "annual"
-          ? "Pro Annual"
-          : "Pro Monthly"
-        : "Free"
-    : "Free";
-  const rateLimitResetLabel = activeBillingSnapshot
-    ? new Date(activeBillingSnapshot.creditCycleResetsAt).toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-    : isBillingLoading
-      ? "Loading..."
-      : "Unavailable";
-  const rateLimitUpgradeLabel =
-    activeBillingSnapshot?.plan === "pro" ? "Get Founder Pass" : "Upgrade to Pro";
-  const showRateLimitUpgradeCta = activeBillingSnapshot?.plan !== "lifetime";
-  const settingsPlanLabel = rateLimitWindowLabel;
-  const settingsCreditsRemaining = activeBillingSnapshot
-    ? Math.max(0, activeBillingSnapshot.creditsRemaining)
-    : 0;
-  const settingsCreditLimit = activeBillingSnapshot
-    ? Math.max(0, activeBillingSnapshot.creditLimit)
-    : 0;
-  const settingsCreditsUsed = Math.max(0, settingsCreditLimit - settingsCreditsRemaining);
-  const settingsCreditsRemainingPercent = rateLimitsRemainingPercent;
-  const billingWarningLevel = activeBillingSnapshot?.criticalCreditWarning
-    ? "critical"
-    : activeBillingSnapshot?.lowCreditWarning
-      ? "low"
-      : "none";
-  const showBillingWarningBanner =
-    billingWarningLevel !== "none" &&
-    dismissedBillingWarningLevel !== billingWarningLevel;
   const canAddAccount = true;
-  const renderAccountMenuPanel = (className: string) =>
-    accountMenuVisible ? (
-      <div
-        className={`${className} [&_button:not(:disabled)]:cursor-pointer origin-bottom transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${accountMenuOpen
-          ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
-          : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-[1px]"
-          }`}
-      >
-        <div className="max-h-[200px] overflow-y-auto px-1 py-1">
-          <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            X Accounts
-          </p>
-          {availableHandles.map((handleStr) => (
-            <button
-              key={handleStr}
-              onClick={() => switchActiveHandle(handleStr)}
-              className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-            >
-              <span className="truncate">@{handleStr}</span>
-              {handleStr === accountName && <Check className="h-4 w-4 text-white" />}
-            </button>
-          ))}
-          <button
-            type="button"
-            disabled={!canAddAccount}
-            onClick={() => {
-              if (!canAddAccount) {
-                setPricingModalOpen(true);
-                setAccountMenuOpen(false);
-                return;
-              }
-              setAccountMenuOpen(false);
-              setIsAddAccountModalOpen(true);
-              setAddAccountError(null);
-              setReadyAccountHandle(null);
-            }}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            <span>{canAddAccount ? "Add Account" : "Upgrade to add account"}</span>
-          </button>
-        </div>
-
-        <div className="my-1 h-px bg-white/10" />
-
-        <div className="px-1 py-1">
-          <button
-            type="button"
-            onClick={() => {
-              setAccountMenuOpen(false);
-              setSettingsModalOpen(true);
-            }}
-            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-          >
-            <span>Settings</span>
-            <ChevronRight className="h-4 w-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setRateLimitsMenuOpen((current) => !current)}
-            className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-          >
-            <span>Rate limits remaining</span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform ${rateLimitsMenuOpen ? "rotate-180" : ""
-                }`}
-            />
-          </button>
-          {rateLimitsMenuOpen ? (
-            <div className="mb-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-zinc-300">{rateLimitWindowLabel}</span>
-                <span className="font-semibold text-zinc-100">
-                  {rateLimitsRemainingPercent !== null ? `${rateLimitsRemainingPercent}%` : "—"}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">Resets {rateLimitResetLabel}</p>
-              {showRateLimitUpgradeCta ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPricingModalOpen(true);
-                    setAccountMenuOpen(false);
-                  }}
-                  className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 transition hover:bg-white/5 hover:text-white"
-                >
-                  <span>{rateLimitUpgradeLabel}</span>
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    ) : null;
   const composerChromeClassName =
     "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
   const heroInlineComposerSurfaceClassName =
@@ -7221,769 +6493,62 @@ function ChatPageContent() {
     }`;
   const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
     }`;
-  const renderDraftEditorPanelLayout = (layout: "desktop" | "mobile") => {
-    if (!(selectedDraftVersion && selectedDraftBundle)) {
-      return null;
-    }
-
-    const isMobile = layout === "mobile";
-    const panelPaddingClassName = isMobile ? "px-4 pb-4" : "px-5 pb-5";
-    const panelHeaderPaddingClassName = isMobile ? "px-4 pb-3 pt-4" : "px-5 pb-3 pt-5";
-    const panelFooterPaddingClassName = isMobile ? "px-4 py-4" : "px-5 py-4";
-    const avatarSizeClassName = isMobile ? "h-10 w-10 text-sm" : "h-11 w-11 text-sm";
-    const displayNameClassName = isMobile ? "text-sm" : "text-[15px]";
-    const usernameClassName = isMobile ? "text-[11px]" : "text-xs";
-    const bodyTextClassName = isMobile ? "text-[15px] leading-7" : "text-[16px] leading-8";
-    const threadPosts = isSelectedDraftThread
-      ? ensureEditableThreadPosts(editorDraftPosts)
-      : [];
-    const selectedThreadPost = isSelectedDraftThread
-      ? threadPosts[selectedDraftThreadPostIndex] ?? ""
-      : "";
-    const threadPostCharacterLimit = getThreadPostCharacterLimit(
-      selectedDraftArtifact,
-      getXCharacterLimitForAccount(isVerifiedAccount),
-    );
-    const selectedThreadPostWeightedCount = computeXWeightedCharacterCount(selectedThreadPost);
-    const isSelectedThreadPostOverLimit =
-      selectedThreadPostWeightedCount > threadPostCharacterLimit;
-    const serializedThreadContent = isSelectedDraftThread
-      ? draftEditorSerializedContent
-      : editorDraftText;
-    const footerCounterLabel = isSelectedDraftThread
-      ? `${threadPosts.filter((post) => post.trim().length > 0).length || threadPosts.length} posts • ${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
-          selectedDraftVersion.maxCharacterLimit,
-          composerCharacterLimit,
-        )} chars`
-      : `${computeXWeightedCharacterCount(serializedThreadContent)}/${resolveDisplayedDraftCharacterLimit(
-          selectedDraftVersion.maxCharacterLimit,
-          composerCharacterLimit,
-        )} chars`;
-
-    return (
-      <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
-        <div className={panelHeaderPaddingClassName}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 font-bold uppercase text-white ${avatarSizeClassName}`}>
-                {context?.avatarUrl ? (
-                  <div
-                    className="h-full w-full bg-cover bg-center"
-                    style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                    role="img"
-                    aria-label={`${heroIdentityLabel} profile photo`}
-                  />
-                ) : (
-                  heroInitials.charAt(0)
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className={`truncate font-semibold text-white ${displayNameClassName}`}>
-                    {context?.creatorProfile.identity.displayName ??
-                      context?.creatorProfile.identity.username ??
-                      accountName ??
-                      "You"}
-                  </p>
-                  {isVerifiedAccount ? (
-                    <Image
-                      src="/x-verified.svg"
-                      alt="Verified account"
-                      width={isMobile ? 14 : 16}
-                      height={isMobile ? 14 : 16}
-                      className={isMobile ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"}
-                    />
-                  ) : null}
-                </div>
-                <p className={`mt-0.5 line-clamp-1 text-zinc-400 ${usernameClassName}`}>
-                  @{context?.creatorProfile.identity.username ?? accountName ?? "x"}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveDraftEditor(null)}
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
-              aria-label="Close draft editor"
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => navigateDraftTimeline("back")}
-                  disabled={!canNavigateDraftBack}
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Previous draft version"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateDraftTimeline("forward")}
-                  disabled={!canNavigateDraftForward}
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Next draft version"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <p className="truncate text-[11px] font-medium text-zinc-500">
-                Version {selectedDraftTimelinePosition} of {selectedDraftTimeline.length}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                void (shouldShowRevertDraftCta
-                  ? revertToSelectedDraftVersion()
-                  : saveDraftEditor());
-              }}
-              disabled={isDraftEditorPrimaryActionDisabled}
-              className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {draftEditorPrimaryActionLabel}
-            </button>
-          </div>
-        </div>
-
-        <div className={`min-h-0 flex-1 ${panelPaddingClassName}`}>
-          {isSelectedDraftThread ? (
-            <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Thread Framing
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Control how the thread announces itself.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {[
-                    { value: "none", label: "Natural" },
-                    { value: "soft_signal", label: "Soft Intro" },
-                    { value: "numbered", label: "Numbered" },
-                  ].map((option) => {
-                    const isActive = selectedDraftThreadFramingStyle === option.value;
-
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => {
-                          void requestSelectedThreadFramingChange(
-                            option.value as ThreadFramingStyle,
-                          );
-                        }}
-                        disabled={
-                          isActive || isMainChatLocked || isViewingHistoricalDraftVersion
-                        }
-                        className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
-                          isActive
-                            ? "bg-white text-black"
-                            : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                        } disabled:cursor-not-allowed disabled:opacity-45`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {threadPosts.map((_, index) => {
-                  const isActive = selectedDraftThreadPostIndex === index;
-
-                  return (
-                    <button
-                      key={`thread-post-chip-${index}`}
-                      type="button"
-                      onClick={() => {
-                        if (!selectedDraftMessageId) {
-                          return;
-                        }
-
-                        setSelectedThreadPostByMessageId((current) => ({
-                          ...current,
-                          [selectedDraftMessageId]: index,
-                        }));
-                      }}
-                      className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
-                        isActive
-                          ? "bg-white text-black"
-                          : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                      }`}
-                    >
-                      Post {index + 1}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                      Post {selectedDraftThreadPostIndex + 1}
-                    </span>
-                    <span className={`text-[11px] ${isSelectedThreadPostOverLimit ? "text-red-400" : "text-zinc-500"}`}>
-                      {selectedThreadPostWeightedCount}/{threadPostCharacterLimit.toLocaleString()}
-                    </span>
-                  </div>
-                  {!isViewingHistoricalDraftVersion ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => moveThreadDraftPost(selectedDraftThreadPostIndex, "up")}
-                        disabled={selectedDraftThreadPostIndex === 0}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveThreadDraftPost(selectedDraftThreadPostIndex, "down")}
-                        disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                      >
-                        Down
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => splitThreadDraftPost(selectedDraftThreadPostIndex)}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                      >
-                        Split
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => mergeThreadDraftPostDown(selectedDraftThreadPostIndex)}
-                        disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                      >
-                        Merge
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addThreadDraftPost(selectedDraftThreadPostIndex + 1)}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                      >
-                        Add Below
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeThreadDraftPost(selectedDraftThreadPostIndex)}
-                        className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-
-                {isViewingHistoricalDraftVersion ? (
-                  <div className={`mt-3 whitespace-pre-wrap text-white ${bodyTextClassName}`}>
-                    {selectedThreadPost}
-                  </div>
-                ) : (
-                  <textarea
-                    value={selectedThreadPost}
-                    onChange={(event) =>
-                      updateThreadDraftPost(
-                        selectedDraftThreadPostIndex,
-                        event.target.value,
-                      )
-                    }
-                    className={`mt-3 min-h-[220px] w-full resize-none overflow-y-auto rounded-2xl border ${isSelectedThreadPostOverLimit ? "border-red-500/30" : "border-white/10"} bg-transparent px-3 py-3 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-                    placeholder={`Thread post ${selectedDraftThreadPostIndex + 1}`}
-                  />
-                )}
-              </div>
-
-              {!isViewingHistoricalDraftVersion ? (
-                <button
-                  type="button"
-                  onClick={() => addThreadDraftPost()}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 px-4 py-3 text-sm font-medium text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.04] hover:text-white"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add another post
-                </button>
-              ) : null}
-
-            </div>
-          ) : isViewingHistoricalDraftVersion ? (
-            <div className={`h-full min-h-full overflow-y-auto whitespace-pre-wrap text-white ${bodyTextClassName}`}>
-              {editorDraftText}
-            </div>
-          ) : (
-            <textarea
-              value={editorDraftText}
-              onChange={(event) => setEditorDraftText(event.target.value)}
-              className={`h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-              placeholder="Draft content"
-            />
-          )}
-        </div>
-
-        <div className={`border-t border-white/10 ${panelFooterPaddingClassName}`}>
-          <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                void runDraftInspector();
-              }}
-              disabled={isDraftInspectorLoading}
-              className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {draftInspectorActionLabel}
-            </button>
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-zinc-500">{footerCounterLabel}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  void copyDraftEditor();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                aria-label="Copy current draft"
-              >
-                {hasCopiedDraftEditorText ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  shareDraftEditorToX();
-                }}
-                className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
-              >
-                Share
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+  const draftEditorIdentity = {
+    avatarUrl: context?.avatarUrl ?? null,
+    displayName:
+      context?.creatorProfile.identity.displayName ??
+      context?.creatorProfile.identity.username ??
+      accountName ??
+      "You",
+    username: context?.creatorProfile.identity.username ?? accountName ?? "x",
+    profilePhotoLabel: `${heroIdentityLabel} profile photo`,
+    initials: heroInitials,
   };
-  const renderDraftQueueModal = () =>
-    draftQueueOpen ? (
-      <div
-        className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            setDraftQueueOpen(false);
-            setEditingDraftCandidateId(null);
-            setEditingDraftCandidateText("");
-          }
-        }}
-      >
-        <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-          <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                Draft Review
-              </p>
-              <h2 className="mt-3 text-2xl font-semibold text-white">
-                Review drafts after chat generates them
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-                Chat is the primary drafting surface now. Use this view to review, approve, post, and log what happened after something ships.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setDraftQueueOpen(false);
-                  void submitQuickStarter("draft 4 posts from what you know about me");
-                }}
-                disabled={!context?.runId}
-                className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-              >
-                Generate in Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDraftQueueOpen(false);
-                  setEditingDraftCandidateId(null);
-                  setEditingDraftCandidateText("");
-                }}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-y-auto px-6 py-6">
-            {draftQueueError ? (
-              <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {draftQueueError}
-              </div>
-            ) : null}
-
-            {isDraftQueueLoading ? (
-              <div className="rounded-3xl border border-white/10 bg-white/[0.02] px-5 py-10 text-center text-sm text-zinc-400">
-                Loading the queue...
-              </div>
-            ) : draftQueueItems.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-center">
-                <p className="text-sm font-medium text-white">No reviewed drafts yet</p>
-                <p className="mt-2 text-sm text-zinc-500">
-                  Generate a batch in chat, then review the results here.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {draftQueueItems.map((candidate) => {
-                  const candidatePosts = getArtifactPosts(candidate.artifact);
-                  const isThreadCandidate =
-                    candidate.artifact.kind === "thread_seed" || candidatePosts.length > 1;
-                  const isEditingCandidate = editingDraftCandidateId === candidate.id;
-                  const activeCandidateAction = draftQueueActionById[candidate.id] ?? null;
-                  const candidateVoiceSummary = summarizeVoiceTarget(
-                    candidate.voiceTarget ?? candidate.artifact.voiceTarget,
-                  );
-
-                  return (
-                    <div
-                      key={candidate.id}
-                      className="rounded-3xl border border-white/10 bg-white/[0.02] p-5"
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${getDraftQueueStatusClassName(candidate.status)}`}>
-                              {formatDraftQueueStatusLabel(candidate.status)}
-                            </span>
-                            {candidate.sourcePlaybook ? (
-                              <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                                {candidate.sourcePlaybook.replace(/_/g, " ")}
-                              </span>
-                            ) : null}
-                            <span className="text-[11px] text-zinc-500">
-                              {new Date(candidate.updatedAt).toLocaleString([], {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold text-white">
-                              {candidate.title}
-                            </h3>
-                            <p className="mt-2 text-sm leading-6 text-zinc-400">
-                              {candidate.sourcePrompt}
-                            </p>
-                          </div>
-                          {candidateVoiceSummary ? (
-                            <p className="text-xs text-zinc-500">
-                              Voice target: {candidateVoiceSummary}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void mutateDraftQueueCandidate(candidate.id, { action: "approve" });
-                            }}
-                            disabled={Boolean(activeCandidateAction)}
-                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {activeCandidateAction === "approve" ? "Approving" : "Approve"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void mutateDraftQueueCandidate(candidate.id, {
-                                action: "reject",
-                                rejectionReason: "Rejected from the draft queue.",
-                              });
-                            }}
-                            disabled={Boolean(activeCandidateAction)}
-                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {activeCandidateAction === "reject" ? "Rejecting" : "Reject"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isEditingCandidate) {
-                                setEditingDraftCandidateId(null);
-                                setEditingDraftCandidateText("");
-                                return;
-                              }
-
-                              setEditingDraftCandidateId(candidate.id);
-                              setEditingDraftCandidateText(candidate.artifact.content);
-                            }}
-                            disabled={Boolean(activeCandidateAction)}
-                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {isEditingCandidate ? "Cancel Edit" : "Edit"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void mutateDraftQueueCandidate(candidate.id, { action: "regenerate" });
-                            }}
-                            disabled={Boolean(activeCandidateAction)}
-                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {activeCandidateAction === "regenerate" ? "Regenerating" : "Regenerate"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void mutateDraftQueueCandidate(candidate.id, { action: "posted" });
-                            }}
-                            disabled={Boolean(activeCandidateAction)}
-                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {activeCandidateAction === "posted" ? "Updating" : "Mark Posted"}
-                          </button>
-                          {(candidate.status === "posted" || candidate.status === "observed") ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                openObservedMetricsModal(candidate);
-                              }}
-                              disabled={Boolean(activeCandidateAction)}
-                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {candidate.status === "observed" ? "Update Observed" : "Mark Observed"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                        {isEditingCandidate ? (
-                          <div className="space-y-3">
-                            <textarea
-                              value={editingDraftCandidateText}
-                              onChange={(event) => setEditingDraftCandidateText(event.target.value)}
-                              className="min-h-[200px] w-full resize-y rounded-2xl border border-white/10 bg-transparent px-4 py-4 text-sm leading-7 text-white outline-none placeholder:text-zinc-600"
-                              placeholder="Edit draft candidate"
-                            />
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs text-zinc-500">
-                                {computeXWeightedCharacterCount(editingDraftCandidateText)}/
-                                {candidate.artifact.maxCharacterLimit} chars
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void mutateDraftQueueCandidate(candidate.id, {
-                                    action: "edit",
-                                    content: editingDraftCandidateText.trim(),
-                                  });
-                                }}
-                                disabled={!editingDraftCandidateText.trim() || Boolean(activeCandidateAction)}
-                                className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                              >
-                                {activeCandidateAction === "edit" ? "Saving" : "Save Edit"}
-                              </button>
-                            </div>
-                          </div>
-                        ) : isThreadCandidate ? (
-                          <div className="space-y-3">
-                            {candidatePosts.map((post, index) => {
-                              const postCharacterLimit =
-                                candidate.artifact.posts[index]?.maxCharacterLimit ??
-                                getXCharacterLimitForAccount(isVerifiedAccount);
-                              const weightedPostCount = computeXWeightedCharacterCount(post);
-
-                              return (
-                                <div
-                                  key={`${candidate.id}-post-${index}`}
-                                  className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
-                                >
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                      Post {index + 1}
-                                    </span>
-                                    <span className={`text-[11px] ${weightedPostCount > postCharacterLimit ? "text-red-400" : "text-zinc-500"}`}>
-                                      {weightedPostCount}/{postCharacterLimit.toLocaleString()}
-                                    </span>
-                                  </div>
-                                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-100">
-                                    {post}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-100">
-                            {candidate.artifact.content}
-                          </p>
-                        )}
-
-                        {candidate.artifact.supportAsset ? (
-                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Support asset
-                            </p>
-                            <p className="mt-2 text-xs leading-6 text-zinc-300">
-                              {candidate.artifact.supportAsset}
-                            </p>
-                          </div>
-                        ) : null}
-
-                        {candidate.artifact.groundingExplanation ||
-                        candidate.artifact.groundingSources?.length ? (() => {
-                          const groundingTone = getDraftGroundingToneClasses(candidate.artifact);
-                          const groundingLabel =
-                            getDraftGroundingLabel(candidate.artifact) || "Grounding";
-
-                          return (
-                            <div className={`mt-4 rounded-2xl border px-4 py-3 ${groundingTone.container}`}>
-                              <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${groundingTone.label}`}>
-                                {groundingLabel}
-                              </p>
-                              {candidate.artifact.groundingExplanation ? (
-                                <p className="mt-2 text-xs leading-6 text-zinc-200">
-                                  {candidate.artifact.groundingExplanation}
-                                </p>
-                              ) : null}
-                              {candidate.artifact.groundingSources?.length ? (
-                                <ul className="mt-2 space-y-2 text-xs leading-6 text-zinc-200">
-                                  {candidate.artifact.groundingSources.slice(0, 2).map((source, index) => (
-                                    <li key={`${candidate.id}-grounding-${index}`}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          void openSourceMaterialEditor({
-                                            title: source.title,
-                                          });
-                                        }}
-                                        className="font-semibold text-emerald-200 transition hover:text-white"
-                                      >
-                                        {source.title}
-                                      </button>
-                                      {summarizeGroundingSource(source)
-                                        ? ` · ${summarizeGroundingSource(source)}`
-                                        : ""}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </div>
-                          );
-                        })() : null}
-
-                        {candidate.noveltyNotes?.length ? (
-                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                              Novelty guardrails
-                            </p>
-                            <ul className="mt-2 space-y-1.5 text-xs leading-6 text-zinc-300">
-                              {candidate.noveltyNotes.slice(0, 3).map((note, index) => (
-                                <li key={`${candidate.id}-novelty-${index}`}>{note}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-
-                        {candidate.observedMetrics ? (
-                          <div className="mt-4 rounded-2xl border border-sky-500/20 bg-sky-500/[0.05] px-4 py-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300">
-                                Observed outcomes
-                              </p>
-                              {candidate.observedAt ? (
-                                <span className="text-[11px] text-zinc-500">
-                                  {new Date(candidate.observedAt).toLocaleDateString()}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-200">
-                              {typeof candidate.observedMetrics.likeCount === "number" ||
-                              typeof candidate.observedMetrics.likeCount === "string" ? (
-                                <span className="rounded-full border border-white/10 px-2.5 py-1">
-                                  likes {String(candidate.observedMetrics.likeCount)}
-                                </span>
-                              ) : null}
-                              {typeof candidate.observedMetrics.replyCount === "number" ||
-                              typeof candidate.observedMetrics.replyCount === "string" ? (
-                                <span className="rounded-full border border-white/10 px-2.5 py-1">
-                                  replies {String(candidate.observedMetrics.replyCount)}
-                                </span>
-                              ) : null}
-                              {typeof candidate.observedMetrics.profileClicks === "number" ||
-                              typeof candidate.observedMetrics.profileClicks === "string" ? (
-                                <span className="rounded-full border border-white/10 px-2.5 py-1">
-                                  profile clicks {String(candidate.observedMetrics.profileClicks)}
-                                </span>
-                              ) : null}
-                              {typeof candidate.observedMetrics.followerDelta === "number" ||
-                              typeof candidate.observedMetrics.followerDelta === "string" ? (
-                                <span className="rounded-full border border-white/10 px-2.5 py-1">
-                                  follower delta {String(candidate.observedMetrics.followerDelta)}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <p className="text-xs text-zinc-500">
-                          {candidate.artifact.weightedCharacterCount}/{candidate.artifact.maxCharacterLimit} chars
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void copyPreviewDraft(candidate.id, candidate.artifact.content);
-                            }}
-                            className="rounded-full border border-white/10 p-2 text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                            aria-label="Copy candidate draft"
-                          >
-                            {copiedPreviewDraftMessageId === candidate.id ? (
-                              <Check className="h-4 w-4" />
-                            ) : (
-                              <Copy className="h-4 w-4" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              shareDraftEditorToX();
-                            }}
-                            className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200"
-                          >
-                            Open X
-                            <ArrowUpRight className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    ) : null;
+  const renderDraftQueueModal = () => (
+    <DraftQueueDialog
+      open={draftQueueOpen}
+      isLoading={isDraftQueueLoading}
+      errorMessage={draftQueueError}
+      items={draftQueueItems}
+      editingCandidateId={editingDraftCandidateId}
+      editingCandidateText={editingDraftCandidateText}
+      actionById={draftQueueActionById}
+      copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
+      canGenerateInChat={Boolean(context?.runId)}
+      isVerifiedAccount={isVerifiedAccount}
+      onOpenChange={(open) => {
+        if (!open) {
+          setDraftQueueOpen(false);
+          setEditingDraftCandidateId(null);
+          setEditingDraftCandidateText("");
+        }
+      }}
+      onGenerateInChat={() => {
+        setDraftQueueOpen(false);
+        void submitQuickStarter("draft 4 posts from what you know about me");
+      }}
+      onStartEditingCandidate={(candidateId, content) => {
+        setEditingDraftCandidateId(candidateId);
+        setEditingDraftCandidateText(content);
+      }}
+      onCancelEditingCandidate={() => {
+        setEditingDraftCandidateId(null);
+        setEditingDraftCandidateText("");
+      }}
+      onEditCandidateTextChange={setEditingDraftCandidateText}
+      onMutateCandidate={(candidateId, payload) => {
+        void mutateDraftQueueCandidate(candidateId, payload);
+      }}
+      onOpenObservedMetrics={openObservedMetricsModal}
+      onOpenSourceMaterial={(params) => {
+        void openSourceMaterialEditor(params);
+      }}
+      onCopyCandidateDraft={(candidateId, content) => {
+        void copyPreviewDraft(candidateId, content);
+      }}
+      onOpenX={shareDraftEditorToX}
+    />
+  );
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -8233,9 +6798,36 @@ function ChatPageContent() {
                 />
               </button>
 
-              {renderAccountMenuPanel(
-                "absolute bottom-full left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl",
-              )}
+              <AccountMenuPanel
+                className="absolute bottom-full left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
+                accountMenuVisible={accountMenuVisible}
+                accountMenuOpen={accountMenuOpen}
+                availableHandles={availableHandles}
+                accountName={accountName}
+                canAddAccount={canAddAccount}
+                onSwitchActiveHandle={switchActiveHandle}
+                onOpenAddAccount={() => {
+                  setAccountMenuOpen(false);
+                  setIsAddAccountModalOpen(true);
+                  setAddAccountError(null);
+                  setReadyAccountHandle(null);
+                }}
+                onOpenSettings={() => {
+                  setAccountMenuOpen(false);
+                  setSettingsModalOpen(true);
+                }}
+                rateLimitsMenuOpen={rateLimitsMenuOpen}
+                onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
+                rateLimitWindowLabel={rateLimitWindowLabel}
+                rateLimitsRemainingPercent={rateLimitsRemainingPercent}
+                rateLimitResetLabel={rateLimitResetLabel}
+                showRateLimitUpgradeCta={showRateLimitUpgradeCta}
+                rateLimitUpgradeLabel={rateLimitUpgradeLabel}
+                onOpenPricing={() => {
+                  setPricingModalOpen(true);
+                  setAccountMenuOpen(false);
+                }}
+              />
             </div>
           ) : null}
         </aside>
@@ -8279,9 +6871,36 @@ function ChatPageContent() {
                   accountAvatarFallback
                 )}
               </button>
-              {renderAccountMenuPanel(
-                "absolute bottom-full left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl",
-              )}
+              <AccountMenuPanel
+                className="absolute bottom-full left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
+                accountMenuVisible={accountMenuVisible}
+                accountMenuOpen={accountMenuOpen}
+                availableHandles={availableHandles}
+                accountName={accountName}
+                canAddAccount={canAddAccount}
+                onSwitchActiveHandle={switchActiveHandle}
+                onOpenAddAccount={() => {
+                  setAccountMenuOpen(false);
+                  setIsAddAccountModalOpen(true);
+                  setAddAccountError(null);
+                  setReadyAccountHandle(null);
+                }}
+                onOpenSettings={() => {
+                  setAccountMenuOpen(false);
+                  setSettingsModalOpen(true);
+                }}
+                rateLimitsMenuOpen={rateLimitsMenuOpen}
+                onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
+                rateLimitWindowLabel={rateLimitWindowLabel}
+                rateLimitsRemainingPercent={rateLimitsRemainingPercent}
+                rateLimitResetLabel={rateLimitResetLabel}
+                showRateLimitUpgradeCta={showRateLimitUpgradeCta}
+                rateLimitUpgradeLabel={rateLimitUpgradeLabel}
+                onOpenPricing={() => {
+                  setPricingModalOpen(true);
+                  setAccountMenuOpen(false);
+                }}
+              />
             </div>
           </>
         ) : null}
@@ -9431,11 +8050,121 @@ function ChatPageContent() {
         selectedDraftVersion && selectedDraftBundle ? (
           <>
             <DesktopDraftEditorDock>
-              {renderDraftEditorPanelLayout("desktop")}
+              <DraftEditorPanel
+                layout="desktop"
+                identity={draftEditorIdentity}
+                isVerifiedAccount={isVerifiedAccount}
+                timelinePosition={selectedDraftTimelinePosition}
+                timelineLength={selectedDraftTimeline.length}
+                canNavigateDraftBack={canNavigateDraftBack}
+                canNavigateDraftForward={canNavigateDraftForward}
+                onNavigateTimeline={navigateDraftTimeline}
+                onClose={() => setActiveDraftEditor(null)}
+                primaryActionLabel={draftEditorPrimaryActionLabel}
+                isPrimaryActionDisabled={isDraftEditorPrimaryActionDisabled}
+                onPrimaryAction={() => {
+                  void (shouldShowRevertDraftCta
+                    ? revertToSelectedDraftVersion()
+                    : saveDraftEditor());
+                }}
+                isSelectedDraftThread={isSelectedDraftThread}
+                selectedDraftArtifact={selectedDraftArtifact}
+                selectedDraftThreadFramingStyle={selectedDraftThreadFramingStyle}
+                onChangeThreadFraming={(style) => {
+                  void requestSelectedThreadFramingChange(style);
+                }}
+                isMainChatLocked={isMainChatLocked}
+                isViewingHistoricalDraftVersion={isViewingHistoricalDraftVersion}
+                editorDraftPosts={editorDraftPosts}
+                selectedDraftThreadPostIndex={selectedDraftThreadPostIndex}
+                selectedDraftMessageId={selectedDraftMessageId}
+                onSelectThreadPost={(index) =>
+                  setSelectedThreadPostByMessageId((current) => ({
+                    ...current,
+                    [selectedDraftMessageId!]: index,
+                  }))
+                }
+                onUpdateThreadDraftPost={updateThreadDraftPost}
+                onMoveThreadDraftPost={moveThreadDraftPost}
+                onSplitThreadDraftPost={splitThreadDraftPost}
+                onMergeThreadDraftPostDown={mergeThreadDraftPostDown}
+                onAddThreadDraftPost={addThreadDraftPost}
+                onRemoveThreadDraftPost={removeThreadDraftPost}
+                draftEditorSerializedContent={draftEditorSerializedContent}
+                composerCharacterLimit={composerCharacterLimit}
+                selectedDraftMaxCharacterLimit={selectedDraftVersion.maxCharacterLimit}
+                editorDraftText={editorDraftText}
+                onChangeEditorDraftText={setEditorDraftText}
+                draftInspectorActionLabel={draftInspectorActionLabel}
+                isDraftInspectorLoading={isDraftInspectorLoading}
+                onRunDraftInspector={() => {
+                  void runDraftInspector();
+                }}
+                hasCopiedDraftEditorText={hasCopiedDraftEditorText}
+                onCopyDraftEditor={() => {
+                  void copyDraftEditor();
+                }}
+                onShareDraftEditor={shareDraftEditorToX}
+              />
             </DesktopDraftEditorDock>
 
             <MobileDraftEditorDock>
-              {renderDraftEditorPanelLayout("mobile")}
+              <DraftEditorPanel
+                layout="mobile"
+                identity={draftEditorIdentity}
+                isVerifiedAccount={isVerifiedAccount}
+                timelinePosition={selectedDraftTimelinePosition}
+                timelineLength={selectedDraftTimeline.length}
+                canNavigateDraftBack={canNavigateDraftBack}
+                canNavigateDraftForward={canNavigateDraftForward}
+                onNavigateTimeline={navigateDraftTimeline}
+                onClose={() => setActiveDraftEditor(null)}
+                primaryActionLabel={draftEditorPrimaryActionLabel}
+                isPrimaryActionDisabled={isDraftEditorPrimaryActionDisabled}
+                onPrimaryAction={() => {
+                  void (shouldShowRevertDraftCta
+                    ? revertToSelectedDraftVersion()
+                    : saveDraftEditor());
+                }}
+                isSelectedDraftThread={isSelectedDraftThread}
+                selectedDraftArtifact={selectedDraftArtifact}
+                selectedDraftThreadFramingStyle={selectedDraftThreadFramingStyle}
+                onChangeThreadFraming={(style) => {
+                  void requestSelectedThreadFramingChange(style);
+                }}
+                isMainChatLocked={isMainChatLocked}
+                isViewingHistoricalDraftVersion={isViewingHistoricalDraftVersion}
+                editorDraftPosts={editorDraftPosts}
+                selectedDraftThreadPostIndex={selectedDraftThreadPostIndex}
+                selectedDraftMessageId={selectedDraftMessageId}
+                onSelectThreadPost={(index) =>
+                  setSelectedThreadPostByMessageId((current) => ({
+                    ...current,
+                    [selectedDraftMessageId!]: index,
+                  }))
+                }
+                onUpdateThreadDraftPost={updateThreadDraftPost}
+                onMoveThreadDraftPost={moveThreadDraftPost}
+                onSplitThreadDraftPost={splitThreadDraftPost}
+                onMergeThreadDraftPostDown={mergeThreadDraftPostDown}
+                onAddThreadDraftPost={addThreadDraftPost}
+                onRemoveThreadDraftPost={removeThreadDraftPost}
+                draftEditorSerializedContent={draftEditorSerializedContent}
+                composerCharacterLimit={composerCharacterLimit}
+                selectedDraftMaxCharacterLimit={selectedDraftVersion.maxCharacterLimit}
+                editorDraftText={editorDraftText}
+                onChangeEditorDraftText={setEditorDraftText}
+                draftInspectorActionLabel={draftInspectorActionLabel}
+                isDraftInspectorLoading={isDraftInspectorLoading}
+                onRunDraftInspector={() => {
+                  void runDraftInspector();
+                }}
+                hasCopiedDraftEditorText={hasCopiedDraftEditorText}
+                onCopyDraftEditor={() => {
+                  void copyDraftEditor();
+                }}
+                onShareDraftEditor={shareDraftEditorToX}
+              />
             </MobileDraftEditorDock>
           </>
         ) : null
@@ -9464,388 +8193,78 @@ function ChatPageContent() {
         }}
       />
 
-      {
-        settingsModalOpen ? (
-          <div
-            className="absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                setSettingsModalOpen(false);
-              }
-            }}
-          >
-            <div className="relative my-auto w-full max-w-4xl rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl sm:p-8">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Settings
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white sm:text-[2rem]">
-                    Account & Billing
-                  </h2>
-                  <p className="mt-2 max-w-xl text-sm text-zinc-400">
-                    Review your current plan, usage, and billing actions.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSettingsModalOpen(false)}
-                  className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
-                >
-                  Close
-                </button>
-              </div>
+      <SettingsDialog
+        open={settingsModalOpen}
+        onOpenChange={setSettingsModalOpen}
+        planStatusLabel={
+          activeBillingSnapshot?.status === "past_due"
+            ? "Past due"
+            : activeBillingSnapshot?.status === "blocked_fair_use"
+              ? "Fair use review"
+              : activeBillingSnapshot?.status === "canceled"
+                ? "Canceled"
+                : "Active"
+        }
+        settingsPlanLabel={settingsPlanLabel}
+        rateLimitResetLabel={rateLimitResetLabel}
+        isOpeningBillingPortal={isOpeningBillingPortal}
+        onOpenBillingPortal={() => {
+          void openBillingPortal();
+        }}
+        showRateLimitUpgradeCta={showRateLimitUpgradeCta}
+        rateLimitUpgradeLabel={rateLimitUpgradeLabel}
+        onOpenPricing={() => {
+          setSettingsModalOpen(false);
+          setPricingModalOpen(true);
+        }}
+        settingsCreditsRemaining={settingsCreditsRemaining}
+        settingsCreditsUsed={settingsCreditsUsed}
+        settingsCreditLimit={settingsCreditLimit}
+        settingsCreditsRemainingPercent={settingsCreditsRemainingPercent}
+        supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+        onSignOut={() => {
+          void signOut({ callbackUrl: "/" });
+        }}
+      />
 
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      Current plan
-                    </p>
-                    <span className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
-                      {activeBillingSnapshot?.status === "past_due"
-                        ? "Past due"
-                        : activeBillingSnapshot?.status === "blocked_fair_use"
-                          ? "Fair use review"
-                          : activeBillingSnapshot?.status === "canceled"
-                            ? "Canceled"
-                            : "Active"}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-2xl font-semibold text-white">{settingsPlanLabel}</p>
-                  <p className="mt-2 text-sm text-zinc-500">Cycle resets {rateLimitResetLabel}</p>
-
-                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      disabled={isOpeningBillingPortal}
-                      onClick={() => {
-                        void openBillingPortal();
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isOpeningBillingPortal ? "Opening…" : "Manage Billing"}
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </button>
-                    {showRateLimitUpgradeCta ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSettingsModalOpen(false);
-                          setPricingModalOpen(true);
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
-                      >
-                        {rateLimitUpgradeLabel}
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </button>
-                    ) : (
-                      <div className="rounded-full border border-white/10 px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        Founder plan active
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Usage
-                  </p>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
-                        Remaining
-                      </p>
-                      <p className="mt-1 text-xl font-semibold text-white">
-                        {settingsCreditsRemaining.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Used</p>
-                      <p className="mt-1 text-xl font-semibold text-white">
-                        {settingsCreditsUsed.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Limit</p>
-                      <p className="mt-1 text-xl font-semibold text-white">
-                        {settingsCreditLimit.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5">
-                    <div className="h-2 rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-white/75 transition-all"
-                        style={{
-                          width: `${Math.max(0, Math.min(100, settingsCreditsRemainingPercent ?? 0))}%`,
-                        }}
-                      />
-                    </div>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      {settingsCreditsRemainingPercent !== null
-                        ? `${settingsCreditsRemainingPercent}% remaining`
-                        : "Usage loading"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-                <p className="text-xs text-zinc-500">
-                  Need billing help? {billingState?.supportEmail ?? "shernanjavier@gmail.com"}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                  className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-200 transition hover:bg-rose-300/10 hover:text-rose-100"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Sign out
-                </button>
-              </div>
-
-            </div>
-          </div>
-        ) : null
-      }
-
-      {
-        pricingModalOpen ? (
-          <div
-            className="absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/85 px-4 py-4 sm:items-center sm:py-8"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                setPricingModalOpen(false);
-                void acknowledgePricingModal();
-              }
-            }}
-          >
-            <div className="relative my-auto w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] p-6 shadow-2xl">
-              <div className="pointer-events-none absolute -left-16 top-10 h-44 w-44 rounded-full bg-sky-500/10 blur-3xl animate-pulse" />
-              <div className="pointer-events-none absolute -right-14 top-24 h-40 w-40 rounded-full bg-amber-300/10 blur-3xl animate-pulse" />
-
-              <div className="relative flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Pricing
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">Choose your plan</h2>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Credits keep usage predictable. Start free, then upgrade when you need more scale.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPricingModalOpen(false);
-                      void acknowledgePricingModal();
-                      window.location.href = "/pricing";
-                    }}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
-                  >
-                    More details
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPricingModalOpen(false);
-                      void acknowledgePricingModal();
-                    }}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/[0.04]"
-                  >
-                    {pricingModalDismissLabel}
-                  </button>
-                </div>
-              </div>
-
-              <div className="relative mt-6 grid gap-4 md:grid-cols-3">
-                <article className="group rounded-2xl border border-white/10 bg-white/[0.02] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.035]">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                    Free
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-white">$0</p>
-                  <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-                  <p className="mt-3 text-xs text-zinc-500">
-                    {MODAL_FREE_CREDITS_PER_MONTH} credits / month
-                  </p>
-                  <div className="mt-3 space-y-1.5 text-xs text-zinc-300">
-                    <p>• Core chat + onboarding</p>
-                    <p>• Draft analysis: Analyze</p>
-                    <p>• Multiple X accounts on one shared credit pool</p>
-                    <p>
-                      • ≈ {MODAL_FREE_APPROX_CHAT_TURNS} chat turns or ≈{" "}
-                      {MODAL_FREE_APPROX_DRAFT_TURNS} draft/review turns
-                    </p>
-                  </div>
-                </article>
-
-                <article className="group relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-white/35 hover:shadow-[0_14px_36px_rgba(255,255,255,0.1)]">
-                  <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
-                      {isProActive ? "Current plan" : "Most popular"}
-                    </p>
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
-                        <span
-                          className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${selectedModalProIsAnnual ? "translate-x-full" : "translate-x-0"
-                            }`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setSelectedModalProCadence("monthly")}
-                          className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${selectedModalProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
-                            }`}
-                        >
-                          Monthly
-                        </button>
-                        <div className="relative z-10 flex-1">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedModalProCadence("annual")}
-                            className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${selectedModalProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
-                              }`}
-                          >
-                            Annual
-                          </button>
-                        </div>
-                        <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
-                          2 months free
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">
-                    Pro
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-white">
-                    {formatUsdPrice(selectedModalProCents)}
-                    <span className="text-sm font-medium text-zinc-400">
-                      {selectedModalProPriceSuffix}
-                    </span>
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-300">
-                    Best for consistent creators. Save more with annual billing.
-                  </p>
-                  <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
-                    <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month</p>
-                    <p>• Draft analysis: Analyze + Compare</p>
-                    <p>• Multiple X accounts on one shared credit pool</p>
-                    <p>
-                      • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}
-                      {MODAL_PRO_APPROX_DRAFT_TURNS} draft/review turns
-                    </p>
-                  </div>
-                  <div className="mt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isFounderCurrent || selectedModalProIsCurrent) {
-                          return;
-                        }
-                        if (selectedModalProNeedsPortalSwitch) {
-                          void openBillingPortal();
-                          return;
-                        }
-                        void openCheckoutForOffer(selectedModalProOffer);
-                      }}
-                      disabled={
-                        checkoutLoadingOffer !== null ||
-                        isOpeningBillingPortal ||
-                        !selectedModalProOfferEnabled ||
-                        isFounderCurrent ||
-                        selectedModalProIsCurrent
-                      }
-                      className="inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-black transition hover:scale-[1.02] hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                    >
-                      {isSelectedModalProCheckoutLoading
-                        ? "Opening…"
-                        : isOpeningBillingPortal && selectedModalProNeedsPortalSwitch
-                          ? "Opening…"
-                          : selectedModalProButtonLabel}
-                    </button>
-                  </div>
-                </article>
-
-                <article className="group relative overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-amber-200/70 hover:bg-amber-200/[0.12] hover:shadow-[0_16px_44px_rgba(251,191,36,0.24)]">
-                  <div className="pointer-events-none absolute -left-10 top-4 h-28 w-28 rounded-full bg-amber-200/24 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
-                  <div className="pointer-events-none absolute -right-14 -top-10 h-28 w-28 rounded-full bg-amber-200/20 blur-3xl animate-pulse" />
-                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_22%,rgba(251,191,36,0.2)_50%,transparent_78%)] opacity-35 transition-opacity duration-500 group-hover:opacity-65" />
-                  <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
-                    <Sparkles className="h-3.5 w-3.5 text-amber-100" />
-                    Founder Pass
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-white">
-                    {formatUsdPrice(lifetimeOffer?.amountCents ?? DEFAULT_MODAL_LIFETIME_CENTS)}
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-300">
-                    One-time founder access with Pro limits and monthly Pro credits.
-                  </p>
-                  <p className="mt-2 text-xs text-zinc-400">
-                    {lifetimeSlotSummary
-                      ? `${lifetimeSlotSummary.remaining}/${lifetimeSlotSummary.total} founder passes remaining`
-                      : "Limited founder passes"}
-                  </p>
-                  <div className="mt-3 space-y-1.5 text-xs text-zinc-200">
-                    <p>• Draft analysis: Analyze + Compare</p>
-                    <p>• Multiple X accounts on one shared credit pool</p>
-                    <p>• {MODAL_PRO_CREDITS_PER_MONTH} credits/month (same limits as Pro)</p>
-                    <p>
-                      • ≈ {MODAL_PRO_APPROX_CHAT_TURNS} chat turns or ≈{" "}
-                      {MODAL_PRO_APPROX_DRAFT_TURNS} draft/review turns
-                    </p>
-                    <p>• No recurring subscription</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isFounderCurrent) {
-                        return;
-                      }
-                      void openCheckoutForOffer("lifetime");
-                    }}
-                    disabled={
-                      checkoutLoadingOffer !== null ||
-                      isFounderCurrent ||
-                      lifetimeOffer?.enabled === false ||
-                      (lifetimeSlotSummary ? lifetimeSlotSummary.remaining <= 0 : false)
-                    }
-                    className="mt-4 inline-flex items-center rounded-full border border-amber-200/50 bg-amber-100/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-100 shadow-[0_0_16px_rgba(251,191,36,0.18)] transition hover:scale-[1.02] hover:bg-amber-100/18 hover:shadow-[0_0_24px_rgba(251,191,36,0.32)] disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
-                  >
-                    {checkoutLoadingOffer === "lifetime"
-                      ? "Opening…"
-                      : isFounderCurrent
-                        ? "Current Plan"
-                        : lifetimeSlotSummary && lifetimeSlotSummary.remaining <= 0
-                          ? "Sold out"
-                          : "Get Founder Pass"}
-                  </button>
-                  <p className="mt-3 text-[11px] leading-5 text-amber-100/75">
-                    Includes Pro plan limits and monthly Pro credits while Xpo and this plan are
-                    offered. If this plan is retired, we honor your purchase with an equivalent plan
-                    or account credit.
-                  </p>
-                </article>
-              </div>
-
-              <p className="relative mt-5 text-xs text-zinc-500">
-                Need billing help? {billingState?.supportEmail ?? "shernanjavier@gmail.com"}
-              </p>
-              <p className="relative mt-1 text-xs text-zinc-500">
-                Refunds: subscriptions within 7 days (up to 120 credits), Founder Pass within 72
-                hours (up to 60 credits).{" "}
-                <a href="/refund-policy" className="underline transition hover:text-zinc-300">
-                  View refund policy
-                </a>
-              </p>
-            </div>
-          </div>
-        ) : null
-      }
+      <PricingDialog
+        open={pricingModalOpen}
+        onOpenChange={(open) => {
+          setPricingModalOpen(open);
+          if (!open) {
+            void acknowledgePricingModal();
+          }
+        }}
+        onOpenPricingPage={() => {
+          setPricingModalOpen(false);
+          void acknowledgePricingModal();
+          window.location.href = "/pricing";
+        }}
+        dismissLabel={pricingModalDismissLabel}
+        selectedModalProIsAnnual={selectedModalProIsAnnual}
+        selectedModalProCents={selectedModalProCents}
+        selectedModalProPriceSuffix={selectedModalProPriceSuffix}
+        setSelectedModalProCadence={setSelectedModalProCadence}
+        isProActive={isProActive}
+        isFounderCurrent={isFounderCurrent}
+        selectedModalProIsCurrent={selectedModalProIsCurrent}
+        selectedModalProNeedsPortalSwitch={selectedModalProNeedsPortalSwitch}
+        selectedModalProOfferEnabled={selectedModalProOfferEnabled}
+        selectedModalProButtonLabel={selectedModalProButtonLabel}
+        isSelectedModalProCheckoutLoading={isSelectedModalProCheckoutLoading}
+        isOpeningBillingPortal={isOpeningBillingPortal}
+        onOpenBillingPortal={() => {
+          void openBillingPortal();
+        }}
+        onOpenCheckout={(offer) => {
+          void openCheckoutForOffer(offer);
+        }}
+        selectedModalProOffer={selectedModalProOffer}
+        lifetimeAmountCents={lifetimeOffer?.amountCents ?? 0}
+        lifetimeSlotSummary={lifetimeSlotSummary}
+        lifetimeOfferEnabled={lifetimeOffer?.enabled !== false}
+        supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+      />
 
       {
         feedbackModalOpen ? (
@@ -12551,241 +10970,43 @@ function ChatPageContent() {
         ) : null
       }
 
-      {isAddAccountModalOpen && (
-        <div
-          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-          onClick={(event) => {
-            if (!requiresXAccountGate && event.target === event.currentTarget) {
-              closeAddAccountModal();
-            }
-          }}
-        >
-          <div
-            className="w-full max-w-lg overflow-hidden rounded-[1.75rem] border border-white/10 bg-zinc-950 shadow-2xl animate-in fade-in zoom-in-95 duration-300"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {isAddAccountSubmitting ? (
-              <div className="px-6 py-8 sm:px-8 sm:py-10">
-                <div className="flex flex-col items-center text-center">
-                  <div className="relative flex h-24 w-24 items-center justify-center">
-                    <div className="absolute inset-0 rounded-full border border-white/10" />
-                    <div className="absolute inset-2 rounded-full border border-white/15 animate-ping" />
-                    <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
-                      {addAccountPreview?.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${addAccountPreview.name} profile photo`}
-                        />
-                      ) : (
-                        (addAccountPreview?.name?.slice(0, 2) || normalizedAddAccount.slice(0, 2) || "X").toUpperCase()
-                      )}
-                    </div>
-                  </div>
+      <AddAccountDialog
+        open={isAddAccountModalOpen}
+        requiresXAccountGate={requiresXAccountGate}
+        isSubmitting={isAddAccountSubmitting}
+        preview={addAccountPreview}
+        normalizedHandle={normalizedAddAccount}
+        loadingStepIndex={addAccountLoadingStepIndex}
+        loadingSteps={CHAT_ONBOARDING_LOADING_STEPS}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeAddAccountModal();
+          }
+        }}
+        onSubmit={handleAddAccountSubmit}
+        inputValue={addAccountInput}
+        onInputValueChange={(value) => {
+          setAddAccountInput(value);
+          setAddAccountError(null);
+        }}
+        readyAccountHandle={readyAccountHandle}
+        hasValidPreview={hasValidAddAccountPreview}
+        isPreviewLoading={isAddAccountPreviewLoading}
+        errorMessage={addAccountError}
+      />
 
-                  <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Mapping Account
-                  </p>
-                  <p className="mt-3 text-lg font-semibold text-white">
-                    @{normalizedAddAccount}
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    {CHAT_ONBOARDING_LOADING_STEPS[addAccountLoadingStepIndex]}
-                  </p>
-
-                  <div className="mt-6 h-1 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-white transition-all duration-[1200ms] ease-linear"
-                      style={{
-                        width: `${((addAccountLoadingStepIndex + 1) / CHAT_ONBOARDING_LOADING_STEPS.length) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleAddAccountSubmit} className="px-6 py-6 sm:px-8 sm:py-7">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                      Add X Account
-                    </p>
-                    <h3 className="mt-2 text-xl font-semibold text-white">
-                      Pull another profile into this workspace
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-zinc-400">
-                      Preview the account, run the scrape, then switch over without leaving chat.
-                    </p>
-                  </div>
-                  {!requiresXAccountGate ? (
-                    <button
-                      type="button"
-                      onClick={closeAddAccountModal}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      Close
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <div className="flex min-w-0 flex-1 items-center rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <span className="mr-2 text-lg font-medium text-zinc-600">@</span>
-                    <input
-                      value={addAccountInput}
-                      onChange={(event) => {
-                        if (readyAccountHandle) {
-                          return;
-                        }
-                        setAddAccountInput(event.target.value);
-                        setAddAccountError(null);
-                      }}
-                      placeholder="username"
-                      autoComplete="off"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      disabled={Boolean(readyAccountHandle)}
-                      className="w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed disabled:text-zinc-500"
-                      aria-label="Add X account"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={
-                      isAddAccountSubmitting ||
-                      (!readyAccountHandle &&
-                        (!hasValidAddAccountPreview || isAddAccountPreviewLoading || !normalizedAddAccount))
-                    }
-                    className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {readyAccountHandle
-                      ? `Continue as @${readyAccountHandle}`
-                      : "Analyze Account"}
-                  </button>
-                </div>
-
-                {addAccountError ? (
-                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-rose-400">
-                    {addAccountError}
-                  </p>
-                ) : readyAccountHandle ? (
-                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-emerald-400">
-                    all set. the profile is ready to switch into.
-                  </p>
-                ) : null}
-
-                <div className="mt-5 min-h-[112px]">
-                  {isAddAccountPreviewLoading ? (
-                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        Loading Preview
-                      </p>
-                    </div>
-                  ) : addAccountPreview ? (
-                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white">
-                          {addAccountPreview.avatarUrl ? (
-                            <div
-                              className="h-full w-full bg-cover bg-center"
-                              style={{ backgroundImage: `url(${addAccountPreview.avatarUrl})` }}
-                              role="img"
-                              aria-label={`${addAccountPreview.name} profile photo`}
-                            />
-                          ) : (
-                            addAccountPreview.name.slice(0, 2).toUpperCase()
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-base font-semibold text-white">
-                              {addAccountPreview.name}
-                            </p>
-                            {addAccountPreview.isVerified ? (
-                              <Image
-                                src="/x-verified.svg"
-                                alt="Verified account"
-                                width={16}
-                                height={16}
-                                className="h-4 w-4 shrink-0"
-                              />
-                            ) : null}
-                          </div>
-                          <p className="truncate text-sm text-zinc-500">
-                            @{addAccountPreview.username}
-                          </p>
-                        </div>
-
-                        <div className="text-right">
-                          <p className="text-lg font-semibold text-white">
-                            {new Intl.NumberFormat("en-US", {
-                              notation: "compact",
-                              maximumFractionDigits: 1,
-                            }).format(addAccountPreview.followersCount)}
-                          </p>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                            Followers
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : normalizedAddAccount ? (
-                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        No Account Found
-                      </p>
-                      <p className="mt-2 text-sm text-zinc-400">
-                        Enter an active X account that resolves in preview first.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/[0.02] px-5 py-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                        Waiting For Handle
-                      </p>
-                      <p className="mt-2 text-sm text-zinc-500">
-                        Type an X username to preview it before you map it into this workspace.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {threadToDelete && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Delete chat?</h3>
-              <p className="text-sm text-zinc-400">
-                This will delete <strong className="text-zinc-200">&quot;{threadToDelete.title}&quot;</strong>.
-              </p>
-            </div>
-            <div className="flex gap-2 border-t border-white/10 bg-zinc-900/50 p-4 justify-end">
-              <button
-                type="button"
-                onClick={() => setThreadToDelete(null)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/5 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteThread}
-                className="rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-500 transition hover:bg-red-500 flex items-center gap-2 hover:text-white"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ThreadDeleteDialog
+        open={Boolean(threadToDelete)}
+        threadTitle={threadToDelete?.title ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setThreadToDelete(null);
+          }
+        }}
+        onConfirmDelete={() => {
+          void confirmDeleteThread();
+        }}
+      />
     </main >
   );
 }
