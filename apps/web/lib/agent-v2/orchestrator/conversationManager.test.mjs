@@ -309,6 +309,27 @@ test("draft pipeline delegates non-draft coach detours to the planning capabilit
   );
 });
 
+test("draft pipeline delegates plan clarification routing to the planning capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handlePlanClarificationTurn/,
+  );
+  assert.equal(
+    /buildAmbiguousReferenceQuestion\(/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /branchKey: "career_context_missing"/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /branchKey: "abstract_topic_focus_pick"/.test(draftPipelineSource),
+    false,
+  );
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 

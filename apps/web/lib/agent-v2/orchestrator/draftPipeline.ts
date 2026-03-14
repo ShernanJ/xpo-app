@@ -3,15 +3,7 @@ import {
   inferDraftPreference,
   extractPriorUserTurn,
   buildPlanPitch,
-  buildAmbiguousReferenceQuestion,
-  inferMissingSpecificQuestion,
-  buildNaturalDraftClarificationQuestion,
-  looksLikeOpaqueEntityTopic,
-  isLazyDraftRequest,
-  inferLooseClarificationSeed,
-  inferAbstractTopicSeed,
   withPlanPreferences,
-  looksGenericTopicSummary,
   buildDraftGroundingSummary,
   inferDraftFormatPreference,
   resolveRequestedThreadFramingStyle,
@@ -24,7 +16,6 @@ import {
   isBareDraftRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
-  shouldRouteCareerClarification,
   shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic";
 import {
@@ -116,6 +107,7 @@ import {
   handleNonDraftCoachTurn,
   handleNonDraftCorrectionTurn,
 } from "../capabilities/planning/nonDraftCoachTurn.ts";
+import { handlePlanClarificationTurn } from "../capabilities/planning/planClarificationTurn.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
@@ -1277,173 +1269,26 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification()) {
-    const broadTopicDraftRequest = inferBroadTopicDraftRequest(userMessage);
-
-    if (
-      turnDraftContextSlots.ambiguousReferenceNeedsClarification &&
-      turnDraftContextSlots.ambiguousReference
-    ) {
-      const question = buildAmbiguousReferenceQuestion(
-        turnDraftContextSlots.ambiguousReference,
-      );
-      return returnClarificationQuestion({ question });
-    }
-
-    if (
-      shouldRouteCareerClarification({
-        explicitIntent,
-        mode,
-        domainHint: turnDraftContextSlots.domainHint,
-        behaviorKnown: turnDraftContextSlots.behaviorKnown,
-        stakesKnown: turnDraftContextSlots.stakesKnown,
-      }) &&
-      missingAutobiographicalGroundingForTurn
-    ) {
-      return returnClarificationTree({
-        branchKey: "career_context_missing",
-        seedTopic: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
-        isVerifiedAccount,
-      });
-    }
-
-    if (
-      turnDraftContextSlots.isProductLike &&
-      (!turnDraftContextSlots.behaviorKnown || !turnDraftContextSlots.stakesKnown) &&
-      missingAutobiographicalGroundingForTurn
-    ) {
-      const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
-      const shouldUseEntityClarificationTree =
-        Boolean(
-          broadTopicDraftRequest &&
-            (
-              turnDraftContextSlots.entityNeedsDefinition ||
-              /\b(?:extension|plugin|tool|app|product)\b/i.test(userMessage) ||
-              looksLikeOpaqueEntityTopic({
-                topic: broadTopicDraftRequest,
-                userMessage,
-                activeConstraints: memory.activeConstraints,
-              })
-            ),
-        );
-
-      if (clarificationQuestion && shouldUseEntityClarificationTree) {
-        return returnClarificationTree({
-          branchKey: "entity_context_missing",
-          seedTopic: broadTopicDraftRequest,
-        });
-      }
-
-      if (clarificationQuestion) {
-        return returnClarificationQuestion({
-          question: clarificationQuestion,
-          topicSummary: broadTopicDraftRequest || memory.topicSummary,
-        });
-      }
-    }
-
-    if (turnDraftContextSlots.entityNeedsDefinition && turnDraftContextSlots.namedEntity) {
-      const prefersBroaderProductSeed =
-        /\b(?:extension|plugin|tool|app|product)\b/i.test(userMessage) &&
-        inferBroadTopicDraftRequest(userMessage);
-      return returnClarificationTree({
-        branchKey: "entity_context_missing",
-        seedTopic: prefersBroaderProductSeed || turnDraftContextSlots.namedEntity,
-      });
-    }
-  }
-
-  if (canAskPlanClarification()) {
-    const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
-
-    if (clarificationQuestion && missingAutobiographicalGroundingForTurn) {
-      return returnClarificationQuestion({
-        question: clarificationQuestion,
-      });
-    }
-  }
-
-  if (canAskPlanClarification()) {
-    if (isOpenEndedWildcardDraftRequest(userMessage)) {
-      return handleIdeateMode({
-        promptMessage: buildLooseDraftIdeationPrompt({
-          formatPreference: turnFormatPreference,
-        }),
-        topicSummaryOverride: null,
-      });
-    }
-
-    if (isMultiDraftTurn && !hasReusableGroundingForTurn) {
-      return returnClarificationQuestion({
-        question: buildNaturalDraftClarificationQuestion({
-          multiple: true,
-          topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
-        }),
-        topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
-      });
-    }
-
-    const broadTopic = inferBroadTopicDraftRequest(userMessage);
-
-    if (broadTopic) {
-      if (
-        looksLikeOpaqueEntityTopic({
-          topic: broadTopic,
-          userMessage,
-          activeConstraints: memory.activeConstraints,
-        })
-      ) {
-        return returnClarificationTree({
-          branchKey: "entity_context_missing",
-          seedTopic: broadTopic,
-        });
-      }
-
-      return returnClarificationTree({
-        branchKey: "topic_known_but_direction_missing",
-        seedTopic: broadTopic,
-        isVerifiedAccount,
-        topicSummary: broadTopic,
-      });
-    }
-  }
-
-  if (canAskPlanClarification() && isBareDraftRequest(userMessage)) {
-    const currentTopicSummary = looksGenericTopicSummary(memory.topicSummary)
-      ? null
-      : memory.topicSummary;
-    return handleIdeateMode({
-      promptMessage: buildLooseDraftIdeationPrompt({
-        formatPreference: turnFormatPreference,
-        seedTopic: currentTopicSummary,
-      }),
-      topicSummaryOverride: currentTopicSummary,
+    const planClarificationTurn = await handlePlanClarificationTurn({
+      userMessage,
+      recentHistory,
+      memory,
+      routing,
+      explicitIntent,
+      mode,
+      turnDraftContextSlots,
+      missingAutobiographicalGroundingForTurn,
+      isVerifiedAccount,
+      turnFormatPreference,
+      hasReusableGroundingForTurn,
+      returnClarificationQuestion,
+      returnClarificationTree,
+      handleIdeateMode,
+      buildLooseDraftIdeationPrompt,
     });
-  }
 
-  if (
-    canAskPlanClarification() &&
-    !memory.topicSummary &&
-    memory.concreteAnswerCount < 2 &&
-    routing.classifiedIntent === "plan"
-  ) {
-    const branchKey = isLazyDraftRequest(userMessage)
-      ? "lazy_request"
-      : "vague_draft_request";
-    return returnClarificationTree({
-      branchKey,
-      seedTopic: inferLooseClarificationSeed(userMessage, memory.topicSummary),
-    });
-  }
-
-  if (canAskPlanClarification()) {
-    const abstractTopicSeed = inferAbstractTopicSeed(userMessage, recentHistory, memory);
-
-    if (abstractTopicSeed) {
-      return returnClarificationTree({
-        branchKey: "abstract_topic_focus_pick",
-        seedTopic: abstractTopicSeed,
-        topicSummary: abstractTopicSeed,
-      });
+    if (planClarificationTurn) {
+      return planClarificationTurn;
     }
   }
 
