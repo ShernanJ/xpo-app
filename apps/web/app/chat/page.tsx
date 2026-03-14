@@ -90,6 +90,10 @@ import {
 } from "./pendingStatus";
 import { prepareAssistantReplyTransport } from "./chatTransport";
 import {
+  prepareComposerSubmission,
+  resolveComposerQuickReplyUpdate,
+} from "./chatComposerState";
+import {
   buildAssistantMessageFromChatResult,
   readChatResponseStream,
   resolveNextDraftEditorSelection,
@@ -7708,79 +7712,49 @@ function ChatPageContent() {
 
   const handleQuickReplySelect = useCallback(
     (quickReply: ChatQuickReply) => {
-      if (isMainChatLocked) {
+      const quickReplyUpdate = resolveComposerQuickReplyUpdate({
+        quickReply,
+        isMainChatLocked,
+      });
+      if (!quickReplyUpdate.shouldApply) {
         return;
       }
 
-      if (quickReply.kind === "content_focus") {
-        setActiveContentFocus(quickReply.value as ChatContentFocus);
-        setDraftInput(`i want to focus on ${quickReply.label.toLowerCase()}`);
+      if (quickReplyUpdate.nextActiveContentFocus) {
+        setActiveContentFocus(quickReplyUpdate.nextActiveContentFocus);
+      }
+
+      setDraftInput(quickReplyUpdate.nextDraftInput);
+      if (quickReplyUpdate.shouldClearError) {
         setErrorMessage(null);
-        return;
       }
-
-      if (quickReply.suggestedFocus) {
-        setActiveContentFocus(quickReply.suggestedFocus);
-      }
-
-      setDraftInput(quickReply.value);
-      setErrorMessage(null);
     },
-    [
-      activeContentFocus,
-      isMainChatLocked,
-    ],
+    [isMainChatLocked],
   );
 
-  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmedInput = draftInput.trim();
-    if (!trimmedInput || !context || !contract || isMainChatLocked) {
-      return;
-    }
-
-    if (!activeStrategyInputs || !activeToneInputs) {
-      setErrorMessage("The planning model is still loading.");
-      return;
-    }
-
-    const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
-
-    if (shouldAnimateHeroExit) {
-      setIsLeavingHero(true);
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
-      });
-    }
-
-    setDraftInput("");
-
-    await requestAssistantReply({
-      prompt: trimmedInput,
-      appendUserMessage: true,
-      turnSource: "free_text",
-      strategyInputOverride: activeStrategyInputs,
-      toneInputOverride: activeToneInputs,
-      contentFocusOverride: activeContentFocus,
-    });
-  }
-
-  const submitQuickStarter = useCallback(
+  const submitComposerPrompt = useCallback(
     async (prompt: string) => {
-      const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt || !context || !contract || isMainChatLocked) {
+      const submission = prepareComposerSubmission({
+        prompt,
+        hasContext: Boolean(context),
+        hasContract: Boolean(contract),
+        hasStrategyInputs: Boolean(activeStrategyInputs),
+        hasToneInputs: Boolean(activeToneInputs),
+        isMainChatLocked,
+        activeThreadId,
+        messagesLength: messages.length,
+      });
+
+      if (submission.status === "skip") {
         return;
       }
 
-      if (!activeStrategyInputs || !activeToneInputs) {
-        setErrorMessage("The planning model is still loading.");
+      if (submission.status === "blocked") {
+        setErrorMessage(submission.errorMessage);
         return;
       }
 
-      const shouldAnimateHeroExit = !activeThreadId && messages.length === 0;
-
-      if (shouldAnimateHeroExit) {
+      if (submission.shouldAnimateHeroExit) {
         setIsLeavingHero(true);
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
@@ -7790,11 +7764,11 @@ function ChatPageContent() {
       setDraftInput("");
 
       await requestAssistantReply({
-        prompt: trimmedPrompt,
+        prompt: submission.trimmedPrompt,
         appendUserMessage: true,
         turnSource: "free_text",
-        strategyInputOverride: activeStrategyInputs,
-        toneInputOverride: activeToneInputs,
+        strategyInputOverride: activeStrategyInputs as ChatStrategyInputs,
+        toneInputOverride: activeToneInputs as ChatToneInputs,
         contentFocusOverride: activeContentFocus,
       });
     },
@@ -7811,21 +7785,22 @@ function ChatPageContent() {
     ],
   );
 
+  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitComposerPrompt(draftInput);
+  }
+
+  const submitQuickStarter = useCallback(
+    async (prompt: string) => {
+      await submitComposerPrompt(prompt);
+    },
+    [submitComposerPrompt],
+  );
+
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-
-      if (
-        !context ||
-        !contract ||
-        !activeStrategyInputs ||
-        !activeToneInputs ||
-        !draftInput.trim() ||
-        isMainChatLocked
-      ) {
-        return;
-      }
-      void handleComposerSubmit(event as unknown as FormEvent<HTMLFormElement>);
+      void submitComposerPrompt(draftInput);
     }
   };
 
