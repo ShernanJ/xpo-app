@@ -195,6 +195,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records explicit sequential sibling-novelty retry trace entries so the remaining bundle retry path is formalized as a dependent control-plane step instead of implicit worker fan-out
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now standardizes executor response and response-seed contracts, and the main executor seams now consume those shared types instead of local one-off response output shapes
   - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `apps/web/app/api/creator/v2/chat/route.reply.ts` stays limited to reply state resolution and reply-turn planning
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, while `apps/web/app/api/creator/v2/chat/reply.logic.ts` and `apps/web/app/api/creator/v2/chat/route.reply.ts` are thin re-export shims
 - Add merge rules for worker outputs.
 - Prohibit ambiguous side effects from worker fan-out.
 - Status: in progress.

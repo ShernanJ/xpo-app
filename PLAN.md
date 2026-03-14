@@ -168,6 +168,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Reply finalization boundary thinned:
   - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
   - `apps/web/app/api/creator/v2/chat/route.reply.ts` now stays limited to reply turn state resolution, planning, and memory snapshot shaping, which keeps route-only side effects out of the reply planning helper without changing reply behavior or payloads
+- Reply parse/planning moved under runtime ownership:
+  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` now owns the pure reply parse/artifact helper logic, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now owns reply turn state resolution, planning, and memory snapshot shaping
+  - `apps/web/app/api/creator/v2/chat/reply.logic.ts` and `apps/web/app/api/creator/v2/chat/route.reply.ts` now remain as thin route-facing re-export shims so the route surface stays stable while reply capability logic lives in the runtime layer
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 
