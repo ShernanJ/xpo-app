@@ -6,6 +6,7 @@ import { Sparkles } from "lucide-react";
 import { LegalFooter } from "@/components/legal-footer";
 import { BackHomeButton } from "@/components/back-home-button";
 import { useSession } from "@/lib/auth/client";
+import { BillingCadenceToggle } from "./BillingCadenceToggle";
 
 interface ValidationError {
   field: string;
@@ -334,38 +335,10 @@ export default function PricingPage() {
               <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
                 {isProActive ? "Current plan" : "Most popular"}
               </p>
-              <div className="flex flex-col items-end gap-1">
-                <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
-                  <span
-                    className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${
-                      selectedProIsAnnual ? "translate-x-full" : "translate-x-0"
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedProCadence("monthly")}
-                    className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                      selectedProIsAnnual ? "text-zinc-300 hover:text-white" : "text-black"
-                    }`}
-                  >
-                    Monthly
-                  </button>
-                  <div className="relative z-10 flex-1">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProCadence("annual")}
-                      className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                        selectedProIsAnnual ? "text-black" : "text-zinc-300 hover:text-white"
-                      }`}
-                    >
-                      Annual
-                    </button>
-                  </div>
-                  <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
-                    2 months free
-                  </span>
-                </div>
-              </div>
+              <BillingCadenceToggle
+                selectedCadence={selectedProCadence}
+                onChange={setSelectedProCadence}
+              />
             </div>
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">Pro</p>
             <p className="mt-2 text-3xl font-semibold">

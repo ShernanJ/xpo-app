@@ -7,6 +7,7 @@ import {
   Fragment,
   KeyboardEvent,
   Suspense,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -79,6 +80,10 @@ import {
   type ObservedMetricsFormState,
 } from "./ObservedMetricsModal";
 import {
+  DesktopDraftEditorDock,
+  MobileDraftEditorDock,
+} from "./DraftEditorDock";
+import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
 } from "@/lib/workspaceHandle";
@@ -148,6 +153,7 @@ import {
 } from "./chatWorkspaceState";
 import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
 import { usePendingStatusLabel } from "./usePendingStatusLabel";
+import { ChatMessageRow } from "./ChatMessageRow";
 
 interface ValidationError {
   field: string;
@@ -946,6 +952,49 @@ function hasActiveDraftReveal(
   messageId: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(activeDraftRevealByMessageId, messageId);
+}
+
+function resolveDraftRevealPhase(
+  activeDraftRevealByMessageId: Record<string, string>,
+  messageId: string,
+  draftKey: string,
+): "none" | "primary" | "secondary" {
+  const primaryDraftRevealKey = activeDraftRevealByMessageId[messageId];
+  if (!primaryDraftRevealKey) {
+    return "none";
+  }
+
+  return primaryDraftRevealKey === draftKey ? "primary" : "secondary";
+}
+
+function buildDraftRevealClassName(
+  activeDraftRevealByMessageId: Record<string, string>,
+  messageId: string,
+  draftKey: string,
+): string {
+  const phase = resolveDraftRevealPhase(
+    activeDraftRevealByMessageId,
+    messageId,
+    draftKey,
+  );
+  if (phase === "primary") {
+    return "animate-draft-card-reveal";
+  }
+  if (phase === "secondary") {
+    return "animate-draft-option-stagger";
+  }
+  return "";
+}
+
+function shouldAnimateDraftRevealLines(
+  activeDraftRevealByMessageId: Record<string, string>,
+  messageId: string,
+  draftKey: string,
+): boolean {
+  return (
+    resolveDraftRevealPhase(activeDraftRevealByMessageId, messageId, draftKey) ===
+    "primary"
+  );
 }
 
 interface ChatStrategyInputs {
@@ -1931,7 +1980,9 @@ function AssistantTypingBubble(props: { label?: string | null }) {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setDotCount((current) => (current >= 3 ? 1 : current + 1));
+      startTransition(() => {
+        setDotCount((current) => (current >= 3 ? 1 : current + 1));
+      });
     }, 420);
 
     return () => {
@@ -2561,7 +2612,7 @@ function ChatPageContent() {
           ? String(metrics.followerDelta)
           : "",
     });
-  }, [fetchWorkspace]);
+  }, []);
 
   const submitObservedMetrics = useCallback(async () => {
     if (!observedMetricsCandidateId) {
@@ -2625,20 +2676,25 @@ function ChatPageContent() {
   }, [billingQuerySessionId, billingQueryStatus, loadBillingState, session?.user?.id]);
 
   useEffect(() => {
-    const snapshot = billingState?.billing;
-    if (!snapshot || (!snapshot.lowCreditWarning && !snapshot.criticalCreditWarning)) {
+    const lowCreditWarning = billingState?.billing?.lowCreditWarning ?? false;
+    const criticalCreditWarning =
+      billingState?.billing?.criticalCreditWarning ?? false;
+
+    if (!lowCreditWarning && !criticalCreditWarning) {
       setDismissedBillingWarningLevel(null);
     }
   }, [billingState?.billing?.criticalCreditWarning, billingState?.billing?.lowCreditWarning]);
 
   useEffect(() => {
-    const snapshot = billingState?.billing;
-    if (!snapshot) {
+    const billingPlan = billingState?.billing?.plan ?? null;
+    const billingCycle = billingState?.billing?.billingCycle ?? null;
+
+    if (!billingPlan) {
       return;
     }
 
-    if (snapshot.plan === "pro") {
-      setSelectedModalProCadence(snapshot.billingCycle === "annual" ? "annual" : "monthly");
+    if (billingPlan === "pro") {
+      setSelectedModalProCadence(billingCycle === "annual" ? "annual" : "monthly");
     }
   }, [billingState?.billing?.billingCycle, billingState?.billing?.plan]);
 
@@ -2659,7 +2715,7 @@ function ChatPageContent() {
           : thread,
       ),
     );
-  }, [fetchWorkspace]);
+  }, []);
   const applyCreatedThreadWorkspaceUpdate = useCallback(
     (newThreadId?: string | null, threadTitle?: string | null) => {
       const createdThreadUpdate = resolveCreatedThreadWorkspaceUpdate({
@@ -2914,7 +2970,13 @@ function ChatPageContent() {
     Record<string, boolean>
   >({});
   const draftRevealTimeoutsRef = useRef<Record<string, number>>({});
+  const typedAssistantLengthsRef = useRef<Record<string, number>>({});
   const hasHydratedDraftRevealRef = useRef(false);
+
+  useEffect(() => {
+    typedAssistantLengthsRef.current = typedAssistantLengths;
+  }, [typedAssistantLengths]);
+
   function applyChatWorkspaceReset(
     reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
   ) {
@@ -3281,7 +3343,7 @@ function ChatPageContent() {
     } finally {
       setIsFeedbackHistoryLoading(false);
     }
-  }, []);
+  }, [fetchWorkspace]);
   const updateFeedbackSubmissionStatus = useCallback(
     async (submissionId: string, status: FeedbackReportStatus) => {
       setFeedbackStatusUpdatingIds((current) => ({
@@ -3522,7 +3584,7 @@ function ChatPageContent() {
     setSourceMaterialDraft(buildEmptySourceMaterialDraft());
     setSourceMaterialAdvancedOpen(false);
     setSourceMaterialsLibraryOpen(false);
-  }, [fetchWorkspace]);
+  }, []);
   const selectSourceMaterial = useCallback((asset: SourceMaterialAsset) => {
     const nextDraft = buildSourceMaterialDraftFromAsset(asset);
     setSourceMaterialDraft(nextDraft);
@@ -3570,7 +3632,7 @@ function ChatPageContent() {
     } finally {
       setIsSourceMaterialsLoading(false);
     }
-  }, []);
+  }, [fetchWorkspace]);
   const openSourceMaterialEditor = useCallback(
     async (params: {
       assetId?: string | null;
@@ -4870,7 +4932,7 @@ function ChatPageContent() {
 
 
     const targetLength = latestAssistantMessage.content.length;
-    const currentLength = typedAssistantLengths[latestAssistantMessage.id];
+    const currentLength = typedAssistantLengthsRef.current[latestAssistantMessage.id];
 
     if (currentLength !== undefined && currentLength >= targetLength) {
       return;
@@ -5710,7 +5772,7 @@ function ChatPageContent() {
 
       setActiveDraftEditor(navigation.targetSelection);
     },
-    [activeDraftEditor?.messageId, selectedDraftTimeline, selectedDraftTimelineIndex],
+    [activeDraftEditor, selectedDraftTimeline, selectedDraftTimelineIndex],
   );
 
   const openDraftEditor = useCallback((
@@ -5985,7 +6047,9 @@ function ChatPageContent() {
     const updateScrollPosition = () => {
       const distanceFromBottom =
         node.scrollHeight - node.scrollTop - node.clientHeight;
-      setShowScrollToLatest(distanceFromBottom > 140);
+      startTransition(() => {
+        setShowScrollToLatest(distanceFromBottom > 140);
+      });
     };
 
     updateScrollPosition();
@@ -6179,6 +6243,7 @@ function ChatPageContent() {
     activeDraftEditor?.revisionChainId,
     activeThreadId,
     fetchWorkspace,
+    isVerifiedAccount,
     isSelectedDraftThread,
     selectedDraftBundle,
     selectedDraftMessage,
@@ -6374,7 +6439,6 @@ function ChatPageContent() {
     draftEditorSerializedContent,
     fetchWorkspace,
     isViewingHistoricalDraftVersion,
-    isVerifiedAccount,
     latestDraftTimelineEntry,
     selectedDraftVersion,
     scrollThreadToBottom,
@@ -6382,37 +6446,39 @@ function ChatPageContent() {
 
   const applyAssistantReplyPlan = useCallback(
     (replyPlan: CreatorAssistantReplyPlan) => {
-      if (replyPlan.nextBilling) {
-        setBillingState(replyPlan.nextBilling);
-      }
+      startTransition(() => {
+        if (replyPlan.nextBilling) {
+          setBillingState(replyPlan.nextBilling);
+        }
 
-      setMessages((current) => [
-        ...current,
-        replyPlan.buildAssistantMessage(current.length),
-      ]);
+        setMessages((current) => [
+          ...current,
+          replyPlan.buildAssistantMessage(current.length),
+        ]);
+
+        if (replyPlan.nextDraftEditor) {
+          setActiveDraftEditor(replyPlan.nextDraftEditor);
+        }
+
+        if (replyPlan.nextConversationMemory) {
+          setConversationMemory(replyPlan.nextConversationMemory);
+        }
+
+        if (replyPlan.nextThreadTitle) {
+          syncThreadTitle(
+            replyPlan.nextThreadTitle.threadId,
+            replyPlan.nextThreadTitle.title,
+          );
+        }
+
+        if (replyPlan.createdThreadPlan) {
+          applyCreatedThreadWorkspaceUpdate(
+            replyPlan.createdThreadPlan.threadId,
+            replyPlan.createdThreadPlan.title,
+          );
+        }
+      });
       scrollThreadToBottom();
-
-      if (replyPlan.nextDraftEditor) {
-        setActiveDraftEditor(replyPlan.nextDraftEditor);
-      }
-
-      if (replyPlan.nextConversationMemory) {
-        setConversationMemory(replyPlan.nextConversationMemory);
-      }
-
-      if (replyPlan.nextThreadTitle) {
-        syncThreadTitle(
-          replyPlan.nextThreadTitle.threadId,
-          replyPlan.nextThreadTitle.title,
-        );
-      }
-
-      if (replyPlan.createdThreadPlan) {
-        applyCreatedThreadWorkspaceUpdate(
-          replyPlan.createdThreadPlan.threadId,
-          replyPlan.createdThreadPlan.title,
-        );
-      }
     },
     [
       applyCreatedThreadWorkspaceUpdate,
@@ -6611,7 +6677,6 @@ function ChatPageContent() {
       activeContentFocus,
       activeStrategyInputs,
       activeToneInputs,
-      buildWorkspaceChatHref,
       contract,
       context,
       currentPreferencePayload,
@@ -7156,11 +7221,12 @@ function ChatPageContent() {
     }`;
   const threadContentTransitionClassName = `transition-[opacity,filter,transform] duration-360 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-[opacity,filter,transform] ${isThreadHydrating ? "opacity-0 blur-[7px] translate-y-1" : "opacity-100 blur-0 translate-y-0"
     }`;
-  const renderDraftEditorPanel = (isMobile: boolean) => {
+  const renderDraftEditorPanelLayout = (layout: "desktop" | "mobile") => {
     if (!(selectedDraftVersion && selectedDraftBundle)) {
       return null;
     }
 
+    const isMobile = layout === "mobile";
     const panelPaddingClassName = isMobile ? "px-4 pb-4" : "px-5 pb-5";
     const panelHeaderPaddingClassName = isMobile ? "px-4 pb-3 pt-4" : "px-5 pb-3 pt-5";
     const panelFooterPaddingClassName = isMobile ? "px-4 py-4" : "px-5 py-4";
@@ -7510,7 +7576,6 @@ function ChatPageContent() {
       </div>
     );
   };
-
   const renderDraftQueueModal = () =>
     draftQueueOpen ? (
       <div
@@ -8476,51 +8541,30 @@ function ChatPageContent() {
                   ) : (
                     <>
                       {messages.map((message, index) => {
-                        const isDraftRevealRunning = hasActiveDraftReveal(
-                          activeDraftRevealByMessageId,
-                          message.id,
-                        );
-                        const primaryDraftRevealKey = isDraftRevealRunning
-                          ? activeDraftRevealByMessageId[message.id]
-                          : null;
-                        const resolveDraftRevealPhase = (draftKey: string) => {
-                          if (!primaryDraftRevealKey) {
-                            return "none";
-                          }
-
-                          return primaryDraftRevealKey === draftKey
-                            ? "primary"
-                            : "secondary";
-                        };
-                        const buildDraftRevealClasses = (draftKey: string) => {
-                          const phase = resolveDraftRevealPhase(draftKey);
-                          if (phase === "primary") {
-                            return "animate-draft-card-reveal";
-                          }
-                          if (phase === "secondary") {
-                            return "animate-draft-option-stagger";
-                          }
-                          return "";
-                        };
+                        const buildDraftRevealClasses = (draftKey: string) =>
+                          buildDraftRevealClassName(
+                            activeDraftRevealByMessageId,
+                            message.id,
+                            draftKey,
+                          );
                         const shouldAnimateDraftLines = (draftKey: string) =>
-                          resolveDraftRevealPhase(draftKey) === "primary";
+                          shouldAnimateDraftRevealLines(
+                            activeDraftRevealByMessageId,
+                            message.id,
+                            draftKey,
+                          );
 
                         return (
-                        <div
-                          key={message.id}
-                          ref={(node) => {
-                            messageRefs.current[message.id] = node;
-                          }}
-                          className={`${index === 0
-                            ? ""
-                            : messages[index - 1]?.role !== message.role
-                              ? "mt-6"
-                              : "mt-3"
-                            } max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up ${message.role === "assistant"
-                              ? "text-zinc-100"
-                              : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black"
-                            }`}
-                        >
+                          <ChatMessageRow
+                            key={message.id}
+                            messageId={message.id}
+                            role={message.role}
+                            previousRole={messages[index - 1]?.role}
+                            index={index}
+                            onRegisterRef={(messageId, node) => {
+                              messageRefs.current[messageId] = node;
+                            }}
+                          >
                           {message.role === "assistant" && message.isStreaming ? (
                             <AssistantTypingBubble label={message.content || null} />
                           ) : (
@@ -9308,7 +9352,7 @@ function ChatPageContent() {
                             </div>
                           ) : null}
 
-                        </div>
+                          </ChatMessageRow>
                         );
                       })}
 
@@ -9386,15 +9430,13 @@ function ChatPageContent() {
       {
         selectedDraftVersion && selectedDraftBundle ? (
           <>
-            <div className="pointer-events-none fixed bottom-32 right-4 top-24 z-20 hidden lg:block xl:right-6">
-              <div className="pointer-events-auto h-full w-[25.5rem] max-w-[calc(100vw-24rem)]">
-                {renderDraftEditorPanel(false)}
-              </div>
-            </div>
+            <DesktopDraftEditorDock>
+              {renderDraftEditorPanelLayout("desktop")}
+            </DesktopDraftEditorDock>
 
-            <div className="fixed inset-x-4 bottom-20 top-20 z-20 lg:hidden sm:inset-x-6 sm:bottom-16 sm:top-16 md:left-auto md:right-6 md:top-24 md:bottom-24 md:w-[26rem] md:max-w-[calc(100vw-3rem)]">
-              {renderDraftEditorPanel(true)}
-            </div>
+            <MobileDraftEditorDock>
+              {renderDraftEditorPanelLayout("mobile")}
+            </MobileDraftEditorDock>
           </>
         ) : null
       }
@@ -9412,7 +9454,11 @@ function ChatPageContent() {
             [field]: nextValue,
           }));
         }}
-        onClose={closeObservedMetricsModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeObservedMetricsModal();
+          }
+        }}
         onSubmit={() => {
           void submitObservedMetrics();
         }}

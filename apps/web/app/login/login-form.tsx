@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useId, useState } from "react";
 import { signIn } from "@/lib/auth/client";
 
 function LoginFormContent() {
@@ -31,6 +31,9 @@ function LoginFormContent() {
       : verificationCode.trim()
         ? "is-filled"
         : "is-idle";
+  const emailInputId = useId();
+  const passwordInputId = useId();
+  const codeInputId = useId();
 
   const completeLogin = async () => {
     const normalizedHandle = xHandle?.trim().replace(/^@/, "").toLowerCase() ?? "";
@@ -211,11 +214,15 @@ function LoginFormContent() {
             </div>
 
             <div className="space-y-2 text-left">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <label
+                htmlFor={codeInputId}
+                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500"
+              >
                 Verification Code
               </label>
               <div className={`login-input-shell ${codeInputState}`}>
                 <input
+                  id={codeInputId}
                   type="text"
                   value={verificationCode}
                   onChange={(event) =>
@@ -227,7 +234,7 @@ function LoginFormContent() {
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="123456"
-                  className="login-input-field"
+                  className="login-input-field focus-visible:outline-none"
                 />
               </div>
             </div>
@@ -235,7 +242,7 @@ function LoginFormContent() {
             <button
               type="submit"
               disabled={isBusy}
-              className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+              className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-100 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-950 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100/60 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
               {loadingState === "setup"
                 ? "Setting things up..."
@@ -249,7 +256,7 @@ function LoginFormContent() {
                 type="button"
                 onClick={handleResendCode}
                 disabled={isBusy}
-                className="inline-flex items-center justify-center rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+                className="inline-flex items-center justify-center rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 transition hover:border-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
               >
                 {loadingState === "resend" ? "Sending..." : "Resend code"}
               </button>
@@ -261,7 +268,7 @@ function LoginFormContent() {
                   setError(null);
                 }}
                 disabled={isBusy}
-                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:border-white/35 hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:border-white/35 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:text-zinc-500"
               >
                 Change email
               </button>
@@ -270,11 +277,15 @@ function LoginFormContent() {
         ) : (
           <>
             <div className="space-y-2 text-left">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <label
+                htmlFor={emailInputId}
+                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500"
+              >
                 Email
               </label>
               <div className={`login-input-shell ${emailInputState}`}>
                 <input
+                  id={emailInputId}
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -283,17 +294,21 @@ function LoginFormContent() {
                   required
                   placeholder="hello@xpo.lol"
                   autoComplete="email"
-                  className="login-input-field"
+                  className="login-input-field focus-visible:outline-none"
                 />
               </div>
             </div>
 
             <div className="space-y-2 text-left">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <label
+                htmlFor={passwordInputId}
+                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500"
+              >
                 Password
               </label>
               <div className={`login-input-shell ${passwordInputState}`}>
                 <input
+                  id={passwordInputId}
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -302,12 +317,12 @@ function LoginFormContent() {
                   required
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="login-input-field pr-20"
+                  className="login-input-field pr-20 focus-visible:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}
-                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:text-zinc-100"
+                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? "Hide" : "Show"}
@@ -318,7 +333,7 @@ function LoginFormContent() {
             <button
               type="submit"
               disabled={isBusy}
-              className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
+              className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/85 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:border-zinc-600 disabled:bg-zinc-700 disabled:text-zinc-400"
             >
               {loadingState === "setup"
                 ? "Setting things up..."
