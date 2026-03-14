@@ -17,7 +17,8 @@ Transitional note:
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates. That ordering is migration debt, not the desired steady state.
 
 Current active slice:
-- Phase 5 continuation: backend-only reply/analyze validation and retry on top of the landed backend/lib and API folder cleanup
+- Phase 5 validation and retry is now landed across draft, revision, reply, and analysis on top of the landed backend/lib and API folder cleanup
+- Immediate follow-on: continue deleting compatibility shims only after imports are fully migrated and keep reply-path trace unification explicit migration debt until direct reply-preflight shares the common runtime entry
 - Frontend architecture track: route-private folders, shared UI primitives, and a dedicated frontend test stack
 - Backend/lib architecture track: landed domain-first folders, thin orchestration entrypoints, and explicit seams between contracts, control flow, workers, validators, and infra
 - API architecture track: landed thin route entrypoints, route-boundary helpers, and feature-owned route-private folders
@@ -125,10 +126,10 @@ Current active slice:
 - Move route-local implementation into focused route-boundary helpers or route-private folders instead of growing large `route.ts` files.
 - For complex route areas such as `apps/web/app/api/creator/v2/chat`, the long-term target is:
   - `route.ts`: entrypoint only
-  - `turnNormalization.ts`: transport-to-runtime conversion only
-  - `route.persistence.ts`: persistence boundary only
-  - `route.response.ts`: response-envelope assembly only
-  - `route.*` helpers or route-private folders for feature-local boundary logic that should not leak into `apps/web/lib`
+  - `_lib/normalization/turnNormalization.ts`: transport-to-runtime conversion only
+  - `_lib/persistence/routePersistence.ts`: persistence boundary only
+  - `_lib/response/routeResponse.ts`: response-envelope assembly only
+  - `_lib/*` helpers or route-private folders for feature-local boundary logic that should not leak into `apps/web/lib`
 - Route modules should not become an alternate home for workflow policy, validator policy, or capability logic that belongs in `apps/web/lib`.
 - API migrations should follow the same rule as backend/lib migrations:
   - extract seams first
@@ -141,13 +142,13 @@ Current active slice:
   - `_lib/normalization/`
     - `turnNormalization.ts` and normalization-only helpers
   - `_lib/request/`
-    - idempotency, request assembly, and route-only request helpers such as `route.idempotency.ts` and any remaining `route.logic.ts` seams that are truly API-boundary concerns
+    - idempotency, request assembly, and route-only request helpers such as `routeIdempotency.ts` and `routeLogic.ts` when the seam is truly API-boundary-only
   - `_lib/persistence/`
-    - `route.persistence.ts` plus route-only persistence helpers
+    - `routePersistence.ts` plus route-only persistence helpers
   - `_lib/response/`
-    - `route.response.ts` plus success and error envelope helpers
+    - `routeResponse.ts` plus success and error envelope helpers
   - `_lib/reply/`
-    - `route.replyFinalize.ts` and reply-only route-boundary wiring
+    - `routeReplyFinalize.ts` and reply-only route-boundary wiring
   - `_tests/`
     - route-focused integration and boundary tests when root-level route test files stop scaling
 - Current-file mapping rule:
@@ -197,14 +198,14 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - validation results
 - Persisted-state tracing now lands through route-boundary helpers:
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now returns raw response payloads plus the in-memory `routingTrace`, and only `manageConversationTurn()` re-serializes that trace when diagnostics explicitly request it
-  - `apps/web/app/api/creator/v2/chat/route.persistence.ts` now returns a `RuntimePersistenceTracePatch` containing persistence-phase worker executions plus `persistedStateChanges`
+  - `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts` now returns a `RuntimePersistenceTracePatch` containing persistence-phase worker executions plus `persistedStateChanges`
   - persistence workers are standardized as:
     - `persist_assistant_message`
     - `update_conversation_memory`
     - `update_chat_thread`
     - `create_draft_candidate`
   - `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch after sequential writes complete and only exposes the full trace through `buildChatSuccessResponse()` when diagnostics are enabled
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now reuses the same persistence patch merge when an upstream runtime trace already exists
+  - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now reuses the same persistence patch merge when an upstream runtime trace already exists
 - Remaining follow-on:
   - direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace, so reply-path trace unification remains migration debt
   - current code still shapes the orchestrator response before persistence/thread updates, so response-before-persistence ordering remains migration debt even though trace coverage now spans those writes
@@ -213,8 +214,8 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Landed during migration:
   - `apps/web/app/api/creator/v2/chat/route.ts` now owns final response-envelope finalization for the main chat path.
   - post-orchestrator response mapping and persistence prep live in route-boundary helpers instead of being fully hand-assembled inline in the route.
-  - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
-  - reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts` instead of being assembled inline in `route.ts`.
+  - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`.
+  - reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts` instead of being assembled inline in `route.ts`.
   - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/_features/transport/chatTransport.ts` instead of building the chat request inline.
 - `apps/web/app/chat/page.tsx` now delegates chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning through `apps/web/app/chat/_features/reply/chatReplyState.ts`.
 - `apps/web/app/chat/page.tsx` now delegates page-local client seams through dedicated helpers/modules:
@@ -281,7 +282,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Break `draftPipeline.ts` into capability executors:
   - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
-  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns the remaining route-boundary persistence/response work
+  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns the remaining route-boundary persistence/response work
   - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
@@ -332,11 +333,11 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now owns shared `RuntimeResponseSeed`, `CapabilityResponseOutput`, and `CapabilityPatchedResponseOutput` types for executor boundaries
   - drafting, draft-bundle, replanning, revising, planning, ideation, analysis, and replying executors now consume those shared types so merge-only response ownership stays consistent without changing runtime behavior or client payloads
 - Reply finalization boundary thinned:
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
+  - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
   - `apps/web/app/api/creator/v2/chat/route.ts` now imports reply turn state resolution and planning directly from the runtime-owned planner, which keeps route-only side effects out of reply planning without changing reply behavior or payloads
 - Reply parse/planning moved under runtime ownership:
   - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` now owns the pure reply parse/artifact helper logic, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now owns reply turn state resolution, planning, and memory snapshot shaping
-  - `route.ts`, `route.replyFinalize.ts`, `route.logic.ts`, and `route.response.ts` now import reply planning and reply artifact types directly from the runtime-owned modules, so reply capability logic lives fully in the runtime layer
+  - `route.ts`, `routeReplyFinalize.ts`, `routeLogic.ts`, and `routeResponse.ts` now import reply planning and reply artifact types directly from the runtime-owned modules, so reply capability logic lives fully in the runtime layer
 - Reply shim deletion completed:
   - `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` have been removed now that route-internal consumers and focused tests import the runtime-owned reply modules directly
   - this removes the last reply-specific compatibility layer from the route boundary without changing client payloads or reply behavior
@@ -355,9 +356,11 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - deterministic delivery validators for truncation, prompt echo, artifact mismatch, and thread/post shape mismatch
   - validator outcomes recorded in runtime trace
   - safe non-artifact `coach_question` fallback when the second pass still fails delivery validation
-- Phase 5A next slice:
-  - extend the same backend-only validation/retry pattern to `reply_to_post` and `analyze_post`
-  - keep the work in `capabilities/*`, `workers/validation/*`, `validators/*`, and route-private helpers instead of in flat legacy folders
+- Phase 5A continuation landed:
+  - `reply_to_post` and `analyze_post` now use the same backend-only delivery validation and single constrained retry pattern
+  - shared conversational delivery validators now live under `apps/web/lib/agent-v2/validators/shared/`
+  - shared reply/analyze validation worker adapters now live under `apps/web/lib/agent-v2/workers/validation/`
+  - reply/analyze now fall back to safe non-artifact `coach_question` responses when the second pass still fails delivery validation
 - Phase 5B structure follow-on:
   - extract delivery validation, revision validation, and workflow-local retry helpers out of large orchestrator entry files
   - introduce stable backend/lib and route-boundary folder conventions for new runtime work:

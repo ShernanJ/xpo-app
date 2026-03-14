@@ -50,6 +50,13 @@ User turn
   - chat API route-boundary helpers live under `apps/web/app/api/creator/v2/chat/_lib/*`
   - workflow execution has real homes under `apps/web/lib/agent-v2/capabilities/*`
   - onboarding has real domain folders under `apps/web/lib/onboarding/{profile,analysis,strategy,pipeline,contracts,shared,store,sources}`
+- Compatibility cleanup status:
+  - chat route shim files are deleted; real route-boundary implementations now live only under `apps/web/app/api/creator/v2/chat/_lib/*`
+  - onboarding root shims for `growthStrategy`, `agentContext`, `generationContract`, and `store` should be treated as migration seams only and deleted once their last consumers are migrated
+- Phase 5 validation status:
+  - draft, revision, reply, and analysis now all use deterministic delivery validation plus one constrained retry before safe fallback
+  - shared conversational delivery validators live in `apps/web/lib/agent-v2/validators/shared/`
+  - shared reply/analyze validation worker adapters live in `apps/web/lib/agent-v2/workers/validation/`
 - As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
 - That same pass has now extracted route-private thread-history, source-materials, preferences, growth-guide, and analysis state/presentation seams, and `apps/web/app/chat/page.tsx` is down to roughly 5.7k lines instead of acting as a single giant mixed client surface.
 - Chat-page-specific TypeScript regressions from that extraction are fixed; any remaining `pnpm exec tsc --noEmit` failures are currently outside `apps/web/app/chat/page.tsx`.
@@ -148,7 +155,7 @@ User turn
   - literal `message`
 
 ### Turn normalization
-- `apps/web/app/api/creator/v2/chat/turnNormalization.ts`
+- `apps/web/app/api/creator/v2/chat/_lib/normalization/turnNormalization.ts`
 - Only place allowed to convert transport input into runtime-ready turn context.
 - Landed responsibilities:
   - transcript-facing message
@@ -176,8 +183,8 @@ User turn
 - Current reality:
   - still heavy
   - now owns final response-envelope finalization for the main chat path
-  - now delegates sequential assistant-message persistence, memory/thread updates, and draft-candidate writes through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
-  - now delegates reply-turn response assembly, product-event planning, and final success-response packaging through `apps/web/app/api/creator/v2/chat/route.response.ts`
+  - now delegates sequential assistant-message persistence, memory/thread updates, and draft-candidate writes through `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`
+  - now delegates reply-turn response assembly, product-event planning, and final success-response packaging through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts`
   - now merges `RuntimePersistenceTracePatch` into the in-memory `routingTrace` after route-boundary writes complete
   - still coordinates response shaping before persistence/thread updates
   - still carries more request assembly and reply-workflow control flow than the target architecture wants
@@ -230,22 +237,21 @@ User turn
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Still transitional.
 - Landed so far:
-  - ideation now runs through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts`
-  - initial planning now runs through `apps/web/lib/agent-v2/orchestrator/planningExecutor.ts`
-  - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`
-  - multi-draft bundle generation now runs through `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
-  - targeted revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
-  - edit/review replan-then-draft continuation now runs through `apps/web/lib/agent-v2/orchestrator/replanningExecutor.ts`
-  - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`
-  - the `analyze_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/analysisExecutor.ts`
+  - ideation now has a real capability home under `apps/web/lib/agent-v2/capabilities/ideation/`
+  - initial planning now has a real capability home under `apps/web/lib/agent-v2/capabilities/planning/`
+  - initial single-draft delivery now has a real capability home under `apps/web/lib/agent-v2/capabilities/drafting/`
+  - targeted revision now has a real capability home under `apps/web/lib/agent-v2/capabilities/revision/`
+  - the `reply_to_post` workflow now has a real capability home under `apps/web/lib/agent-v2/capabilities/reply/`
+  - the `analyze_post` workflow now has a real capability home under `apps/web/lib/agent-v2/capabilities/analysis/`
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization
+  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns reply finalization
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ### Next backend slice
-- Reply/analyze validation and retry is the next backend-only product lane.
+- Reply/analyze validation and retry is landed.
+- The next backend-only product lane is deleting remaining safe compatibility shims and closing reply-path trace unification debt without re-growing flat roots or route entrypoints.
 - Put new work in:
   - `apps/web/lib/agent-v2/capabilities/reply/`
   - `apps/web/lib/agent-v2/capabilities/analysis/`
@@ -326,16 +332,16 @@ User turn
 
 ## Debugging guide
 ### Routing and runtime traces
-- Check normalized turn diagnostics first in `apps/web/app/api/creator/v2/chat/turnNormalization.ts`.
+- Check normalized turn diagnostics first in `apps/web/app/api/creator/v2/chat/_lib/normalization/turnNormalization.ts`.
 - Check runtime workflow resolution first in `apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts`.
 - Check runtime contract and worker-summary shape first in:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 - Check route-boundary persistence trace generation in:
-  - `apps/web/app/api/creator/v2/chat/route.persistence.ts`
+  - `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`
 - Check where the persistence trace patch is merged in:
   - `apps/web/app/api/creator/v2/chat/route.ts`
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts`
+  - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts`
 - Only then inspect legacy routing paths in:
   - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`

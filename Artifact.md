@@ -5,7 +5,7 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-14
-- Current slice: backend/lib and API folder-structure cleanup is landed for the active migration surface; the immediate follow-on is backend-only reply/analyze validation and retry
+- Current slice: backend/lib and API folder-structure cleanup is landed for the active migration surface, and backend-only validation/retry is now landed across draft, revision, reply, and analysis
 - Current architecture tracks now focus on keeping new runtime work inside the landed domain folders so flat backend monoliths do not regrow
 
 ## Status language
@@ -175,12 +175,12 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - As of 2026-03-14, chat-page-specific TypeScript regressions from the extraction pass are resolved; remaining full `pnpm exec tsc --noEmit` failures are outside `apps/web/app/chat/page.tsx` and currently sit in unrelated tests and onboarding/shared modules.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
-- Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
-- Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts`, but the route still owns too much request assembly and reply control flow.
-- Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns handled-reply persistence/finalization.
+- Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`.
+- Reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts`, but the route still owns too much request assembly and reply control flow.
+- Reply preflight parsing/default resolution and reply artifact shaping now live in `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns handled-reply persistence/finalization.
 - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now keeps `routingTrace` in-memory until diagnostics explicitly request serialization, so route-boundary persistence can append to the same trace object before any external response includes it.
-- `apps/web/app/api/creator/v2/chat/route.persistence.ts` now emits `RuntimePersistenceTracePatch` with standardized persistence workers plus `persistedStateChanges` for assistant message, thread, memory, and draft-candidate writes.
-- `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch after sequential writes complete, and `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` reuses the same patch format when an upstream runtime trace exists.
+- `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts` now emits `RuntimePersistenceTracePatch` with standardized persistence workers plus `persistedStateChanges` for assistant message, thread, memory, and draft-candidate writes.
+- `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch after sequential writes complete, and `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` reuses the same patch format when an upstream runtime trace exists.
 - Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that remains accepted migration debt until reply entry shares the common runtime path.
 - `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
 
@@ -202,16 +202,16 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Landed during the persisted-state tracing slice:
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now returns raw response payloads plus in-memory `routingTrace` instead of eagerly serializing that trace on the raw envelope
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` and `apps/web/lib/agent-v2/runtime/runtimeTrace.ts` now standardize `RuntimePersistedStateChanges`, `RuntimePersistenceTracePatch`, and patch-merge helpers for persistence workers
-  - `apps/web/app/api/creator/v2/chat/route.persistence.ts` now returns persistence worker executions for `persist_assistant_message`, `update_conversation_memory`, `update_chat_thread`, and `create_draft_candidate`
+  - `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts` now returns persistence worker executions for `persist_assistant_message`, `update_conversation_memory`, `update_chat_thread`, and `create_draft_candidate`
   - `apps/web/app/api/creator/v2/chat/route.ts` now merges that persistence patch before the final success response is built and only exposes full `routingTrace` when diagnostics explicitly request it
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now consumes the same persistence trace patch when a runtime trace is already available
+  - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now consumes the same persistence trace patch when a runtime trace is already available
 - Remaining target-state follow-on:
   - unify reply-path tracing without fabricating end-to-end runtime resolution for direct reply-preflight turns
   - move response shaping after persistence/thread updates to match the target control-plane order
 - Exit criteria for this slice:
   - diagnostics traces show persistence-phase worker entries after workflow execution
   - `persistedStateChanges` reports assistant message id, thread mutation summary, memory mutation summary, and draft-candidate attempted/created/skipped counts
-- Status: in progress, with the main chat path landed and reply-path unification still open.
+- Status: in progress, with the main chat path landed, reply/analyze validation landed, and reply-path unification still open.
 - Landed:
   - `apps/web/lib/agent-v2/contracts/chatTransport.ts`
   - `apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts`
@@ -237,8 +237,8 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - inline draft preview presentation now flows through `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
-  - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
-  - reply-turn response assembly, product-event planning, and final success-response packaging now run through `apps/web/app/api/creator/v2/chat/route.response.ts`
+  - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`
+  - reply-turn response assembly, product-event planning, and final success-response packaging now run through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts`
 - Move transport/request construction out of `apps/web/app/chat/page.tsx` into a dedicated chat transport layer plus workspace store.
 - Reduce `apps/web/app/api/creator/v2/chat/route.ts` to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
 - Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.
@@ -272,7 +272,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - keep `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` as the runtime-owned reply capability boundary while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` remains the route-boundary finalization helper
+  - keep `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` as the runtime-owned reply capability boundary while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` remains the route-boundary finalization helper
 - Status: complete with accepted migration debt.
 
 ### Phase 4: Formalize the parallel worker plane
@@ -294,7 +294,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins explicit no-double-write coverage so sequential memory persistence remains single-write even when draft-candidate writes finish out of order
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records explicit sequential sibling-novelty retry trace entries so the remaining bundle retry path is formalized as a dependent control-plane step instead of implicit worker fan-out
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now standardizes executor response and response-seed contracts, and the main executor seams now consume those shared types instead of local one-off response output shapes
-  - `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` now owns reply persistence/event/response finalization, while `route.ts`, `route.logic.ts`, and `route.response.ts` import reply planning and reply artifact types directly from the runtime-owned modules
+  - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now owns reply persistence/event/response finalization, while `route.ts`, `routeLogic.ts`, and `routeResponse.ts` import reply planning and reply artifact types directly from the runtime-owned modules
   - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now own reply parsing and reply-turn planning in the runtime layer, and the transitional `apps/web/app/api/creator/v2/chat/reply.logic.ts` / `apps/web/app/api/creator/v2/chat/route.reply.ts` shims have been removed
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the reply seam audit so those shim files stay absent and route-internal reply consumers keep importing the runtime-owned reply modules directly
 - Guardrails now in force:
@@ -311,13 +311,13 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/app/api/creator/v2/chat/_lib/*` for route-boundary glue
 - Landed:
   - draft/revision delivery validation and retry
+  - reply/analyze delivery validation and retry
   - backend/lib and API structure cleanup for the active migration surface
 - Active move order:
-  1. extend validation/retry to `reply_to_post`
-  2. extend validation/retry to `analyze_post`
-  3. keep all new work in the landed target folders
-  4. continue deleting compatibility shims once imports are fully migrated
-- Status: in progress.
+  1. keep all new work in the landed target folders
+  2. continue deleting compatibility shims once imports are fully migrated
+  3. keep reply-path trace unification explicit migration debt until direct reply-preflight shares the common runtime path
+- Status: in progress, with validator coverage landed across draft/revision/reply/analyze.
 
 ### Phase 6: Rollout and deletion
 - Ship the new runtime shape behind a migration flag if needed.
