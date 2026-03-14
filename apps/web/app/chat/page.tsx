@@ -94,6 +94,20 @@ import {
   resolveComposerQuickReplyUpdate,
 } from "./chatComposerState";
 import {
+  addThreadDraftPost as addThreadDraftPostState,
+  buildDraftEditorHydrationState,
+  buildDraftEditorSerializedContent,
+  buildEditableThreadPosts,
+  clampThreadPostIndex,
+  ensureEditableThreadPosts,
+  joinThreadPosts,
+  mergeThreadDraftPostDown as mergeThreadDraftPostDownState,
+  moveThreadDraftPost as moveThreadDraftPostState,
+  removeThreadDraftPost as removeThreadDraftPostState,
+  splitThreadContent,
+  splitThreadDraftPost as splitThreadDraftPostState,
+} from "./chatDraftEditorState";
+import {
   buildAssistantMessageFromChatResult,
   readChatResponseStream,
   resolveNextDraftEditorSelection,
@@ -1926,82 +1940,6 @@ function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] 
   }
 
   return artifact.content ? [artifact.content] : [];
-}
-
-function joinThreadPosts(posts: string[]): string {
-  return posts
-    .map((post) => post.trim())
-    .filter(Boolean)
-    .join("\n\n---\n\n");
-}
-
-function splitThreadPostAtBoundary(content: string): [string, string] | null {
-  const normalized = content.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const paragraphParts = normalized.split(/\n{2,}/).filter(Boolean);
-  if (paragraphParts.length > 1) {
-    const pivot = Math.ceil(paragraphParts.length / 2);
-    return [
-      paragraphParts.slice(0, pivot).join("\n\n").trim(),
-      paragraphParts.slice(pivot).join("\n\n").trim(),
-    ];
-  }
-
-  const sentenceParts = normalized.split(/(?<=[.!?])\s+/).filter(Boolean);
-  if (sentenceParts.length > 1) {
-    const pivot = Math.ceil(sentenceParts.length / 2);
-    return [
-      sentenceParts.slice(0, pivot).join(" ").trim(),
-      sentenceParts.slice(pivot).join(" ").trim(),
-    ];
-  }
-
-  const words = normalized.split(/\s+/).filter(Boolean);
-  if (words.length < 8) {
-    return null;
-  }
-
-  const pivot = Math.ceil(words.length / 2);
-  return [
-    words.slice(0, pivot).join(" ").trim(),
-    words.slice(pivot).join(" ").trim(),
-  ];
-}
-
-function splitThreadContent(content: string): string[] {
-  return content
-    .split(/\n\s*---\s*\n/g)
-    .map((post) => post.trim())
-    .filter(Boolean);
-}
-
-function buildEditableThreadPosts(
-  artifact: DraftArtifact | null | undefined,
-  content: string,
-): string[] {
-  const artifactPosts = getArtifactPosts(artifact)
-    .map((post) => post.trim())
-    .filter(Boolean);
-
-  if (artifactPosts.length > 0) {
-    return artifactPosts;
-  }
-
-  const contentPosts = splitThreadContent(content);
-  if (contentPosts.length > 0) {
-    return contentPosts;
-  }
-
-  const normalizedContent = content.trim();
-  return normalizedContent ? [normalizedContent] : [""];
-}
-
-function ensureEditableThreadPosts(posts: string[]): string[] {
-  const normalized = posts.map((post) => post.replace(/\r\n/g, "\n"));
-  return normalized.length > 0 ? normalized : [""];
 }
 
 function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
@@ -6197,7 +6135,7 @@ function ChatPageContent() {
     }
 
     const rawIndex = selectedThreadPostByMessageId[activeMessageId] ?? 0;
-    return Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+    return clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
   }, [
     activeDraftEditor?.messageId,
     isSelectedDraftThread,
@@ -6206,13 +6144,11 @@ function ChatPageContent() {
   ]);
   const draftEditorSerializedContent = useMemo(
     () =>
-      isSelectedDraftThread
-        ? joinThreadPosts(
-            ensureEditableThreadPosts(editorDraftPosts)
-              .map((post) => post.trim())
-              .filter(Boolean),
-          )
-        : editorDraftText,
+      buildDraftEditorSerializedContent({
+        isThreadDraft: isSelectedDraftThread,
+        editorDraftPosts,
+        editorDraftText,
+      }),
     [editorDraftPosts, editorDraftText, isSelectedDraftThread],
   );
   const selectedDraftReplyPlan = selectedDraftArtifact?.replyPlan ?? [];
@@ -6299,21 +6235,15 @@ function ChatPageContent() {
   );
 
   useEffect(() => {
-    if (!selectedDraftVersionId) {
-      setEditorDraftText("");
-      setEditorDraftPosts([]);
-      setHasCopiedDraftEditorText(false);
-      return;
-    }
+    const hydratedDraftEditorState = buildDraftEditorHydrationState({
+      selectedDraftVersionId,
+      isThreadDraft: isSelectedDraftThread,
+      artifact: selectedDraftArtifact,
+      content: selectedDraftVersionContent,
+    });
 
-    setEditorDraftText(selectedDraftVersionContent);
-    setEditorDraftPosts(
-      isSelectedDraftThread
-        ? ensureEditableThreadPosts(
-            buildEditableThreadPosts(selectedDraftArtifact, selectedDraftVersionContent),
-          )
-        : [],
-    );
+    setEditorDraftText(hydratedDraftEditorState.editorDraftText);
+    setEditorDraftPosts(hydratedDraftEditorState.editorDraftPosts);
     setHasCopiedDraftEditorText(false);
   }, [
     activeDraftEditor?.messageId,
@@ -6332,7 +6262,7 @@ function ChatPageContent() {
 
     setSelectedThreadPostByMessageId((current) => {
       const rawIndex = current[activeMessageId] ?? 0;
-      const clampedIndex = Math.max(0, Math.min(selectedDraftThreadPostCount - 1, rawIndex));
+      const clampedIndex = clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
 
       if (rawIndex === clampedIndex) {
         return current;
@@ -6439,104 +6369,108 @@ function ChatPageContent() {
 
   const moveThreadDraftPost = useCallback((index: number, direction: "up" | "down") => {
     const messageId = activeDraftEditor?.messageId;
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      if (index < 0 || index >= current.length || targetIndex < 0 || targetIndex >= current.length) {
+      const nextState = moveThreadDraftPostState({
+        posts: current,
+        index,
+        direction,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const next = [...current];
-      const [movedPost] = next.splice(index, 1);
-      next.splice(targetIndex, 0, movedPost);
-      return next;
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId && targetIndex >= 0) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: targetIndex,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const splitThreadDraftPost = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      const target = current[index] ?? "";
-      const split = splitThreadPostAtBoundary(target);
-      if (!split) {
+      const nextState = splitThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const next = [...current];
-      next.splice(index, 1, split[0], split[1]);
-      return next;
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: index,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const mergeThreadDraftPostDown = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex: number | null = null;
     setEditorDraftPosts((current) => {
-      if (index < 0 || index >= current.length - 1) {
+      const nextState = mergeThreadDraftPostDownState({
+        posts: current,
+        index,
+      });
+      if (!nextState) {
         return current;
       }
 
-      const currentPost = current[index]?.trim() ?? "";
-      const nextPost = current[index + 1]?.trim() ?? "";
-      const merged = [currentPost, nextPost].filter(Boolean).join("\n\n");
-      const next = [...current];
-      next.splice(index, 2, merged);
-      return ensureEditableThreadPosts(next);
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
-    if (messageId) {
+    if (messageId && nextSelectedIndex !== null) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: index,
+        [messageId]: nextSelectedIndex!,
       }));
     }
   }, [activeDraftEditor?.messageId]);
 
   const addThreadDraftPost = useCallback((index?: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex = 0;
     setEditorDraftPosts((current) => {
-      const next = [...current];
-      const insertionIndex =
-        typeof index === "number" && Number.isFinite(index)
-          ? Math.max(0, Math.min(next.length, index))
-          : next.length;
-      next.splice(insertionIndex, 0, "");
-      return ensureEditableThreadPosts(next);
+      const nextState = addThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
     if (messageId) {
-      const insertionIndex =
-        typeof index === "number" && Number.isFinite(index)
-          ? Math.max(0, index)
-          : editorDraftPosts.length;
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: insertionIndex,
+        [messageId]: nextSelectedIndex,
       }));
     }
-  }, [activeDraftEditor?.messageId, editorDraftPosts.length]);
+  }, [activeDraftEditor?.messageId]);
 
   const removeThreadDraftPost = useCallback((index: number) => {
     const messageId = activeDraftEditor?.messageId;
+    let nextSelectedIndex = 0;
     setEditorDraftPosts((current) => {
-      if (current.length <= 1) {
-        return [""];
-      }
-
-      return ensureEditableThreadPosts(current.filter((_, postIndex) => postIndex !== index));
+      const nextState = removeThreadDraftPostState({
+        posts: current,
+        index,
+      });
+      nextSelectedIndex = nextState.selectedIndex;
+      return nextState.posts;
     });
     if (messageId) {
       setSelectedThreadPostByMessageId((current) => ({
         ...current,
-        [messageId]: Math.max(0, index - 1),
+        [messageId]: nextSelectedIndex,
       }));
     }
   }, [activeDraftEditor?.messageId]);
