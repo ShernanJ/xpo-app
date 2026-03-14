@@ -19,7 +19,6 @@ import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
 import {
-  computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
   type ThreadFramingStyle,
   type DraftArtifactDetails,
@@ -53,13 +52,8 @@ import type {
   UserGoal,
 } from "@/lib/onboarding/types";
 import {
-  PLAYBOOK_LIBRARY,
-  buildPlaybookTemplateGroups,
   buildRecommendedPlaybooks,
-  inferCurrentPlaybookStage,
   type PlaybookDefinition,
-  type PlaybookStageKey,
-  type PlaybookTemplate,
   type PlaybookTemplateTab,
 } from "@/lib/creator/playbooks";
 import {
@@ -189,6 +183,7 @@ import { useSourceMaterialsState } from "./_features/source-materials/useSourceM
 import { PreferencesDialog } from "./_features/preferences/PreferencesDialog";
 import { usePreferencesState } from "./_features/preferences/usePreferencesState";
 import { GrowthGuideDialog } from "./_features/growth-guide/GrowthGuideDialog";
+import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideState";
 import { ProfileAnalysisDialog } from "./_features/analysis/ProfileAnalysisDialog";
 import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
 import {
@@ -2142,7 +2137,6 @@ function ChatPageContent() {
   const [analysisScrapeClockMs, setAnalysisScrapeClockMs] = useState<number>(() => Date.now());
   const dailyScrapeTriggerRef = useRef<string | null>(null);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
-  const [playbookModalOpen, setPlaybookModalOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
     useState<FeedbackCategory>("feedback");
@@ -2171,15 +2165,6 @@ function ChatPageContent() {
   const feedbackEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackImagesRef = useRef(feedbackImages);
-  const [playbookStage, setPlaybookStage] = useState<PlaybookStageKey>("0-1k");
-  const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
-  const [pendingGrowthGuidePlaybookId, setPendingGrowthGuidePlaybookId] = useState<string | null>(null);
-  const [playbookTemplateTab, setPlaybookTemplateTab] =
-    useState<PlaybookTemplateTab>("hook");
-  const [activePlaybookTemplateId, setActivePlaybookTemplateId] = useState<string | null>(null);
-  const [copiedPlaybookTemplateId, setCopiedPlaybookTemplateId] = useState<string | null>(
-    null,
-  );
   const [, setBackfillNotice] = useState<string | null>(null);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
@@ -2336,61 +2321,35 @@ function ChatPageContent() {
     isVerifiedAccount,
     onErrorMessage: setErrorMessage,
   });
-  const currentPlaybookStage = useMemo(
-    () => inferCurrentPlaybookStage(context),
-    [context],
-  );
-  const stagePlaybooks = useMemo(
-    () => PLAYBOOK_LIBRARY[playbookStage],
-    [playbookStage],
-  );
-  const filteredStagePlaybooks = stagePlaybooks;
-  const selectedPlaybook = useMemo(() => {
-    const withinFiltered =
-      filteredStagePlaybooks.find((playbook) => playbook.id === activePlaybookId) ??
-      stagePlaybooks.find((playbook) => playbook.id === activePlaybookId);
-
-    return withinFiltered ?? filteredStagePlaybooks[0] ?? stagePlaybooks[0] ?? null;
-  }, [activePlaybookId, filteredStagePlaybooks, stagePlaybooks]);
-  const selectedPlaybookTemplateGroups = useMemo(
-    () => (selectedPlaybook ? buildPlaybookTemplateGroups(selectedPlaybook) : null),
-    [selectedPlaybook],
-  );
-  const selectedPlaybookTemplates = useMemo(
-    () => selectedPlaybookTemplateGroups?.[playbookTemplateTab] ?? [],
-    [playbookTemplateTab, selectedPlaybookTemplateGroups],
-  );
-  const personalizedPlaybookTemplates = useMemo(
-    () =>
-      selectedPlaybookTemplates.map((template) => ({
-        ...template,
-        text: personalizePlaybookTemplateText({
-          text: template.text,
-          tab: playbookTemplateTab,
-          playbook: selectedPlaybook as PlaybookDefinition,
-          context,
-        }),
-      })),
-    [context, playbookTemplateTab, selectedPlaybook, selectedPlaybookTemplates],
-  );
-  const activePlaybookTemplate = useMemo(() => {
-    if (personalizedPlaybookTemplates.length === 0) {
-      return null;
-    }
-
-    return (
-      personalizedPlaybookTemplates.find(
-        (template) => template.id === activePlaybookTemplateId,
-      ) ?? personalizedPlaybookTemplates[0]
-    );
-  }, [activePlaybookTemplateId, personalizedPlaybookTemplates]);
-  const playbookTemplatePreviewCounter = useMemo(() => {
-    const previewText = activePlaybookTemplate?.text ?? "";
-    const weightedCharacterCount = computeXWeightedCharacterCount(previewText);
-    const characterLimit = getXCharacterLimitForAccount(isVerifiedAccount);
-
-    return `${weightedCharacterCount}/${characterLimit} chars`;
-  }, [activePlaybookTemplate?.text, isVerifiedAccount]);
+  const {
+    playbookModalOpen,
+    handleGrowthGuideOpenChange,
+    openGrowthGuide,
+    openGrowthGuideForRecommendation,
+    playbookStage,
+    setPlaybookStage,
+    currentPlaybookStage,
+    filteredStagePlaybooks,
+    selectedPlaybook,
+    handleApplyPlaybook,
+    playbookTemplateTab,
+    setPlaybookTemplateTab,
+    personalizedPlaybookTemplates,
+    activePlaybookTemplate,
+    setActivePlaybookTemplateId,
+    playbookTemplatePreviewCounter,
+    copiedPlaybookTemplateId,
+    handleCopyPlaybookTemplate,
+    previewDisplayName: growthGuidePreviewDisplayName,
+    previewUsername: growthGuidePreviewUsername,
+    previewAvatarUrl: growthGuidePreviewAvatarUrl,
+  } = useGrowthGuideState({
+    accountName,
+    context,
+    isVerifiedAccount,
+    selectedPlaybookRef: growthGuideSelectedPlaybookRef,
+    personalizePlaybookTemplateText,
+  });
   const activeFeedbackTitle = feedbackTitlesByCategory[feedbackCategory] ?? "";
   const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
   const applyFeedbackMarkdownToken = useCallback(
@@ -2864,67 +2823,6 @@ function ChatPageContent() {
     void loadFeedbackHistory();
   }, [feedbackModalOpen, loadFeedbackHistory]);
 
-  useEffect(() => {
-    setPlaybookStage(currentPlaybookStage);
-  }, [currentPlaybookStage]);
-
-  useEffect(() => {
-    const nextPlaybookId = stagePlaybooks[0]?.id ?? null;
-
-    setActivePlaybookId((current) => {
-      if (current && stagePlaybooks.some((playbook) => playbook.id === current)) {
-        return current;
-      }
-
-      return nextPlaybookId;
-    });
-  }, [stagePlaybooks]);
-
-  useEffect(() => {
-    setPlaybookTemplateTab("hook");
-  }, [selectedPlaybook?.id]);
-  useEffect(() => {
-    setActivePlaybookTemplateId(personalizedPlaybookTemplates[0]?.id ?? null);
-  }, [personalizedPlaybookTemplates]);
-  useEffect(() => {
-    if (
-      !playbookModalOpen ||
-      !pendingGrowthGuidePlaybookId ||
-      activePlaybookId !== pendingGrowthGuidePlaybookId
-    ) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      growthGuideSelectedPlaybookRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-      setPendingGrowthGuidePlaybookId(null);
-    }, 180);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activePlaybookId, pendingGrowthGuidePlaybookId, playbookModalOpen]);
-
-  const handleCopyPlaybookTemplate = useCallback(async (template: PlaybookTemplate) => {
-    try {
-      await navigator.clipboard.writeText(template.text);
-      setCopiedPlaybookTemplateId(template.id);
-      window.setTimeout(() => {
-        setCopiedPlaybookTemplateId((current) =>
-          current === template.id ? null : current,
-        );
-      }, 1800);
-    } catch (error) {
-      console.error("Failed to copy playbook template", error);
-    }
-  }, []);
-
-  const handleApplyPlaybook = useCallback((playbookId: string) => {
-    setActivePlaybookId(playbookId);
-  }, []);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const switchActiveHandle = useCallback(async (handle: string) => {
@@ -3792,16 +3690,6 @@ function ChatPageContent() {
   const analysisRecommendedPlaybooks = useMemo(() => {
     return buildRecommendedPlaybooks(context, 3);
   }, [context]);
-  const openGrowthGuideForRecommendation = useCallback(
-    (stage: PlaybookStageKey, playbookId: string) => {
-      setPlaybookStage(stage);
-      setActivePlaybookId(playbookId);
-      setPendingGrowthGuidePlaybookId(playbookId);
-      setAnalysisOpen(false);
-      setPlaybookModalOpen(true);
-    },
-    [],
-  );
   const analysisDiagnosisSummary = useMemo(() => {
     if (!context) {
       return "insufficient data";
@@ -5538,9 +5426,7 @@ function ChatPageContent() {
         return;
       }
 
-      setPlaybookStage(inferCurrentPlaybookStage(context));
-      setPendingGrowthGuidePlaybookId(null);
-      setPlaybookModalOpen(true);
+      openGrowthGuide();
     },
   }));
 
@@ -6238,12 +6124,7 @@ function ChatPageContent() {
       {context ? (
         <GrowthGuideDialog
           open={playbookModalOpen}
-          onOpenChange={(open) => {
-            setPlaybookModalOpen(open);
-            if (!open) {
-              setPendingGrowthGuidePlaybookId(null);
-            }
-          }}
+          onOpenChange={handleGrowthGuideOpenChange}
           playbookStage={playbookStage}
           onPlaybookStageChange={setPlaybookStage}
           filteredStagePlaybooks={filteredStagePlaybooks}
@@ -6262,23 +6143,17 @@ function ChatPageContent() {
             void handleCopyPlaybookTemplate(template);
           }}
           templateWhyItWorksPoints={buildTemplateWhyItWorksPoints(playbookTemplateTab)}
-          previewDisplayName={
-            context.creatorProfile.identity.displayName ||
-            context.creatorProfile.identity.username ||
-            "X"
-          }
-          previewUsername={context.creatorProfile.identity.username || accountName || "user"}
-          previewAvatarUrl={context.avatarUrl ?? null}
+          previewDisplayName={growthGuidePreviewDisplayName}
+          previewUsername={growthGuidePreviewUsername}
+          previewAvatarUrl={growthGuidePreviewAvatarUrl}
           isVerifiedAccount={isVerifiedAccount}
           onOpenFeedback={() => {
-            setPlaybookModalOpen(false);
-            setPendingGrowthGuidePlaybookId(null);
+            handleGrowthGuideOpenChange(false);
             setFeedbackSubmitNotice(null);
             setFeedbackModalOpen(true);
           }}
           onOpenProfileAnalysis={() => {
-            setPlaybookModalOpen(false);
-            setPendingGrowthGuidePlaybookId(null);
+            handleGrowthGuideOpenChange(false);
             setAnalysisOpen(true);
           }}
         />
@@ -6322,11 +6197,12 @@ function ChatPageContent() {
           }}
           onOpenGrowthGuide={() => {
             setAnalysisOpen(false);
-            setPlaybookStage(currentPlaybookStage);
-            setPendingGrowthGuidePlaybookId(null);
-            setPlaybookModalOpen(true);
+            openGrowthGuide();
           }}
-          onOpenGrowthGuideForRecommendation={openGrowthGuideForRecommendation}
+          onOpenGrowthGuideForRecommendation={(stage, playbookId) => {
+            setAnalysisOpen(false);
+            openGrowthGuideForRecommendation(stage, playbookId);
+          }}
         />
       ) : null}
 
