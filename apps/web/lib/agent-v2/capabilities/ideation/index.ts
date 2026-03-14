@@ -3,4 +3,4 @@ export {
   type IdeationCapabilityContext,
   type IdeationCapabilityMemoryPatch,
   type IdeationCapabilityOutput,
-} from "../capabilities/ideation/ideationCapability.ts";
+} from "./ideationCapability.ts";

@@ -3,4 +3,4 @@ export {
   type AnalysisCapabilityContext,
   type AnalysisCapabilityMemoryPatch,
   type AnalysisCapabilityOutput,
-} from "../capabilities/analysis/analysisCapability.ts";
+} from "./analysisCapability.ts";

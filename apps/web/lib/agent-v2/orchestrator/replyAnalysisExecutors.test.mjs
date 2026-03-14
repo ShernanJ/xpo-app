@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { executeReplyingCapability } from "./replyingExecutor.ts";
-import { executeAnalysisCapability } from "./analysisExecutor.ts";
+import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
+import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
 
 const baseMemory = {
   conversationState: "needs_more_context",

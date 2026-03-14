@@ -131,15 +131,15 @@ import type { RoutingPolicyResult } from "./routingPolicy";
 import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
-import { executeIdeationCapability } from "./ideationExecutor.ts";
+import { executeIdeationCapability } from "../capabilities/ideation/ideationCapability.ts";
 import { executePlanningCapability } from "../capabilities/planning/planningCapability.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
-import { executeReplyingCapability } from "./replyingExecutor.ts";
-import { executeAnalysisCapability } from "./analysisExecutor.ts";
+import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
+import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";
 import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";

@@ -3,4 +3,4 @@ export {
   type ReplyingCapabilityContext,
   type ReplyingCapabilityMemoryPatch,
   type ReplyingCapabilityOutput,
-} from "../capabilities/reply/replyingCapability.ts";
+} from "./replyingCapability.ts";
