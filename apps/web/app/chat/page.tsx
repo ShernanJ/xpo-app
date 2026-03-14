@@ -174,6 +174,7 @@ import { MessageArtifactSections } from "./_features/thread-history/MessageArtif
 import { MessageContent } from "./_features/thread-history/MessageContent";
 import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
+import { useThreadViewState } from "./_features/thread-history/useThreadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
 import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
 import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
@@ -1457,8 +1458,6 @@ function ChatPageContent() {
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
   const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
-  const [threadTransitionPhase, setThreadTransitionPhase] = useState<"idle" | "out" | "in">("idle");
-  const [isThreadHydrating, setIsThreadHydrating] = useState(false);
   const {
     hoveredThreadId,
     setHoveredThreadId,
@@ -1500,9 +1499,6 @@ function ChatPageContent() {
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
   const chatThreadsRef = useRef(chatThreads);
-  const threadTransitionOutTimeoutRef = useRef<number | null>(null);
-  const threadTransitionInTimeoutRef = useRef<number | null>(null);
-  const shouldJumpToBottomAfterThreadSwitchRef = useRef(false);
   const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
@@ -1526,17 +1522,6 @@ function ChatPageContent() {
     url.searchParams.set("xHandle", accountName);
     window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
   }, [accountName]);
-
-  useEffect(() => {
-    return () => {
-      if (threadTransitionOutTimeoutRef.current) {
-        window.clearTimeout(threadTransitionOutTimeoutRef.current);
-      }
-      if (threadTransitionInTimeoutRef.current) {
-        window.clearTimeout(threadTransitionInTimeoutRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!isAddAccountSubmitting) {
@@ -1683,46 +1668,8 @@ function ChatPageContent() {
     }
   };
 
-  const switchToThreadWithTransition = useCallback(
-    (nextThreadId: string) => {
-      if (!nextThreadId || nextThreadId === activeThreadId || threadTransitionPhase === "out") {
-        return;
-      }
-
-      if (threadTransitionOutTimeoutRef.current) {
-        window.clearTimeout(threadTransitionOutTimeoutRef.current);
-      }
-      if (threadTransitionInTimeoutRef.current) {
-        window.clearTimeout(threadTransitionInTimeoutRef.current);
-      }
-
-      setMenuOpenThreadId(null);
-      setIsThreadHydrating(true);
-      shouldJumpToBottomAfterThreadSwitchRef.current = true;
-      setThreadTransitionPhase("out");
-
-      threadTransitionOutTimeoutRef.current = window.setTimeout(() => {
-        setActiveThreadId(nextThreadId);
-        window.history.pushState({}, "", buildWorkspaceChatHref(nextThreadId));
-        setThreadTransitionPhase("in");
-
-        threadTransitionInTimeoutRef.current = window.setTimeout(() => {
-          setThreadTransitionPhase("idle");
-        }, 280);
-      }, 140);
-    },
-    [
-      activeThreadId,
-      buildWorkspaceChatHref,
-      setMenuOpenThreadId,
-      threadTransitionPhase,
-    ],
-  );
-
   // Guard against initializeThread re-fetching when we just created a thread in-session
   const threadCreatedInSessionRef = useRef(false);
-  const threadScrollRef = useRef<HTMLElement | null>(null);
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const growthGuideSelectedPlaybookRef = useRef<HTMLElement | null>(null);
   const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
   const sourceMaterialsBootstrapAttemptedRef = useRef<Set<string>>(new Set());
@@ -1730,6 +1677,27 @@ function ChatPageContent() {
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
   const [contract, setContract] = useState<CreatorGenerationContract | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const {
+    threadTransitionPhase,
+    isThreadHydrating,
+    setIsThreadHydrating,
+    showScrollToLatest,
+    threadScrollRef,
+    registerMessageRef,
+    shouldJumpToBottomAfterThreadSwitchRef,
+    switchToThreadWithTransition,
+    scrollThreadToBottom,
+    jumpThreadToBottomImmediately,
+    scrollMessageIntoView,
+  } = useThreadViewState({
+    activeThreadId,
+    buildWorkspaceChatHref,
+    messagesLength: messages.length,
+    onBeforeThreadSwitch: () => {
+      setMenuOpenThreadId(null);
+    },
+    setActiveThreadId,
+  });
   const [messageFeedbackPendingById, setMessageFeedbackPendingById] = useState<
     Record<string, boolean>
   >({});
@@ -1739,7 +1707,6 @@ function ChatPageContent() {
     useState<Record<string, boolean>>({});
   const [draftInput, setDraftInput] = useState("");
   const [isLeavingHero, setIsLeavingHero] = useState(false);
-  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -4905,12 +4872,7 @@ function ChatPageContent() {
       }
 
       if (navigation.scrollToMessageId) {
-        window.requestAnimationFrame(() => {
-          messageRefs.current[navigation.scrollToMessageId!]?.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
-        });
+        scrollMessageIntoView(navigation.scrollToMessageId);
         window.setTimeout(() => {
           setActiveDraftEditor(navigation.targetSelection);
         }, DRAFT_TIMELINE_FOCUS_DELAY_MS);
@@ -4919,7 +4881,12 @@ function ChatPageContent() {
 
       setActiveDraftEditor(navigation.targetSelection);
     },
-    [activeDraftEditor, selectedDraftTimeline, selectedDraftTimelineIndex],
+    [
+      activeDraftEditor,
+      scrollMessageIntoView,
+      selectedDraftTimeline,
+      selectedDraftTimelineIndex,
+    ],
   );
 
   const selectDraftBundleOption = useCallback(
@@ -5193,44 +5160,6 @@ function ChatPageContent() {
     },
     [activeThreadId, fetchWorkspace, messages],
   );
-
-  const scrollThreadToBottom = useCallback(() => {
-    setShowScrollToLatest(false);
-    window.requestAnimationFrame(() => {
-      const node = threadScrollRef.current;
-      if (!node) {
-        return;
-      }
-
-      node.scrollTo({
-        top: node.scrollHeight,
-        behavior: "smooth",
-      });
-    });
-  }, []);
-
-  useEffect(() => {
-    const node = threadScrollRef.current;
-    if (!node) {
-      return;
-    }
-
-    const updateScrollPosition = () => {
-      const distanceFromBottom =
-        node.scrollHeight - node.scrollTop - node.clientHeight;
-      startTransition(() => {
-        setShowScrollToLatest(distanceFromBottom > 140);
-      });
-    };
-
-    updateScrollPosition();
-    node.addEventListener("scroll", updateScrollPosition, { passive: true });
-    window.requestAnimationFrame(updateScrollPosition);
-
-    return () => {
-      node.removeEventListener("scroll", updateScrollPosition);
-    };
-  }, [activeThreadId, messages.length]);
 
   const saveDraftEditor = useCallback(async () => {
     if (
@@ -5945,12 +5874,7 @@ function ChatPageContent() {
               shouldJumpToBottomAfterThreadSwitchRef.current = false;
               window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(() => {
-                  const node = threadScrollRef.current;
-                  if (!node) {
-                    return;
-                  }
-                  node.scrollTop = node.scrollHeight;
-                  setShowScrollToLatest(false);
+                  jumpThreadToBottomImmediately();
                 });
               });
             }
@@ -5979,7 +5903,10 @@ function ChatPageContent() {
     contract,
     fetchWorkspace,
     isSending,
+    jumpThreadToBottomImmediately,
     messages.length,
+    setIsThreadHydrating,
+    shouldJumpToBottomAfterThreadSwitchRef,
   ]);
 
   const handleAngleSelect = useCallback(
@@ -6407,9 +6334,7 @@ function ChatPageContent() {
                             role={message.role}
                             previousRole={messages[index - 1]?.role}
                             index={index}
-                            onRegisterRef={(messageId, node) => {
-                              messageRefs.current[messageId] = node;
-                            }}
+                            onRegisterRef={registerMessageRef}
                           >
                             <MessageContent
                               role={message.role}
