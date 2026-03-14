@@ -20,6 +20,12 @@ import {
 } from "./_lib/request/routeLogic.ts";
 import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./_lib/request/routeIdempotency.ts";
+import {
+  buildRouteServerErrorResponse,
+  chargeRouteTurnWithDeps,
+  maybeReplayDuplicateTurnWithDeps,
+  refundRouteTurnChargeWithDeps,
+} from "./_lib/control/routeControlPlane.ts";
 import { finalizeMainAssistantTurnWithDeps } from "./_lib/main/routeMainFinalize.ts";
 import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
 import {
@@ -1448,6 +1454,168 @@ test("duplicate clientTurnId does not replay when the original user turn never r
   assert.equal(replay, null);
 });
 
+test("maybeReplayDuplicateTurnWithDeps builds the stored success response when a duplicate assistant turn exists", async () => {
+  const response = await maybeReplayDuplicateTurnWithDeps(
+    {
+      threadId: "thread-dup-1",
+      clientTurnId: "turn_duplicate_1",
+      loadBilling: async () => ({ creditsRemaining: 4 }),
+      listThreadMessages: async () => [],
+    },
+    {
+      findDuplicateTurnReplay: async () => ({
+        assistantMessageId: "assistant-dup-1",
+        mappedData: {
+          reply: "here's the stored answer",
+          angles: [],
+          quickReplies: [],
+          plan: null,
+          draft: null,
+          drafts: [],
+          draftArtifacts: [],
+          draftBundle: null,
+          supportAsset: null,
+          groundingSources: [],
+          autoSavedSourceMaterials: null,
+          outputShape: "coach_question",
+          surfaceMode: "answer_directly",
+          memory: baseMemory,
+          routingDiagnostics: {
+            turnSource: "free_text",
+            artifactKind: null,
+            planSeedSource: "message",
+            replyHandlingBypassedReason: null,
+            resolvedWorkflow: "answer_question",
+          },
+          requestTrace: {
+            clientTurnId: "turn_duplicate_1",
+          },
+          threadTitle: "Stored Thread",
+          billing: null,
+          contextPacket: {
+            version: "assistant_context_v2",
+            summary: "reply: here's the stored answer",
+            planRef: null,
+            draftRef: null,
+            grounding: {
+              mode: null,
+              explanation: null,
+              sourceTitles: [],
+            },
+            critique: {
+              issuesFixed: [],
+            },
+            replyRef: null,
+            replyParse: null,
+            artifacts: {
+              outputShape: "coach_question",
+              surfaceMode: "answer_directly",
+              quickReplyCount: 0,
+              hasDraft: false,
+            },
+          },
+          replyArtifacts: null,
+          replyParse: null,
+        },
+      }),
+      buildChatSuccessResponse,
+    },
+  );
+
+  assert.ok(response);
+  const json = await response.json();
+  assert.equal(json.data.messageId, "assistant-dup-1");
+  assert.equal(json.data.reply, "here's the stored answer");
+});
+
+test("chargeRouteTurnWithDeps maps billing failures and successes into route control-plane results", async () => {
+  const rateLimited = await chargeRouteTurnWithDeps(
+    {
+      monetizationEnabled: true,
+      userId: "user-rate",
+      threadId: "thread-rate",
+      turnCreditCost: 2,
+      explicitIntent: "draft",
+    },
+    {
+      consumeCredits: async () => ({
+        ok: false,
+        reason: "RATE_LIMITED",
+        snapshot: { creditsRemaining: 0 },
+        retryAfterSeconds: 30,
+      }),
+    },
+  );
+  assert.equal(rateLimited.debitedCharge, null);
+  assert.equal(rateLimited.failureResponse?.status, 429);
+
+  const success = await chargeRouteTurnWithDeps(
+    {
+      monetizationEnabled: true,
+      userId: "user-ok",
+      threadId: "thread-ok",
+      turnCreditCost: 3,
+      explicitIntent: "plan",
+    },
+    {
+      consumeCredits: async () => ({
+        ok: true,
+        cost: 3,
+        idempotencyKey: "credit_123",
+      }),
+    },
+  );
+  assert.equal(success.failureResponse, null);
+  assert.deepEqual(success.debitedCharge, {
+    cost: 3,
+    idempotencyKey: "credit_123",
+  });
+});
+
+test("refundRouteTurnChargeWithDeps is a no-op without a debited charge and uses the refund key when present", async () => {
+  const refundCalls = [];
+
+  await refundRouteTurnChargeWithDeps(
+    {
+      userId: "user-1",
+      debitedCharge: null,
+    },
+    {
+      refundCredits: async (args) => {
+        refundCalls.push(args);
+      },
+    },
+  );
+
+  await refundRouteTurnChargeWithDeps(
+    {
+      userId: "user-1",
+      debitedCharge: {
+        cost: 5,
+        idempotencyKey: "credit_999",
+      },
+    },
+    {
+      refundCredits: async (args) => {
+        refundCalls.push(args);
+      },
+    },
+  );
+
+  assert.equal(refundCalls.length, 1);
+  assert.equal(refundCalls[0].idempotencyKey, "refund:credit_999");
+  assert.equal(refundCalls[0].amount, 5);
+});
+
+test("buildRouteServerErrorResponse returns the standardized 500 envelope", async () => {
+  const response = buildRouteServerErrorResponse();
+  const json = await response.json();
+
+  assert.equal(response.status, 500);
+  assert.equal(json.ok, false);
+  assert.equal(json.errors[0].field, "server");
+});
+
 test("persistAssistantTurnWithDeps keeps core writes single-shot while draft candidates fan out once each", async () => {
   const callCounts = {
     createChatMessage: 0,
@@ -2260,6 +2428,10 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     new URL("./_lib/request/routePreflight.ts", import.meta.url),
     "utf8",
   );
+  const routeControlPlaneSource = readFileSync(
+    new URL("./_lib/control/routeControlPlane.ts", import.meta.url),
+    "utf8",
+  );
   const routeResponseSource = readFileSync(
     new URL("./_lib/response/routeResponse.ts", import.meta.url),
     "utf8",
@@ -2283,6 +2455,9 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   assert.match(routeSource, /resolveRouteThreadState/);
   assert.match(routeSource, /resolveRouteProfileContext/);
   assert.match(routeSource, /loadRouteConversationContext/);
+  assert.match(routeSource, /maybeReplayDuplicateTurn/);
+  assert.match(routeSource, /chargeRouteTurn/);
+  assert.match(routeSource, /refundRouteTurnCharge/);
   assert.equal(/finalizeResponseEnvelope/.test(routeSource), false);
   assert.equal(/persistAssistantTurn\(/.test(routeSource), false);
   assert.equal(/applyRuntimePersistenceTracePatch\(/.test(routeSource), false);
@@ -2292,6 +2467,9 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   assert.equal(/readLatestOnboardingRunByHandle\(/.test(routeSource), false);
   assert.equal(/createConversationMemory\(/.test(routeSource), false);
   assert.equal(/getConversationMemory\(/.test(routeSource), false);
+  assert.equal(/findDuplicateTurnReplay\(/.test(routeSource), false);
+  assert.equal(/consumeCredits\(/.test(routeSource), false);
+  assert.equal(/refundCredits\(/.test(routeSource), false);
   assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
 
@@ -2301,6 +2479,9 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   assert.match(routePreflightSource, /resolveWorkspaceHandleForRequest/);
   assert.match(routePreflightSource, /readLatestOnboardingRunByHandle/);
   assert.match(routePreflightSource, /getConversationMemory/);
+  assert.match(routeControlPlaneSource, /findDuplicateTurnReplay/);
+  assert.match(routeControlPlaneSource, /consumeCredits/);
+  assert.match(routeControlPlaneSource, /refundCredits/);
 
   assert.match(
     routeReplyFinalizeSource,

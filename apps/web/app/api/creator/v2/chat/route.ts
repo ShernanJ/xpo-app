@@ -8,7 +8,6 @@ import {
 } from "@/lib/onboarding/shared/draftArtifacts";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
-import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { recordProductEvent } from "@/lib/productEvents";
@@ -25,11 +24,13 @@ import {
   resolveRouteStoredRun,
   resolveRouteThreadState,
 } from "./_lib/request/routePreflight";
-import {
-  buildChatSuccessResponse,
-} from "./_lib/response/routeResponse";
 import { normalizeChatTurn } from "./_lib/normalization/turnNormalization";
-import { findDuplicateTurnReplay } from "./_lib/request/routeIdempotency";
+import {
+  buildRouteServerErrorResponse,
+  chargeRouteTurn,
+  maybeReplayDuplicateTurn,
+  refundRouteTurnCharge,
+} from "./_lib/control/routeControlPlane";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
@@ -248,38 +249,31 @@ export async function POST(request: NextRequest) {
 
   const { activeHandle, storedThread } = threadState;
 
-  if (threadId && storedThread && clientTurnId) {
-    const duplicateTurnReplay = await findDuplicateTurnReplay(
-      {
-        threadId: storedThread.id,
-        clientTurnId,
-      },
-      {
-        listThreadMessages: ({ threadId: duplicateThreadId }) =>
-          prisma.chatMessage.findMany({
-            where: {
-              threadId: duplicateThreadId,
-            },
-            orderBy: {
-              createdAt: "asc",
-            },
-            take: 80,
-            select: {
-              id: true,
-              role: true,
-              data: true,
-              createdAt: true,
-            },
-          }),
-      },
-    );
+  if (threadId) {
+    const duplicateReplayResponse = await maybeReplayDuplicateTurn({
+      threadId: storedThread.id,
+      clientTurnId,
+      loadBilling: loadBillingStateForResponse,
+      listThreadMessages: ({ threadId: duplicateThreadId }) =>
+        prisma.chatMessage.findMany({
+          where: {
+            threadId: duplicateThreadId,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+          take: 80,
+          select: {
+            id: true,
+            role: true,
+            data: true,
+            createdAt: true,
+          },
+        }),
+    });
 
-    if (duplicateTurnReplay) {
-      return await buildChatSuccessResponse({
-        mappedData: duplicateTurnReplay.mappedData,
-        createdAssistantMessageId: duplicateTurnReplay.assistantMessageId,
-        loadBilling: loadBillingStateForResponse,
-      });
+    if (duplicateReplayResponse) {
+      return duplicateReplayResponse;
     }
   }
 
@@ -323,71 +317,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const effectiveUserId = session.user.id;
-    if (monetizationEnabled) {
-      const debitIdempotencyKey = `chat:${effectiveUserId}:${storedThread?.id || "new"}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-      const creditResult = await consumeCredits({
-        userId: effectiveUserId,
-        cost: turnCreditCost,
-        idempotencyKey: debitIdempotencyKey,
-        source: "creator_v2_chat",
-        metadata: {
-          intent: effectiveExplicitIntent || "auto",
-          threadId: storedThread?.id || null,
-        },
-      });
-
-      if (!creditResult.ok) {
-        if (creditResult.reason === "RATE_LIMITED") {
-          return NextResponse.json(
-            {
-              ok: false,
-              code: "RATE_LIMITED",
-              errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
-              data: {
-                billing: creditResult.snapshot,
-              },
-            },
-            {
-              status: 429,
-              headers: creditResult.retryAfterSeconds
-                ? { "Retry-After": String(creditResult.retryAfterSeconds) }
-                : undefined,
-            },
-          );
-        }
-
-        if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
-          return NextResponse.json(
-            {
-              ok: false,
-              code: "PLAN_REQUIRED",
-              errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
-              data: {
-                billing: creditResult.snapshot,
-              },
-            },
-            { status: 403 },
-          );
-        }
-
-        return NextResponse.json(
-          {
-            ok: false,
-            code: "INSUFFICIENT_CREDITS",
-            errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
-            data: {
-              billing: creditResult.snapshot,
-            },
-          },
-          { status: 402 },
-        );
-      }
-
-      debitedCharge = {
-        cost: creditResult.cost,
-        idempotencyKey: creditResult.idempotencyKey,
-      };
+    const chargeResult = await chargeRouteTurn({
+      monetizationEnabled,
+      userId: effectiveUserId,
+      threadId: storedThread.id,
+      turnCreditCost,
+      explicitIntent: effectiveExplicitIntent,
+    });
+    if (chargeResult.failureResponse) {
+      return chargeResult.failureResponse;
     }
+    debitedCharge = chargeResult.debitedCharge;
 
     const conversationContext = await loadRouteConversationContext({
       storedThread,
@@ -552,24 +492,12 @@ export async function POST(request: NextRequest) {
       recordProductEvent,
     });
   } catch (error) {
-    if (debitedCharge) {
-      await refundCredits({
-        userId: session.user.id,
-        amount: debitedCharge.cost,
-        idempotencyKey: `refund:${debitedCharge.idempotencyKey}`,
-        source: "creator_v2_chat_error_refund",
-        metadata: {
-          reason: "route_error",
-        },
-      }).catch((refundError) =>
-        console.error("Failed to refund chat credits after route error:", refundError),
-      );
-    }
+    await refundRouteTurnCharge({
+      userId: session.user.id,
+      debitedCharge,
+    });
 
     console.error("V2 Orchestrator Error:", error);
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "server", message: "Failed to process turn." }] },
-      { status: 500 },
-    );
+    return buildRouteServerErrorResponse();
   }
 }
