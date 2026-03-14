@@ -5,4 +5,4 @@ export {
   type PlanningCapabilityMemoryPatch,
   type PlanningCapabilityOutput,
   type PlanningCapabilityReadyOutput,
-} from "../capabilities/planning/planningCapability.ts";
+} from "./planningCapability.ts";

@@ -4,7 +4,7 @@ import {
 } from "./draftGrounding.ts";
 import {
   executePlanningCapability,
-} from "./planningExecutor.ts";
+} from "../capabilities/planning/planningCapability.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,

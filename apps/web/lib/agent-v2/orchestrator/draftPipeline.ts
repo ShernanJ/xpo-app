@@ -132,7 +132,7 @@ import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "./ideationExecutor.ts";
-import { executePlanningCapability } from "./planningExecutor.ts";
+import { executePlanningCapability } from "../capabilities/planning/planningCapability.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
