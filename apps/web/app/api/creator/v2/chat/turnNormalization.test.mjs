@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeChatTurn } from "./turnNormalization.ts";
+import { normalizeChatTurn } from "./_lib/normalization/turnNormalization.ts";
 
 test("ideation picks normalize into structured draft turns with a server-side plan seed", () => {
   const normalized = normalizeChatTurn({

@@ -53,7 +53,7 @@ import {
   dispatchPlannedProductEvents,
   planMainAssistantTurnProductEvents,
 } from "./route.response";
-import { normalizeChatTurn } from "./turnNormalization";
+import { normalizeChatTurn } from "./_lib/normalization/turnNormalization";
 import { findDuplicateTurnReplay } from "./route.idempotency";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";

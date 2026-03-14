@@ -26,7 +26,7 @@ import {
   planReplyAssistantTurnProductEvents,
   planMainAssistantTurnProductEvents,
 } from "./route.response.ts";
-import { normalizeChatTurn } from "./turnNormalization.ts";
+import { normalizeChatTurn } from "./_lib/normalization/turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
