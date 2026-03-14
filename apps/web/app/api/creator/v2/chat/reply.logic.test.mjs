@@ -37,6 +37,22 @@ test("parseEmbeddedReplyRequest does not hijack short quoted snippets", () => {
   assert.equal(result.context, null);
 });
 
+test("parseEmbeddedReplyRequest keeps pasted posts without an explicit reply ask out of forced reply mode", () => {
+  const result = parseEmbeddedReplyRequest({
+    message: `@naval
+
+Specific knowledge is becoming the only durable leverage.
+
+This framing is interesting because it turns leverage into a positioning problem.
+
+Can you break down what's strong about it?`,
+  });
+
+  assert.equal(result.classification, "embedded_post_without_reply_request");
+  assert.equal(result.context?.authorHandle, "naval");
+  assert.equal(result.context?.quotedUserAsk, null);
+});
+
 test("buildReplyParseEnvelope marks medium-confidence embedded reply requests as confirmation-needed", () => {
   const result = parseEmbeddedReplyRequest({
     message: `been thinking about this line all day:
@@ -147,5 +163,18 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
       replyContinuation: { type: "select_option", optionIndex: 0 },
     }),
     false,
+  );
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext,
+      turnSource: "reply_action",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: { type: "select_option", optionIndex: 0 },
+    }),
+    true,
   );
 });

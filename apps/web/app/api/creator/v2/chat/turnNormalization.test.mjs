@@ -80,3 +80,20 @@ test("reply option selections normalize into deterministic reply actions", () =>
   assert.equal(normalized.orchestrationMessage, "go with option 2");
   assert.equal(normalized.diagnostics.resolvedWorkflow, "reply_to_post");
 });
+
+test("pasted posts without an explicit reply ask stay in free_text flow", () => {
+  const normalized = normalizeChatTurn({
+    body: {
+      message: `@naval
+
+Specific knowledge is becoming the only durable leverage.
+
+Can you analyze why this works?`,
+    },
+  });
+
+  assert.equal(normalized.source, "free_text");
+  assert.equal(normalized.shouldAllowReplyHandling, true);
+  assert.equal(normalized.diagnostics.resolvedWorkflow, "free_text");
+  assert.equal(normalized.diagnostics.replyHandlingBypassedReason, null);
+});

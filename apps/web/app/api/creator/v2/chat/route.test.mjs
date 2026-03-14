@@ -17,6 +17,7 @@ import {
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
 import { persistAssistantTurnWithDeps } from "./route.persistence.ts";
+import { findDuplicateTurnReplayInMessages } from "./route.idempotency.ts";
 import {
   buildChatSuccessResponse,
   buildReplyAssistantMessageData,
@@ -646,6 +647,191 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
     ["createDraftCandidate", "thread-1", "Option one"],
     ["createDraftCandidate", "thread-1", "Option two"],
   ]);
+});
+
+test("duplicate clientTurnId reuses the stored assistant response for the same thread turn", () => {
+  const replay = findDuplicateTurnReplayInMessages({
+    clientTurnId: "turn_duplicate_1",
+    messages: [
+      {
+        id: "user-msg-1",
+        role: "user",
+        createdAt: "2026-03-13T15:00:00.000Z",
+        data: {
+          version: "user_context_v2",
+          clientTurnId: "turn_duplicate_1",
+        },
+      },
+      {
+        id: "assistant-msg-1",
+        role: "assistant",
+        createdAt: "2026-03-13T15:00:01.000Z",
+        data: {
+          reply: "here's the stored answer",
+          angles: [],
+          quickReplies: [],
+          plan: null,
+          draft: null,
+          drafts: [],
+          draftArtifacts: [],
+          draftBundle: null,
+          supportAsset: null,
+          groundingSources: [],
+          autoSavedSourceMaterials: null,
+          outputShape: "coach_question",
+          surfaceMode: "answer_directly",
+          memory: baseMemory,
+          routingDiagnostics: {
+            turnSource: "free_text",
+            artifactKind: null,
+            planSeedSource: "message",
+            replyHandlingBypassedReason: null,
+            resolvedWorkflow: "free_text",
+          },
+          requestTrace: {
+            clientTurnId: "turn_duplicate_1",
+          },
+          threadTitle: "Thread title",
+          billing: null,
+          replyArtifacts: null,
+          replyParse: null,
+          contextPacket: {
+            version: "assistant_context_v2",
+            summary: "reply: here's the stored answer",
+            planRef: null,
+            draftRef: null,
+            grounding: {
+              mode: null,
+              explanation: null,
+              sourceTitles: [],
+            },
+            critique: {
+              issuesFixed: [],
+            },
+            replyRef: null,
+            replyParse: null,
+            artifacts: {
+              outputShape: "coach_question",
+              surfaceMode: "answer_directly",
+              quickReplyCount: 0,
+              hasDraft: false,
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(replay?.assistantMessageId, "assistant-msg-1");
+  assert.equal(replay?.mappedData.reply, "here's the stored answer");
+  assert.equal(replay?.mappedData.requestTrace.clientTurnId, "turn_duplicate_1");
+});
+
+test("duplicate clientTurnId does not replay when the original user turn never reached an assistant write", () => {
+  const replay = findDuplicateTurnReplayInMessages({
+    clientTurnId: "turn_duplicate_2",
+    messages: [
+      {
+        id: "user-msg-2",
+        role: "user",
+        createdAt: "2026-03-13T15:00:00.000Z",
+        data: {
+          version: "user_context_v2",
+          clientTurnId: "turn_duplicate_2",
+        },
+      },
+      {
+        id: "user-msg-3",
+        role: "user",
+        createdAt: "2026-03-13T15:00:01.000Z",
+        data: {
+          version: "user_context_v2",
+          clientTurnId: "turn_other",
+        },
+      },
+    ],
+  });
+
+  assert.equal(replay, null);
+});
+
+test("persistAssistantTurnWithDeps keeps core writes single-shot while draft candidates fan out once each", async () => {
+  const callCounts = {
+    createChatMessage: 0,
+    updateConversationMemory: 0,
+    updateChatThread: 0,
+  };
+  const candidateTitles = [];
+
+  await persistAssistantTurnWithDeps(
+    {
+      threadId: "thread-1",
+      assistantMessageData: {
+        reply: "bundle ready",
+        threadTitle: "Current thread",
+      },
+      threadUpdate: {
+        updatedAt: new Date("2026-03-13T15:00:00.000Z"),
+        title: "Updated title",
+      },
+      buildMemoryUpdate: (assistantMessageId) => ({
+        activeDraftRef: {
+          messageId: assistantMessageId,
+          versionId: "version-1",
+        },
+      }),
+      draftCandidateCreates: [
+        {
+          title: "Option one",
+          artifact: { id: "artifact-1" },
+          voiceTarget: null,
+          noveltyNotes: [],
+        },
+        {
+          title: "Option two",
+          artifact: { id: "artifact-2" },
+          voiceTarget: null,
+          noveltyNotes: [],
+        },
+      ],
+      draftCandidateContext: {
+        userId: "user-1",
+        xHandle: "stan",
+        runId: "run-1",
+        sourcePrompt: "draft it",
+        sourcePlaybook: "chat_bundle",
+        outputShape: "short_form_post",
+      },
+    },
+    {
+      async createChatMessage() {
+        callCounts.createChatMessage += 1;
+        return { id: "assistant-msg-1" };
+      },
+      async updateConversationMemory() {
+        callCounts.updateConversationMemory += 1;
+        return null;
+      },
+      async updateChatThread() {
+        callCounts.updateChatThread += 1;
+        return { title: "Updated title" };
+      },
+      async createDraftCandidate(args) {
+        candidateTitles.push(args.title);
+        await new Promise((resolve) =>
+          setTimeout(resolve, args.title === "Option one" ? 15 : 1),
+        );
+        return null;
+      },
+    },
+  );
+
+  assert.deepEqual(callCounts, {
+    createChatMessage: 1,
+    updateConversationMemory: 1,
+    updateChatThread: 1,
+  });
+  assert.deepEqual(candidateTitles.sort(), ["Option one", "Option two"]);
 });
 
 test("persistAssistantTurnWithDeps skips writes when no thread is available", async () => {

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { resolveArtifactContinuationAction } from "../agents/controller.ts";
 import { normalizeDraftRevisionInstruction } from "../orchestrator/draftRevision.ts";
 import { assessGroundedProductDrift } from "../orchestrator/draftGrounding.ts";
+import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory.ts";
 import {
   buildConversationContextFromHistory,
   resolveSelectedDraftContextFromHistory,
@@ -59,6 +60,28 @@ for (const fixture of LIVE_ASSISTANT_EVAL_FIXTURES) {
       assert.equal(result.shouldGuard, true);
       assert.equal(result.hasDrift, true);
       assert.match(result.reason || "", fixture.expectedReasonPattern);
+    });
+    continue;
+  }
+
+  if (fixture.category === "memory_scope") {
+    test(`eval [${fixture.category}]: ${fixture.name}`, () => {
+      const result = scopeMemoryForCurrentTurn({
+        userMessage: fixture.userMessage,
+        memory: fixture.memory,
+        resolvedWorkflow: "plan_then_draft",
+      });
+
+      assert.equal(result.conversationState, fixture.expectedConversationState);
+      assert.equal(result.topicSummary, fixture.expectedTopicSummary);
+      assert.equal(result.currentDraftArtifactId, fixture.expectedCurrentDraftArtifactId);
+      assert.deepEqual(result.activeConstraints, fixture.expectedActiveConstraints);
+
+      if (fixture.expectedReplyCleared) {
+        assert.equal(result.activeReplyContext, null);
+        assert.equal(result.activeReplyArtifactRef, null);
+        assert.equal(result.selectedReplyOptionId, null);
+      }
     });
     continue;
   }
