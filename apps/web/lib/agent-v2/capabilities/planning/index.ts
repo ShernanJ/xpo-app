@@ -6,3 +6,7 @@ export {
   type PlanningCapabilityOutput,
   type PlanningCapabilityReadyOutput,
 } from "./planningCapability.ts";
+export {
+  handleNonDraftCoachTurn,
+  handleNonDraftCorrectionTurn,
+} from "./nonDraftCoachTurn.ts";

@@ -288,6 +288,27 @@ test("draft pipeline delegates active-draft repair coaching to the revision capa
   );
 });
 
+test("draft pipeline delegates non-draft coach detours to the planning capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handleNonDraftCoachTurn/,
+  );
+  assert.match(
+    draftPipelineSource,
+    /handleNonDraftCorrectionTurn/,
+  );
+  assert.equal(
+    /inferPostReferenceReply\(\{/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /buildSemanticCorrectionAcknowledgment\(\{/.test(draftPipelineSource),
+    false,
+  );
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 

@@ -46,13 +46,7 @@ import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
-  buildSemanticCorrectionAcknowledgment,
-  buildSemanticRepairDirective,
   hasConcreteCorrectionDetail,
-  inferCorrectionRepairQuestion,
-  inferIdeationRationaleReply,
-  inferPostReferenceReply,
-  inferSourceTransparencyReply,
   looksLikeConfusionPing,
   looksLikePostReferenceRequest,
   looksLikeSourceTransparencyRequest,
@@ -118,6 +112,10 @@ import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "../capabilities/ideation/ideationCapability.ts";
 import { executePlanningCapability } from "../capabilities/planning/planningCapability.ts";
+import {
+  handleNonDraftCoachTurn,
+  handleNonDraftCorrectionTurn,
+} from "../capabilities/planning/nonDraftCoachTurn.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
@@ -983,56 +981,19 @@ User Profile Summary:
     );
 
   if (shouldUseNonDraftCorrectionPath) {
-    const correctionReply = buildSemanticCorrectionAcknowledgment({
+    const nonDraftCorrection = await handleNonDraftCorrectionTurn({
       userMessage,
-      activeConstraints: memory.activeConstraints,
+      memory,
       hadPendingPlan,
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      writeMemory: writeMemoryLocal,
+      clearClarificationPatch,
+      returnClarificationQuestion,
     });
 
-    if (correctionReply) {
-      const nextConstraints = hasConcreteCorrectionDetail(userMessage)
-        ? Array.from(
-            new Set([
-              ...memory.activeConstraints,
-              buildSemanticRepairDirective(userMessage, memory.topicSummary).constraint,
-            ]),
-          )
-        : memory.activeConstraints;
-
-      await writeMemoryLocal({
-        activeConstraints: nextConstraints,
-        conversationState:
-          memory.conversationState === "ready_to_ideate"
-            ? "ready_to_ideate"
-            : "needs_more_context",
-        pendingPlan: hadPendingPlan ? null : memory.pendingPlan,
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        latestRefinementInstruction: null,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          correctionReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
-    }
-
-    const correctionRepairQuestion = inferCorrectionRepairQuestion(
-      userMessage,
-      memory.topicSummary,
-    );
-
-    if (correctionRepairQuestion) {
-      return returnClarificationQuestion({
-        question: correctionRepairQuestion,
-        pendingPlan: hadPendingPlan ? null : memory.pendingPlan,
-      });
+    if (nonDraftCorrection.kind === "response") {
+      return nonDraftCorrection.response;
     }
   }
 
@@ -1487,109 +1448,19 @@ User Profile Summary:
   }
 
   if (!explicitIntent && !activeDraft) {
-    const sourceTransparencyReply = inferSourceTransparencyReply({
+    const nonDraftCoachTurn = await handleNonDraftCoachTurn({
       userMessage,
-      activeDraft: null,
-      referenceText: memory.lastIdeationAngles.join(" "),
+      memory,
       recentHistory,
-      contextAnchors: factualContext,
+      factualContext,
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      writeMemory: writeMemoryLocal,
+      clearClarificationPatch,
     });
 
-    if (sourceTransparencyReply) {
-      await writeMemoryLocal({
-        conversationState: "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          sourceTransparencyReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
-    }
-
-    const postReferenceReply = inferPostReferenceReply({
-      userMessage,
-      recentHistory,
-    });
-    if (postReferenceReply) {
-      await writeMemoryLocal({
-        conversationState: "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          postReferenceReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
-    }
-
-    const ideationRationaleReply =
-      memory.conversationState === "ready_to_ideate"
-        ? inferIdeationRationaleReply({
-          userMessage,
-          topicSummary: memory.topicSummary,
-          recentHistory,
-          lastIdeationAngles: memory.lastIdeationAngles,
-        })
-        : null;
-    if (ideationRationaleReply) {
-      await writeMemoryLocal({
-        conversationState: "ready_to_ideate",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          ideationRationaleReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
-    }
-
-    if (looksLikeConfusionPing(userMessage)) {
-      const confusionReply =
-        memory.conversationState === "ready_to_ideate"
-          ? "my bad - that was unclear. i should keep this grounded in what you've actually said. want a clean new set in the same lane, or a different direction?"
-          : "my bad - that was unclear. i can rephrase it plainly, or we can reset and keep going.";
-
-      await writeMemoryLocal({
-        conversationState:
-          memory.conversationState === "ready_to_ideate"
-            ? "ready_to_ideate"
-            : "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          confusionReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
+    if (nonDraftCoachTurn.kind === "response") {
+      return nonDraftCoachTurn.response;
     }
   }
 
