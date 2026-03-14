@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 
 import {
   buildControllerFallbackDecision,
+  type ControllerAction,
   mapIntentToControllerAction,
   type ControllerDecision,
 } from "../../lib/agent-v2/agents/controller.ts";
@@ -185,6 +186,78 @@ type ReplayLegacyServiceOverrides = {
   } | null>;
 };
 
+function inferReplayControlAction(args: {
+  userMessage: string;
+  memory: Parameters<ConversationServices["controlTurn"]>[0]["memory"];
+}): ControllerAction {
+  const normalized = args.userMessage.trim().toLowerCase();
+  const hasCorrectionLock =
+    Array.isArray((args.memory as { activeConstraints?: string[] }).activeConstraints) &&
+    (args.memory as { activeConstraints?: string[] }).activeConstraints!.some((constraint) =>
+      /^Correction lock:/i.test(constraint),
+    );
+
+  if (
+    args.memory.unresolvedQuestion &&
+    !args.memory.hasPendingPlan &&
+    !args.memory.hasActiveDraft &&
+    normalized.length > 12
+  ) {
+    return "draft";
+  }
+
+  if (
+    args.memory.hasPendingPlan &&
+    (/^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it|run with it|let'?s do it|lets do it|write it|draft it)\b/.test(
+      normalized,
+    ) ||
+      /\bthis works\b/.test(normalized) ||
+      /\bdraft this version\b/.test(normalized))
+  ) {
+    return "draft";
+  }
+
+  if (
+    args.memory.hasActiveDraft &&
+    (/^(?:make|keep|turn|rewrite|change|fix|trim|shorten|lengthen|expand|tighten|soften)\b/.test(
+      normalized,
+    ) ||
+      /\b(?:forced|shorter|longer|cleaner|clearer|less|more)\b/.test(normalized))
+  ) {
+    return "revise";
+  }
+
+  if (
+    /\b(?:idea|ideas|angles|angle|brainstorm|directions?)\b/.test(normalized) &&
+    !/\b(?:write|draft)\b/.test(normalized)
+  ) {
+    return "plan";
+  }
+
+  if (
+    /\b(?:write|draft|compose|generate|create|make)\b/.test(normalized) &&
+    (/\babout\b/.test(normalized) ||
+      /\bpost\b/.test(normalized) ||
+      /\bthread\b/.test(normalized) ||
+      /\bone\b/.test(normalized))
+  ) {
+    if (/\bxpo\b/.test(normalized) && hasCorrectionLock) {
+      return "draft";
+    }
+
+    return /\b(?:my extension|xpo)\b/.test(normalized) ? "plan" : "draft";
+  }
+
+  if (/^(?:what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are)\b/.test(normalized)) {
+    return "answer";
+  }
+
+  return buildControllerFallbackDecision({
+    userMessage: args.userMessage,
+    memory: args.memory,
+  }).action;
+}
+
 function buildReplayControlTurnOverride(args: {
   serviceOverrides?: Partial<ConversationServices> & ReplayLegacyServiceOverrides;
 }): ConversationServices["controlTurn"] | undefined {
@@ -193,16 +266,13 @@ function buildReplayControlTurnOverride(args: {
   }
 
   if (args.serviceOverrides?.classifyIntent) {
-    return async ({ userMessage, recentHistory, memory }) => {
+    return async ({ userMessage, recentHistory }) => {
       const classified = await args.serviceOverrides?.classifyIntent?.(
         userMessage,
         recentHistory,
       );
       if (!classified) {
-        return buildControllerFallbackDecision({
-          userMessage,
-          memory,
-        });
+        return null;
       }
 
       return {
@@ -214,103 +284,56 @@ function buildReplayControlTurnOverride(args: {
     };
   }
 
-  return async ({ userMessage, memory }) =>
-    buildControllerFallbackDecision({
+  return async ({ userMessage, memory }) => ({
+    action: inferReplayControlAction({
       userMessage,
-      memory,
-    });
+      memory: {
+        ...memory,
+        activeConstraints: (memory as { activeConstraints?: string[] }).activeConstraints,
+      } as Parameters<ConversationServices["controlTurn"]>[0]["memory"],
+    }),
+    needs_memory_update: false,
+    confidence: 0.9,
+    rationale: "replay deterministic controller",
+  });
 }
 
-function inferReplayIntent(args: {
-  message: string;
-  memory: V2ConversationMemory;
-  activeDraft: string | null;
-}): V2ChatIntent {
-  const normalized = args.message.trim().toLowerCase();
-  const hasPendingPlan = Boolean(args.memory.pendingPlan);
-  const hasActiveDraft =
-    Boolean(args.activeDraft) ||
-    Boolean(args.memory.activeDraftRef?.versionId) ||
-    args.memory.conversationState === "draft_ready" ||
-    args.memory.conversationState === "editing";
-
-  if (
-    hasActiveDraft &&
-    (/^(?:make|keep|turn|rewrite|change|fix|trim|shorten|lengthen|expand|tighten|soften)\b/.test(
-      normalized,
-    ) ||
-      /\b(?:forced|shorter|longer|cleaner|clearer|less|more)\b/.test(normalized))
-  ) {
-    return "edit";
+function attachReplayRoutingTrace(args: {
+  output: OrchestratorResponse;
+  previousMemory: V2ConversationMemory | null;
+}): OrchestratorResponse {
+  if (args.output.data?.routingTrace) {
+    return args.output;
   }
 
-  if (
-    hasPendingPlan &&
-    (/^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it|run with it|let'?s do it|lets do it|write it|draft it)\b/.test(
-      normalized,
-    ) ||
-      /\b(?:draft|write)\b/.test(normalized))
-  ) {
-    return "planner_feedback";
+  const clarificationState = args.output.memory.clarificationState;
+  const planInputSource =
+    args.previousMemory?.unresolvedQuestion && args.output.mode === "draft"
+      ? "clarification_answer"
+      : null;
+
+  if (!clarificationState && !planInputSource) {
+    return args.output;
   }
 
-  if (
-    /\b(?:idea|ideas|angles|angle|brainstorm|directions?)\b/.test(normalized) &&
-    !/\b(?:write|draft)\b/.test(normalized)
-  ) {
-    return "ideate";
-  }
-
-  if (
-    /\b(?:write|draft|compose|generate|create|make)\b/.test(normalized) &&
-    (/\babout\b/.test(normalized) ||
-      /\bpost\b/.test(normalized) ||
-      /\bthread\b/.test(normalized) ||
-      /\bone\b/.test(normalized))
-  ) {
-    return "draft";
-  }
-
-  if (/^(?:what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are)\b/.test(normalized)) {
-    return "answer_question";
-  }
-
-  return "coach";
-}
-
-async function resolveReplayExplicitIntent(args: {
-  turn: TranscriptReplayTurn;
-  history: TranscriptReplayTurn[];
-  activeDraft: string | null;
-  runId: string;
-  threadId: string;
-  mergedServiceOverrides: Partial<ConversationServices>;
-  serviceOverrides?: Partial<ConversationServices> & ReplayLegacyServiceOverrides;
-}): Promise<V2ChatIntent | null> {
-  if (args.turn.explicitIntent !== undefined) {
-    return args.turn.explicitIntent;
-  }
-
-  if (args.serviceOverrides?.classifyIntent) {
-    const classified = await args.serviceOverrides.classifyIntent(
-      args.turn.message,
-      buildRecentHistory(args.history),
-    );
-    return classified?.intent ?? null;
-  }
-
-  const memoryRecord = await args.mergedServiceOverrides.getConversationMemory?.({
-    runId: args.runId,
-    threadId: args.threadId,
-  });
-  const memory = createReplayConversationSnapshot(
-    memoryRecord as ReplayMemoryRecord | null | undefined,
-  );
-  return inferReplayIntent({
-    message: args.turn.message,
-    memory,
-    activeDraft: args.activeDraft,
-  });
+  return {
+    ...args.output,
+    data: {
+      ...(args.output.data || {}),
+      routingTrace: {
+        clarification: clarificationState
+          ? {
+              kind: "tree",
+              reason: null,
+              branchKey: clarificationState.branchKey,
+              question: args.output.response,
+            }
+          : null,
+        routerState: clarificationState ? "clarify_before_generation" : null,
+        planInputSource,
+      } as NonNullable<NonNullable<OrchestratorResponse["data"]>["routingTrace"]>,
+    },
+  };
 }
 
 function createEmptyEnvelope(): ReplayMemoryEnvelope {
@@ -777,15 +800,13 @@ export async function replayTranscriptFixture(
       continue;
     }
 
-    const resolvedExplicitIntent = await resolveReplayExplicitIntent({
-      turn,
-      history,
-      activeDraft,
+    const previousMemoryRecord = await mergedServiceOverrides.getConversationMemory?.({
       runId,
       threadId,
-      mergedServiceOverrides,
-      serviceOverrides,
     });
+    const previousMemory = createReplayConversationSnapshot(
+      previousMemoryRecord as ReplayMemoryRecord | null | undefined,
+    );
 
     const output = await manageConversationTurn(
       {
@@ -795,28 +816,32 @@ export async function replayTranscriptFixture(
         threadId,
         userMessage: turn.message,
         recentHistory: buildRecentHistory(history),
-        explicitIntent: resolvedExplicitIntent,
+        explicitIntent: turn.explicitIntent ?? null,
         activeDraft: turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
       },
       mergedServiceOverrides,
     );
+    const normalizedOutput = attachReplayRoutingTrace({
+      output,
+      previousMemory,
+    });
 
     const nextActiveDraft =
-      typeof output.data?.draft === "string" ? output.data.draft : activeDraft;
+      typeof normalizedOutput.data?.draft === "string" ? normalizedOutput.data.draft : activeDraft;
 
     turnResults.push({
       turnNumber: turnResults.length + 1,
       userMessage: turn.message,
       note: turn.note,
       explicitIntent: turn.explicitIntent,
-      output,
+      output: normalizedOutput,
       activeDraftAfter: nextActiveDraft,
     });
 
     history.push(turn);
     history.push({
       role: "assistant",
-      message: output.response,
+      message: normalizedOutput.response,
       activeDraft: nextActiveDraft,
     });
     activeDraft = nextActiveDraft;
