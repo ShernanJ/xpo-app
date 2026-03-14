@@ -182,6 +182,8 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now consumes that helper as a merge-only worker seam and keeps all memory/style/artifact/thread writes in the sequential path
   - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
   - `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts` now returns that worker metadata into the runtime path, and `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts` records it before workflow resolution
+  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts` now owns the `historical_text_load` fan-out for shipped posts and queued draft candidates used by novelty scoring
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now records that retrieval seam inside the chosen workflow before drafting, draft bundles, and replanning novelty checks
 - Add merge rules for worker outputs.
 - Prohibit ambiguous side effects from worker fan-out.
 - Status: in progress.

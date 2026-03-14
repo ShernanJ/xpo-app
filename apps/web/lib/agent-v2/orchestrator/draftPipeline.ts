@@ -240,6 +240,19 @@ export async function executeDraftPipeline(args: {
       routingTrace.validations.push(...args.validations);
     }
   };
+  const loadHistoricalTextsWithTrace = async (capability: "drafting" | "planning") => {
+    const result = await services.loadHistoricalTexts({
+      userId,
+      xHandle: effectiveXHandle,
+      capability,
+    });
+
+    mergeCapabilityExecutionMeta({
+      workers: result.workerExecutions,
+    });
+
+    return result.texts;
+  };
 
   // We rewrite writeMemory locally to call saveConversationTurnMemory
 
@@ -1319,10 +1332,7 @@ User Profile Summary:
 
     if (decision === "approve") {
       const approvedPlan = memory.pendingPlan;
-      const historicalTexts = await services.getHistoricalPosts({
-        userId,
-        xHandle: effectiveXHandle,
-      });
+      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
       const approvedPlanGroundingPacket = buildGroundingPacketForContext(
         draftActiveConstraints,
         buildPlanSourceMessage(approvedPlan),
@@ -2043,10 +2053,7 @@ User Profile Summary:
         shouldFastStartFromGroundedContext)
     ) {
       if (isMultiDraftTurn) {
-        const historicalTexts = await services.getHistoricalPosts({
-          userId,
-          xHandle: effectiveXHandle,
-        });
+        const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
         const execution = await executeDraftBundleCapability({
           workflow: "plan_then_draft",
           capability: "drafting",
@@ -2146,10 +2153,7 @@ User Profile Summary:
         return draftResult.response;
       }
 
-      const historicalTexts = await services.getHistoricalPosts({
-        userId,
-        xHandle: effectiveXHandle,
-      });
+      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
       const execution = await executeDraftingCapability({
         workflow: "plan_then_draft",
         capability: "drafting",
@@ -2335,10 +2339,7 @@ User Profile Summary:
       };
     }
 
-    const historicalTexts = await services.getHistoricalPosts({
-      userId,
-      xHandle: effectiveXHandle,
-    });
+    const historicalTexts = await loadHistoricalTextsWithTrace("planning");
     const execution = await executeReplanningCapability({
       workflow: "plan_then_draft",
       capability: "planning",

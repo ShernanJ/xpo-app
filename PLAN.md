@@ -141,6 +141,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Landed second seam:
   - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
   - `turnContextBuilder.ts` now returns those worker executions into the runtime path, and `routingPolicy.ts` becomes the first trace owner that records them before workflow resolution
+- Landed third seam:
+  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts` now owns the novelty-input `historical_text_load` fan-out for shipped posts and queued draft candidates
+  - `draftPipeline.ts` now records that read-only retrieval seam inside the chosen workflow before drafting, draft-bundle generation, and replanning novelty checks
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 

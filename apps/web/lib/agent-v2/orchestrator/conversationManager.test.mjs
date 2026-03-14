@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 
 import {
@@ -255,6 +256,58 @@ test("turn context hydration workers fall back to topic summary when the message
   assert.equal(seenFocusTopic, "x growth systems");
   assert.equal(result.workerExecutions[0]?.details?.hasStyleCard, false);
   assert.equal(result.workerExecutions[1]?.details?.focusTopic, "x growth systems");
+});
+
+test("historical text workers merge posts and queued draft candidates for novelty checks", async () => {
+  const result = await loadHistoricalTextWorkers({
+    userId: "user_1",
+    xHandle: "stan",
+    capability: "drafting",
+    loadPosts: async () => [
+      { text: "first shipped post" },
+      { text: "second shipped post" },
+    ],
+    loadDraftCandidates: async () => [
+      { artifact: { content: "queued draft one" } },
+      { artifact: { content: "queued draft two" } },
+      { artifact: { content: 42 } },
+    ],
+  });
+
+  assert.deepEqual(result.texts, [
+    "first shipped post",
+    "second shipped post",
+    "queued draft one",
+    "queued draft two",
+  ]);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      capability: execution.capability,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "load_historical_posts",
+        capability: "drafting",
+        phase: "execution",
+        mode: "parallel",
+        status: "completed",
+        groupId: "historical_text_load",
+      },
+      {
+        worker: "load_queued_draft_candidates",
+        capability: "drafting",
+        phase: "execution",
+        mode: "parallel",
+        status: "completed",
+        groupId: "historical_text_load",
+      },
+    ],
+  );
 });
 
 test("generic draft prompts are treated as bare draft requests", () => {
