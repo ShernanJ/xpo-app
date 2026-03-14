@@ -690,6 +690,8 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
     "./draftBundleExecutor.ts",
     "./draftRevision.ts",
     "./replanningExecutor.ts",
+    "./replyContinuationPlanner.ts",
+    "./replyContinuationPlanner.test.mjs",
     "./replyTurnPlanner.ts",
     "./replyTurnLogic.ts",
   ];
@@ -703,12 +705,14 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
     /agent-v2\/orchestrator\/draftBundleExecutor(?:\.ts)?/,
     /agent-v2\/orchestrator\/draftRevision(?:\.ts)?/,
     /agent-v2\/orchestrator\/replanningExecutor(?:\.ts)?/,
+    /agent-v2\/orchestrator\/replyContinuationPlanner(?:\.ts)?/,
     /agent-v2\/orchestrator\/replyTurnPlanner(?:\.ts)?/,
     /agent-v2\/orchestrator\/replyTurnLogic(?:\.ts)?/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftBundles(?:\.ts)?["']/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftBundleExecutor(?:\.ts)?["']/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftRevision(?:\.ts)?["']/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replanningExecutor(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replyContinuationPlanner(?:\.ts)?["']/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replyTurnPlanner(?:\.ts)?["']/,
     /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/replyTurnLogic(?:\.ts)?["']/,
   ];

@@ -1,22 +1,22 @@
 import type {
   ActiveReplyContext,
-} from "../contracts/chat.ts";
-import type { VoiceStyleCard } from "../core/styleProfile.ts";
-import type { GrowthStrategySnapshot } from "../../onboarding/strategy/growthStrategy.ts";
-import { buildChatReplyDraft, buildChatReplyOptions } from "../../extension/chatReplyAdapter.ts";
-import type { ExtensionReplyIntentMetadata } from "../../extension/types.ts";
+} from "../../contracts/chat.ts";
+import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { GrowthStrategySnapshot } from "../../../onboarding/strategy/growthStrategy.ts";
+import { buildChatReplyDraft, buildChatReplyOptions } from "../../../extension/chatReplyAdapter.ts";
+import type { ExtensionReplyIntentMetadata } from "../../../extension/types.ts";
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
   EmbeddedReplyParseResult,
   ReplyContinuationResult,
-} from "../capabilities/reply/replyTurnLogic.ts";
+} from "./replyTurnLogic.ts";
 import {
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
-} from "../capabilities/reply/replyTurnLogic.ts";
-import type { ChatTurnSource } from "../contracts/turnContract.ts";
+} from "./replyTurnLogic.ts";
+import type { ChatTurnSource } from "../../contracts/turnContract.ts";
 
 export type ReplyContinuationInsights = Parameters<
   typeof buildChatReplyOptions

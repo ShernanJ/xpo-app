@@ -4,7 +4,7 @@ import type { V2ConversationMemory } from "../../contracts/chat.ts";
 import {
   planReplyContinuation,
   type ReplyContinuationInsights,
-} from "../../orchestrator/replyContinuationPlanner.ts";
+} from "./replyContinuationPlanner.ts";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
