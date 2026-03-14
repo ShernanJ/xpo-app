@@ -1904,6 +1904,12 @@ test("reply route ownership stays in runtime modules without shim files or shim 
 
   assert.equal(existsSync(new URL("./route.reply.ts", import.meta.url)), false);
   assert.equal(existsSync(new URL("./reply.logic.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./route.response.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./route.replyFinalize.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./route.persistence.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./route.idempotency.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./route.logic.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./turnNormalization.ts", import.meta.url)), false);
 
   assert.match(
     routeSource,

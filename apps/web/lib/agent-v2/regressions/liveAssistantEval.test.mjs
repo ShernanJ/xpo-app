@@ -8,7 +8,7 @@ import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory.ts";
 import {
   buildConversationContextFromHistory,
   resolveSelectedDraftContextFromHistory,
-} from "../../../app/api/creator/v2/chat/route.logic.ts";
+} from "../../../app/api/creator/v2/chat/_lib/request/routeLogic.ts";
 import { LIVE_ASSISTANT_EVAL_FIXTURES } from "./liveAssistantEvalFixtures.ts";
 
 for (const fixture of LIVE_ASSISTANT_EVAL_FIXTURES) {
