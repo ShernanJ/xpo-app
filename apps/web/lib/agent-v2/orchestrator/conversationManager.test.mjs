@@ -250,6 +250,23 @@ test("draft pipeline keeps continuation inside the chosen workflow instead of re
   assert.equal(/pipeline_continuation/.test(draftPipelineSource), false);
 });
 
+test("draft pipeline delegates grounded draft validation retry to the drafting capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /runGroundedDraftRetry/,
+  );
+  assert.equal(
+    /runDraftGuardValidationWorkers/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /runDeliveryValidationWorkers/.test(draftPipelineSource),
+    false,
+  );
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 
@@ -2225,7 +2242,7 @@ test("draft anchor selection keeps historical posts in style-only mode when trut
 
 test("unsupported claims force a stricter grounded retry before first-pass delivery", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
+    fileURLToPath(new URL("../capabilities/drafting/groundedDraftRetry.ts", import.meta.url)),
     "utf8",
   );
 
@@ -2239,7 +2256,7 @@ test("unsupported claims force a stricter grounded retry before first-pass deliv
 
 test("draft pipeline runs delivery validation before fallbacking malformed drafts", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
+    fileURLToPath(new URL("../capabilities/drafting/groundedDraftRetry.ts", import.meta.url)),
     "utf8",
   );
 

@@ -27,8 +27,6 @@ import {
   shouldRouteCareerClarification,
   shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic";
-import type { WriterOutput } from "../agents/writer";
-import type { CriticOutput } from "../agents/critic";
 import {
   buildEffectiveContext,
   buildFactSafeReferenceHints,
@@ -38,7 +36,7 @@ import {
   buildRollingSummary,
   shouldRefreshRollingSummary,
 } from "../memory/summaryManager";
-import { resolveVoiceTarget, type VoiceTarget } from "../core/voiceTarget";
+import { resolveVoiceTarget } from "../core/voiceTarget";
 import {
   getXCharacterLimitForFormat,
   getXCharacterLimitForAccount,
@@ -63,9 +61,6 @@ import {
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
-  buildGroundedProductRetryConstraint,
-  buildUnsupportedClaimRetryConstraint,
-  buildConcreteSceneRetryConstraint,
   extractConcreteSceneAnchors,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
@@ -94,7 +89,6 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
-import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
@@ -106,7 +100,6 @@ import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy";
-import { checkDraftClaimsAgainstGrounding } from "./claimChecker";
 import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
 import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
 import {
@@ -114,11 +107,6 @@ import {
   selectRelevantSourceMaterials,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
-import {
-  buildRuntimeValidationResult,
-  buildRuntimeWorkerExecution,
-  resolveRuntimeValidationStatus,
-} from "./workerPlane.ts";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -137,12 +125,12 @@ import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
+import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";
-import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -225,7 +213,7 @@ export async function executeDraftPipeline(args: {
 
   const { routingTrace } = routing;
   let mode = routing.resolvedMode; // resolvedMode;
-  let runtimeWorkflow =
+  const runtimeWorkflow =
     routingTrace.runtimeResolution?.workflow || resolveLegacyRuntimeWorkflow(mode);
   const mergeCapabilityExecutionMeta = (args: {
     workers?: NonNullable<typeof routingTrace.workerExecutions>;
@@ -836,68 +824,9 @@ User Profile Summary:
     groundingPacket?: GroundingPacket;
   }): Promise<DraftingCapabilityRunResult> {
     const draftGroundingPacket = args.groundingPacket || groundingPacket;
-    const localWorkers: NonNullable<typeof routingTrace.workerExecutions> = [];
-    const localValidations: NonNullable<typeof routingTrace.validations> = [];
-    let routingTracePatch: RoutingTracePatch | undefined;
-    const applyClaimCheck = (attempt: {
-      writerOutput: WriterOutput;
-      criticOutput: CriticOutput;
-      draftToDeliver: string;
-      voiceTarget: VoiceTarget;
-      retrievalReasons: string[];
-      threadFramingStyle: ThreadFramingStyle | null;
-    }) => {
-      const claimCheck = checkDraftClaimsAgainstGrounding({
-        draft: attempt.draftToDeliver,
-        groundingPacket: draftGroundingPacket,
-      });
-      const validationStatus = resolveRuntimeValidationStatus({
-        needsClarification: claimCheck.needsClarification,
-        hasFailure: claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0,
-      });
-      localWorkers.push(buildRuntimeWorkerExecution({
-        worker: "claim_checker",
-        capability: "drafting",
-        phase: "validation",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          status: validationStatus,
-          issueCount: claimCheck.issues.length,
-        },
-      }));
-      localValidations.push(buildRuntimeValidationResult({
-        validator: "claim_checker",
-        capability: "drafting",
-        status: validationStatus,
-        issues: claimCheck.issues,
-        corrected: Boolean(claimCheck.draft && claimCheck.draft !== attempt.draftToDeliver),
-      }));
-
-      return {
-        ...attempt,
-        criticOutput: {
-          ...attempt.criticOutput,
-          finalDraft: claimCheck.draft || attempt.criticOutput.finalDraft,
-          issues: Array.from(new Set([...attempt.criticOutput.issues, ...claimCheck.issues])),
-        },
-        draftToDeliver: claimCheck.draft || attempt.draftToDeliver,
-        hasUnsupportedClaims: claimCheck.hasUnsupportedClaims,
-        claimNeedsClarification: claimCheck.needsClarification,
-      };
-    };
-
-    const runAttempt = async (
+    const attemptDraft = async (
       extraConstraints: string[] = [],
-    ): Promise<{
-      writerOutput: WriterOutput | null;
-      criticOutput: CriticOutput | null;
-      draftToDeliver: string | null;
-      voiceTarget: VoiceTarget;
-      retrievalReasons: string[];
-      threadFramingStyle: ThreadFramingStyle | null;
-    }> => {
+    ) => {
       const attemptConstraints = Array.from(
         new Set([
           ...args.activeConstraints,
@@ -997,307 +926,25 @@ User Profile Summary:
         threadFramingStyle: args.threadFramingStyle ?? null,
       };
     };
-
-    const firstAttempt = await runAttempt();
-    if (!firstAttempt.writerOutput) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to write draft.",
-          memory,
-        },
-        workers: localWorkers,
-        validations: localValidations,
-      };
-    }
-
-    if (!firstAttempt.criticOutput || !firstAttempt.draftToDeliver) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to critique draft.",
-          memory,
-        },
-        workers: localWorkers,
-        validations: localValidations,
-      };
-    }
-
-    const firstAttemptWithClaimCheck = applyClaimCheck({
-      writerOutput: firstAttempt.writerOutput,
-      criticOutput: firstAttempt.criticOutput,
-      draftToDeliver: firstAttempt.draftToDeliver,
-      voiceTarget: firstAttempt.voiceTarget,
-      retrievalReasons: firstAttempt.retrievalReasons,
-      threadFramingStyle: firstAttempt.threadFramingStyle,
-    });
-    if (firstAttemptWithClaimCheck.claimNeedsClarification) {
-      routingTracePatch = {
-        ...routingTracePatch,
-        draftGuard: {
-          reason: "claim_needs_clarification",
-          issues: firstAttemptWithClaimCheck.criticOutput.issues,
-        },
-      };
-      return {
-        kind: "response",
-        response: await returnClarificationQuestion({
-          question: buildGroundedProductClarificationQuestion(
-            args.sourceUserMessage || args.plan.objective,
-          ),
-          traceReason: "claim_needs_clarification",
-          ...(args.topicSummary !== undefined
-            ? { topicSummary: args.topicSummary }
-            : {}),
-          ...(args.pendingPlan !== undefined
-            ? { pendingPlan: args.pendingPlan }
-            : {}),
-        }),
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    const firstDeliveryValidation = runDeliveryValidationWorkers({
-      capability: "drafting",
-      groupId: "draft_delivery_validation_initial",
-      draft: firstAttemptWithClaimCheck.draftToDeliver,
-      formatPreference: args.formatPreference,
-      sourceUserMessage: args.sourceUserMessage,
-    });
-    localWorkers.push(...firstDeliveryValidation.workerExecutions);
-    localValidations.push(...firstDeliveryValidation.validations);
-    let firstAssessment = { hasDrift: false, reason: null as string | null };
-    let firstProductAssessment = { hasDrift: false, reason: null as string | null };
-
-    if (!firstDeliveryValidation.hasFailures) {
-      const firstValidation = await runDraftGuardValidationWorkers({
-        capability: "drafting",
-        groupId: "draft_guard_validation_initial",
-        activeConstraints: args.activeConstraints,
-        sourceUserMessage: args.sourceUserMessage,
-        draft: firstAttemptWithClaimCheck.draftToDeliver,
-      });
-      localWorkers.push(...firstValidation.workerExecutions);
-      localValidations.push(...firstValidation.validations);
-      firstAssessment = firstValidation.concreteSceneAssessment;
-      firstProductAssessment = firstValidation.groundedProductAssessment;
-    }
-
-    if (
-      !firstDeliveryValidation.hasFailures &&
-      !firstAssessment.hasDrift &&
-      !firstProductAssessment.hasDrift &&
-      !firstAttemptWithClaimCheck.hasUnsupportedClaims
-    ) {
-      return {
-        kind: "success",
-        writerOutput: firstAttemptWithClaimCheck.writerOutput,
-        criticOutput: firstAttemptWithClaimCheck.criticOutput,
-        draftToDeliver: firstAttemptWithClaimCheck.draftToDeliver,
-        voiceTarget: firstAttemptWithClaimCheck.voiceTarget,
-        retrievalReasons: firstAttemptWithClaimCheck.retrievalReasons,
-        threadFramingStyle: firstAttemptWithClaimCheck.threadFramingStyle,
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    const retryConstraints = [
-      ...(firstAttemptWithClaimCheck.hasUnsupportedClaims
-        ? [buildUnsupportedClaimRetryConstraint()]
-        : []),
-      ...firstDeliveryValidation.retryConstraints,
-      ...(firstDeliveryValidation.hasFailures
-        ? []
-        : firstAssessment.hasDrift
-        ? [buildConcreteSceneRetryConstraint(args.sourceUserMessage || "")]
-        : []),
-      ...(firstDeliveryValidation.hasFailures
-        ? []
-        : firstProductAssessment.hasDrift
-        ? [buildGroundedProductRetryConstraint()]
-        : []),
-    ].filter(Boolean) as string[];
-    const secondAttempt = retryConstraints.length > 0
-      ? await runAttempt(retryConstraints)
-      : firstAttempt;
-
-    if (!secondAttempt.writerOutput) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to write draft.",
-          memory,
-        },
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    if (!secondAttempt.criticOutput || !secondAttempt.draftToDeliver) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to critique draft.",
-          memory,
-        },
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    const secondAttemptWithClaimCheck = applyClaimCheck({
-      writerOutput: secondAttempt.writerOutput,
-      criticOutput: secondAttempt.criticOutput,
-      draftToDeliver: secondAttempt.draftToDeliver,
-      voiceTarget: secondAttempt.voiceTarget,
-      retrievalReasons: secondAttempt.retrievalReasons,
-      threadFramingStyle: secondAttempt.threadFramingStyle,
-    });
-    if (secondAttemptWithClaimCheck.claimNeedsClarification) {
-      routingTracePatch = {
-        ...routingTracePatch,
-        draftGuard: {
-          reason: "claim_needs_clarification",
-          issues: secondAttemptWithClaimCheck.criticOutput.issues,
-        },
-      };
-      return {
-        kind: "response",
-        response: await returnClarificationQuestion({
-          question: buildGroundedProductClarificationQuestion(
-            args.sourceUserMessage || args.plan.objective,
-          ),
-          traceReason: "claim_needs_clarification",
-          ...(args.topicSummary !== undefined
-            ? { topicSummary: args.topicSummary }
-            : {}),
-          ...(args.pendingPlan !== undefined
-            ? { pendingPlan: args.pendingPlan }
-            : {}),
-        }),
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    const secondDeliveryValidation = runDeliveryValidationWorkers({
-      capability: "drafting",
-      groupId: retryConstraints.length > 0
-        ? "draft_delivery_validation_retry"
-        : "draft_delivery_validation_initial",
-      draft: secondAttemptWithClaimCheck.draftToDeliver,
-      formatPreference: args.formatPreference,
-      sourceUserMessage: args.sourceUserMessage,
-    });
-    localWorkers.push(...secondDeliveryValidation.workerExecutions);
-    localValidations.push(...secondDeliveryValidation.validations);
-
-    if (secondDeliveryValidation.hasFailures) {
-      routingTracePatch = {
-        ...routingTracePatch,
-        draftGuard: {
-          reason: "delivery_validation_failed",
-          issues: secondDeliveryValidation.issues.map((issue) => issue.message),
-        },
-      };
-      return {
-        kind: "response",
-        response: await returnDeliveryValidationFallback({
-          issues: secondDeliveryValidation.issues.map((issue) => issue.message),
-        }),
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    const secondValidation = await runDraftGuardValidationWorkers({
-      capability: "drafting",
-      groupId: retryConstraints.length > 0
-        ? "draft_guard_validation_retry"
-        : "draft_guard_validation_initial",
+    return runGroundedDraftRetry({
+      memory,
+      plan: args.plan,
       activeConstraints: args.activeConstraints,
-      sourceUserMessage: args.sourceUserMessage,
-      draft: secondAttemptWithClaimCheck.draftToDeliver,
+      sourceUserMessage: args.sourceUserMessage || undefined,
+      formatPreference: args.formatPreference,
+      ...(args.topicSummary !== undefined && args.topicSummary !== null
+        ? { topicSummary: args.topicSummary }
+        : {}),
+      ...(args.pendingPlan !== undefined && args.pendingPlan !== null
+        ? { pendingPlan: args.pendingPlan }
+        : {}),
+      draftGroundingPacket,
+      attemptDraft,
+      buildConcreteSceneClarificationQuestion,
+      buildGroundedProductClarificationQuestion,
+      returnClarificationQuestion,
+      returnDeliveryValidationFallback,
     });
-    localWorkers.push(...secondValidation.workerExecutions);
-    localValidations.push(...secondValidation.validations);
-    const secondAssessment = secondValidation.concreteSceneAssessment;
-    const secondProductAssessment = secondValidation.groundedProductAssessment;
-
-    if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
-      routingTracePatch = {
-        ...routingTracePatch,
-        draftGuard: secondAssessment.hasDrift
-          ? {
-              reason: "concrete_scene_drift",
-              issues: [secondAssessment.reason || "Concrete scene drift."],
-            }
-          : {
-              reason: "product_drift",
-              issues: [secondProductAssessment.reason || "Grounded product drift."],
-            },
-      };
-      return {
-        kind: "response",
-        response: secondAssessment.hasDrift
-          ? await returnClarificationQuestion({
-              question: buildConcreteSceneClarificationQuestion(
-                args.sourceUserMessage || args.plan.objective,
-              ),
-              traceReason: "concrete_scene_drift",
-              ...(args.topicSummary !== undefined
-                ? { topicSummary: args.topicSummary }
-                : {}),
-              ...(args.pendingPlan !== undefined
-                ? { pendingPlan: args.pendingPlan }
-                : {}),
-            })
-          : await returnClarificationQuestion({
-              question: buildGroundedProductClarificationQuestion(
-                args.sourceUserMessage || args.plan.objective,
-              ),
-              traceReason: "product_drift",
-              ...(args.topicSummary !== undefined
-                ? { topicSummary: args.topicSummary }
-                : {}),
-              ...(args.pendingPlan !== undefined
-                ? { pendingPlan: args.pendingPlan }
-                : {}),
-            }),
-        workers: localWorkers,
-        validations: localValidations,
-        routingTracePatch,
-      };
-    }
-
-    return {
-      kind: "success",
-      writerOutput: secondAttemptWithClaimCheck.writerOutput,
-      criticOutput: secondAttemptWithClaimCheck.criticOutput,
-      draftToDeliver: secondAttemptWithClaimCheck.draftToDeliver,
-      voiceTarget: secondAttemptWithClaimCheck.voiceTarget,
-      retrievalReasons: secondAttemptWithClaimCheck.retrievalReasons,
-      threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,
-      workers: localWorkers,
-      validations: localValidations,
-      routingTracePatch,
-    };
   }
 
   if (

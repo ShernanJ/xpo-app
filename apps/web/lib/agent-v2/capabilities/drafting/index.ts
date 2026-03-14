@@ -7,3 +7,7 @@ export {
   type DraftingCapabilityRunResult,
   type DraftingCapabilityRunSuccess,
 } from "./draftingCapability.ts";
+export {
+  runGroundedDraftRetry,
+  type DraftingAttemptResult,
+} from "./groundedDraftRetry.ts";
