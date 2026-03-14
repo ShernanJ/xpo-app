@@ -5193,6 +5193,7 @@ function ChatPageContent() {
 
           <ChatComposerDock
             isNewChatHero={isNewChatHero}
+            isLeavingHero={isLeavingHero}
             showScrollToLatest={showScrollToLatest}
             shouldCenterHero={shouldCenterHero}
             onScrollToBottom={scrollThreadToBottom}
