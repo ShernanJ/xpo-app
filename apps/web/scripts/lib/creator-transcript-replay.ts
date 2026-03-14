@@ -1,6 +1,11 @@
 import { randomUUID } from "crypto";
 import { createRequire } from "node:module";
 
+import {
+  buildControllerFallbackDecision,
+  mapIntentToControllerAction,
+  type ControllerDecision,
+} from "../../lib/agent-v2/agents/controller.ts";
 import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
   ConversationServices,
@@ -160,6 +165,152 @@ export interface TranscriptReplayRun {
   turns: TranscriptReplayResult[];
   finalMemory: V2ConversationMemory;
   finalActiveDraft: string | null;
+}
+
+type ReplayLegacyServiceOverrides = {
+  classifyIntent?: (
+    userMessage: string,
+    recentHistory: string,
+  ) => Promise<{
+    intent:
+      | "coach"
+      | "ideate"
+      | "draft"
+      | "review"
+      | "edit"
+      | "answer_question"
+      | "planner_feedback";
+    needs_memory_update: boolean;
+    confidence: number;
+  } | null>;
+};
+
+function buildReplayControlTurnOverride(args: {
+  serviceOverrides?: Partial<ConversationServices> & ReplayLegacyServiceOverrides;
+}): ConversationServices["controlTurn"] | undefined {
+  if (args.serviceOverrides?.controlTurn) {
+    return args.serviceOverrides.controlTurn;
+  }
+
+  if (args.serviceOverrides?.classifyIntent) {
+    return async ({ userMessage, recentHistory, memory }) => {
+      const classified = await args.serviceOverrides?.classifyIntent?.(
+        userMessage,
+        recentHistory,
+      );
+      if (!classified) {
+        return buildControllerFallbackDecision({
+          userMessage,
+          memory,
+        });
+      }
+
+      return {
+        action: mapIntentToControllerAction(classified.intent),
+        needs_memory_update: classified.needs_memory_update,
+        confidence: classified.confidence,
+        rationale: "replay classifyIntent override",
+      } satisfies ControllerDecision;
+    };
+  }
+
+  return async ({ userMessage, memory }) =>
+    buildControllerFallbackDecision({
+      userMessage,
+      memory,
+    });
+}
+
+function inferReplayIntent(args: {
+  message: string;
+  memory: V2ConversationMemory;
+  activeDraft: string | null;
+}): V2ChatIntent {
+  const normalized = args.message.trim().toLowerCase();
+  const hasPendingPlan = Boolean(args.memory.pendingPlan);
+  const hasActiveDraft =
+    Boolean(args.activeDraft) ||
+    Boolean(args.memory.activeDraftRef?.versionId) ||
+    args.memory.conversationState === "draft_ready" ||
+    args.memory.conversationState === "editing";
+
+  if (
+    hasActiveDraft &&
+    (/^(?:make|keep|turn|rewrite|change|fix|trim|shorten|lengthen|expand|tighten|soften)\b/.test(
+      normalized,
+    ) ||
+      /\b(?:forced|shorter|longer|cleaner|clearer|less|more)\b/.test(normalized))
+  ) {
+    return "edit";
+  }
+
+  if (
+    hasPendingPlan &&
+    (/^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it|run with it|let'?s do it|lets do it|write it|draft it)\b/.test(
+      normalized,
+    ) ||
+      /\b(?:draft|write)\b/.test(normalized))
+  ) {
+    return "planner_feedback";
+  }
+
+  if (
+    /\b(?:idea|ideas|angles|angle|brainstorm|directions?)\b/.test(normalized) &&
+    !/\b(?:write|draft)\b/.test(normalized)
+  ) {
+    return "ideate";
+  }
+
+  if (
+    /\b(?:write|draft|compose|generate|create|make)\b/.test(normalized) &&
+    (/\babout\b/.test(normalized) ||
+      /\bpost\b/.test(normalized) ||
+      /\bthread\b/.test(normalized) ||
+      /\bone\b/.test(normalized))
+  ) {
+    return "draft";
+  }
+
+  if (/^(?:what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are)\b/.test(normalized)) {
+    return "answer_question";
+  }
+
+  return "coach";
+}
+
+async function resolveReplayExplicitIntent(args: {
+  turn: TranscriptReplayTurn;
+  history: TranscriptReplayTurn[];
+  activeDraft: string | null;
+  runId: string;
+  threadId: string;
+  mergedServiceOverrides: Partial<ConversationServices>;
+  serviceOverrides?: Partial<ConversationServices> & ReplayLegacyServiceOverrides;
+}): Promise<V2ChatIntent | null> {
+  if (args.turn.explicitIntent !== undefined) {
+    return args.turn.explicitIntent;
+  }
+
+  if (args.serviceOverrides?.classifyIntent) {
+    const classified = await args.serviceOverrides.classifyIntent(
+      args.turn.message,
+      buildRecentHistory(args.history),
+    );
+    return classified?.intent ?? null;
+  }
+
+  const memoryRecord = await args.mergedServiceOverrides.getConversationMemory?.({
+    runId: args.runId,
+    threadId: args.threadId,
+  });
+  const memory = createReplayConversationSnapshot(
+    memoryRecord as ReplayMemoryRecord | null | undefined,
+  );
+  return inferReplayIntent({
+    message: args.turn.message,
+    memory,
+    activeDraft: args.activeDraft,
+  });
 }
 
 function createEmptyEnvelope(): ReplayMemoryEnvelope {
@@ -566,7 +717,7 @@ export function createReplayServiceOverrides(
 
 export async function replayTranscriptFixture(
   fixture: TranscriptReplayFixture,
-  serviceOverrides?: Partial<ConversationServices>,
+  serviceOverrides?: Partial<ConversationServices> & ReplayLegacyServiceOverrides,
 ): Promise<TranscriptReplayRun> {
   enableExtensionlessTsResolution();
   ensureReplayModelEnv();
@@ -601,8 +752,14 @@ export async function replayTranscriptFixture(
   const runId = fixture.runId || `replay_${fixture.id}`;
   const threadId = fixture.threadId || `replay_${fixture.id}`;
   const userId = fixture.userId || "replay-user";
+  const replayControlTurnOverride = buildReplayControlTurnOverride({
+    serviceOverrides,
+  });
   const mergedServiceOverrides: Partial<ConversationServices> = {
     ...createReplayServiceOverrides(fixture),
+    ...(replayControlTurnOverride
+      ? { controlTurn: replayControlTurnOverride }
+      : {}),
     ...(serviceOverrides || {}),
   };
   const history: TranscriptReplayTurn[] = [];
@@ -620,6 +777,16 @@ export async function replayTranscriptFixture(
       continue;
     }
 
+    const resolvedExplicitIntent = await resolveReplayExplicitIntent({
+      turn,
+      history,
+      activeDraft,
+      runId,
+      threadId,
+      mergedServiceOverrides,
+      serviceOverrides,
+    });
+
     const output = await manageConversationTurn(
       {
         userId,
@@ -628,7 +795,7 @@ export async function replayTranscriptFixture(
         threadId,
         userMessage: turn.message,
         recentHistory: buildRecentHistory(history),
-        explicitIntent: turn.explicitIntent ?? null,
+        explicitIntent: resolvedExplicitIntent,
         activeDraft: turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
       },
       mergedServiceOverrides,
