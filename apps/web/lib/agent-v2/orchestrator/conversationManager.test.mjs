@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
@@ -9,7 +9,6 @@ import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
-import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
 import {
@@ -19,6 +18,7 @@ import {
   resolveRuntimeValidationStatus,
 } from "./workerPlane.ts";
 import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
+import { runRevisionValidationWorkers } from "../workers/validation/revisionValidationWorkers.ts";
 import { validateDelivery } from "../validators/shared/deliveryValidators.ts";
 
 import {
@@ -411,6 +411,10 @@ test("draft pipeline delegates revise and replan mode routing to the revision ca
     /prisma\.chatMessage\.findFirst\(/.test(draftPipelineSource),
     false,
   );
+});
+
+test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
+  assert.equal(existsSync(new URL("./revisionValidationWorkers.ts", import.meta.url)), false);
 });
 
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
