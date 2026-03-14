@@ -47,6 +47,19 @@ User turn
 - Runtime trace now carries persisted-state changes for route-boundary persistence on the main chat path, and reply finalization can reuse that same persistence trace patch when an upstream runtime trace already exists.
 - Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that is intentional migration debt until reply entry shares the common runtime path.
 - As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
+- As of 2026-03-14, the chat/pricing/login UI is also in an active frontend hygiene pass to follow better React composition, accessibility, and Vercel-style rendering practices without changing transport or backend behavior.
+- The latest UI pass landed:
+  - workspace-scoped feedback/source-material callback fixes in `apps/web/app/chat/page.tsx`
+  - message-row extraction in `apps/web/app/chat/ChatMessageRow.tsx`
+  - explicit draft-editor dock variants in `apps/web/app/chat/DraftEditorDock.tsx`
+  - semantic draft preview interaction cleanup in `apps/web/app/chat/chatDraftPreviewCard.tsx`
+  - a shared accessible dialog primitive in `apps/web/components/ui/dialog.tsx`, now used by `apps/web/app/chat/ObservedMetricsModal.tsx`
+  - a semantic billing cadence control in `apps/web/app/pricing/BillingCadenceToggle.tsx`
+  - login label/focus cleanup in `apps/web/app/login/login-form.tsx`
+- When touching frontend code in this slice, explicitly use the installed skills:
+  - `vercel-react-best-practices` for React/Next performance and state patterns
+  - `vercel-composition-patterns` for component extraction and variant cleanup
+  - `web-design-guidelines` for accessibility and interaction semantics
 
 ## Current ownership boundaries
 ### Transport
@@ -121,6 +134,11 @@ User turn
       - `apps/web/app/chat/chatThreadHistoryState.ts`
     - inline preview presentation:
       - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+    - UI primitives and presentational extraction:
+      - `apps/web/app/chat/ChatMessageRow.tsx`
+      - `apps/web/app/chat/DraftEditorDock.tsx`
+      - `apps/web/components/ui/dialog.tsx`
+      - `apps/web/app/pricing/BillingCadenceToggle.tsx`
   - the page is thin enough for the Phase 2 boundary cleanup, but not yet a fully ideal transport/view boundary
 - Target architecture ownership:
   - view state
@@ -291,6 +309,8 @@ User turn
 - Do not add more patch cleanup when the upstream issue belongs in workflow ownership or validator logic.
 - Do not move extracted page-local state seams back into `apps/web/app/chat/page.tsx`.
 - Do not change chat transport payload shape or route/orchestrator behavior as part of client-only page-thinning work.
+- Do not collapse extracted UI primitives or semantic interaction fixes back into `apps/web/app/chat/page.tsx` just to move faster on visuals.
+- Do use `vercel-react-best-practices`, `vercel-composition-patterns`, and `web-design-guidelines` when making frontend changes in `apps/web/app/chat`, `apps/web/app/pricing`, `apps/web/app/login`, or shared UI primitives.
 
 ## Test commands
 ### Gate families

@@ -124,7 +124,19 @@ Rewrite it as the **operator handoff** for engineers/agents:
     - `apps/web/app/chat/chatThreadHistoryState.ts`
   - presentational preview surface:
     - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+- The current client-thinning pass also includes UI-practice cleanup without changing transport/runtime ownership:
+  - `apps/web/app/chat/ChatMessageRow.tsx`
+  - `apps/web/app/chat/DraftEditorDock.tsx`
+  - `apps/web/components/ui/dialog.tsx`
+  - `apps/web/app/pricing/BillingCadenceToggle.tsx`
+  - `apps/web/app/chat/ObservedMetricsModal.tsx`
+  - `apps/web/app/login/login-form.tsx`
+- For frontend work in this slice, agents should explicitly use:
+  - `vercel-react-best-practices`
+  - `vercel-composition-patterns`
+  - `web-design-guidelines`
 - Residual client debt in `page.tsx` is now mostly async orchestration and large presentation surfaces rather than duplicated state math; that is accepted migration debt after the Phase 2 boundary cleanup.
+- Guardrail: keep semantic interaction, accessibility, and extracted UI primitives moving outward from `page.tsx`; do not re-inline them during visual tweaks.
 - Reduce the chat route to:
   - auth
   - workspace/thread ownership

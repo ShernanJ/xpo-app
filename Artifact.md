@@ -115,6 +115,16 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
     - `apps/web/app/chat/chatThreadHistoryState.ts`
   - preview presentation:
     - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+- The latest frontend hygiene pass also started normalizing large UI surfaces around explicit composition and accessible primitives:
+  - `apps/web/app/chat/ChatMessageRow.tsx`
+  - `apps/web/app/chat/DraftEditorDock.tsx`
+  - `apps/web/components/ui/dialog.tsx`
+  - `apps/web/app/pricing/BillingCadenceToggle.tsx`
+- That pass kept product behavior stable while fixing workspace-scoped client callbacks, semantic draft-preview interactions, dialog accessibility, and login/pricing control semantics.
+- Frontend follow-on work in this slice should keep using the installed skills:
+  - `vercel-react-best-practices`
+  - `vercel-composition-patterns`
+  - `web-design-guidelines`
 - `apps/web/app/chat/page.tsx` still owns too much async orchestration and some large presentational surfaces to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
@@ -293,6 +303,11 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ## Recent chat-client paydown
 - Highest-ROI page-local state seams were extracted from `apps/web/app/chat/page.tsx` and pinned with focused tests.
+- Shared UI primitives now own more of the client presentation contract:
+  - chat message row rendering in `apps/web/app/chat/ChatMessageRow.tsx`
+  - draft-editor dock layout variants in `apps/web/app/chat/DraftEditorDock.tsx`
+  - dialog accessibility/focus behavior in `apps/web/components/ui/dialog.tsx`
+  - pricing cadence semantics in `apps/web/app/pricing/BillingCadenceToggle.tsx`
 - The remaining step from the most recent local pass is reassessment, not a required architectural follow-on.
 - If the next agent continues thinning the client, the best remaining candidates are:
   - additional presentational extraction from the draft editor surface
