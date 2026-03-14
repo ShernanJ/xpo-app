@@ -62,19 +62,7 @@ import {
   inferCurrentPlaybookStage,
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
-import { buildChatReplyDraft, buildChatReplyOptions } from "@/lib/extension/chatReplyAdapter";
-import type { ExtensionReplyIntentMetadata } from "@/lib/extension/types";
 import {
-  buildEmbeddedPostWithoutReplyPrompt,
-  buildMissingReplyPostPrompt,
-  buildReplyArtifactsFromDraft,
-  buildReplyArtifactsFromOptions,
-  buildReplyConfirmationPrompt,
-  buildReplyDraftQuickReplies,
-  buildReplyOptionsQuickReplies,
-  buildReplyParseEnvelope,
-  buildReplyConfirmationQuickReplies,
-  createEmptyActiveReplyContext,
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
@@ -82,6 +70,7 @@ import {
   type ChatReplyArtifacts,
   type ChatReplyParseEnvelope,
 } from "./reply.logic";
+import { planReplyTurn } from "./route.reply";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 
@@ -275,40 +264,6 @@ function resolveChatReplyGoal(rawValue: unknown): string {
   return rawValue === "followers" || rawValue === "leads" || rawValue === "authority"
     ? rawValue
     : "followers";
-}
-
-function toExtensionReplyIntentMetadata(
-  value:
-    | {
-        label: string;
-        strategyPillar: string;
-        anchor: string;
-        rationale: string;
-      }
-    | null
-    | undefined,
-): ExtensionReplyIntentMetadata | null {
-  if (!value) {
-    return null;
-  }
-
-  if (
-    value.label !== "nuance" &&
-    value.label !== "sharpen" &&
-    value.label !== "disagree" &&
-    value.label !== "example" &&
-    value.label !== "translate" &&
-    value.label !== "known_for"
-  ) {
-    return null;
-  }
-
-  return {
-    label: value.label,
-    strategyPillar: value.strategyPillar,
-    anchor: value.anchor,
-    rationale: value.rationale,
-  };
 }
 
 export async function POST(request: NextRequest) {
@@ -823,251 +778,20 @@ export async function POST(request: NextRequest) {
       });
     };
 
-    const activeReplyContext = storedMemory.activeReplyContext;
-    const selectedReplyIntent = toExtensionReplyIntentMetadata(
-      activeReplyContext?.latestReplyOptions.find(
-        (option) => option.id === activeReplyContext.selectedReplyOptionId,
-      )?.intent || activeReplyContext?.latestReplyOptions[0]?.intent,
-    );
+    const handledReplyTurn = planReplyTurn({
+      activeReplyContext: storedMemory.activeReplyContext,
+      replyContinuation,
+      replyParseResult,
+      defaultReplyStage,
+      defaultReplyTone,
+      defaultReplyGoal,
+      replyStrategy,
+      replyInsights,
+      styleCard,
+    });
 
-    if (replyContinuation?.type === "decline" && activeReplyContext) {
-      return await finalizeReplyAssistantTurn({
-        reply: "ok. paste the exact post text or x url you want help with when you're ready.",
-        outputShape: "coach_question",
-        surfaceMode: "ask_one_question",
-        quickReplies: [],
-        activeReplyContext: null,
-        selectedReplyOptionId: null,
-        replyParse: {
-          detected: true,
-          confidence: activeReplyContext.confidence,
-          needsConfirmation: false,
-          parseReason: "reply_confirmation_declined",
-        },
-      });
-    }
-
-    if (
-      (replyContinuation?.type === "confirm" && activeReplyContext) ||
-      (replyParseResult.classification === "reply_request_with_embedded_post" &&
-        replyParseResult.context?.confidence === "high")
-    ) {
-      const sourceContext =
-        activeReplyContext ||
-        createEmptyActiveReplyContext({
-          sourceText: replyParseResult.context?.sourceText || "",
-          sourceUrl: replyParseResult.context?.sourceUrl || null,
-          authorHandle: replyParseResult.context?.authorHandle || null,
-          quotedUserAsk: replyParseResult.context?.quotedUserAsk || null,
-          confidence: replyParseResult.context?.confidence || "high",
-          parseReason: replyParseResult.context?.parseReason || "reply_request_with_embedded_post",
-          awaitingConfirmation: false,
-          stage: defaultReplyStage,
-          tone: defaultReplyTone,
-          goal: defaultReplyGoal,
-        });
-      const strategyPillar =
-        selectedReplyIntent?.strategyPillar ||
-        replyStrategy.contentPillars[0] ||
-        replyStrategy.knownFor;
-      const generated = buildChatReplyOptions({
-        source: {
-          opportunityId: sourceContext.opportunityId,
-          sourceText: sourceContext.sourceText,
-          sourceUrl: sourceContext.sourceUrl,
-          authorHandle: sourceContext.authorHandle,
-        },
-        strategy: replyStrategy,
-        strategyPillar,
-        styleCard,
-        replyInsights,
-        stage: sourceContext.stage,
-        tone: sourceContext.tone,
-        goal: sourceContext.goal,
-      });
-      const nextReplyContext: ActiveReplyContext = {
-        ...sourceContext,
-        awaitingConfirmation: false,
-        latestReplyOptions: generated.response.options,
-        latestReplyDraftOptions: [],
-        selectedReplyOptionId: null,
-      };
-      return await finalizeReplyAssistantTurn({
-        reply: "pulled 3 grounded reply directions from that post.",
-        outputShape: "reply_candidate",
-        surfaceMode: "offer_options",
-        quickReplies: buildReplyOptionsQuickReplies(generated.response.options.length),
-        activeReplyContext: nextReplyContext,
-        selectedReplyOptionId: null,
-        replyArtifacts: buildReplyArtifactsFromOptions({
-          context: nextReplyContext,
-          response: generated.response,
-        }),
-        replyParse: buildReplyParseEnvelope(replyParseResult) || {
-          detected: true,
-          confidence: sourceContext.confidence,
-          needsConfirmation: false,
-          parseReason: sourceContext.parseReason,
-        },
-        eventType: "chat_reply_options_generated",
-      });
-    }
-
-    if (replyContinuation?.type === "select_option" && activeReplyContext) {
-      const selectedOption = activeReplyContext.latestReplyOptions[replyContinuation.optionIndex];
-      if (selectedOption) {
-        const generated = buildChatReplyDraft({
-          source: {
-            opportunityId: activeReplyContext.opportunityId,
-            sourceText: activeReplyContext.sourceText,
-            sourceUrl: activeReplyContext.sourceUrl,
-            authorHandle: activeReplyContext.authorHandle,
-          },
-          strategy: replyStrategy,
-          replyInsights,
-          stage: activeReplyContext.stage,
-          tone: activeReplyContext.tone,
-          goal: activeReplyContext.goal,
-          selectedIntent: toExtensionReplyIntentMetadata(selectedOption.intent) || undefined,
-        });
-        const nextReplyContext: ActiveReplyContext = {
-          ...activeReplyContext,
-          latestReplyDraftOptions: generated.response.options,
-          selectedReplyOptionId: selectedOption.id,
-        };
-        return await finalizeReplyAssistantTurn({
-          reply: `ran with option ${replyContinuation.optionIndex + 1} and turned it into a reply draft.`,
-          outputShape: "reply_candidate",
-          surfaceMode: "generate_full_output",
-          quickReplies: buildReplyDraftQuickReplies(),
-          activeReplyContext: nextReplyContext,
-          selectedReplyOptionId: selectedOption.id,
-          replyArtifacts: buildReplyArtifactsFromDraft({
-            context: nextReplyContext,
-            response: generated.response,
-          }),
-          replyParse: {
-            detected: true,
-            confidence: activeReplyContext.confidence,
-            needsConfirmation: false,
-            parseReason: "reply_option_selected",
-          },
-          eventType: "chat_reply_draft_generated",
-        });
-      }
-    }
-
-    if (replyContinuation?.type === "revise_draft" && activeReplyContext) {
-      const generated = buildChatReplyDraft({
-        source: {
-          opportunityId: activeReplyContext.opportunityId,
-          sourceText: activeReplyContext.sourceText,
-          sourceUrl: activeReplyContext.sourceUrl,
-          authorHandle: activeReplyContext.authorHandle,
-        },
-        strategy: replyStrategy,
-        replyInsights,
-        stage: activeReplyContext.stage,
-        tone: replyContinuation.tone,
-        goal: activeReplyContext.goal,
-        selectedIntent: selectedReplyIntent || undefined,
-        length: replyContinuation.length,
-      });
-      const nextReplyContext: ActiveReplyContext = {
-        ...activeReplyContext,
-        tone: replyContinuation.tone,
-        latestReplyDraftOptions: generated.response.options,
-      };
-      return await finalizeReplyAssistantTurn({
-        reply:
-          replyContinuation.length === "shorter"
-            ? "tightened the reply while keeping the same grounded angle."
-            : replyContinuation.tone === "bold"
-              ? "pushed the reply bolder without inventing anything."
-              : replyContinuation.tone === "warm"
-                ? "softened the reply without losing the point."
-                : "updated the reply and kept it grounded to the same post.",
-        outputShape: "reply_candidate",
-        surfaceMode: "generate_full_output",
-        quickReplies: buildReplyDraftQuickReplies(),
-        activeReplyContext: nextReplyContext,
-        selectedReplyOptionId: activeReplyContext.selectedReplyOptionId,
-        replyArtifacts: buildReplyArtifactsFromDraft({
-          context: nextReplyContext,
-          response: generated.response,
-        }),
-        replyParse: {
-          detected: true,
-          confidence: activeReplyContext.confidence,
-          needsConfirmation: false,
-          parseReason: "reply_draft_revised",
-        },
-        eventType: "chat_reply_draft_revised",
-      });
-    }
-
-    if (
-      replyParseResult.classification === "reply_request_with_embedded_post" &&
-      replyParseResult.context?.confidence === "medium"
-    ) {
-      const nextReplyContext = createEmptyActiveReplyContext({
-        sourceText: replyParseResult.context.sourceText,
-        sourceUrl: replyParseResult.context.sourceUrl,
-        authorHandle: replyParseResult.context.authorHandle,
-        quotedUserAsk: replyParseResult.context.quotedUserAsk,
-        confidence: replyParseResult.context.confidence,
-        parseReason: replyParseResult.context.parseReason,
-        awaitingConfirmation: true,
-        stage: defaultReplyStage,
-        tone: defaultReplyTone,
-        goal: defaultReplyGoal,
-      });
-      return await finalizeReplyAssistantTurn({
-        reply: buildReplyConfirmationPrompt(replyParseResult.context),
-        outputShape: "coach_question",
-        surfaceMode: "ask_one_question",
-        quickReplies: buildReplyConfirmationQuickReplies(),
-        activeReplyContext: nextReplyContext,
-        replyParse: buildReplyParseEnvelope(replyParseResult),
-      });
-    }
-
-    if (replyParseResult.classification === "reply_request_missing_post") {
-      return await finalizeReplyAssistantTurn({
-        reply: buildMissingReplyPostPrompt(),
-        outputShape: "coach_question",
-        surfaceMode: "ask_one_question",
-        quickReplies: [],
-        activeReplyContext: null,
-        selectedReplyOptionId: null,
-        replyParse: buildReplyParseEnvelope(replyParseResult),
-      });
-    }
-
-    if (
-      replyParseResult.classification === "embedded_post_without_reply_request" &&
-      replyParseResult.context
-    ) {
-      const nextReplyContext = createEmptyActiveReplyContext({
-        sourceText: replyParseResult.context.sourceText,
-        sourceUrl: replyParseResult.context.sourceUrl,
-        authorHandle: replyParseResult.context.authorHandle,
-        quotedUserAsk: null,
-        confidence: replyParseResult.context.confidence,
-        parseReason: replyParseResult.context.parseReason,
-        awaitingConfirmation: true,
-        stage: defaultReplyStage,
-        tone: defaultReplyTone,
-        goal: defaultReplyGoal,
-      });
-      return await finalizeReplyAssistantTurn({
-        reply: buildEmbeddedPostWithoutReplyPrompt(replyParseResult.context),
-        outputShape: "coach_question",
-        surfaceMode: "ask_one_question",
-        quickReplies: [],
-        activeReplyContext: nextReplyContext,
-        replyParse: buildReplyParseEnvelope(replyParseResult),
-      });
+    if (handledReplyTurn) {
+      return await finalizeReplyAssistantTurn(handledReplyTurn);
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);

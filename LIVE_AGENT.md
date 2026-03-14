@@ -125,7 +125,7 @@ User turn
 - Remaining target executors:
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - route-level reply artifact generation and continuation still live in `apps/web/app/api/creator/v2/chat/route.ts`
+  - route-level reply artifact generation and continuation now live in `apps/web/app/api/creator/v2/chat/route.reply.ts`, but still sit outside the runtime capability boundary
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ## Capability contract
@@ -280,5 +280,5 @@ User turn
 ## Next structural targets
 - Start Phase 4 worker-plane cleanup or isolate remaining Phase 3 migration debt into dedicated follow-up seams
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
-- Reconcile route-level reply artifact generation with the runtime capability boundary
+- Reconcile `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

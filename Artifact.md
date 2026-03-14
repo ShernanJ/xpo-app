@@ -171,7 +171,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - reconcile route-level reply artifact generation with the runtime capability boundary
+  - route-level reply artifact generation and continuation now live in `apps/web/app/api/creator/v2/chat/route.reply.ts` instead of inline `route.ts`, but still need to be reconciled with the runtime capability boundary
 - Status: complete with accepted migration debt.
 
 ### Phase 4: Formalize the parallel worker plane
