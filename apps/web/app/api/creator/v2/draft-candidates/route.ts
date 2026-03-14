@@ -8,7 +8,7 @@ import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/shared/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";
-import { buildInitialDraftVersionPayload } from "../chat/route.logic";
+import { buildInitialDraftVersionPayload } from "../chat/_lib/request/routeLogic";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
