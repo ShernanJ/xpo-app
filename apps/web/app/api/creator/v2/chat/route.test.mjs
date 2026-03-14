@@ -648,6 +648,87 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
   ]);
 });
 
+test("persistAssistantTurnWithDeps does not double-write memory while candidate writes resolve out of order", async () => {
+  let updateConversationMemoryCalls = 0;
+  const calls = [];
+
+  await persistAssistantTurnWithDeps(
+    {
+      threadId: "thread-2",
+      assistantMessageData: {
+        reply: "bundle ready",
+        threadTitle: "Bundle thread",
+      },
+      threadUpdate: {
+        updatedAt: new Date("2026-03-13T16:00:00.000Z"),
+        title: "Bundle title",
+      },
+      buildMemoryUpdate: (assistantMessageId) => ({
+        preferredSurfaceMode: "structured",
+        activeDraftRef: {
+          messageId: assistantMessageId,
+          versionId: "bundle-version-1",
+          revisionChainId: "bundle-chain-1",
+        },
+      }),
+      draftCandidateCreates: [
+        {
+          title: "Slow option",
+          artifact: { id: "artifact-slow" },
+          voiceTarget: null,
+          noveltyNotes: ["slow note"],
+        },
+        {
+          title: "Fast option",
+          artifact: { id: "artifact-fast" },
+          voiceTarget: null,
+          noveltyNotes: ["fast note"],
+        },
+      ],
+      draftCandidateContext: {
+        userId: "user-2",
+        xHandle: "stan",
+        runId: "run-2",
+        sourcePrompt: "draft 4 posts",
+        sourcePlaybook: "chat_bundle",
+        outputShape: "short_form_post",
+      },
+    },
+    {
+      async createChatMessage() {
+        calls.push("createChatMessage");
+        return { id: "assistant-msg-2" };
+      },
+      async updateConversationMemory() {
+        updateConversationMemoryCalls += 1;
+        calls.push("updateConversationMemory");
+        return null;
+      },
+      async updateChatThread() {
+        calls.push("updateChatThread");
+        return { title: "Bundle title" };
+      },
+      async createDraftCandidate(args) {
+        calls.push(`start:${args.title}`);
+        await new Promise((resolve) => setTimeout(resolve, args.title === "Slow option" ? 20 : 1));
+        calls.push(`finish:${args.title}`);
+        return null;
+      },
+    },
+  );
+
+  assert.equal(updateConversationMemoryCalls, 1);
+  assert.deepEqual(calls.slice(0, 3), [
+    "createChatMessage",
+    "updateConversationMemory",
+    "updateChatThread",
+  ]);
+  assert.deepEqual(
+    calls.filter((entry) => entry === "updateConversationMemory"),
+    ["updateConversationMemory"],
+  );
+});
+
 test("persistAssistantTurnWithDeps skips writes when no thread is available", async () => {
   const calls = [];
 

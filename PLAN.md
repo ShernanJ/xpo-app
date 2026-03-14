@@ -156,6 +156,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Merge/failure rules standardized:
   - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts` now centralizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging for the landed worker seams
   - landed worker helpers now emit trace metadata through that shared utility so Phase 4 merge behavior stays consistent without changing runtime ownership or client payloads
+- Explicit no-double-write regression coverage landed:
+  - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the sequential persistence contract so conversation memory is written exactly once even when draft-candidate writes resolve out of order
+  - this keeps Phase 4 worker-plane cleanup honest at the route boundary while safe parallel candidate writes remain isolated from memory/thread ownership
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 
