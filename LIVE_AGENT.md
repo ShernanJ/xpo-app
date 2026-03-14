@@ -46,6 +46,10 @@ User turn
 - `pipeline_continuation` in runtime traces is migration debt, not a steady-state owner.
 - Runtime trace now carries persisted-state changes for route-boundary persistence on the main chat path, and reply finalization can reuse that same persistence trace patch when an upstream runtime trace already exists.
 - Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that is intentional migration debt until reply entry shares the common runtime path.
+- Backend structure cleanup for the active migration surface is now landed:
+  - chat API route-boundary helpers live under `apps/web/app/api/creator/v2/chat/_lib/*`
+  - workflow execution has real homes under `apps/web/lib/agent-v2/capabilities/*`
+  - onboarding has real domain folders under `apps/web/lib/onboarding/{profile,analysis,strategy,pipeline,contracts,shared,store,sources}`
 - As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
 - As of 2026-03-14, the chat/pricing/login UI is also in an active frontend hygiene pass to follow better React composition, accessibility, and Vercel-style rendering practices without changing transport or backend behavior.
 - The latest UI pass landed:
@@ -118,6 +122,16 @@ User turn
 - `_lib/response/`: response-envelope helpers
 - `_lib/reply/`: reply finalization and reply-only route-boundary wiring
 - `_tests/`: route-boundary integration coverage if root-level test files become noisy
+
+### `apps/web/lib/onboarding`
+- `profile/`: profile shaping, preview, hydration, and profile-conversion audit
+- `analysis/`: post analysis, performance model, content insights, and evaluation
+- `strategy/`: agent context, growth strategy, overrides, coach reply, and context enrichment
+- `pipeline/`: onboarding run, backfill, and regression entrypoints
+- `contracts/`: onboarding types, validation, generation contract, and draft validator
+- `shared/`: draft artifacts and reusable mock data
+- `store/`: onboarding run, scrape capture, and backfill-job persistence
+- `sources/`: scrape/X ingestion and onboarding source resolution
 
 ## Current ownership boundaries
 ### Transport
@@ -226,6 +240,19 @@ User turn
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
   - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.replyFinalize.ts` owns reply finalization
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
+
+### Next backend slice
+- Reply/analyze validation and retry is the next backend-only product lane.
+- Put new work in:
+  - `apps/web/lib/agent-v2/capabilities/reply/`
+  - `apps/web/lib/agent-v2/capabilities/analysis/`
+  - `apps/web/lib/agent-v2/workers/validation/`
+  - `apps/web/lib/agent-v2/validators/shared/`
+  - route-private helpers only when the work is truly API-boundary wiring
+- Do not put new feature logic back into:
+  - `apps/web/lib/agent-v2/orchestrator/`
+  - `apps/web/app/api/creator/v2/chat/route.ts`
+  - the flat onboarding root
 
 ## Capability contract
 - Shared capability types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:

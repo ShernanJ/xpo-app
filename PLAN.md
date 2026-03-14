@@ -17,10 +17,10 @@ Transitional note:
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates. That ordering is migration debt, not the desired steady state.
 
 Current active slice:
-- Persisted-state tracing at the route boundary
+- Phase 5 continuation: backend-only reply/analyze validation and retry on top of the landed backend/lib and API folder cleanup
 - Frontend architecture track: route-private folders, shared UI primitives, and a dedicated frontend test stack
-- Backend/lib architecture track: domain-first folders, thin orchestration entrypoints, and explicit seams between contracts, control flow, workers, validators, and infra
-- API architecture track: thin route entrypoints, route-boundary helpers, and feature-owned route-private folders
+- Backend/lib architecture track: landed domain-first folders, thin orchestration entrypoints, and explicit seams between contracts, control flow, workers, validators, and infra
+- API architecture track: landed thin route entrypoints, route-boundary helpers, and feature-owned route-private folders
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -72,6 +72,15 @@ Current active slice:
   - `memory/`: memory retrieval, salience, and summary management
   - `agents/`: model-facing prompt builders and worker implementations
 - The current `orchestrator/` folder is transitional and still too broad; the target state is for it to shrink into control-plane composition only.
+- `apps/web/lib/onboarding` now has the same domain-first target, and the active migration surface is landed into:
+  - `profile/`
+  - `analysis/`
+  - `strategy/`
+  - `pipeline/`
+  - `contracts/`
+  - `shared/`
+  - `store/`
+  - `sources/`
 - Backend migrations should prefer seam extraction and import redirection first, then directory moves once ownership is clear.
 - Avoid repo-wide folder churn during active behavior slices unless the touched area already needs extraction for correctness or testability.
 - Concrete target map for `apps/web/lib/agent-v2`:
@@ -109,6 +118,7 @@ Current active slice:
     - deterministic validators and retry-constraint builders
 - Current-file mapping rule:
   - when touching `apps/web/lib/agent-v2/orchestrator/*`, prefer extracting into one of the target folders above instead of adding another broad orchestrator helper unless the file is still truly control-plane composition
+  - when touching `apps/web/lib/onboarding/*`, prefer adding code in the landed domain folders above instead of re-growing the flat onboarding root
 
 ## API Architecture Track
 - Keep `apps/web/app/api` route roots thin: route entry files should primarily handle auth, ownership, input normalization, runtime dispatch, persistence orchestration, and response assembly.
@@ -337,12 +347,15 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - make validation and retry the primary quality gate for draft/revision/reply flows
   - stop relying on cleanup heuristics as the main fix for malformed outputs
   - use the same phase to establish a scalable backend/lib folder strategy for agent runtime code
-- Phase 5A active slice:
+- Phase 5A landed:
   - backend-only delivery validation and single constrained retry for `plan_then_draft` and `revise_draft`
   - no changes under `apps/web/app/chat/` or `apps/web/app/chat/_features/`
-  - add deterministic delivery validators for truncation, prompt echo, artifact mismatch, and thread/post shape mismatch
-  - record validator outcomes in runtime trace
-  - return a safe non-artifact `coach_question` fallback when the second pass still fails delivery validation
+  - deterministic delivery validators for truncation, prompt echo, artifact mismatch, and thread/post shape mismatch
+  - validator outcomes recorded in runtime trace
+  - safe non-artifact `coach_question` fallback when the second pass still fails delivery validation
+- Phase 5A next slice:
+  - extend the same backend-only validation/retry pattern to `reply_to_post` and `analyze_post`
+  - keep the work in `capabilities/*`, `workers/validation/*`, `validators/*`, and route-private helpers instead of in flat legacy folders
 - Phase 5B structure follow-on:
   - extract delivery validation, revision validation, and workflow-local retry helpers out of large orchestrator entry files
   - introduce stable backend/lib and route-boundary folder conventions for new runtime work:

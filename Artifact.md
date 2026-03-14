@@ -5,8 +5,8 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-14
-- Current slice: Persisted-state tracing is now landed on the main chat route; the immediate follow-on is reply-path trace unification without inventing fake end-to-end traces
-- Current architecture tracks also include backend/lib and API folder-structure cleanup so new runtime work does not recreate flat backend monoliths
+- Current slice: backend/lib and API folder-structure cleanup is landed for the active migration surface; the immediate follow-on is backend-only reply/analyze validation and retry
+- Current architecture tracks now focus on keeping new runtime work inside the landed domain folders so flat backend monoliths do not regrow
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -56,6 +56,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - new fan-out helpers should trend toward `workers/context`, `workers/retrieval`, `workers/candidates`, and `workers/validation`
   - new deterministic validators should trend toward `validators/draft`, `validators/revision`, and `validators/shared`
   - `apps/web/app/api/creator/v2/chat` should trend toward thin route roots plus `_lib/normalization`, `_lib/request`, `_lib/persistence`, `_lib/response`, `_lib/reply`, and optional `_tests`
+  - `apps/web/lib/onboarding` now has landed domain folders for `profile`, `analysis`, `strategy`, `pipeline`, `contracts`, `shared`, `store`, and `sources`
 - Migration rule:
   - extract new seams into their target home when touched
   - avoid broad move-only churn
@@ -306,12 +307,15 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `validators/*` for deterministic validators and retry constraints
   - `workers/validation/*` for worker-plane adapters
   - `apps/web/app/api/creator/v2/chat/_lib/*` for route-boundary glue
+- Landed:
+  - draft/revision delivery validation and retry
+  - backend/lib and API structure cleanup for the active migration surface
 - Active move order:
-  1. place new validation work in `validators/*` and `workers/validation/*`
-  2. place new route-boundary helpers in `apps/web/app/api/creator/v2/chat/_lib/*`
-  3. move touched capability-local helpers into `capabilities/*`
-  4. shrink `draftPipeline.ts` and `route.ts` after their helper seams have stable homes
-- Status: not started.
+  1. extend validation/retry to `reply_to_post`
+  2. extend validation/retry to `analyze_post`
+  3. keep all new work in the landed target folders
+  4. continue deleting compatibility shims once imports are fully migrated
+- Status: in progress.
 
 ### Phase 6: Rollout and deletion
 - Ship the new runtime shape behind a migration flag if needed.
