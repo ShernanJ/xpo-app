@@ -12,3 +12,4 @@ export {
 } from "./nonDraftCoachTurn.ts";
 export { handlePlanClarificationTurn } from "./planClarificationTurn.ts";
 export { handlePendingPlanTurn } from "./pendingPlanTurn.ts";
+export { handleAutoApprovedPlanTurn } from "./autoApprovedPlanTurn.ts";

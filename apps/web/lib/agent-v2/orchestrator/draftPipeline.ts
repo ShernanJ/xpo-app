@@ -99,9 +99,9 @@ import {
   handleNonDraftCorrectionTurn,
 } from "../capabilities/planning/nonDraftCoachTurn.ts";
 import { handlePlanClarificationTurn } from "../capabilities/planning/planClarificationTurn.ts";
+import { handleAutoApprovedPlanTurn } from "../capabilities/planning/autoApprovedPlanTurn.ts";
 import { handlePendingPlanTurn } from "../capabilities/planning/pendingPlanTurn.ts";
 import {
-  executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
 import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
@@ -112,7 +112,6 @@ import {
 } from "../capabilities/revision/activeDraftTurn.ts";
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
-import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
@@ -994,9 +993,10 @@ User Profile Summary:
     }) === "approve_pending_plan" &&
     memory.pendingPlan
   ) {
-    const pendingPlanTurn = await handlePendingPlanTurn({
+    return handlePendingPlanTurn({
       userMessage,
       memory,
+      getMemory: () => memory,
       effectiveActiveConstraints,
       safeFrameworkConstraint,
       activeDraft,
@@ -1012,94 +1012,25 @@ User Profile Summary:
       styleCard,
       feedbackMemoryNotice,
       nextAssistantTurnCount,
+      groundingSources: groundingSourcesForTurn,
+      groundingMode: draftGroundingSummary.groundingMode,
+      groundingExplanation: draftGroundingSummary.groundingExplanation,
+      turnThreadFramingStyle,
       writeMemory: writeMemoryLocal,
       clearClarificationPatch,
       buildGroundingPacketForContext,
       buildPlanSourceMessage,
+      loadHistoricalTexts: () => loadHistoricalTextsWithTrace("drafting"),
+      applyExecutionMeta: mergeCapabilityExecutionMeta,
+      applyRoutingTracePatch,
+      runGroundedDraft: generateDraftWithGroundingRetry,
+      checkDeterministicNovelty: services.checkDeterministicNovelty,
+      buildNoveltyNotes,
       returnClarificationTree,
       services: {
         generatePlan: services.generatePlan,
       },
     });
-
-    if (pendingPlanTurn.kind === "response") {
-      return pendingPlanTurn.response;
-    }
-
-    if (pendingPlanTurn.kind === "approve") {
-      const {
-        approvedPlan,
-        draftActiveConstraints,
-        approvedPlanGroundingPacket,
-        approvedDraftPreference,
-      } = pendingPlanTurn;
-      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
-
-      const execution = await executeDraftingCapability({
-        workflow: "plan_then_draft",
-        capability: "drafting",
-        activeContextRefs: [
-          "memory.pendingPlan",
-          "memory.topicSummary",
-          "memory.rollingSummary",
-        ],
-        context: {
-          memory,
-          plan: approvedPlan,
-          activeConstraints: draftActiveConstraints,
-          historicalTexts,
-          userMessage,
-          draftPreference: approvedDraftPreference,
-          turnFormatPreference,
-          styleCard,
-          feedbackMemoryNotice,
-          nextAssistantTurnCount,
-          latestDraftStatus: "Draft delivered",
-          refreshRollingSummary: true,
-          groundingSources: groundingSourcesForTurn,
-          groundingMode: draftGroundingSummary.groundingMode,
-          groundingExplanation: draftGroundingSummary.groundingExplanation,
-        },
-        services: {
-          checkDeterministicNovelty: services.checkDeterministicNovelty,
-          runDraft: () =>
-            generateDraftWithGroundingRetry({
-              plan: approvedPlan,
-              activeConstraints: draftActiveConstraints,
-              activeDraft,
-              sourceUserMessage: buildPlanSourceMessage(approvedPlan),
-              draftPreference: approvedDraftPreference,
-              formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-              threadFramingStyle: turnThreadFramingStyle,
-              fallbackToWriterWhenCriticRejected: false,
-              topicSummary: approvedPlan.objective,
-              pendingPlan: approvedPlan,
-              groundingPacket: approvedPlanGroundingPacket,
-            }),
-          handleNoveltyConflict: () =>
-            returnClarificationTree({
-              branchKey: "plan_reject",
-              seedTopic: approvedPlan.objective,
-              pendingPlan: null,
-              replyOverride:
-                "this version felt too close to something you've already posted. let's shift it.",
-            }),
-          buildNoveltyNotes,
-        },
-      });
-
-      mergeCapabilityExecutionMeta(execution);
-      if (execution.output.kind === "response") {
-        return execution.output.response;
-      }
-
-      await writeMemoryLocal(execution.output.memoryPatch);
-
-      return {
-        ...execution.output.responseSeed,
-        memory,
-      };
-    }
   }
 
   // V3: Over-questioning guard. After 2 concrete answers from the user,
@@ -1357,173 +1288,43 @@ User Profile Summary:
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
     // directly to drafting instead of waiting for explicit approval.
-    if (
-      ((turnPlan?.userGoal === "draft" &&
-        (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
-        shouldFastStartFromGroundedContext)
-    ) {
-      if (isMultiDraftTurn) {
-        const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
-        const execution = await executeDraftBundleCapability({
-          workflow: "plan_then_draft",
-          capability: "drafting",
-          activeContextRefs: [
-            "memory.pendingPlan",
-            "memory.topicSummary",
-            "memory.rollingSummary",
-          ],
-          context: {
-            userMessage: planInput.planMessage || userMessage,
-            memory,
-            plan: guardedPlan,
-            activeConstraints: planActiveConstraints,
-            sourceMaterials: selectedSourceMaterials,
-            draftPreference: turnDraftPreference,
-            topicSummary: guardedPlan.objective,
-            groundingPacket: planGroundingPacket,
-            historicalTexts,
-            turnFormatPreference,
-            nextAssistantTurnCount,
-            refreshRollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, true),
-            feedbackMemoryNotice,
-            groundingSources: groundingSourcesForTurn,
-            groundingMode: draftGroundingSummary.groundingMode,
-            groundingExplanation: draftGroundingSummary.groundingExplanation,
-          },
-          services: {
-            runSingleDraft: ({
-              plan,
-              activeConstraints,
-              sourceUserMessage,
-              draftPreference,
-              topicSummary,
-              groundingPacket,
-            }) =>
-              generateDraftWithGroundingRetry({
-                plan,
-                activeConstraints,
-                sourceUserMessage,
-                draftPreference,
-                formatPreference: "shortform",
-                threadFramingStyle: null,
-                fallbackToWriterWhenCriticRejected: false,
-                topicSummary,
-                groundingPacket,
-              }),
-            checkDeterministicNovelty: services.checkDeterministicNovelty,
-            buildNoveltyNotes,
-          },
-        });
+    const autoApprovedPlanTurn = await handleAutoApprovedPlanTurn({
+      memory,
+      getMemory: () => memory,
+      guardedPlan,
+      planActiveConstraints,
+      planGroundingPacket,
+      planResponseSeed,
+      planMemoryPatch,
+      shouldAutoDraft:
+        ((turnPlan?.userGoal === "draft" &&
+          (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
+          shouldFastStartFromGroundedContext),
+      isMultiDraftTurn,
+      selectedSourceMaterials,
+      turnDraftPreference,
+      turnFormatPreference,
+      nextAssistantTurnCount,
+      feedbackMemoryNotice,
+      groundingSources: groundingSourcesForTurn,
+      groundingMode: draftGroundingSummary.groundingMode,
+      groundingExplanation: draftGroundingSummary.groundingExplanation,
+      activeDraft,
+      userMessage,
+      planInputMessage: planInput.planMessage,
+      styleCard,
+      turnThreadFramingStyle,
+      loadHistoricalTexts: () => loadHistoricalTextsWithTrace("drafting"),
+      writeMemory: writeMemoryLocal,
+      applyExecutionMeta: mergeCapabilityExecutionMeta,
+      applyRoutingTracePatch,
+      runGroundedDraft: generateDraftWithGroundingRetry,
+      checkDeterministicNovelty: services.checkDeterministicNovelty,
+      buildNoveltyNotes,
+    });
 
-        mergeCapabilityExecutionMeta(execution);
-
-        if (execution.output.kind === "response" && execution.output.response.mode === "error") {
-          applyRoutingTracePatch(execution.output.routingTracePatch);
-          await writeMemoryLocal(planMemoryPatch);
-          return {
-            ...planResponseSeed,
-            memory,
-          };
-        }
-
-        if (execution.output.kind === "response") {
-          applyRoutingTracePatch(execution.output.routingTracePatch);
-          return execution.output.response;
-        }
-
-        await writeMemoryLocal(execution.output.memoryPatch);
-
-        return {
-          ...execution.output.responseSeed,
-          memory,
-        };
-      }
-
-      const draftResult = await generateDraftWithGroundingRetry({
-        plan: guardedPlan,
-        activeConstraints: planActiveConstraints,
-        activeDraft,
-        sourceUserMessage: planInput.planMessage,
-        draftPreference: turnDraftPreference,
-        formatPreference: turnFormatPreference,
-        threadFramingStyle: turnThreadFramingStyle,
-        fallbackToWriterWhenCriticRejected: true,
-        topicSummary: guardedPlan.objective,
-        groundingPacket: planGroundingPacket,
-      });
-      mergeCapabilityExecutionMeta({
-        workers: draftResult.workers,
-        validations: draftResult.validations,
-      });
-      applyRoutingTracePatch(draftResult.routingTracePatch);
-
-      if (draftResult.kind === "response" && draftResult.response.mode === "error") {
-        // Fall through to plan presentation if draft generation fails.
-        await writeMemoryLocal(planMemoryPatch);
-        return {
-          ...planResponseSeed,
-          memory,
-        };
-      }
-
-      if (draftResult.kind === "response") {
-        return draftResult.response;
-      }
-
-      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
-      const execution = await executeDraftingCapability({
-        workflow: "plan_then_draft",
-        capability: "drafting",
-        activeContextRefs: [
-          "memory.pendingPlan",
-          "memory.topicSummary",
-          "memory.rollingSummary",
-        ],
-        context: {
-          memory,
-          plan: guardedPlan,
-          activeConstraints: planActiveConstraints,
-          historicalTexts,
-          userMessage,
-          draftPreference: turnDraftPreference,
-          turnFormatPreference,
-          styleCard,
-          feedbackMemoryNotice,
-          nextAssistantTurnCount,
-          latestDraftStatus: "Rough draft generated",
-          refreshRollingSummary: shouldRefreshRollingSummary(
-            nextAssistantTurnCount,
-            true,
-          ),
-          groundingSources: groundingSourcesForTurn,
-          groundingMode: draftGroundingSummary.groundingMode,
-          groundingExplanation: draftGroundingSummary.groundingExplanation,
-        },
-        services: {
-          checkDeterministicNovelty: services.checkDeterministicNovelty,
-          runDraft: async () => draftResult,
-          buildNoveltyNotes,
-        },
-      });
-
-      mergeCapabilityExecutionMeta(execution);
-      if (execution.output.kind === "response") {
-        return execution.output.response;
-      }
-
-      await writeMemoryLocal({
-        ...execution.output.memoryPatch,
-        activeConstraints: planActiveConstraints,
-      });
-
-      return {
-        ...execution.output.responseSeed,
-        data: {
-          ...execution.output.responseSeed.data,
-          plan: guardedPlan,
-        },
-        memory,
-      };
+    if (autoApprovedPlanTurn) {
+      return autoApprovedPlanTurn;
     }
 
     await writeMemoryLocal(planMemoryPatch);

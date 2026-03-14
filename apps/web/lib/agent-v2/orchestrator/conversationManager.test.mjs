@@ -345,6 +345,31 @@ test("draft pipeline delegates pending-plan decisions to the planning capability
     /say the word and i'll draft it, or tell me what to tweak\./.test(draftPipelineSource),
     false,
   );
+  assert.equal(
+    /latestDraftStatus: "Draft delivered"/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /buildPlanSourceMessage\(approvedPlan\)/.test(draftPipelineSource),
+    false,
+  );
+});
+
+test("draft pipeline delegates auto-approved plan execution to the planning capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handleAutoApprovedPlanTurn/,
+  );
+  assert.equal(
+    /executeDraftBundleCapability\(/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /latestDraftStatus: "Rough draft generated"/.test(draftPipelineSource),
+    false,
+  );
 });
 
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
