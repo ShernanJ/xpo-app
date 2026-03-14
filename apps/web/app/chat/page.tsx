@@ -33,14 +33,6 @@ import type {
   ChatTurnSource,
   SelectedAngleFormatHint,
 } from "@/lib/agent-v2/contracts/turnContract";
-import {
-  isBroadDraftRequest,
-  isBroadDiscoveryPrompt,
-  isCorrectionPrompt,
-  isDraftPushPrompt,
-  isMetaClarifyingPrompt,
-  isThinCoachInput,
-} from "@/lib/onboarding/coachReply";
 import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
 import type {
   XPublicProfile,
@@ -104,7 +96,6 @@ import {
   resolveSelectedThreadFramingChangeAction,
 } from "./_features/draft-editor/chatDraftActionState";
 import {
-  getThreadPostCharacterLimit,
   prepareDraftPromotionRequest,
   resolveDraftVersionRevertUpdate,
 } from "./_features/draft-editor/chatDraftPersistenceState";
@@ -711,17 +702,6 @@ interface DraftDrawerSelection {
   messageId: string;
   versionId: string;
   revisionChainId?: string;
-}
-
-interface DraftTimelineEntry {
-  messageId: string;
-  versionId: string;
-  content: string;
-  createdAt: string;
-  source: DraftVersionSource;
-  revisionChainId: string;
-  maxCharacterLimit: number;
-  isCurrentMessageVersion: boolean;
 }
 
 type MessageFeedbackValue = "up" | "down";
@@ -3488,7 +3468,6 @@ function ChatPageContent() {
       }),
     [editorDraftPosts, editorDraftText, isSelectedDraftThread],
   );
-  const selectedDraftReplyPlan = selectedDraftArtifact?.replyPlan ?? [];
   const selectedDraftContext = useMemo(() => {
     if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
       return null;
