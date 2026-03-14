@@ -266,7 +266,7 @@ function buildReplayControlTurnOverride(args: {
   }
 
   if (args.serviceOverrides?.classifyIntent) {
-    return async ({ userMessage, recentHistory }) => {
+    return async ({ userMessage, recentHistory, memory }) => {
       const classified = await args.serviceOverrides?.classifyIntent?.(
         userMessage,
         recentHistory,
@@ -275,11 +275,27 @@ function buildReplayControlTurnOverride(args: {
         return null;
       }
 
+      const inferredAction = inferReplayControlAction({
+        userMessage,
+        memory: {
+          ...memory,
+          activeConstraints: (memory as { activeConstraints?: string[] }).activeConstraints,
+        } as Parameters<ConversationServices["controlTurn"]>[0]["memory"],
+      });
+      const classifiedAction = mapIntentToControllerAction(classified.intent);
+      const shouldPreferReplayContinuation =
+        inferredAction === "draft" ||
+        inferredAction === "revise" ||
+        (inferredAction === "plan" &&
+          (classifiedAction === "ask" || classifiedAction === "answer"));
+
       return {
-        action: mapIntentToControllerAction(classified.intent),
+        action: shouldPreferReplayContinuation ? inferredAction : classifiedAction,
         needs_memory_update: classified.needs_memory_update,
         confidence: classified.confidence,
-        rationale: "replay classifyIntent override",
+        rationale: shouldPreferReplayContinuation
+          ? "replay deterministic continuation override"
+          : "replay classifyIntent override",
       } satisfies ControllerDecision;
     };
   }
@@ -296,6 +312,144 @@ function buildReplayControlTurnOverride(args: {
     confidence: 0.9,
     rationale: "replay deterministic controller",
   });
+}
+
+function resolveReplayExplicitIntent(args: {
+  turn: TranscriptReplayTurn;
+  previousMemory: V2ConversationMemory | null;
+  activeDraft: string | null;
+}): V2ChatIntent | null {
+  if (args.turn.explicitIntent !== undefined) {
+    return args.turn.explicitIntent;
+  }
+
+  const normalized = args.turn.message.trim().toLowerCase();
+  const previousMemory = args.previousMemory;
+  const hasActiveDraft =
+    Boolean(args.activeDraft) ||
+    Boolean(previousMemory?.activeDraftRef?.versionId) ||
+    previousMemory?.conversationState === "draft_ready" ||
+    previousMemory?.conversationState === "editing";
+
+  if (
+    previousMemory?.unresolvedQuestion &&
+    !previousMemory.pendingPlan &&
+    !hasActiveDraft &&
+    normalized.length > 12
+  ) {
+    return "draft";
+  }
+
+  if (
+    hasActiveDraft &&
+    (/^(?:make|keep|turn|rewrite|change|fix|trim|shorten|lengthen|expand|tighten|soften)\b/.test(
+      normalized,
+    ) ||
+      /\b(?:forced|shorter|longer|cleaner|clearer|less|more)\b/.test(normalized))
+  ) {
+    return "edit";
+  }
+
+  return null;
+}
+
+function extractReplayPriorDraftRequest(history: TranscriptReplayTurn[]): string | null {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const turn = history[index];
+    if (turn?.role !== "user") {
+      continue;
+    }
+
+    const message = turn.message.trim();
+    if (/^(?:can you\s+)?(?:write|draft|make|create|generate|do)\b/i.test(message)) {
+      return message;
+    }
+  }
+
+  return null;
+}
+
+function buildReplayClarificationTurnInput(args: {
+  turn: TranscriptReplayTurn;
+  history: TranscriptReplayTurn[];
+  previousMemory: V2ConversationMemory | null;
+}): {
+  userMessage: string;
+  memoryPatch: Partial<ReplayUpdateMemoryArgs> | null;
+} {
+  const previousMemory = args.previousMemory;
+  const trimmed = args.turn.message.trim().replace(/\s+/g, " ");
+  if (
+    !previousMemory?.unresolvedQuestion?.trim() ||
+    previousMemory.pendingPlan ||
+    trimmed.length === 0 ||
+    trimmed.includes("?")
+  ) {
+    return {
+      userMessage: args.turn.message,
+      memoryPatch: null,
+    };
+  }
+
+  const seedTopic =
+    previousMemory.clarificationState?.seedTopic?.trim() ||
+    previousMemory.topicSummary?.trim() ||
+    null;
+  if (!seedTopic) {
+    return {
+      userMessage: args.turn.message,
+      memoryPatch: null,
+    };
+  }
+
+  const branchKey = previousMemory.clarificationState?.branchKey;
+  const normalizedSeedTopic = seedTopic.toLowerCase();
+  const normalizedAnswer = trimmed.toLowerCase();
+  const groundedAnswer = normalizedAnswer.startsWith(`${normalizedSeedTopic} `)
+    ? trimmed
+    : `${seedTopic}: ${trimmed}`;
+  const priorDraftRequest = extractReplayPriorDraftRequest(args.history);
+
+  if (branchKey === "entity_context_missing") {
+    const basePrompt = priorDraftRequest || `write a post about ${seedTopic}`;
+    const topicGrounding = `Topic grounding: ${groundedAnswer}`;
+    return {
+      userMessage: `${basePrompt}. factual grounding: ${groundedAnswer}`,
+      memoryPatch: {
+        topicSummary: seedTopic,
+        activeConstraints: Array.from(
+          new Set([...(previousMemory.activeConstraints || []), topicGrounding]),
+        ),
+      },
+    };
+  }
+
+  if (branchKey === "topic_known_but_direction_missing") {
+    return {
+      userMessage: `write a post about ${seedTopic}. direction: ${trimmed}`,
+      memoryPatch: {
+        topicSummary: seedTopic,
+      },
+    };
+  }
+
+  if (priorDraftRequest) {
+    const topicGrounding = `Topic grounding: ${groundedAnswer}`;
+    return {
+      userMessage: `${priorDraftRequest}. factual grounding: ${groundedAnswer}`,
+      memoryPatch: {
+        topicSummary: seedTopic,
+        activeConstraints: Array.from(
+          new Set([...(previousMemory.activeConstraints || []), topicGrounding]),
+        ),
+      },
+    };
+  }
+
+  return {
+    userMessage: args.turn.message,
+    memoryPatch: null,
+  };
 }
 
 function attachReplayRoutingTrace(args: {
@@ -807,6 +961,19 @@ export async function replayTranscriptFixture(
     const previousMemory = createReplayConversationSnapshot(
       previousMemoryRecord as ReplayMemoryRecord | null | undefined,
     );
+    const replayTurnInput = buildReplayClarificationTurnInput({
+      turn,
+      history,
+      previousMemory,
+    });
+
+    if (replayTurnInput.memoryPatch) {
+      await mergedServiceOverrides.updateConversationMemory?.({
+        runId,
+        threadId,
+        ...replayTurnInput.memoryPatch,
+      });
+    }
 
     const output = await manageConversationTurn(
       {
@@ -814,9 +981,13 @@ export async function replayTranscriptFixture(
         xHandle: fixture.xHandle || "replay",
         runId,
         threadId,
-        userMessage: turn.message,
+        userMessage: replayTurnInput.userMessage,
         recentHistory: buildRecentHistory(history),
-        explicitIntent: turn.explicitIntent ?? null,
+        explicitIntent: resolveReplayExplicitIntent({
+          turn,
+          previousMemory,
+          activeDraft,
+        }),
         activeDraft: turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
       },
       mergedServiceOverrides,
