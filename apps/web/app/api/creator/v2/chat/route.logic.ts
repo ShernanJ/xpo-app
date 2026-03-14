@@ -204,7 +204,7 @@ function buildDefaultDraftHandoffReply(args: {
   return options[deterministicIndex(args.seed, options.length)];
 }
 
-export interface SelectedDraftContext extends SelectedDraftContextPayload {}
+export type SelectedDraftContext = SelectedDraftContextPayload;
 
 interface ActiveDraftLocator {
   messageId: string;
