@@ -213,21 +213,30 @@ function buildConversationalDiagnosticContext(args: {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession();
+  const sessionPromise = getServerSession();
+  const bodyResultPromise: Promise<
+    | { ok: true; value: CreatorChatRequest }
+    | { ok: false }
+  > = request
+    .json()
+    .then((value) => ({ ok: true as const, value: value as CreatorChatRequest }))
+    .catch(() => ({ ok: false as const }));
+
+  const [session, bodyResult] = await Promise.all([
+    sessionPromise,
+    bodyResultPromise,
+  ]);
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
-  let body: CreatorChatRequest;
-
-  try {
-    body = (await request.json()) as CreatorChatRequest;
-  } catch {
+  if (!bodyResult.ok) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
       { status: 400 },
     );
   }
+  const body = bodyResult.value;
 
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
@@ -399,9 +408,9 @@ export async function POST(request: NextRequest) {
   let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
   let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
   let diagnosticContext: ConversationalDiagnosticContext | null = null;
-  const creatorProfileHints =
+  const creatorProfileHintsPromise =
     storedRun?.id && storedRun?.result
-      ? await (async () => {
+      ? (async () => {
           try {
             const onboarding = storedRun.result as unknown as Parameters<
               typeof buildCreatorProfileHintsFromOnboarding
@@ -444,15 +453,19 @@ export async function POST(request: NextRequest) {
             return null;
           }
         })()
-      : null;
-  const persistedVoiceProfile = activeHandle
-    ? await prisma.voiceProfile.findFirst({
+      : Promise.resolve(null);
+  const persistedVoiceProfilePromise = activeHandle
+    ? prisma.voiceProfile.findFirst({
         where: {
           userId: session.user.id,
           xHandle: activeHandle,
         },
       })
-    : null;
+    : Promise.resolve(null);
+  const [creatorProfileHints, persistedVoiceProfile] = await Promise.all([
+    creatorProfileHintsPromise,
+    persistedVoiceProfilePromise,
+  ]);
   const parsedPersistedStyleCard = persistedVoiceProfile?.styleCard
     ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
     : null;
@@ -581,21 +594,23 @@ export async function POST(request: NextRequest) {
           } as unknown as Prisma.InputJsonValue,
         }
       });
-      threadMessages = await prisma.chatMessage.findMany({
-        where: { threadId: storedThread.id },
-        orderBy: { createdAt: "desc" },
-        take: 24,
-        select: {
-          id: true,
-          role: true,
-          content: true,
-          data: true,
-          createdAt: true,
-        },
-      });
-      storedMemory = createConversationMemorySnapshot(
-        await getConversationMemory({ threadId: storedThread.id }),
-      );
+      const [loadedThreadMessages, conversationMemory] = await Promise.all([
+        prisma.chatMessage.findMany({
+          where: { threadId: storedThread.id },
+          orderBy: { createdAt: "desc" },
+          take: 24,
+          select: {
+            id: true,
+            role: true,
+            content: true,
+            data: true,
+            createdAt: true,
+          },
+        }),
+        getConversationMemory({ threadId: storedThread.id }),
+      ]);
+      threadMessages = loadedThreadMessages;
+      storedMemory = createConversationMemorySnapshot(conversationMemory);
       selectedDraftContext = resolveSelectedDraftContextFromHistory({
         history: threadMessages.reverse(),
         selectedDraftContext,
