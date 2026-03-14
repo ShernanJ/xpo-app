@@ -131,6 +131,7 @@ import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "./ideationExecutor.ts";
+import { executePlanningCapability } from "./planningExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -2156,72 +2157,68 @@ User Profile Summary:
       : usesGroundedTopicPlanInput
         ? "grounded_topic"
         : "raw_user_message";
-    const planActiveConstraints = Array.from(
+    const preparedPlanActiveConstraints = Array.from(
       new Set([
         ...planInput.activeConstraints,
         ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
       ]),
     );
-    const planGroundingPacket = buildGroundingPacketForContext(
-      planActiveConstraints,
+    const preparedPlanGroundingPacket = buildGroundingPacketForContext(
+      preparedPlanActiveConstraints,
       planInput.planMessage,
     );
-    let planFailureReason: string | null = null;
-    const plan = await services.generatePlan(
-      planInput.planMessage,
-      memory.topicSummary,
-      planActiveConstraints,
-      effectiveContext,
-      activeDraft,
-      {
+    const execution = await executePlanningCapability({
+      workflow: "plan_then_draft",
+      capability: "planning",
+      activeContextRefs: [
+        "memory.pendingPlan",
+        "memory.topicSummary",
+        "memory.latestRefinementInstruction",
+        "memory.lastIdeationAngles",
+      ],
+      context: {
+        planInputMessage: planInput.planMessage,
+        planActiveConstraints: preparedPlanActiveConstraints,
+        planGroundingPacket: preparedPlanGroundingPacket,
+        memory,
+        effectiveContext,
+        activeDraft,
         goal,
-        conversationState: memory.conversationState,
         antiPatterns,
-        draftPreference: turnDraftPreference,
-        formatPreference: turnFormatPreference,
-        activePlan: memory.pendingPlan,
-        latestRefinementInstruction: memory.latestRefinementInstruction,
-        lastIdeationAngles: memory.lastIdeationAngles,
-        voiceTarget: baseVoiceTarget,
-        groundingPacket: planGroundingPacket,
+        turnDraftPreference,
+        turnFormatPreference,
+        baseVoiceTarget,
         creatorProfileHints,
-        onFailureReason: (reason: string) => {
-          planFailureReason = reason;
-        },
+        selectedSourceMaterials,
+        shouldForceNoFabricationGuardrailForTurn,
+        styleCard,
+        nextAssistantTurnCount,
+        feedbackMemoryNotice,
       },
-    );
+      services,
+    });
 
-    if (!plan) {
-      routingTrace.planFailure = planFailureReason
-        ? { reason: planFailureReason }
+    mergeCapabilityExecutionMeta(execution);
+
+    if (execution.output.kind === "plan_failure") {
+      routingTrace.planFailure = execution.output.failureReason
+        ? { reason: execution.output.failureReason }
         : { reason: "the planner request failed" };
       return {
-        mode: "error",
-        outputShape: "coach_question",
-        response: buildPlanFailureResponse(planFailureReason),
+        ...execution.output.responseSeed,
         memory,
       };
     }
 
     routingTrace.planFailure = null;
 
-    const planWithPreference = applySourceMaterialBiasToPlan(
-      applyCreatorProfileHintsToPlan(
-        withPlanPreferences(
-          plan,
-          turnDraftPreference,
-          turnFormatPreference,
-        ),
-        creatorProfileHints,
-      ),
-      selectedSourceMaterials,
-      {
-        hasAutobiographicalGrounding: hasAutobiographicalGrounding(planGroundingPacket),
-      },
-    );
-    const guardedPlan = shouldForceNoFabricationGuardrailForTurn
-      ? withNoFabricationPlanGuardrail(planWithPreference)
-      : planWithPreference;
+    const {
+      plan: guardedPlan,
+      planActiveConstraints,
+      planGroundingPacket,
+      responseSeed: planResponseSeed,
+      memoryPatch: planMemoryPatch,
+    } = execution.output;
 
     // V3: Rough draft mode. When the turn planner forced draft (user said
     // "just write it" / "go ahead"), auto-approve the plan and proceed
@@ -2242,32 +2239,9 @@ User Profile Summary:
         });
 
         if (draftBundleResult.kind === "response" && draftBundleResult.response.mode === "error") {
-          await writeMemoryLocal({
-            topicSummary: guardedPlan.objective,
-            activeConstraints: planActiveConstraints,
-            conversationState: "plan_pending_approval",
-            pendingPlan: guardedPlan,
-            clarificationState: null,
-            assistantTurnCount: nextAssistantTurnCount,
-            formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-            ...clearClarificationPatch(),
-          });
-
+          await writeMemoryLocal(planMemoryPatch);
           return {
-            mode: "plan",
-            outputShape: "planning_outline",
-            response: prependFeedbackMemoryNotice(
-              buildPlanPitch(guardedPlan),
-              feedbackMemoryNotice,
-            ),
-            data: {
-              plan: guardedPlan,
-              quickReplies: buildPlannerQuickReplies({
-                plan: guardedPlan,
-                styleCard,
-                context: "approval",
-              }),
-            },
+            ...planResponseSeed,
             memory,
           };
         }
@@ -2337,32 +2311,9 @@ User Profile Summary:
 
       if (draftResult.kind === "response" && draftResult.response.mode === "error") {
         // Fall through to plan presentation if draft generation fails.
-        await writeMemoryLocal({
-          topicSummary: guardedPlan.objective,
-          activeConstraints: planActiveConstraints,
-          conversationState: "plan_pending_approval",
-          pendingPlan: guardedPlan,
-          clarificationState: null,
-          assistantTurnCount: nextAssistantTurnCount,
-          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-          ...clearClarificationPatch(),
-        });
-
+        await writeMemoryLocal(planMemoryPatch);
         return {
-          mode: "plan",
-          outputShape: "planning_outline",
-          response: prependFeedbackMemoryNotice(
-            buildPlanPitch(guardedPlan),
-            feedbackMemoryNotice,
-          ),
-          data: {
-            plan: guardedPlan,
-            quickReplies: buildPlannerQuickReplies({
-              plan: guardedPlan,
-              styleCard,
-              context: "approval",
-            }),
-          },
+          ...planResponseSeed,
           memory,
         };
       }
@@ -2444,32 +2395,9 @@ User Profile Summary:
       };
     }
 
-    await writeMemoryLocal({
-      topicSummary: guardedPlan.objective,
-      activeConstraints: planActiveConstraints,
-      conversationState: "plan_pending_approval",
-      pendingPlan: guardedPlan,
-      clarificationState: null,
-      assistantTurnCount: nextAssistantTurnCount,
-      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-      ...clearClarificationPatch(),
-    });
-
+    await writeMemoryLocal(planMemoryPatch);
     return {
-      mode: "plan",
-      outputShape: "planning_outline",
-      response: prependFeedbackMemoryNotice(
-        buildPlanPitch(guardedPlan),
-        feedbackMemoryNotice,
-      ),
-      data: {
-        plan: guardedPlan,
-        quickReplies: buildPlannerQuickReplies({
-          plan: guardedPlan,
-          styleCard,
-          context: "approval",
-        }),
-      },
+      ...planResponseSeed,
       memory,
     };
   }
