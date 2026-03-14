@@ -256,6 +256,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - `apps/web/app/chat/page.tsx` has now been reduced to roughly 5.7k lines by pushing thread-history, source-materials, preferences, growth-guide, and analysis seams into route-private features; follow-on frontend work should extend those feature seams instead of re-growing the route root.
 - Current frontend verification note: chat-page-specific extraction regressions are fixed, and remaining full TypeScript failures sit outside `apps/web/app/chat/page.tsx`.
 - Guardrail: keep semantic interaction, accessibility, and extracted UI primitives moving outward from `page.tsx`; do not re-inline them during visual tweaks.
+- Composer guardrail: keep `/chat` composer interactivity and submit gating separate. Empty input may disable send, but it must not disable the textarea or hero quick-action chips, and the dock composer must stay hidden until the hero exit transition completes.
 - Reduce the chat route to:
   - auth
   - workspace/thread ownership

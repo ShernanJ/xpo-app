@@ -69,6 +69,8 @@ User turn
   - a shared accessible dialog primitive in `apps/web/components/ui/dialog.tsx`, now used by `apps/web/app/chat/_dialogs/ObservedMetricsModal.tsx`
   - a semantic billing cadence control in `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
   - login label/focus cleanup in `apps/web/app/login/_components/LoginForm.tsx`
+  - chat composer interactivity fixes so the hero textarea and quick-action chips stay usable when the draft is empty
+  - hero-to-dock composer handoff timing fixes so `/chat` no longer shows overlapping inputs during the transition
 - When touching frontend code in this slice, explicitly use the installed skills:
   - `vercel-react-best-practices` for React/Next performance and state patterns
   - `vercel-composition-patterns` for component extraction and variant cleanup
@@ -77,6 +79,7 @@ User turn
 ## Frontend operating model
 - Keep route roots thin. In complex routes, only keep route entry files like `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, and route handlers at the route root.
 - For `apps/web/app/chat`, do not add new feature-local state machines, modal bodies, or view-state selectors back into `page.tsx`; extend the existing route-private `_features/*` seams instead.
+- For `apps/web/app/chat/_features/composer/*`, do not couple “can submit” to “can interact”: empty draft state may disable the send button, but it must not disable the textarea or quick-action chips.
 - Route-local implementation belongs in private folders:
   - `_features`
   - `_dialogs`
