@@ -48,7 +48,6 @@ import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
   buildSemanticCorrectionAcknowledgment,
   buildSemanticRepairDirective,
-  buildSemanticRepairState,
   hasConcreteCorrectionDetail,
   inferCorrectionRepairQuestion,
   inferIdeationRationaleReply,
@@ -83,9 +82,7 @@ import { resolveConversationRouterState } from "./conversationRouterMachine";
 import { evaluateDraftContextSlots } from "./draftContextSlots";
 import {
   appendNoFabricationConstraint,
-  buildDraftMeaningResponse,
   hasNoFabricationPlanGuardrail,
-  isDraftMeaningQuestion,
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
@@ -127,6 +124,10 @@ import {
 } from "../capabilities/drafting/draftingCapability.ts";
 import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
+import {
+  handleActiveDraftCoachTurn,
+  resumeActiveDraftSemanticRepair,
+} from "../capabilities/revision/activeDraftTurn.ts";
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
 import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
@@ -952,44 +953,20 @@ User Profile Summary:
     activeDraft &&
     memory.clarificationState?.branchKey === "semantic_repair"
   ) {
-    const repairDirective = buildSemanticRepairDirective(
+    const activeDraftRepair = await resumeActiveDraftSemanticRepair({
       userMessage,
-      memory.topicSummary,
-    );
-    const nextConstraints = Array.from(
-      new Set([...memory.activeConstraints, repairDirective.constraint]),
-    );
-
-    await writeMemoryLocal({
-      activeConstraints: nextConstraints,
-      clarificationState: null,
-      conversationState: "editing",
-      latestRefinementInstruction: repairDirective.rewriteRequest,
-      ...clearClarificationPatch(),
-    });
-
-    mode = "edit";
-    draftInstruction = repairDirective.rewriteRequest;
-  }
-
-  if (!explicitIntent && activeDraft && isDraftMeaningQuestion(userMessage)) {
-    await writeMemoryLocal({
-      conversationState:
-        memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
-      clarificationState: null,
-      assistantTurnCount: nextAssistantTurnCount,
-      ...clearClarificationPatch(),
-    });
-
-    return {
-      mode: "coach",
-      outputShape: "coach_question",
-      response: prependFeedbackMemoryNotice(
-        buildDraftMeaningResponse(activeDraft),
-        feedbackMemoryNotice,
-      ),
+      activeDraft,
       memory,
-    };
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      writeMemory: writeMemoryLocal,
+      clearClarificationPatch,
+    });
+
+    if (activeDraftRepair.kind === "edit_transition") {
+      mode = "edit";
+      draftInstruction = activeDraftRepair.draftInstruction;
+    }
   }
 
   const hadPendingPlan =
@@ -1617,78 +1594,26 @@ User Profile Summary:
   }
 
   if (!explicitIntent && activeDraft) {
-    const sourceTransparencyReply = inferSourceTransparencyReply({
+    const activeDraftTurn = await handleActiveDraftCoachTurn({
       userMessage,
       activeDraft,
-      referenceText: memory.lastIdeationAngles.join(" "),
+      memory,
       recentHistory,
-      contextAnchors: factualContext,
+      factualContext,
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      writeMemory: writeMemoryLocal,
+      clearClarificationPatch,
+      returnClarificationQuestion,
     });
 
-    if (sourceTransparencyReply) {
-      await writeMemoryLocal({
-        conversationState:
-          memory.conversationState === "draft_ready" ? "draft_ready" : "needs_more_context",
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          sourceTransparencyReply,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
+    if (activeDraftTurn.kind === "response") {
+      return activeDraftTurn.response;
     }
 
-    const correctionRepairQuestion = inferCorrectionRepairQuestion(
-      userMessage,
-      memory.topicSummary,
-    );
-
-    if (correctionRepairQuestion) {
-      await writeMemoryLocal({
-        conversationState: "needs_more_context",
-        clarificationState: buildSemanticRepairState(memory.topicSummary),
-        assistantTurnCount: nextAssistantTurnCount,
-        ...buildClarificationPatch(correctionRepairQuestion),
-      });
-
-      return {
-        mode: "coach",
-        outputShape: "coach_question",
-        response: prependFeedbackMemoryNotice(
-          correctionRepairQuestion,
-          feedbackMemoryNotice,
-        ),
-        memory,
-      };
-    }
-
-    if (looksLikeSemanticCorrection(userMessage)) {
-      const repairDirective = buildSemanticRepairDirective(
-        userMessage,
-        memory.topicSummary,
-      );
-      const nextConstraints = Array.from(
-        new Set([...memory.activeConstraints, repairDirective.constraint]),
-      );
-
-      await writeMemoryLocal({
-        activeConstraints: nextConstraints,
-        clarificationState: null,
-        conversationState: "editing",
-        assistantTurnCount: nextAssistantTurnCount,
-        latestRefinementInstruction: repairDirective.rewriteRequest,
-        ...clearClarificationPatch(),
-      });
-
+    if (activeDraftTurn.kind === "edit_transition") {
       mode = "edit";
-      draftInstruction = repairDirective.rewriteRequest;
+      draftInstruction = activeDraftTurn.draftInstruction;
     }
   }
 

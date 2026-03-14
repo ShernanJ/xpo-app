@@ -267,6 +267,27 @@ test("draft pipeline delegates grounded draft validation retry to the drafting c
   );
 });
 
+test("draft pipeline delegates active-draft repair coaching to the revision capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handleActiveDraftCoachTurn/,
+  );
+  assert.match(
+    draftPipelineSource,
+    /resumeActiveDraftSemanticRepair/,
+  );
+  assert.equal(
+    /buildDraftMeaningResponse\(activeDraft\)/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /buildSemanticRepairState\(memory\.topicSummary\)/.test(draftPipelineSource),
+    false,
+  );
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 
