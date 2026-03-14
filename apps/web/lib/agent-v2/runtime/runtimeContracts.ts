@@ -10,7 +10,8 @@ export type RuntimeResolutionSource =
   | "structured_turn"
   | "explicit_intent"
   | "turn_plan"
-  | "controller";
+  | "controller"
+  | "pipeline_continuation";
 
 export type CapabilityName =
   | "shared"

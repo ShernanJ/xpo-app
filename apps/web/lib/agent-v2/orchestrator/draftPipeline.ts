@@ -134,11 +134,27 @@ import type { TurnContext } from "./turnContextBuilder";
 import type { RoutingPolicyResult } from "./routingPolicy";
 import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
+import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
   "surfaceMode" | "responseShapePlan"
 >;
+
+function resolveLegacyRuntimeWorkflow(mode: string): AgentRuntimeWorkflow {
+  switch (mode) {
+    case "ideate":
+      return "ideate";
+    case "plan":
+    case "draft":
+      return "plan_then_draft";
+    case "edit":
+    case "review":
+      return "revise_draft";
+    default:
+      return "answer_question";
+  }
+}
 
 export async function executeDraftPipeline(args: {
   context: TurnContext;
@@ -201,6 +217,16 @@ export async function executeDraftPipeline(args: {
 
   const { routingTrace } = routing;
   let mode = routing.resolvedMode; // resolvedMode;
+  let runtimeWorkflow =
+    routingTrace.runtimeResolution?.workflow || resolveLegacyRuntimeWorkflow(mode);
+  const applyPipelineWorkflowOverride = (nextMode: typeof mode) => {
+    mode = nextMode;
+    runtimeWorkflow = resolveLegacyRuntimeWorkflow(nextMode);
+    routingTrace.runtimeResolution = {
+      workflow: runtimeWorkflow,
+      source: "pipeline_continuation",
+    };
+  };
 
   // We rewrite writeMemory locally to call saveConversationTurnMemory
 
@@ -387,9 +413,8 @@ User Profile Summary:
   );
   const forceSafeFrameworkModeForTurn =
     missingAutobiographicalGroundingForTurn &&
-    (mode === "draft" ||
-      mode === "edit" ||
-      mode === "review" ||
+    (runtimeWorkflow === "plan_then_draft" ||
+      runtimeWorkflow === "revise_draft" ||
       turnPlan?.shouldAutoDraftFromPlan === true ||
       Boolean(memory.pendingPlan) ||
       Boolean(activeDraft));
@@ -1322,7 +1347,7 @@ User Profile Summary:
       ...clearClarificationPatch(),
     });
 
-    mode = "edit";
+    applyPipelineWorkflowOverride("edit");
     draftInstruction = repairDirective.rewriteRequest;
   }
 
@@ -2051,7 +2076,7 @@ User Profile Summary:
         ...clearClarificationPatch(),
       });
 
-      mode = "edit";
+      applyPipelineWorkflowOverride("edit");
       draftInstruction = repairDirective.rewriteRequest;
     }
   }
@@ -2496,7 +2521,7 @@ User Profile Summary:
     let effectiveActiveDraft = activeDraft;
     if (
       !effectiveActiveDraft &&
-      (mode === "edit" || mode === "review") &&
+      runtimeWorkflow === "revise_draft" &&
       threadId
     ) {
       try {
@@ -2522,7 +2547,7 @@ User Profile Summary:
       }
     }
 
-    if ((mode === "edit" || mode === "review") && !effectiveActiveDraft) {
+    if (runtimeWorkflow === "revise_draft" && !effectiveActiveDraft) {
       return returnClarificationQuestion({
         question: "paste the draft you want me to improve, or open one from this thread and i'll revise it.",
         traceReason: "missing_active_draft_for_edit",
@@ -2538,7 +2563,14 @@ User Profile Summary:
       ]),
     );
 
-    if (shouldUseRevisionDraftPath({ mode, activeDraft: effectiveActiveDraft }) && effectiveActiveDraft) {
+    if (
+      shouldUseRevisionDraftPath({
+        mode,
+        workflow: runtimeWorkflow,
+        activeDraft: effectiveActiveDraft,
+      }) &&
+      effectiveActiveDraft
+    ) {
       const revision = normalizeDraftRevisionInstruction(
         draftInstruction,
         effectiveActiveDraft,
@@ -2956,16 +2988,15 @@ User Profile Summary:
   // ---------------------------------------------------------------------------
 
   routingTrace.resolvedMode = mode;
-  switch (mode) {
+  switch (runtimeWorkflow) {
     case "ideate":
       return handleIdeateMode();
-    case "plan":
-      return handlePlanMode();
-    case "draft":
-    case "review":
-    case "edit":
+    case "plan_then_draft":
+      return mode === "plan" ? handlePlanMode() : handleDraftEditReviewMode();
+    case "revise_draft":
       return handleDraftEditReviewMode();
-    case "coach":
+    case "reply_to_post":
+    case "analyze_post":
     case "answer_question":
     default:
       return handleCoachMode();

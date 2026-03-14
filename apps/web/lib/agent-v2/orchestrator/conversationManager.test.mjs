@@ -745,6 +745,14 @@ test("selected draft review/edit modes use the revision flow", () => {
     }),
     false,
   );
+  assert.equal(
+    shouldUseRevisionDraftPath({
+      mode: "coach",
+      workflow: "revise_draft",
+      activeDraft: "current draft",
+    }),
+    true,
+  );
 });
 
 test("verified longform maps to long_form_post", () => {

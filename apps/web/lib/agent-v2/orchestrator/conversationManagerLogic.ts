@@ -320,11 +320,18 @@ export function shouldRouteCareerClarification(args: {
   );
 }
 
+import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
+
 export function shouldUseRevisionDraftPath(args: {
   mode: string;
   activeDraft?: string;
+  workflow?: AgentRuntimeWorkflow | null;
 }): boolean {
-  return Boolean(args.activeDraft) && (args.mode === "review" || args.mode === "edit");
+  return Boolean(args.activeDraft) && (
+    args.workflow === "revise_draft" ||
+    args.mode === "review" ||
+    args.mode === "edit"
+  );
 }
 
 export function resolveDraftOutputShape(
