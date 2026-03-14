@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   planReplyContinuation,
   planReplyTurn,
+  resolveReplyTurnState,
 } from "./replyContinuationPlanner.ts";
 
 const baseStrategy = {
@@ -263,4 +264,36 @@ test("planReplyTurn offers guidance instead of forcing a reply when no reply ask
   assert.equal(planned.activeReplyContext?.awaitingConfirmation, true);
   assert.equal(planned.activeReplyContext?.quotedUserAsk, null);
   assert.match(planned.reply, /help you reply to it, analyze it, or turn it into a quote reply/i);
+});
+
+test("resolveReplyTurnState derives reply defaults and continuation from planner-side inputs", () => {
+  const activeReplyContext = createReplyContext();
+  activeReplyContext.awaitingConfirmation = true;
+
+  const state = resolveReplyTurnState({
+    activeHandle: "example",
+    creatorAgentContext: {
+      growthStrategySnapshot: baseStrategy,
+      creatorProfile: {
+        identity: {
+          followerBand: "1k-10k",
+        },
+      },
+    },
+    effectiveMessage: "yes, that's the post",
+    structuredReplyContext: null,
+    turnSource: "free_text",
+    shouldBypassReplyHandling: false,
+    activeReplyContext,
+    structuredReplyContinuation: null,
+    toneRisk: "bold",
+    goal: "authority",
+  });
+
+  assert.equal(state.replyContinuation?.type, "confirm");
+  assert.equal(state.shouldResetReplyWorkflow, false);
+  assert.equal(state.defaultReplyStage, "1k_to_10k");
+  assert.equal(state.defaultReplyTone, "bold");
+  assert.equal(state.defaultReplyGoal, "authority");
+  assert.equal(state.replyStrategy.knownFor, "useful nuance");
 });

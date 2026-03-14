@@ -45,38 +45,6 @@ function createReplyContext() {
   };
 }
 
-test("resolveReplyTurnState derives continuation and reset behavior from route inputs", () => {
-  const activeReplyContext = createReplyContext();
-  activeReplyContext.awaitingConfirmation = true;
-
-  const state = resolveReplyTurnState({
-    activeHandle: "example",
-    creatorAgentContext: {
-      growthStrategySnapshot: baseStrategy,
-      creatorProfile: {
-        identity: {
-          followerBand: "1k-10k",
-        },
-      },
-    },
-    effectiveMessage: "yes, that's the post",
-    structuredReplyContext: null,
-    artifactContext: null,
-    turnSource: "free_text",
-    shouldBypassReplyHandling: false,
-    activeReplyContext,
-    toneRisk: "bold",
-    goal: "authority",
-  });
-
-  assert.equal(state.replyContinuation?.type, "confirm");
-  assert.equal(state.shouldResetReplyWorkflow, false);
-  assert.equal(state.defaultReplyStage, "1k_to_10k");
-  assert.equal(state.defaultReplyTone, "bold");
-  assert.equal(state.defaultReplyGoal, "authority");
-  assert.equal(state.replyStrategy.knownFor, "useful nuance");
-});
-
 test("resolveReplyTurnState prefers structured artifact continuations at the route boundary", () => {
   const activeReplyContext = createReplyContext();
   activeReplyContext.latestReplyOptions = [
