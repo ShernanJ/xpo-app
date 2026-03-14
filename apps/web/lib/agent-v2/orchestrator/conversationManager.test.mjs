@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 
@@ -307,6 +308,53 @@ test("historical text workers merge posts and queued draft candidates for novelt
         groupId: "historical_text_load",
       },
     ],
+  );
+});
+
+test("draft guard validation workers merge deterministic drift checks as parallel validators", async () => {
+  const result = await runDraftGuardValidationWorkers({
+    capability: "drafting",
+    groupId: "draft_guard_validation_initial",
+    sourceUserMessage: "write one about playing league at the stan office against the ceo",
+    draft:
+      "I lost a league game at the stan office against the ceo and then built an analytics dashboard to fix growth.",
+    activeConstraints: [],
+  });
+
+  assert.equal(result.concreteSceneAssessment.hasDrift, true);
+  assert.equal(result.groundedProductAssessment.hasDrift, false);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "concrete_scene_guard",
+        phase: "validation",
+        mode: "parallel",
+        status: "completed",
+        groupId: "draft_guard_validation_initial",
+      },
+      {
+        worker: "grounded_product_guard",
+        phase: "validation",
+        mode: "parallel",
+        status: "completed",
+        groupId: "draft_guard_validation_initial",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.validator),
+    ["concrete_scene_guard", "grounded_product_guard"],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.status),
+    ["failed", "passed"],
   );
 });
 

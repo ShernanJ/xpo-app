@@ -217,6 +217,10 @@ User turn
   - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts`
 - The in-workflow merge/trace handoff remains:
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Deterministic draft-guard validation fan-out now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts`
+- The retry/clarification merge owner remains:
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Worker summaries are standardized by:
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 
@@ -289,7 +293,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by isolating executor-local candidate-generation and validation/scoring fan-out behind merge-only worker seams, starting with draft-bundle sibling generation or revision-time validation groups
+- Continue Phase 4 by isolating the next executor-local seam, with `draftBundleExecutor.ts` sibling generation and `revisingExecutor.ts` validation groups as the best remaining candidates
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`

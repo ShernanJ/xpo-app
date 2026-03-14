@@ -62,8 +62,6 @@ import {
 } from "./correctionRepair";
 import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
-  assessGroundedProductDrift,
-  assessConcreteSceneDrift,
   buildGroundedProductRetryConstraint,
   buildUnsupportedClaimRetryConstraint,
   buildConcreteSceneRetryConstraint,
@@ -95,6 +93,7 @@ import {
   shouldForceNoFabricationPlanGuardrail,
   withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
+import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import {
   addGroundingUnknowns,
   buildGroundingPacket,
@@ -1037,15 +1036,19 @@ User Profile Summary:
       };
     }
 
-    const firstAssessment = assessConcreteSceneDrift({
-      sourceUserMessage: args.sourceUserMessage,
-      draft: firstAttemptWithClaimCheck.draftToDeliver,
-    });
-    const firstProductAssessment = assessGroundedProductDrift({
+    const firstValidation = await runDraftGuardValidationWorkers({
+      capability: "drafting",
+      groupId: "draft_guard_validation_initial",
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
       draft: firstAttemptWithClaimCheck.draftToDeliver,
     });
+    mergeCapabilityExecutionMeta({
+      workers: firstValidation.workerExecutions,
+      validations: firstValidation.validations,
+    });
+    const firstAssessment = firstValidation.concreteSceneAssessment;
+    const firstProductAssessment = firstValidation.groundedProductAssessment;
 
     if (
       !firstAssessment.hasDrift &&
@@ -1132,15 +1135,21 @@ User Profile Summary:
       };
     }
 
-    const secondAssessment = assessConcreteSceneDrift({
-      sourceUserMessage: args.sourceUserMessage,
-      draft: secondAttemptWithClaimCheck.draftToDeliver,
-    });
-    const secondProductAssessment = assessGroundedProductDrift({
+    const secondValidation = await runDraftGuardValidationWorkers({
+      capability: "drafting",
+      groupId: retryConstraints.length > 0
+        ? "draft_guard_validation_retry"
+        : "draft_guard_validation_initial",
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
       draft: secondAttemptWithClaimCheck.draftToDeliver,
     });
+    mergeCapabilityExecutionMeta({
+      workers: secondValidation.workerExecutions,
+      validations: secondValidation.validations,
+    });
+    const secondAssessment = secondValidation.concreteSceneAssessment;
+    const secondProductAssessment = secondValidation.groundedProductAssessment;
 
     if (secondAssessment.hasDrift || secondProductAssessment.hasDrift) {
       routingTrace.draftGuard = secondAssessment.hasDrift
