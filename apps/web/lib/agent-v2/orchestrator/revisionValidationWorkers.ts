@@ -5,6 +5,11 @@ import type {
   RuntimeValidationStatus,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
 
 export interface RevisionValidationWorkerRequest {
   capability: "revising";
@@ -28,17 +33,16 @@ export function runRevisionValidationWorkers(
     draft: args.draft,
     groundingPacket: args.groundingPacket,
   });
-  const validationStatus = claimCheck.needsClarification
-    ? "clarification_required"
-    : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
-      ? "failed"
-      : "passed";
+  const validationStatus = resolveRuntimeValidationStatus({
+    needsClarification: claimCheck.needsClarification,
+    hasFailure: claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0,
+  });
 
   return {
     claimCheck,
     validationStatus,
     workerExecutions: [
-      {
+      buildRuntimeWorkerExecution({
         worker: "claim_checker",
         capability: args.capability,
         phase: "validation",
@@ -49,16 +53,16 @@ export function runRevisionValidationWorkers(
           status: validationStatus,
           issueCount: claimCheck.issues.length,
         },
-      },
+      }),
     ],
     validations: [
-      {
+      buildRuntimeValidationResult({
         validator: "claim_checker",
         capability: args.capability,
         status: validationStatus,
         issues: claimCheck.issues,
         corrected: Boolean(claimCheck.draft && claimCheck.draft !== args.draft),
-      },
+      }),
     ],
   };
 }

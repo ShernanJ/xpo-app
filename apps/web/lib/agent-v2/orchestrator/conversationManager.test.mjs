@@ -10,6 +10,12 @@ import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  mergeRuntimeExecutionMeta,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
 
 import {
   evaluateDraftContextSlots,
@@ -543,6 +549,63 @@ test("revision validation workers isolate deterministic revision claim checks", 
   assert.deepEqual(
     result.validations.map((validation) => validation.status),
     ["failed"],
+  );
+});
+
+test("worker plane helpers preserve merge order and shared validation status rules", () => {
+  const meta = mergeRuntimeExecutionMeta(
+    {
+      workerExecutions: [
+        buildRuntimeWorkerExecution({
+          worker: "first_worker",
+          capability: "shared",
+          phase: "execution",
+          mode: "parallel",
+          status: "completed",
+          groupId: "group_a",
+        }),
+      ],
+      validations: [
+        buildRuntimeValidationResult({
+          validator: "first_validator",
+          capability: "shared",
+          status: resolveRuntimeValidationStatus({ hasFailure: false }),
+          issues: [],
+          corrected: false,
+        }),
+      ],
+    },
+    {
+      workerExecutions: [
+        buildRuntimeWorkerExecution({
+          worker: "second_worker",
+          capability: "drafting",
+          phase: "validation",
+          mode: "sequential",
+          status: "failed",
+          groupId: "group_b",
+          details: { reason: "test_failure" },
+        }),
+      ],
+      validations: [
+        buildRuntimeValidationResult({
+          validator: "second_validator",
+          capability: "drafting",
+          status: resolveRuntimeValidationStatus({ needsClarification: true }),
+          issues: ["Need clarification."],
+          corrected: true,
+        }),
+      ],
+    },
+  );
+
+  assert.deepEqual(
+    meta.workerExecutions.map((execution) => execution.worker),
+    ["first_worker", "second_worker"],
+  );
+  assert.deepEqual(
+    meta.validations.map((validation) => validation.status),
+    ["passed", "clarification_required"],
   );
 });
 

@@ -114,6 +114,11 @@ import {
   selectRelevantSourceMaterials,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -831,12 +836,11 @@ User Profile Summary:
         draft: attempt.draftToDeliver,
         groundingPacket: draftGroundingPacket,
       });
-      const validationStatus = claimCheck.needsClarification
-        ? "clarification_required"
-        : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
-          ? "failed"
-          : "passed";
-      localWorkers.push({
+      const validationStatus = resolveRuntimeValidationStatus({
+        needsClarification: claimCheck.needsClarification,
+        hasFailure: claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0,
+      });
+      localWorkers.push(buildRuntimeWorkerExecution({
         worker: "claim_checker",
         capability: "drafting",
         phase: "validation",
@@ -847,14 +851,14 @@ User Profile Summary:
           status: validationStatus,
           issueCount: claimCheck.issues.length,
         },
-      });
-      localValidations.push({
+      }));
+      localValidations.push(buildRuntimeValidationResult({
         validator: "claim_checker",
         capability: "drafting",
         status: validationStatus,
         issues: claimCheck.issues,
         corrected: Boolean(claimCheck.draft && claimCheck.draft !== attempt.draftToDeliver),
-      });
+      }));
 
       return {
         ...attempt,

@@ -2,6 +2,7 @@ import type {
   CapabilityName,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
+import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 
 const HISTORICAL_TEXT_LOAD_GROUP_ID = "historical_text_load";
 
@@ -51,7 +52,7 @@ export async function loadHistoricalTextWorkers(
   return {
     texts: [...posts.map((post) => post.text), ...queuedDrafts],
     workerExecutions: [
-      {
+      buildRuntimeWorkerExecution({
         worker: "load_historical_posts",
         capability: args.capability,
         phase: "execution",
@@ -61,8 +62,8 @@ export async function loadHistoricalTextWorkers(
         details: {
           postCount: posts.length,
         },
-      },
-      {
+      }),
+      buildRuntimeWorkerExecution({
         worker: "load_queued_draft_candidates",
         capability: args.capability,
         phase: "execution",
@@ -73,7 +74,7 @@ export async function loadHistoricalTextWorkers(
           candidateCount: queuedCandidates.length,
           extractedDraftCount: queuedDrafts.length,
         },
-      },
+      }),
     ],
   };
 }

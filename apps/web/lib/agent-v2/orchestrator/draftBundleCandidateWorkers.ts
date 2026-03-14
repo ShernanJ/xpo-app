@@ -11,6 +11,10 @@ import type {
 import type { DraftBundleBrief } from "./draftBundles.ts";
 import type { DraftingCapabilityRunResult } from "./draftingExecutor.ts";
 import type { GroundingPacket } from "./groundingPacket.ts";
+import {
+  buildRuntimeWorkerExecution,
+  mergeRuntimeExecutionMeta,
+} from "./workerPlane.ts";
 
 export interface DraftBundleCandidateWorkerRequest {
   capability: CapabilityName;
@@ -81,30 +85,34 @@ export async function runDraftBundleCandidateWorkers(
 
   return {
     candidates,
-    workerExecutions: candidates.flatMap((candidate) => [
-      {
-        worker: "generate_bundle_candidate",
-        capability: args.capability,
-        phase: "execution",
-        mode: "parallel",
-        status:
-          candidate.draftResult.kind === "response" &&
-          candidate.draftResult.response.mode === "error"
-            ? "failed"
-            : "completed",
-        groupId: DRAFT_BUNDLE_CANDIDATE_GROUP_ID,
-        details: {
-          briefId: candidate.brief.id,
-          label: candidate.brief.label,
-          formatPreference: candidate.plan.formatPreference || args.turnFormatPreference,
-          responseMode:
-            candidate.draftResult.kind === "response"
-              ? candidate.draftResult.response.mode
-              : null,
-        },
-      },
-      ...(candidate.draftResult.workers ?? []),
-    ]),
-    validations: candidates.flatMap((candidate) => candidate.draftResult.validations ?? []),
+    ...mergeRuntimeExecutionMeta(
+      ...candidates.map((candidate) => ({
+        workerExecutions: [
+          buildRuntimeWorkerExecution({
+            worker: "generate_bundle_candidate",
+            capability: args.capability,
+            phase: "execution",
+            mode: "parallel",
+            status:
+              candidate.draftResult.kind === "response" &&
+              candidate.draftResult.response.mode === "error"
+                ? "failed"
+                : "completed",
+            groupId: DRAFT_BUNDLE_CANDIDATE_GROUP_ID,
+            details: {
+              briefId: candidate.brief.id,
+              label: candidate.brief.label,
+              formatPreference: candidate.plan.formatPreference || args.turnFormatPreference,
+              responseMode:
+                candidate.draftResult.kind === "response"
+                  ? candidate.draftResult.response.mode
+                  : null,
+            },
+          }),
+          ...(candidate.draftResult.workers ?? []),
+        ],
+        validations: candidate.draftResult.validations ?? [],
+      })),
+    ),
   };
 }

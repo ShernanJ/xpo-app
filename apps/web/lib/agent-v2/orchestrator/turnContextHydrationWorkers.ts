@@ -2,6 +2,7 @@ import type { ConversationServices } from "./draftPipelineHelpers";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
+import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 
 const TURN_CONTEXT_HYDRATION_GROUP_ID = "turn_context_hydration";
 
@@ -33,7 +34,7 @@ export async function hydrateTurnContextWorkers(
     styleCard,
     anchors,
     workerExecutions: [
-      {
+      buildRuntimeWorkerExecution({
         worker: "load_style_profile",
         capability: "shared",
         phase: "context_load",
@@ -43,8 +44,8 @@ export async function hydrateTurnContextWorkers(
         details: {
           hasStyleCard: Boolean(styleCard),
         },
-      },
-      {
+      }),
+      buildRuntimeWorkerExecution({
         worker: "retrieve_anchors",
         capability: "shared",
         phase: "context_load",
@@ -55,7 +56,7 @@ export async function hydrateTurnContextWorkers(
           topicAnchorCount: anchors.topicAnchors.length,
           focusTopic,
         },
-      },
+      }),
     ],
   };
 }

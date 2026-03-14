@@ -25,8 +25,6 @@ import type { VoiceTarget } from "../core/voiceTarget.ts";
 import type {
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
-  RuntimeValidationResult,
-  RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
 import type {
   CreatorProfileHints,
@@ -38,6 +36,7 @@ import type {
   DraftGroundingMode,
   ThreadFramingStyle,
 } from "../../onboarding/draftArtifacts.ts";
+import { mergeRuntimeExecutionMeta } from "./workerPlane.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -216,14 +215,16 @@ export async function executeReplanningCapability(
     },
   });
 
-  const workers: RuntimeWorkerExecution[] = [
-    ...(planningExecution.workers ?? []),
-    ...(draftingExecution.workers ?? []),
-  ];
-  const validations: RuntimeValidationResult[] = [
-    ...(planningExecution.validations ?? []),
-    ...(draftingExecution.validations ?? []),
-  ];
+  const { workerExecutions: workers, validations } = mergeRuntimeExecutionMeta(
+    {
+      workerExecutions: planningExecution.workers ?? [],
+      validations: planningExecution.validations ?? [],
+    },
+    {
+      workerExecutions: draftingExecution.workers ?? [],
+      validations: draftingExecution.validations ?? [],
+    },
+  );
 
   if (draftingExecution.output.kind === "response") {
     return {

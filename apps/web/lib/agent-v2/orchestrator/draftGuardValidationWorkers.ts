@@ -6,6 +6,11 @@ import type {
   RuntimeValidationResult,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
+import {
+  buildRuntimeValidationResult,
+  buildRuntimeWorkerExecution,
+  resolveRuntimeValidationStatus,
+} from "./workerPlane.ts";
 
 export interface DraftGuardValidationRequest {
   capability: "drafting";
@@ -45,7 +50,7 @@ export async function runDraftGuardValidationWorkers(
     concreteSceneAssessment,
     groundedProductAssessment,
     workerExecutions: [
-      {
+      buildRuntimeWorkerExecution({
         worker: "concrete_scene_guard",
         capability: args.capability,
         phase: "validation",
@@ -56,8 +61,8 @@ export async function runDraftGuardValidationWorkers(
           hasDrift: concreteSceneAssessment.hasDrift,
           reason: concreteSceneAssessment.reason || null,
         },
-      },
-      {
+      }),
+      buildRuntimeWorkerExecution({
         worker: "grounded_product_guard",
         capability: args.capability,
         phase: "validation",
@@ -68,27 +73,31 @@ export async function runDraftGuardValidationWorkers(
           hasDrift: groundedProductAssessment.hasDrift,
           reason: groundedProductAssessment.reason || null,
         },
-      },
+      }),
     ],
     validations: [
-      {
+      buildRuntimeValidationResult({
         validator: "concrete_scene_guard",
         capability: args.capability,
-        status: concreteSceneAssessment.hasDrift ? "failed" : "passed",
+        status: resolveRuntimeValidationStatus({
+          hasFailure: concreteSceneAssessment.hasDrift,
+        }),
         issues: concreteSceneAssessment.hasDrift
           ? [concreteSceneAssessment.reason || "Concrete scene drift."]
           : [],
         corrected: false,
-      },
-      {
+      }),
+      buildRuntimeValidationResult({
         validator: "grounded_product_guard",
         capability: args.capability,
-        status: groundedProductAssessment.hasDrift ? "failed" : "passed",
+        status: resolveRuntimeValidationStatus({
+          hasFailure: groundedProductAssessment.hasDrift,
+        }),
         issues: groundedProductAssessment.hasDrift
           ? [groundedProductAssessment.reason || "Grounded product drift."]
           : [],
         corrected: false,
-      },
+      }),
     ],
   };
 }

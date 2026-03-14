@@ -1,6 +1,7 @@
 import type { ConversationServices } from "./draftPipelineHelpers";
 import type { SourceMaterialAssetRecord } from "./sourceMaterials";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
+import { buildRuntimeWorkerExecution } from "./workerPlane.ts";
 
 const INITIAL_CONTEXT_LOAD_GROUP_ID = "initial_context_load";
 
@@ -47,7 +48,7 @@ export async function loadInitialContextWorkers(
     extractedFacts,
     sourceMaterialAssets,
     workerExecutions: [
-      {
+      buildRuntimeWorkerExecution({
         worker: "extract_style_rules",
         capability: "shared",
         phase: "context_load",
@@ -57,8 +58,8 @@ export async function loadInitialContextWorkers(
         details: shouldRun
           ? { hasRules: Array.isArray(extractedRules) && extractedRules.length > 0 }
           : { reason: "anonymous_user" },
-      },
-      {
+      }),
+      buildRuntimeWorkerExecution({
         worker: "extract_core_facts",
         capability: "shared",
         phase: "context_load",
@@ -68,8 +69,8 @@ export async function loadInitialContextWorkers(
         details: shouldRun
           ? { hasFacts: Array.isArray(extractedFacts) && extractedFacts.length > 0 }
           : { reason: "anonymous_user" },
-      },
-      {
+      }),
+      buildRuntimeWorkerExecution({
         worker: "load_source_material_assets",
         capability: "shared",
         phase: "context_load",
@@ -79,7 +80,7 @@ export async function loadInitialContextWorkers(
         details: shouldRun
           ? { assetCount: Array.isArray(sourceMaterialAssets) ? sourceMaterialAssets.length : 0 }
           : { reason: "anonymous_user" },
-      },
+      }),
     ],
   };
 }

@@ -153,6 +153,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Landed sixth seam:
   - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts` now owns the deterministic `revision_validation` merge seam for revision claim checking
   - `revisingExecutor.ts` now consumes that helper as the sequential merge owner; revision validation stays sequential for now because claim checking is the only shipped deterministic revision validator today
+- Merge/failure rules standardized:
+  - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts` now centralizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging for the landed worker seams
+  - landed worker helpers now emit trace metadata through that shared utility so Phase 4 merge behavior stays consistent without changing runtime ownership or client payloads
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 
