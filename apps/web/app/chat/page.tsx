@@ -123,6 +123,7 @@ import {
   resolveInlineDraftPreviewState,
   resolvePrimaryDraftRevealKey,
 } from "./chatDraftPreviewState";
+import { resolveThreadHistoryHydration } from "./chatThreadHistoryState";
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
@@ -6788,22 +6789,15 @@ function ChatPageContent() {
           const res = await fetchWorkspace(`/api/creator/v2/threads/${activeThreadId}`);
           const data = await res.json();
           if (data.ok && data.data?.messages?.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const mappedMessages: ChatMessage[] = data.data.messages.map((m: any) => ({
-              id: m.id,
-              role: m.role as "assistant" | "user",
-              content: m.content,
-              createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
-              ...(m.data || {}),
-              threadId: typeof m.threadId === "string" ? m.threadId : activeThreadId ?? undefined,
-              feedbackValue:
-                m.feedbackValue === "up" || m.feedbackValue === "down"
-                  ? m.feedbackValue
-                  : null,
-            }));
-            setMessages(mappedMessages);
+            const hydration = resolveThreadHistoryHydration<ChatMessage>({
+              rawMessages: data.data.messages,
+              activeThreadId,
+              shouldJumpToBottomAfterSwitch:
+                shouldJumpToBottomAfterThreadSwitchRef.current,
+            });
+            setMessages(hydration.messages);
 
-            if (shouldJumpToBottomAfterThreadSwitchRef.current) {
+            if (hydration.shouldJumpToBottom) {
               shouldJumpToBottomAfterThreadSwitchRef.current = false;
               window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(() => {
