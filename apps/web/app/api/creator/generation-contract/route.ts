@@ -9,7 +9,7 @@ import {
   extractCreatorToneOverrides,
   extractCreatorStrategyOverrides,
 } from "@/lib/onboarding/strategy/strategyOverrides";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 

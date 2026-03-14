@@ -1,6 +1,6 @@
 "use client";
 
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
 const BASE_HERO_QUICK_ACTIONS = [
   {

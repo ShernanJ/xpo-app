@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
-import { persistOnboardingRun, syncOnboardingPostsToDb } from "@/lib/onboarding/store";
+import {
+  persistOnboardingRun,
+  syncOnboardingPostsToDb,
+} from "@/lib/onboarding/store/onboardingRunStore";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";

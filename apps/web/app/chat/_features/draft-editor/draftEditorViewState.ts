@@ -1,6 +1,6 @@
 "use client";
 
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
 export function resolveDraftEditorIdentity(params: {
   context: CreatorAgentContext | null;

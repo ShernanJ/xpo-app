@@ -1,4 +1,4 @@
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import type { RecommendedPlaybookSummary } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 
 export type PlaybookStageKey = "0-1k" | "1k-10k" | "10k-50k" | "50k+";

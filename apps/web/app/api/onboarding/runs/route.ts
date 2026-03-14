@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { readRecentOnboardingRuns } from "@/lib/onboarding/store";
+import { readRecentOnboardingRuns } from "@/lib/onboarding/store/onboardingRunStore";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

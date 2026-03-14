@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { PrismaClient, Prisma } from "../lib/generated/prisma/client";
-import type { StoredOnboardingRun } from "../lib/onboarding/store";
+import type { StoredOnboardingRun } from "../lib/onboarding/store/onboardingRunStore";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 const connectionString = `${process.env.DATABASE_URL}`;

@@ -6,7 +6,7 @@ import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversation
 import { buildCreatorProfileHintsFromCreatorProfile } from "@/lib/agent-v2/orchestrator/creatorProfileHints";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/shared/draftArtifacts";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";
 import { buildInitialDraftVersionPayload } from "../chat/_lib/request/routeLogic";
 import {

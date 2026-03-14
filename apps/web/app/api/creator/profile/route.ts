@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildCreatorProfile } from "@/lib/onboarding/profile/creatorProfile";
-import { readOnboardingRunById } from "@/lib/onboarding/store";
+import { readOnboardingRunById } from "@/lib/onboarding/store/onboardingRunStore";
 
 interface CreatorProfileRequest {
   runId?: unknown;

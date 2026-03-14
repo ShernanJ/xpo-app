@@ -3,7 +3,10 @@ import { getServerSession } from "@/lib/auth/serverSession";
 
 import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
-import { persistOnboardingRun, syncOnboardingPostsToDb } from "@/lib/onboarding/store";
+import {
+  persistOnboardingRun,
+  syncOnboardingPostsToDb,
+} from "@/lib/onboarding/store/onboardingRunStore";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";

@@ -6,7 +6,7 @@ import {
   persistOnboardingRun,
   readLatestOnboardingRunByHandle,
   syncOnboardingPostsToDb,
-} from "@/lib/onboarding/store";
+} from "@/lib/onboarding/store/onboardingRunStore";
 import { probeLatestScrapePosts } from "@/lib/onboarding/sources/scrapeBootstrap";
 import type { OnboardingInput } from "@/lib/onboarding/contracts/types";
 import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";

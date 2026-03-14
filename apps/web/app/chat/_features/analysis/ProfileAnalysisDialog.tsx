@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,

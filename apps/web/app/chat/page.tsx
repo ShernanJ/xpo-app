@@ -17,7 +17,7 @@ import {
 import { useSearchParams, useParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
 
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   getXCharacterLimitForAccount,
   type ThreadFramingStyle,
@@ -33,7 +33,7 @@ import type {
   ChatTurnSource,
   SelectedAngleFormatHint,
 } from "@/lib/agent-v2/contracts/turnContract";
-import type { CreatorGenerationContract } from "@/lib/onboarding/generationContract";
+import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
 import type {
   XPublicProfile,
   PostingCadenceCapacity,

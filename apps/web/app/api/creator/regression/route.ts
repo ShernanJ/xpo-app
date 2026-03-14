@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runCreatorRegressionSuite } from "@/lib/onboarding/pipeline/regression";
-import { readOnboardingRunById } from "@/lib/onboarding/store";
+import { readOnboardingRunById } from "@/lib/onboarding/store/onboardingRunStore";
 import type { OnboardingResult } from "@/lib/onboarding/contracts/types";
 
 interface CreatorRegressionRequestCase {

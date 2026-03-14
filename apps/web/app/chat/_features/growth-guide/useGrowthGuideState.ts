@@ -11,7 +11,7 @@ import {
   type PlaybookTemplate,
   type PlaybookTemplateTab,
 } from "@/lib/creator/playbooks";
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,

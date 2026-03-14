@@ -4,7 +4,7 @@ import { evaluateCreatorProfile } from "@/lib/onboarding/analysis/evaluation";
 import {
   readOnboardingRunById,
   readRecentOnboardingRuns,
-} from "@/lib/onboarding/store";
+} from "@/lib/onboarding/store/onboardingRunStore";
 
 interface CreatorEvaluationRequest {
   runId?: unknown;

@@ -29,7 +29,7 @@ import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { recordProductEvent } from "@/lib/productEvents";
 import type { GrowthStrategySnapshot } from "@/lib/onboarding/strategy/growthStrategy";
 import type { VoiceStyleCard } from "@/lib/agent-v2/core/styleProfile";

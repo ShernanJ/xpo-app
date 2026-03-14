@@ -2,7 +2,7 @@
 
 import { Compass, Sparkles } from "lucide-react";
 
-import type { CreatorAgentContext } from "@/lib/onboarding/agentContext";
+import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
 interface GrowthOsPanelProps {
   context: CreatorAgentContext;
