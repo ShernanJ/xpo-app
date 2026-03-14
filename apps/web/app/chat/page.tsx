@@ -52,7 +52,6 @@ import type {
   UserGoal,
 } from "@/lib/onboarding/types";
 import {
-  buildRecommendedPlaybooks,
   type PlaybookDefinition,
   type PlaybookTemplateTab,
 } from "@/lib/creator/playbooks";
@@ -185,6 +184,7 @@ import { usePreferencesState } from "./_features/preferences/usePreferencesState
 import { GrowthGuideDialog } from "./_features/growth-guide/GrowthGuideDialog";
 import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideState";
 import { ProfileAnalysisDialog } from "./_features/analysis/ProfileAnalysisDialog";
+import { useAnalysisState } from "./_features/analysis/useAnalysisState";
 import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
 import {
   type SourceMaterialAsset,
@@ -224,34 +224,6 @@ interface OnboardingRunFailure {
 }
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
-
-interface ProfileScrapeRefreshSuccess {
-  ok: true;
-  refreshed: boolean;
-  reason:
-  | "manual_refresh"
-  | "new_posts_detected"
-  | "fresh_enough"
-  | "no_new_posts_detected"
-  | "probe_failed"
-  | "missing_onboarding_run";
-  runId?: string;
-  persistedAt?: string;
-  cooldownUntil?: string | null;
-  retryAfterSeconds?: number;
-}
-
-interface ProfileScrapeRefreshFailure {
-  ok: false;
-  code?: "COOLDOWN";
-  errors: ValidationError[];
-  cooldownUntil?: string | null;
-  retryAfterSeconds?: number;
-}
-
-type ProfileScrapeRefreshResponse =
-  | ProfileScrapeRefreshSuccess
-  | ProfileScrapeRefreshFailure;
 
 const CHAT_ONBOARDING_LOADING_STEPS = [
   "collecting the account...",
@@ -1232,22 +1204,6 @@ function formatNicheSummary(context: CreatorAgentContext): string {
   return formatEnumLabel(primaryNiche);
 }
 
-function formatDurationCompact(milliseconds: number): string {
-  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
-  }
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
 function AssistantTypingBubble(props: { label?: string | null }) {
   const [dotCount, setDotCount] = useState(1);
 
@@ -2119,23 +2075,12 @@ function ChatPageContent() {
 
     applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
     window.history.pushState({}, "", buildWorkspaceChatHref(null));
-  }, [accountName, buildWorkspaceChatHref]);
+  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
-  const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [isAnalysisScrapeRefreshing, setIsAnalysisScrapeRefreshing] = useState(false);
-  const [analysisScrapeNotice, setAnalysisScrapeNotice] = useState<string | null>(null);
-  const [analysisScrapeNoticeTone, setAnalysisScrapeNoticeTone] = useState<
-    "info" | "success" | "error"
-  >("info");
-  const [analysisScrapeCooldownUntil, setAnalysisScrapeCooldownUntil] = useState<string | null>(
-    null,
-  );
-  const [analysisScrapeClockMs, setAnalysisScrapeClockMs] = useState<number>(() => Date.now());
-  const dailyScrapeTriggerRef = useRef<string | null>(null);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
@@ -2203,9 +2148,9 @@ function ChatPageContent() {
     typedAssistantLengthsRef.current = typedAssistantLengths;
   }, [typedAssistantLengths]);
 
-  function applyChatWorkspaceReset(
+  const applyChatWorkspaceReset = useCallback((
     reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
-  ) {
+  ) => {
     if ("activeThreadId" in reset) {
       setActiveThreadId(reset.activeThreadId);
     }
@@ -2277,7 +2222,12 @@ function ChatPageContent() {
     setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
     setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
     setIsLeavingHero(reset.isLeavingHero);
-  }
+  }, [
+    setAnalysisOpen,
+    setAnalysisScrapeCooldownUntil,
+    setAnalysisScrapeNotice,
+    setIsAnalysisScrapeRefreshing,
+  ]);
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
@@ -3135,182 +3085,48 @@ function ChatPageContent() {
       runMissingOnboardingSetup,
     ],
   );
-
-  const analysisScrapeCooldownRemainingMs = useMemo(() => {
-    if (!analysisScrapeCooldownUntil) {
-      return 0;
-    }
-
-    const cooldownUntilMs = new Date(analysisScrapeCooldownUntil).getTime();
-    if (!Number.isFinite(cooldownUntilMs)) {
-      return 0;
-    }
-
-    return Math.max(0, cooldownUntilMs - analysisScrapeClockMs);
-  }, [analysisScrapeClockMs, analysisScrapeCooldownUntil]);
-
-  const isAnalysisScrapeCoolingDown = analysisScrapeCooldownRemainingMs > 0;
-  const analysisScrapeCooldownLabel = useMemo(
-    () => formatDurationCompact(analysisScrapeCooldownRemainingMs),
-    [analysisScrapeCooldownRemainingMs],
-  );
-
-  const runProfileScrapeRefresh = useCallback(
-    async (
-      trigger: "manual" | "daily_login",
-    ): Promise<
-      | { ok: true; data: ProfileScrapeRefreshSuccess }
-      | { ok: false; data: ProfileScrapeRefreshFailure | null }
-    > => {
-      try {
-        const response = await fetchWorkspace("/api/creator/profile/scrape", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ trigger }),
-        });
-
-        let data: ProfileScrapeRefreshResponse | null = null;
-        try {
-          data = (await response.json()) as ProfileScrapeRefreshResponse;
-        } catch {
-          data = null;
-        }
-
-        if (data && "cooldownUntil" in data) {
-          setAnalysisScrapeCooldownUntil(data.cooldownUntil ?? null);
-          setAnalysisScrapeClockMs(Date.now());
-        }
-
-        if (!response.ok || !data || !data.ok) {
-          return { ok: false, data: data && !data.ok ? data : null };
-        }
-
-        if (data.refreshed) {
-          await loadWorkspace();
-        }
-
-        return { ok: true, data };
-      } catch {
-        return { ok: false, data: null };
-      }
-    },
-    [fetchWorkspace, loadWorkspace],
-  );
-
-  const handleManualProfileScrapeRefresh = useCallback(async () => {
-    if (isAnalysisScrapeRefreshing || isAnalysisScrapeCoolingDown) {
-      return;
-    }
-
-    setIsAnalysisScrapeRefreshing(true);
-    setAnalysisScrapeNoticeTone("info");
-    setAnalysisScrapeNotice("running a fresh scrape...");
-
-    try {
-      const result = await runProfileScrapeRefresh("manual");
-      if (!result.ok) {
-        if (result.data?.code === "COOLDOWN") {
-          const retryLabel = result.data.retryAfterSeconds
-            ? formatDurationCompact(result.data.retryAfterSeconds * 1000)
-            : analysisScrapeCooldownLabel;
-          setAnalysisScrapeNoticeTone("info");
-          setAnalysisScrapeNotice(
-            retryLabel
-              ? `scrape cooldown active. try again in ${retryLabel}.`
-              : "scrape cooldown active. try again shortly.",
-          );
-          return;
-        }
-
-        const message = result.data?.errors[0]?.message ?? "failed to rerun scrape.";
-        setAnalysisScrapeNoticeTone("error");
-        setAnalysisScrapeNotice(message.toLowerCase());
-        return;
-      }
-
-      if (result.data.refreshed) {
-        setAnalysisScrapeNoticeTone("success");
-        setAnalysisScrapeNotice("fresh scrape completed. profile analysis updated.");
-        return;
-      }
-
-      if (result.data.reason === "missing_onboarding_run") {
-        setAnalysisScrapeNoticeTone("error");
-        setAnalysisScrapeNotice("this account still needs setup. run onboarding once, then try again.");
-        return;
-      }
-
-      setAnalysisScrapeNoticeTone("info");
-      setAnalysisScrapeNotice("scrape check completed. no profile changes detected.");
-    } finally {
-      setIsAnalysisScrapeRefreshing(false);
-    }
-  }, [
-    analysisScrapeCooldownLabel,
-    isAnalysisScrapeCoolingDown,
+  const {
+    analysisOpen,
+    setAnalysisOpen,
+    openAnalysis,
+    closeAnalysis,
     isAnalysisScrapeRefreshing,
-    runProfileScrapeRefresh,
-  ]);
+    setIsAnalysisScrapeRefreshing,
+    analysisScrapeNotice,
+    setAnalysisScrapeNotice,
+    analysisScrapeNoticeTone,
+    setAnalysisScrapeCooldownUntil,
+    isAnalysisScrapeCoolingDown,
+    analysisScrapeCooldownLabel,
+    handleManualProfileScrapeRefresh,
+    analysisPriorityItems,
+    analysisFollowerProgress,
+    analysisEvidencePosts,
+    analysisRecommendedPlaybooks,
+    analysisDiagnosisSummary,
+    analysisSnapshotCards,
+    analysisVoiceSignalChips,
+    analysisKeepList,
+    analysisAvoidList,
+    analysisPositioningIsTentative,
+    analysisLearningStrengths,
+    analysisLearningCautions,
+    analysisLearningExperiments,
+    analysisReplyConversionHighlights,
+  } = useAnalysisState({
+    accountName,
+    context,
+    currentPlaybookStage,
+    fetchWorkspace,
+    loadWorkspace,
+    dedupePreserveOrder,
+    formatEnumLabel,
+    formatNicheSummary,
+  });
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
-
-  useEffect(() => {
-    if (!analysisScrapeCooldownUntil) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setAnalysisScrapeClockMs(Date.now());
-    }, 1000);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [analysisScrapeCooldownUntil]);
-
-  useEffect(() => {
-    if (!analysisScrapeCooldownUntil) {
-      return;
-    }
-
-    if (analysisScrapeCooldownRemainingMs <= 0) {
-      setAnalysisScrapeCooldownUntil(null);
-    }
-  }, [analysisScrapeCooldownRemainingMs, analysisScrapeCooldownUntil]);
-
-  useEffect(() => {
-    if (!accountName) {
-      return;
-    }
-
-    const normalized = normalizeAccountHandle(accountName);
-    if (!normalized || dailyScrapeTriggerRef.current === normalized) {
-      return;
-    }
-
-    dailyScrapeTriggerRef.current = normalized;
-    void (async () => {
-      const result = await runProfileScrapeRefresh("daily_login");
-      if (!result.ok) {
-        return;
-      }
-
-      if (result.data.refreshed) {
-        setAnalysisScrapeNoticeTone("success");
-        setAnalysisScrapeNotice("new posts detected and synced in the background.");
-        return;
-      }
-
-      if (result.data.reason === "probe_failed") {
-        setAnalysisScrapeNoticeTone("info");
-        setAnalysisScrapeNotice("background freshness check was skipped for this login.");
-      }
-    })();
-  }, [accountName, runProfileScrapeRefresh]);
 
   useEffect(() => {
     if (!accountName) {
@@ -3324,7 +3140,7 @@ function ChatPageContent() {
         defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
       }),
     );
-  }, [accountName]);
+  }, [accountName, applyChatWorkspaceReset]);
 
   useEffect(() => {
     if (!isLeavingHero) {
@@ -3576,326 +3392,6 @@ function ChatPageContent() {
     strategyInputs,
     toneInputs,
   ]);
-
-  const analysisPriorityItems = useMemo(
-    () => context?.strategyDelta.adjustments.slice(0, 3) ?? [],
-    [context],
-  );
-  const analysisFollowerProgress = useMemo(() => {
-    if (!context) {
-      return {
-        currentFollowersLabel: "0",
-        targetFollowersLabel: "1k",
-        progressPercent: 0,
-      };
-    }
-
-    const followers = Math.max(0, context.creatorProfile.identity.followersCount);
-    let stageStart = 0;
-    let stageEnd = 1000;
-    let targetFollowersLabel = "1k";
-
-    switch (currentPlaybookStage) {
-      case "0-1k":
-        stageStart = 0;
-        stageEnd = 1000;
-        targetFollowersLabel = "1k";
-        break;
-      case "1k-10k":
-        stageStart = 1000;
-        stageEnd = 10000;
-        targetFollowersLabel = "10k";
-        break;
-      case "10k-50k":
-        stageStart = 10000;
-        stageEnd = 50000;
-        targetFollowersLabel = "50k";
-        break;
-      case "50k+":
-        stageStart = 50000;
-        stageEnd = 100000;
-        targetFollowersLabel = "100k";
-        break;
-      default:
-        stageStart = 0;
-        stageEnd = 1000;
-        targetFollowersLabel = "1k";
-        break;
-    }
-
-    const rawProgress =
-      stageEnd > stageStart
-        ? ((followers - stageStart) / (stageEnd - stageStart)) * 100
-        : 0;
-
-    return {
-      currentFollowersLabel: new Intl.NumberFormat("en-US").format(followers),
-      targetFollowersLabel,
-      progressPercent: Math.max(0, Math.min(100, rawProgress)),
-    };
-  }, [context, currentPlaybookStage]);
-  const analysisEvidencePosts = useMemo(() => {
-    if (!context) {
-      return [];
-    }
-
-    const seen = new Set<string>();
-    const weakIds = new Set<string>([
-      ...context.negativeAnchors.map((post) => post.id),
-      ...context.creatorProfile.examples.cautionExamples.map((post) => post.id),
-      ...context.creatorProfile.examples.goalConflictExamples.map((post) => post.id),
-    ]);
-    const replyIds = new Set<string>(
-      context.creatorProfile.examples.replyVoiceAnchors.map((post) => post.id),
-    );
-
-    return [
-      ...context.positiveAnchors,
-      ...context.negativeAnchors,
-      ...context.creatorProfile.examples.voiceAnchors,
-      ...context.creatorProfile.examples.replyVoiceAnchors,
-      ...context.creatorProfile.examples.quoteVoiceAnchors,
-      ...context.creatorProfile.examples.bestPerforming,
-      ...context.creatorProfile.examples.strategyAnchors,
-      ...context.creatorProfile.examples.goalAnchors,
-      ...context.creatorProfile.examples.cautionExamples,
-      ...context.creatorProfile.examples.goalConflictExamples,
-    ]
-      .filter((post) => {
-        if (seen.has(post.id)) {
-          return false;
-        }
-
-        seen.add(post.id);
-        return true;
-      })
-      .slice(0, 8)
-      .map((post) => {
-        const label = weakIds.has(post.id)
-          ? "Weak anchor"
-          : replyIds.has(post.id) || post.lane === "reply"
-            ? "Reply anchor"
-            : "Strong anchor";
-        const reason =
-          post.selectionReason ||
-          (label === "Weak anchor"
-            ? "xpo flagged this as a pattern to reduce."
-            : label === "Reply anchor"
-              ? "xpo flagged this as a representative reply voice sample."
-              : "xpo flagged this as a strong profile signal to keep.");
-
-        return { ...post, label, reason };
-      });
-  }, [context]);
-  const analysisRecommendedPlaybooks = useMemo(() => {
-    return buildRecommendedPlaybooks(context, 3);
-  }, [context]);
-  const analysisDiagnosisSummary = useMemo(() => {
-    if (!context) {
-      return "insufficient data";
-    }
-
-    return `xpo sees a ${formatEnumLabel(context.creatorProfile.archetype).toLowerCase()} in ${formatNicheSummary(
-      context,
-    ).toLowerCase()}. biggest gap: ${context.strategyDelta.primaryGap.toLowerCase()}.`;
-  }, [context]);
-  const analysisSnapshotCards = useMemo(() => {
-    if (!context) {
-      return [] as Array<{ label: string; value: string; meta?: string }>;
-    }
-
-    return [
-      {
-        label: "Archetype",
-        value: formatEnumLabel(context.creatorProfile.archetype),
-      },
-      {
-        label: "Niche",
-        value: formatNicheSummary(context),
-      },
-      {
-        label: "Distribution loop",
-        value: formatEnumLabel(context.creatorProfile.distribution.primaryLoop),
-      },
-      {
-        label: "Readiness",
-        value: `${context.readiness.score}`,
-        meta: `sample ${context.confidence.sampleSize} posts`,
-      },
-    ];
-  }, [context]);
-  const analysisVoiceSignalChips = useMemo(() => {
-    if (!context) {
-      return [] as Array<{ label: string; value: string }>;
-    }
-
-    const lowerBoundedMultiLineRate =
-      context.creatorProfile.voice.multiLinePostRate <= 1
-        ? context.creatorProfile.voice.multiLinePostRate * 100
-        : context.creatorProfile.voice.multiLinePostRate;
-    const hasBulletSignal =
-      context.creatorProfile.styleCard.punctuationGuidelines.some(
-        (rule) => rule.includes("-") || rule.includes(">"),
-      ) ||
-      context.creatorProfile.voice.styleNotes.some((note) =>
-        /bullet|list|hyphen|dash|angle/i.test(note),
-      );
-    const topTopic = context.creatorProfile.topics.dominantTopics[0];
-    const topicConsistency = topTopic
-      ? formatEnumLabel(topTopic.stability).toLowerCase()
-      : context.creatorProfile.niche.confidence >= 70
-        ? "high"
-        : context.creatorProfile.niche.confidence >= 45
-          ? "medium"
-          : "low";
-    const lowercaseShare = context.creatorProfile.voice.lowercaseSharePercent;
-    const casingValue =
-      context.creatorProfile.voice.primaryCasing === "lowercase"
-        ? lowercaseShare >= 85
-          ? "lowercase"
-          : "mixed"
-        : lowercaseShare >= 80
-          ? "mixed"
-          : "normal";
-    const ctaRate = context.creatorProfile.execution.ctaUsageRate;
-    const ctaUsageValue =
-      ctaRate >= 25 ? "high" : ctaRate >= 10 ? "medium" : "low";
-
-    return [
-      {
-        label: "casing",
-        value: casingValue,
-      },
-      {
-        label: "typical length",
-        value: context.creatorProfile.voice.averageLengthBand
-          ? formatEnumLabel(context.creatorProfile.voice.averageLengthBand).toLowerCase()
-          : "insufficient data",
-      },
-      {
-        label: "structure",
-        value: hasBulletSignal
-          ? "bullet-friendly"
-          : lowerBoundedMultiLineRate >= 50
-            ? "multi-line"
-            : "single-line",
-      },
-      {
-        label: "cta usage",
-        value: ctaUsageValue,
-      },
-      {
-        label: "topic consistency",
-        value: topicConsistency,
-      },
-    ];
-  }, [context]);
-  const analysisKeepList = useMemo(() => {
-    if (!context) {
-      return [] as string[];
-    }
-
-    return dedupePreserveOrder([
-      ...context.strategyDelta.preserveTraits,
-      ...context.creatorProfile.strategy.currentStrengths,
-      ...context.creatorProfile.playbook.toneGuidelines,
-    ]).slice(0, 5);
-  }, [context]);
-  const analysisAvoidList = useMemo(() => {
-    if (!context) {
-      return [] as string[];
-    }
-
-    return dedupePreserveOrder([
-      ...context.strategyDelta.shiftTraits,
-      ...context.creatorProfile.strategy.currentWeaknesses,
-      ...context.creatorProfile.styleCard.forbiddenPhrases,
-    ]).slice(0, 5);
-  }, [context]);
-  const analysisPositioningIsTentative = useMemo(() => {
-    if (!context) {
-      return false;
-    }
-
-    return (
-      context.growthStrategySnapshot.confidence.positioning < 65 ||
-      context.growthStrategySnapshot.ambiguities.length > 0
-    );
-  }, [context]);
-  const analysisLearningStrengths = useMemo(() => {
-    if (!context) {
-      return [] as string[];
-    }
-
-    return Array.from(
-      new Set([
-        ...(context.replyInsights?.bestSignals || []),
-        ...(context.contentInsights?.bestSignals || []),
-        ...(context.strategyAdjustments?.reinforce || []),
-        ...(context.contentAdjustments?.reinforce || []),
-      ]),
-    ).slice(0, 5);
-  }, [context]);
-  const analysisLearningCautions = useMemo(() => {
-    if (!context) {
-      return [] as string[];
-    }
-
-    return Array.from(
-      new Set([
-        ...(context.replyInsights?.cautionSignals || []),
-        ...(context.contentInsights?.cautionSignals || []),
-        ...(context.strategyAdjustments?.deprioritize || []),
-        ...(context.contentAdjustments?.deprioritize || []),
-      ]),
-    ).slice(0, 6);
-  }, [context]);
-  const analysisLearningExperiments = useMemo(() => {
-    if (!context) {
-      return [] as string[];
-    }
-
-    return Array.from(
-      new Set([
-        ...(context.strategyAdjustments?.experiments || []),
-        ...(context.contentAdjustments?.experiments || []),
-      ]),
-    ).slice(0, 5);
-  }, [context]);
-  const analysisReplyConversionHighlights = useMemo(() => {
-    if (!context?.replyInsights) {
-      return [] as Array<{ label: string; value: string }>;
-    }
-
-    const topAnchor = context.replyInsights.topIntentAnchors?.[0];
-    const topIntent = context.replyInsights.topIntentLabels?.[0];
-    const fullyAttributed =
-      context.replyInsights.intentAttribution?.fullyAttributedOutcomeCount || 0;
-
-    const raw = [
-      topAnchor?.label ? { label: "Top anchor", value: topAnchor.label } : null,
-      topIntent?.label ? { label: "Top intent", value: topIntent.label } : null,
-      topAnchor && (topAnchor.totalProfileClicks || 0) > 0
-        ? {
-            label: "Profile clicks",
-            value: `${topAnchor.totalProfileClicks} via ${topAnchor.label}`,
-          }
-        : null,
-      topIntent && (topIntent.totalFollowerDelta || 0) > 0
-        ? {
-            label: "Follower delta",
-            value: `${topIntent.totalFollowerDelta} via ${topIntent.label}`,
-          }
-        : null,
-      fullyAttributed > 0
-        ? { label: "Attributed outcomes", value: `${fullyAttributed} end to end` }
-        : null,
-    ].filter((entry): entry is { label: string; value: string } => Boolean(entry));
-
-    return Array.from(
-      new Map(raw.map((entry) => [`${entry.label}:${entry.value}`, entry])).values(),
-    ).slice(0, 4);
-  }, [context]);
 
   const selectedDraftMessage = useMemo(
     () =>
@@ -5422,7 +4918,7 @@ function ChatPageContent() {
         return;
       }
       if (tool.key === "profile_breakdown") {
-        setAnalysisOpen(true);
+        openAnalysis();
         return;
       }
 
@@ -6154,7 +5650,7 @@ function ChatPageContent() {
           }}
           onOpenProfileAnalysis={() => {
             handleGrowthGuideOpenChange(false);
-            setAnalysisOpen(true);
+            openAnalysis();
           }}
         />
       ) : null}
@@ -6191,16 +5687,16 @@ function ChatPageContent() {
             void handleManualProfileScrapeRefresh();
           }}
           onOpenFeedback={() => {
-            setAnalysisOpen(false);
+            closeAnalysis();
             setFeedbackSubmitNotice(null);
             setFeedbackModalOpen(true);
           }}
           onOpenGrowthGuide={() => {
-            setAnalysisOpen(false);
+            closeAnalysis();
             openGrowthGuide();
           }}
           onOpenGrowthGuideForRecommendation={(stage, playbookId) => {
-            setAnalysisOpen(false);
+            closeAnalysis();
             openGrowthGuideForRecommendation(stage, playbookId);
           }}
         />
