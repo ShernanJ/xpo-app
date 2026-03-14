@@ -1,0 +1,85 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { prepareAssistantReplyTransport } from "./chatTransport.ts";
+
+const baseStrategyInputs = {
+  goal: "followers" as const,
+  postingCadenceCapacity: "1_per_day" as const,
+  replyBudgetPerDay: "5_15" as const,
+  transformationMode: "optimize" as const,
+};
+
+const baseToneInputs = {
+  toneCasing: "normal" as const,
+  toneRisk: "safe" as const,
+};
+
+test("prepareAssistantReplyTransport skips empty free-text requests", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "   ",
+    history: [],
+    runId: "run-1",
+    threadId: null,
+    workspaceHandle: "stan",
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, true);
+  assert.equal(prepared.transportRequest, undefined);
+  assert.equal(prepared.pendingStatusPlan, null);
+});
+
+test("prepareAssistantReplyTransport resolves ideation picks into structured transport", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "",
+    history: [{ id: "user-1", role: "user", content: "help me write" }],
+    runId: "run-1",
+    threadId: "thread-1",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "selected_angle",
+      angle: "build in public lessons",
+      formatHint: "post",
+    },
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.effectiveTurnSource, "ideation_pick");
+  assert.equal(prepared.transportRequest?.turnSource, "ideation_pick");
+  assert.equal(prepared.transportRequest?.threadId, "thread-1");
+  assert.equal(prepared.transportRequest?.workspaceHandle, "stan");
+  assert.equal(prepared.transportRequest?.artifactContext?.kind, "selected_angle");
+  assert.equal(prepared.clientTurnId?.startsWith("turn_"), true);
+});
+
+test("prepareAssistantReplyTransport carries selected draft context for revision requests", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "make it shorter and sharper",
+    history: [],
+    runId: "run-1",
+    threadId: "thread-1",
+    workspaceHandle: "stan",
+    selectedDraftContext: {
+      messageId: "msg-1",
+      versionId: "ver-1",
+      content: "draft body",
+      source: "assistant_generated",
+      createdAt: "2026-03-13T12:00:00.000Z",
+      revisionChainId: "revision-chain-1",
+    },
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.effectiveIntent, "edit");
+  assert.equal(prepared.transportRequest?.intent, "edit");
+  assert.equal(prepared.transportRequest?.selectedDraftContext?.versionId, "ver-1");
+  assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
+});

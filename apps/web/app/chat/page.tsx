@@ -37,10 +37,6 @@ import type {
   ChatTurnSource,
   SelectedAngleFormatHint,
 } from "@/lib/agent-v2/contracts/turnContract";
-import {
-  buildCreatorChatTransportRequest,
-  createClientTurnId,
-} from "@/lib/agent-v2/contracts/chatTransport";
 import { buildPreferenceConstraintsFromPreferences } from "@/lib/agent-v2/orchestrator/preferenceConstraints";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
@@ -88,6 +84,12 @@ import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
 } from "@/lib/workspaceHandle";
+import {
+  type PendingStatusPlan,
+  type PendingStatusWorkflow,
+} from "./pendingStatus";
+import { prepareAssistantReplyTransport } from "./chatTransport";
+import { usePendingStatusLabel } from "./usePendingStatusLabel";
 
 interface ValidationError {
   field: string;
@@ -868,6 +870,107 @@ interface ChatQuickReply {
   suggestedFocus?: ChatContentFocus;
   explicitIntent?: ChatIntent;
   formatPreference?: "shortform" | "longform" | "thread";
+}
+
+const DRAFT_REVEAL_DURATION_MS = 1250;
+const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
+const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
+
+function buildDraftBundleRevealKey(optionId: string): string {
+  return `bundle:${optionId}`;
+}
+
+function buildDraftArtifactRevealKey(artifactId: string): string {
+  return `artifact:${artifactId}`;
+}
+
+function buildDraftVersionRevealKey(versionId: string): string {
+  return `version:${versionId}`;
+}
+
+function buildDraftMessageRevealKey(messageId: string): string {
+  return `message:${messageId}`;
+}
+
+function isDraftPendingWorkflow(
+  workflow: PendingStatusWorkflow | null | undefined,
+): workflow is "plan_then_draft" | "revise_draft" {
+  return workflow === "plan_then_draft" || workflow === "revise_draft";
+}
+
+function messageHasDraftOutput(message: ChatMessage): boolean {
+  return Boolean(
+    message.draft?.trim() ||
+      message.draftArtifacts?.length ||
+      message.draftBundle?.options?.length ||
+      message.draftVersions?.length,
+  );
+}
+
+function resolvePrimaryDraftRevealKey(message: ChatMessage): string {
+  if (message.draftBundle?.options?.length) {
+    const selectedOption =
+      message.draftBundle.options.find(
+        (option) =>
+          option.id === message.draftBundle?.selectedOptionId ||
+          option.versionId === message.activeDraftVersionId,
+      ) ?? message.draftBundle.options[0];
+    return buildDraftBundleRevealKey(selectedOption.id);
+  }
+
+  if (message.draftArtifacts?.[0]?.id) {
+    return buildDraftArtifactRevealKey(message.draftArtifacts[0].id);
+  }
+
+  if (message.activeDraftVersionId) {
+    return buildDraftVersionRevealKey(message.activeDraftVersionId);
+  }
+
+  if (message.draftVersions?.length) {
+    return buildDraftVersionRevealKey(
+      message.draftVersions[message.draftVersions.length - 1].id,
+    );
+  }
+
+  return buildDraftMessageRevealKey(message.id);
+}
+
+function hasActiveDraftReveal(
+  activeDraftRevealByMessageId: Record<string, string>,
+  messageId: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(activeDraftRevealByMessageId, messageId);
+}
+
+function AnimatedDraftText(props: {
+  text: string;
+  className: string;
+  animate: boolean;
+  baseDelayMs?: number;
+}) {
+  if (!props.animate) {
+    return <p className={props.className}>{props.text}</p>;
+  }
+
+  const lines = props.text.split("\n");
+
+  return (
+    <p className={props.className}>
+      {lines.map((line, index) => (
+        <Fragment key={`${index}-${line.length}`}>
+          <span
+            className="draft-reveal-line inline-block whitespace-pre-wrap"
+            style={{
+              animationDelay: `${(props.baseDelayMs ?? 0) + index * DRAFT_REVEAL_LINE_STAGGER_MS}ms`,
+            }}
+          >
+            {line || "\u00A0"}
+          </span>
+          {index < lines.length - 1 ? <br /> : null}
+        </Fragment>
+      ))}
+    </p>
+  );
 }
 
 interface ChatStrategyInputs {
@@ -2185,91 +2288,6 @@ function syncDraftBundleSelection(args: {
   };
 }
 
-function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
-  const normalized = prompt.trim().toLowerCase();
-  if (!normalized) {
-    return "ignore";
-  }
-
-  const explicitIgnoreCues = [
-    "give me ideas",
-    "post ideas",
-    "write a new post",
-    "write me a post",
-    "write a post",
-    "draft a post",
-    "draft me a post",
-    "different topic",
-    "start over",
-    "help me brainstorm",
-    "brainstorm",
-    "analyze my posts",
-    "that was a question",
-    "i was asking",
-    "what does",
-    "what do you mean",
-    "what did you mean",
-    "where did you get",
-    "where did that come from",
-    "wrong thread",
-    "explain this",
-    "explain that",
-    "explain the draft",
-    "explain the tweet",
-  ];
-
-  if (explicitIgnoreCues.some((cue) => normalized.includes(cue))) {
-    return "ignore";
-  }
-
-  const explicitReviseCues = [
-    "why does it say",
-    "why does it mention",
-    "don't say",
-    "dont say",
-    "remove \"",
-    "remove '",
-    "remove the",
-    "delete \"",
-    "delete '",
-    "make it shorter",
-    "shorten it",
-    "tighten this",
-    "make this clearer",
-    "change the hook",
-    "remove the last line",
-    "less hype",
-    "more casual",
-    "this part is weird",
-    "that line is off",
-    "too long",
-    "too much",
-    "make it punchier",
-    "make it sharper",
-    "fix this line",
-    "rewrite this",
-    "reword this",
-    "revise this",
-  ];
-
-  if (explicitReviseCues.some((cue) => normalized.includes(cue))) {
-    return "revise";
-  }
-
-  if (
-    /["“'`](.+?)["”'`]/.test(prompt) &&
-    /\b(remove|delete|replace|change|fix|cut|trim)\b/i.test(normalized)
-  ) {
-    return "revise";
-  }
-
-  if (/^(what|why|how|where|which)\b/.test(normalized) || normalized.endsWith("?")) {
-    return "ignore";
-  }
-
-  return "ignore";
-}
-
 function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
   if (!message.quickReplies?.length) {
     return false;
@@ -2512,25 +2530,6 @@ function formatNicheSummary(context: CreatorAgentContext): string {
   return formatEnumLabel(primaryNiche);
 }
 
-function formatTypingStatusLabel(status?: string | null): string {
-  switch (status) {
-    case "Planning the next move.":
-      return "thinking through the sharpest angle";
-    case "Writing draft options.":
-      return "turning that into something postable";
-    case "Tightening the response.":
-      return "tightening the wording";
-    case "Finalizing the reply.":
-      return "getting the final wording right";
-    case "Analyzing this draft.":
-      return "reviewing what works and what doesn't";
-    case "Comparing versions.":
-      return "comparing these versions";
-    default:
-      return "thinking this through";
-  }
-}
-
 function formatDurationCompact(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
   if (totalSeconds < 60) {
@@ -2547,7 +2546,7 @@ function formatDurationCompact(milliseconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function AssistantTypingBubble(props: { status?: string | null }) {
+function AssistantTypingBubble(props: { label?: string | null }) {
   const [dotCount, setDotCount] = useState(1);
 
   useEffect(() => {
@@ -2559,8 +2558,6 @@ function AssistantTypingBubble(props: { status?: string | null }) {
       window.clearInterval(interval);
     };
   }, []);
-
-  const statusLabel = formatTypingStatusLabel(props.status);
 
   return (
     <div
@@ -2577,12 +2574,63 @@ function AssistantTypingBubble(props: { status?: string | null }) {
           />
         ))}
       </div>
-      {props.status ? (
+      {props.label ? (
         <p className="mt-3 text-xs text-zinc-400">
-          {statusLabel}
+          {props.label}
           {".".repeat(dotCount)}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function PendingDraftShell(props: {
+  workflow: "plan_then_draft" | "revise_draft";
+  label?: string | null;
+}) {
+  const eyebrow =
+    props.workflow === "revise_draft" ? "Revision in progress" : "Draft in progress";
+  const title =
+    props.workflow === "revise_draft" ? "Reworking the draft" : "Building the draft";
+
+  return (
+    <div
+      className="max-w-[88%] px-4 py-3 text-zinc-100 animate-fade-in-slide-up"
+      aria-live="polite"
+      aria-label={title}
+    >
+      <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#050505] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="draft-shell-shimmer h-10 w-10 rounded-full bg-white/[0.06]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                {eyebrow}
+              </p>
+              <div className="draft-shell-shimmer mt-2 h-3 w-28 rounded-full bg-white/[0.06]" />
+              <div className="draft-shell-shimmer mt-2 h-2.5 w-20 rounded-full bg-white/[0.05]" />
+            </div>
+          </div>
+          <div className="draft-shell-shimmer h-8 w-8 rounded-full bg-white/[0.05]" />
+        </div>
+
+        <div className="mt-4 space-y-2.5">
+          {DRAFT_SHELL_LINE_WIDTHS.map((width, index) => (
+            <div
+              key={`${props.workflow}-shell-line-${index}`}
+              className="draft-shell-shimmer h-3 rounded-full bg-white/[0.06]"
+              style={{ width }}
+            />
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
+          <span className="inline-flex items-center rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+            {title}
+          </span>
+          {props.label ? <span>{props.label}</span> : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2866,6 +2914,8 @@ function ChatPageContent() {
         setEditorDraftText("");
         setEditorDraftPosts([]);
         setTypedAssistantLengths({});
+        setActiveDraftRevealByMessageId({});
+        setRevealedDraftMessageIds({});
         setErrorMessage(null);
         setIsLeavingHero(false);
 
@@ -3351,6 +3401,8 @@ function ChatPageContent() {
     setEditorDraftText("");
     setEditorDraftPosts([]);
     setTypedAssistantLengths({});
+    setActiveDraftRevealByMessageId({});
+    setRevealedDraftMessageIds({});
     setErrorMessage(null);
     setIsLeavingHero(false);
 
@@ -3358,6 +3410,7 @@ function ChatPageContent() {
   }, [accountName, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
   const [providerPreference, setProviderPreference] =
     useState<ChatProviderPreference>("groq");
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -3472,6 +3525,14 @@ function ChatPageContent() {
   const [typedAssistantLengths, setTypedAssistantLengths] = useState<
     Record<string, number>
   >({});
+  const [activeDraftRevealByMessageId, setActiveDraftRevealByMessageId] = useState<
+    Record<string, string>
+  >({});
+  const [revealedDraftMessageIds, setRevealedDraftMessageIds] = useState<
+    Record<string, boolean>
+  >({});
+  const draftRevealTimeoutsRef = useRef<Record<string, number>>({});
+  const hasHydratedDraftRevealRef = useRef(false);
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
@@ -5380,6 +5441,8 @@ function ChatPageContent() {
     setEditingDraftCandidateId(null);
     setEditingDraftCandidateText("");
     setTypedAssistantLengths({});
+    setActiveDraftRevealByMessageId({});
+    setRevealedDraftMessageIds({});
     setIsLeavingHero(false);
   }, [accountName, fetchWorkspace]);
 
@@ -5439,6 +5502,81 @@ function ChatPageContent() {
       window.clearInterval(interval);
     };
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(draftRevealTimeoutsRef.current).forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      draftRevealTimeoutsRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      Object.values(draftRevealTimeoutsRef.current).forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      draftRevealTimeoutsRef.current = {};
+      const hadHydratedRevealState = hasHydratedDraftRevealRef.current;
+      hasHydratedDraftRevealRef.current = false;
+      if (
+        hadHydratedRevealState ||
+        Object.keys(activeDraftRevealByMessageId).length > 0 ||
+        Object.keys(revealedDraftMessageIds).length > 0
+      ) {
+        setActiveDraftRevealByMessageId({});
+        setRevealedDraftMessageIds({});
+      }
+      return;
+    }
+
+    if (!hasHydratedDraftRevealRef.current) {
+      hasHydratedDraftRevealRef.current = true;
+      const hydratedIds = Object.fromEntries(
+        messages
+          .filter(
+            (message) => message.role === "assistant" && messageHasDraftOutput(message),
+          )
+          .map((message) => [message.id, true]),
+      );
+      setRevealedDraftMessageIds(hydratedIds);
+      return;
+    }
+
+    const nextRevealCandidate = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          messageHasDraftOutput(message) &&
+          !revealedDraftMessageIds[message.id] &&
+          !hasActiveDraftReveal(activeDraftRevealByMessageId, message.id) &&
+          !draftRevealTimeoutsRef.current[message.id],
+      );
+
+    if (!nextRevealCandidate) {
+      return;
+    }
+
+    const primaryKey = resolvePrimaryDraftRevealKey(nextRevealCandidate);
+    setActiveDraftRevealByMessageId((current) => ({
+      ...current,
+      [nextRevealCandidate.id]: primaryKey,
+    }));
+    draftRevealTimeoutsRef.current[nextRevealCandidate.id] = window.setTimeout(() => {
+      setActiveDraftRevealByMessageId((current) => {
+        const next = { ...current };
+        delete next[nextRevealCandidate.id];
+        return next;
+      });
+      setRevealedDraftMessageIds((current) => ({
+        ...current,
+        [nextRevealCandidate.id]: true,
+      }));
+      delete draftRevealTimeoutsRef.current[nextRevealCandidate.id];
+    }, DRAFT_REVEAL_DURATION_MS);
+  }, [messages, activeDraftRevealByMessageId, revealedDraftMessageIds]);
 
   useEffect(() => {
     if (!backfillJobId) {
@@ -5977,6 +6115,15 @@ function ChatPageContent() {
       selectedDraftVersion?.content,
     ],
   );
+  const pendingStatusLabel = usePendingStatusLabel({
+    isActive: isSending,
+    plan: pendingStatusPlan,
+    backendStatus: streamStatus,
+  });
+  const pendingDraftWorkflow = isDraftPendingWorkflow(pendingStatusPlan?.workflow)
+    ? pendingStatusPlan.workflow
+    : null;
+  const shouldShowPendingDraftShell = isSending && pendingDraftWorkflow !== null;
   const selectedDraftThreadPostCount = useMemo(() => {
     if (!isSelectedDraftThread) {
       return 0;
@@ -7010,47 +7157,42 @@ function ChatPageContent() {
         return;
       }
 
-      const trimmedPrompt = options.prompt?.trim() ?? "";
-      const selectedDraftAction =
-        selectedDraftContext && trimmedPrompt
-          ? inferSelectedDraftAction(trimmedPrompt)
-          : "ignore";
-      const effectiveTurnSource =
-        options.turnSource ??
-        (options.artifactContext?.kind === "selected_angle"
-          ? "ideation_pick"
-          : options.artifactContext?.kind === "draft_selection"
-            ? "draft_action"
-            : options.artifactContext?.kind === "reply_option_select" ||
-                options.artifactContext?.kind === "reply_confirmation"
-              ? "reply_action"
-              : "free_text");
-      const effectiveIntent =
-        options.intent ??
-        (selectedDraftContext && selectedDraftAction === "revise" ? "edit" : undefined);
-      const effectiveSelectedDraftContext =
-        options.selectedDraftContextOverride !== undefined
-          ? options.selectedDraftContextOverride
-          : selectedDraftContext &&
-            options.artifactContext?.kind !== "selected_angle" &&
-            (effectiveIntent === "edit" || effectiveIntent === "review")
-            ? selectedDraftContext
-            : null;
-      const hasStructuredIntent =
-        effectiveTurnSource !== "free_text" ||
-        !!options.artifactContext ||
-        (effectiveIntent === "coach" &&
-          (!trimmedPrompt || !!resolvedContentFocus)) ||
-        ((effectiveIntent === "ideate" || effectiveIntent === "coach") &&
-          !!resolvedContentFocus);
-
-      if (!trimmedPrompt && !hasStructuredIntent) {
-        return;
-      }
-
-      let history = (options.historySeed ?? messages)
+      const historySeed = (options.historySeed ?? messages)
         .filter((message) => !message.excludeFromHistory)
         .slice();
+      const preparedRequest = prepareAssistantReplyTransport({
+        prompt: options.prompt,
+        history: historySeed,
+        runId: resolvedContext.runId,
+        threadId: activeThreadId,
+        workspaceHandle: accountName,
+        provider: providerPreference,
+        turnSource: options.turnSource,
+        artifactContext: options.artifactContext ?? null,
+        intent: options.intent,
+        formatPreferenceOverride: options.formatPreferenceOverride ?? null,
+        threadFramingStyleOverride: options.threadFramingStyleOverride ?? null,
+        selectedDraftContext,
+        selectedDraftContextOverride:
+          options.selectedDraftContextOverride !== undefined
+            ? options.selectedDraftContextOverride
+            : undefined,
+        contentFocus: resolvedContentFocus,
+        preferenceSettings: currentPreferencePayload,
+        preferenceConstraints: preferenceConstraintRules,
+        strategyInputs: resolvedStrategyInputs,
+        toneInputs: resolvedToneInputs,
+      });
+
+      if (preparedRequest.shouldSkip || !preparedRequest.transportRequest) {
+        return;
+      }
+      const {
+        trimmedPrompt,
+        effectiveSelectedDraftContext,
+      } = preparedRequest;
+
+      let history = historySeed;
 
       if (options.appendUserMessage) {
         const userMessage: ChatMessage = {
@@ -7069,40 +7211,20 @@ function ChatPageContent() {
       }
 
       setIsSending(true);
-      setStreamStatus("Planning the next move.");
+      setStreamStatus(null);
+      setPendingStatusPlan(preparedRequest.pendingStatusPlan);
       setErrorMessage(null);
 
       try {
-        const clientTurnId = createClientTurnId();
         const response = await fetchWorkspace("/api/creator/v2/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(
-            buildCreatorChatTransportRequest({
-              runId: resolvedContext.runId,
-              threadId: activeThreadId ?? undefined,
-              workspaceHandle: accountName,
-              clientTurnId,
-              message: trimmedPrompt,
-              history,
-              provider: providerPreference,
-              stream: true,
-              turnSource: effectiveTurnSource,
-              artifactContext: options.artifactContext ?? null,
-              intent: effectiveIntent,
-              formatPreference: options.formatPreferenceOverride ?? null,
-              threadFramingStyle: options.threadFramingStyleOverride ?? null,
-              contentFocus: resolvedContentFocus,
-              selectedDraftContext: effectiveSelectedDraftContext,
-              preferenceSettings: currentPreferencePayload,
-              preferenceConstraints:
-                preferenceConstraintRules.length > 0 ? preferenceConstraintRules : undefined,
-              ...resolvedToneInputs,
-              ...resolvedStrategyInputs,
-            }),
-          ),
+          body: JSON.stringify({
+            ...preparedRequest.transportRequest,
+            history,
+          }),
         });
 
         const contentType = response.headers.get("content-type") ?? "";
@@ -7382,6 +7504,7 @@ function ChatPageContent() {
       } finally {
         setIsSending(false);
         setStreamStatus(null);
+        setPendingStatusPlan(null);
       }
     },
     [
@@ -9376,7 +9499,37 @@ function ChatPageContent() {
                     </div>
                   ) : (
                     <>
-                      {messages.map((message, index) => (
+                      {messages.map((message, index) => {
+                        const isDraftRevealRunning = hasActiveDraftReveal(
+                          activeDraftRevealByMessageId,
+                          message.id,
+                        );
+                        const primaryDraftRevealKey = isDraftRevealRunning
+                          ? activeDraftRevealByMessageId[message.id]
+                          : null;
+                        const resolveDraftRevealPhase = (draftKey: string) => {
+                          if (!primaryDraftRevealKey) {
+                            return "none";
+                          }
+
+                          return primaryDraftRevealKey === draftKey
+                            ? "primary"
+                            : "secondary";
+                        };
+                        const buildDraftRevealClasses = (draftKey: string) => {
+                          const phase = resolveDraftRevealPhase(draftKey);
+                          if (phase === "primary") {
+                            return "animate-draft-card-reveal";
+                          }
+                          if (phase === "secondary") {
+                            return "animate-draft-option-stagger";
+                          }
+                          return "";
+                        };
+                        const shouldAnimateDraftLines = (draftKey: string) =>
+                          resolveDraftRevealPhase(draftKey) === "primary";
+
+                        return (
                         <div
                           key={message.id}
                           ref={(node) => {
@@ -9393,7 +9546,7 @@ function ChatPageContent() {
                             }`}
                         >
                           {message.role === "assistant" && message.isStreaming ? (
-                            <AssistantTypingBubble status={message.content || null} />
+                            <AssistantTypingBubble label={message.content || null} />
                           ) : (
                             message.role === "assistant" &&
                             message.id === latestAssistantMessageId &&
@@ -9783,6 +9936,7 @@ function ChatPageContent() {
                                   option.content.length > 220
                                     ? `${option.content.slice(0, 217).trimEnd()}...`
                                     : option.content;
+                                const draftRevealKey = buildDraftBundleRevealKey(option.id);
 
                                 return (
                                   <button
@@ -9811,7 +9965,7 @@ function ChatPageContent() {
                                       isSelected
                                         ? "border-white/20 bg-white/[0.06] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
                                         : "border-white/10 bg-black/20 hover:border-white/15 hover:bg-white/[0.04]"
-                                    }`}
+                                    } ${buildDraftRevealClasses(draftRevealKey)}`}
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div>
@@ -9827,9 +9981,11 @@ function ChatPageContent() {
                                         {option.artifact.maxCharacterLimit}
                                       </span>
                                     </div>
-                                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                                      {preview}
-                                    </p>
+                                    <AnimatedDraftText
+                                      text={preview}
+                                      className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300"
+                                      animate={shouldAnimateDraftLines(draftRevealKey)}
+                                    />
                                   </button>
                                 );
                               })}
@@ -9850,11 +10006,16 @@ function ChatPageContent() {
                                     message,
                                     composerCharacterLimit,
                                   )?.versions[index]?.id;
+                                const draftRevealKey = buildDraftArtifactRevealKey(
+                                  artifact.id,
+                                );
 
                                 return (
                                   <div
                                     key={`${message.id}-draft-artifact-${artifact.id}`}
-                                    className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3"
+                                    className={`rounded-2xl border border-white/10 bg-black/20 px-3 py-3 ${buildDraftRevealClasses(
+                                      draftRevealKey,
+                                    )}`}
                                   >
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <div>
@@ -9876,9 +10037,11 @@ function ChatPageContent() {
                                         Edit
                                       </button>
                                     </div>
-                                    <p className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100">
-                                      {artifact.content}
-                                    </p>
+                                    <AnimatedDraftText
+                                      text={artifact.content}
+                                      className="mt-3 whitespace-pre-wrap leading-7 text-zinc-100"
+                                      animate={shouldAnimateDraftLines(draftRevealKey)}
+                                    />
                                     {artifact.groundingExplanation ||
                                     artifact.groundingSources?.length ? (() => {
                                       const groundingTone = getDraftGroundingToneClasses(artifact);
@@ -9948,6 +10111,7 @@ function ChatPageContent() {
                                 const isFocusedDraftPreview =
                                   selectedDraftMessageId === message.id &&
                                   selectedDraftVersionId === option.versionId;
+                                const draftRevealKey = buildDraftBundleRevealKey(option.id);
 
                                 return (
                                   <div
@@ -9965,7 +10129,7 @@ function ChatPageContent() {
                                       isFocusedDraftPreview
                                         ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
                                         : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                    }`}
+                                    } ${buildDraftRevealClasses(draftRevealKey)}`}
                                     aria-current={isFocusedDraftPreview ? "true" : undefined}
                                   >
                                     <div className="flex items-start justify-between gap-3">
@@ -10014,9 +10178,11 @@ function ChatPageContent() {
                                     </div>
 
                                     <div className="mt-3">
-                                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                        {option.content}
-                                      </p>
+                                      <AnimatedDraftText
+                                        text={option.content}
+                                        className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
+                                        animate={shouldAnimateDraftLines(draftRevealKey)}
+                                      />
                                     </div>
 
                                     <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
@@ -10143,6 +10309,15 @@ function ChatPageContent() {
                                 `turn this into a thread with 4 to 6 posts. keep every post under ${threadPostCharacterLimit.toLocaleString()} characters, make the opener clearly signal the thread, and keep the flow native to x.`;
                               const isFocusedDraftPreview =
                                 selectedDraftMessageId === message.id;
+                              const previewRevealKey = message.draftBundle?.selectedOptionId
+                                ? buildDraftBundleRevealKey(message.draftBundle.selectedOptionId)
+                                : previewArtifact?.id
+                                  ? buildDraftArtifactRevealKey(previewArtifact.id)
+                                  : draftBundle?.activeVersion.id
+                                    ? buildDraftVersionRevealKey(draftBundle.activeVersion.id)
+                                    : message.activeDraftVersionId
+                                      ? buildDraftVersionRevealKey(message.activeDraftVersionId)
+                                      : buildDraftMessageRevealKey(message.id);
                               return (
                                 <div className="mt-4 border-t border-white/10 pt-4">
                                   {/* X Post Card */}
@@ -10159,7 +10334,7 @@ function ChatPageContent() {
                                     className={`cursor-pointer rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${isFocusedDraftPreview
                                       ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
                                       : "border border-white/[0.08] hover:border-white/15 hover:bg-[#0F0F0F]"
-                                      }`}
+                                      } ${buildDraftRevealClasses(previewRevealKey)}`}
                                     aria-current={isFocusedDraftPreview ? "true" : undefined}
                                   >
                                     {/* Header: avatar + name + handle */}
@@ -10293,9 +10468,14 @@ function ChatPageContent() {
                                                             {weightedPostCount}/{postCharacterLimit.toLocaleString()}
                                                           </span>
                                                         </div>
-                                                        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
-                                                          {post}
-                                                        </p>
+                                                        <AnimatedDraftText
+                                                          text={post}
+                                                          className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100"
+                                                          animate={shouldAnimateDraftLines(
+                                                            previewRevealKey,
+                                                          )}
+                                                          baseDelayMs={postIndex * 60}
+                                                        />
                                                       </button>
                                                     </div>
                                                   );
@@ -10387,14 +10567,17 @@ function ChatPageContent() {
                                                         })()}
                                                       </div>
                                                     </div>
-                                                    <p
+                                                    <AnimatedDraftText
+                                                      text={post}
                                                       className={`mt-3 whitespace-pre-wrap text-zinc-100 ${isFrontCard
                                                         ? "line-clamp-5 text-[15px] leading-6"
                                                         : "line-clamp-3 text-[14px] leading-5"
                                                         }`}
-                                                    >
-                                                      {post}
-                                                    </p>
+                                                      animate={shouldAnimateDraftLines(
+                                                        previewRevealKey,
+                                                      )}
+                                                      baseDelayMs={postIndex * 60}
+                                                    />
                                                     <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
                                                       <span>Just now</span>
                                                       <span>·</span>
@@ -10413,9 +10596,11 @@ function ChatPageContent() {
                                           )}
                                         </div>
                                       ) : (
-                                        <p className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">
-                                          {previewDraft}
-                                        </p>
+                                        <AnimatedDraftText
+                                          text={previewDraft}
+                                          className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
+                                          animate={shouldAnimateDraftLines(previewRevealKey)}
+                                        />
                                       )}
                                     </div>
 
@@ -10657,9 +10842,17 @@ function ChatPageContent() {
                           ) : null}
 
                         </div>
-                      ))}
+                        );
+                      })}
 
-                      {isSending ? <AssistantTypingBubble status={streamStatus} /> : null}
+                      {shouldShowPendingDraftShell && pendingDraftWorkflow ? (
+                        <PendingDraftShell
+                          workflow={pendingDraftWorkflow}
+                          label={pendingStatusLabel}
+                        />
+                      ) : isSending ? (
+                        <AssistantTypingBubble label={pendingStatusLabel} />
+                      ) : null}
                     </>
                   )}
 

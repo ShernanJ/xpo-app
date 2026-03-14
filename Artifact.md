@@ -100,6 +100,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Multi-handle isolation remains required behavior.
 
 ## Transitional notes
+- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline, but it still owns too much workspace/session/composer state to count as a thin client yet.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`, but the route still owns too much surrounding request/event/billing assembly.
@@ -133,6 +134,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ### Phase 2: Thin the client and route
 - Landed:
+  - main chat turn-resolution and transport payload construction now flow through `apps/web/app/chat/chatTransport.ts`
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`

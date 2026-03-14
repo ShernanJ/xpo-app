@@ -95,6 +95,19 @@ User turn
   - response envelope
 - Anything beyond that is migration debt.
 
+### Client boundary
+- `apps/web/app/chat/page.tsx`
+- Current reality:
+  - main chat turn-resolution and transport payload construction now delegate through `apps/web/app/chat/chatTransport.ts`
+  - workspace/session/composer state still lives mainly in the page
+  - the page is thinner than before, but not yet a fully clean transport/view boundary
+- Target architecture ownership:
+  - view state
+  - workspace selection state
+  - transport helper calls
+  - optimistic UI state only
+- Anything beyond that is migration debt.
+
 ### Capability execution
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
 - Still transitional.
@@ -256,6 +269,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Thin `apps/web/app/chat/page.tsx`
 - Continue thinning `apps/web/app/api/creator/v2/chat/route.ts`
+- Continue thinning `apps/web/app/chat/page.tsx`
 - Split `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`

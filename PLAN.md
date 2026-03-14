@@ -92,6 +92,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `apps/web/app/api/creator/v2/chat/route.ts` now owns final response-envelope finalization for the main chat path.
   - post-orchestrator response mapping and persistence prep live in route-boundary helpers instead of being fully hand-assembled inline in the route.
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
+  - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/chatTransport.ts` instead of building the chat request inline.
 - Move transport/request construction out of `page.tsx` into a dedicated chat transport layer plus workspace store.
 - Reduce the chat route to:
   - auth
