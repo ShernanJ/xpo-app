@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveOnboardingProfilePreview } from "@/lib/onboarding/profile/profilePreview";
-import { normalizeAccountInput } from "@/lib/onboarding/validation";
+import { normalizeAccountInput } from "@/lib/onboarding/contracts/validation";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

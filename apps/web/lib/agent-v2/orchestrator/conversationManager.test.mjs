@@ -244,6 +244,12 @@ test("turn context hydration workers return style profile and anchors as mergeab
   );
 });
 
+test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.equal(/pipeline_continuation/.test(draftPipelineSource), false);
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 

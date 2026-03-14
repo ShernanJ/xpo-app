@@ -65,7 +65,7 @@ export function buildReplyMemorySnapshot(args: {
   };
 }
 
-type ReplyAgentContext = {
+export type ReplyAgentContext = {
   growthStrategySnapshot: GrowthStrategySnapshot;
   creatorProfile?: {
     identity?: {
@@ -74,7 +74,7 @@ type ReplyAgentContext = {
   };
 };
 
-interface StructuredReplyContextInput {
+export interface StructuredReplyContextInput {
   sourceText?: string | null;
   sourceUrl?: string | null;
   authorHandle?: string | null;

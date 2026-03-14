@@ -26,6 +26,33 @@ test("onboarding root shims stay thin and point at landed domain folders", () =>
   assert.equal(existsSync(new URL("./store/onboardingRunStore.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./contracts/types.ts", import.meta.url)), true);
   assert.equal(existsSync(new URL("./shared/draftArtifacts.ts", import.meta.url)), true);
+
+  for (const deletedRootShim of [
+    "analysis.ts",
+    "avatarUrl.ts",
+    "backfill.ts",
+    "backfillStore.ts",
+    "coachReply.ts",
+    "contentInsights.ts",
+    "contextEnrichment.ts",
+    "creatorProfile.ts",
+    "draftValidator.ts",
+    "evaluation.ts",
+    "importScrapePayload.ts",
+    "mockData.ts",
+    "performanceModel.ts",
+    "profileConversionAudit.ts",
+    "profileHydration.ts",
+    "profilePreview.ts",
+    "regression.ts",
+    "scrapeStore.ts",
+    "scrapeUserTweetsParser.ts",
+    "strategyOverrides.ts",
+    "validation.ts",
+    "xApi.ts",
+  ]) {
+    assert.equal(existsSync(new URL(`./${deletedRootShim}`, import.meta.url)), false);
+  }
 });
 
 test("onboarding and creator routes import landed onboarding domain folders directly", () => {
@@ -47,6 +74,18 @@ test("onboarding and creator routes import landed onboarding domain folders dire
   );
   const draftCandidatesRoute = readFileSync(
     new URL("../../app/api/creator/v2/draft-candidates/route.ts", import.meta.url),
+    "utf8",
+  );
+  const previewRoute = readFileSync(
+    new URL("../../app/api/onboarding/preview/route.ts", import.meta.url),
+    "utf8",
+  );
+  const backfillJobsRoute = readFileSync(
+    new URL("../../app/api/onboarding/backfill/jobs/route.ts", import.meta.url),
+    "utf8",
+  );
+  const latestScrapeRoute = readFileSync(
+    new URL("../../app/api/onboarding/scrape/latest/route.ts", import.meta.url),
     "utf8",
   );
 
@@ -91,4 +130,13 @@ test("onboarding and creator routes import landed onboarding domain folders dire
     false,
   );
   assert.equal(/from "@\/lib\/onboarding\/store";/.test(draftCandidatesRoute), false);
+
+  assert.match(previewRoute, /from "@\/lib\/onboarding\/contracts\/validation";/);
+  assert.equal(/from "@\/lib\/onboarding\/validation";/.test(previewRoute), false);
+
+  assert.match(backfillJobsRoute, /from "@\/lib\/onboarding\/store\/backfillJobStore";/);
+  assert.equal(/from "@\/lib\/onboarding\/backfillStore";/.test(backfillJobsRoute), false);
+
+  assert.match(latestScrapeRoute, /from "@\/lib\/onboarding\/store\/scrapeCaptureStore";/);
+  assert.equal(/from "@\/lib\/onboarding\/scrapeStore";/.test(latestScrapeRoute), false);
 });

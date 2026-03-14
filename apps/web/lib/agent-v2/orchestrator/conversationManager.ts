@@ -31,7 +31,7 @@ import { type VoiceTarget } from "../core/voiceTarget";
 import {
   type DraftGroundingMode,
   type ThreadFramingStyle,
-} from "../../onboarding/draftArtifacts";
+} from "../../onboarding/shared/draftArtifacts.ts";
 import {
   hasConcreteCorrectionDetail,
   looksLikeSemanticCorrection,

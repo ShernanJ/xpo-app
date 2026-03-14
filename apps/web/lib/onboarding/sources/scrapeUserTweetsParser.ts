@@ -1,5 +1,5 @@
 import { normalizeXAvatarUrl } from "../profile/avatarUrl";
-import { normalizeAccountInput } from "../validation";
+import { normalizeAccountInput } from "../contracts/validation.ts";
 import type { XPublicPost, XPublicProfile } from "../types";
 
 interface ParsedScrapeTimeline {

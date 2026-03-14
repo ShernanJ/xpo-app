@@ -43,7 +43,7 @@ import {
   getXCharacterLimitForFormat,
   getXCharacterLimitForAccount,
   type ThreadFramingStyle,
-} from "../../onboarding/draftArtifacts";
+} from "../../onboarding/shared/draftArtifacts.ts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import { buildPlannerQuickReplies } from "./plannerQuickReplies";
@@ -227,14 +227,6 @@ export async function executeDraftPipeline(args: {
   let mode = routing.resolvedMode; // resolvedMode;
   let runtimeWorkflow =
     routingTrace.runtimeResolution?.workflow || resolveLegacyRuntimeWorkflow(mode);
-  const applyPipelineWorkflowOverride = (nextMode: typeof mode) => {
-    mode = nextMode;
-    runtimeWorkflow = resolveLegacyRuntimeWorkflow(nextMode);
-    routingTrace.runtimeResolution = {
-      workflow: runtimeWorkflow,
-      source: "pipeline_continuation",
-    };
-  };
   const mergeCapabilityExecutionMeta = (args: {
     workers?: NonNullable<typeof routingTrace.workerExecutions>;
     validations?: NonNullable<typeof routingTrace.validations>;
@@ -1329,7 +1321,7 @@ User Profile Summary:
       ...clearClarificationPatch(),
     });
 
-    applyPipelineWorkflowOverride("edit");
+    mode = "edit";
     draftInstruction = repairDirective.rewriteRequest;
   }
 
@@ -2048,7 +2040,7 @@ User Profile Summary:
         ...clearClarificationPatch(),
       });
 
-      applyPipelineWorkflowOverride("edit");
+      mode = "edit";
       draftInstruction = repairDirective.rewriteRequest;
     }
   }

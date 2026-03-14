@@ -12,6 +12,7 @@ import {
   looksLikeDraftHandoff,
   normalizeDraftPayload,
   parseSelectedDraftContext,
+  prepareChatRouteTurn,
   resolveSelectedDraftContextFromHistory,
   resolveDraftArtifactKind,
   resolveEffectiveExplicitIntent,
@@ -30,6 +31,7 @@ import { normalizeChatTurn } from "./_lib/normalization/turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
+import { prepareHandledReplyTurn } from "../../../../../lib/agent-v2/capabilities/reply/handledReplyTurn.ts";
 
 const baseMemory = {
   conversationState: "needs_more_context",
@@ -430,6 +432,59 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
   assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
 });
 
+test("prepareChatRouteTurn keeps the raw runtime response while deriving persistence-ready mapped data", () => {
+  const prepared = prepareChatRouteTurn({
+    rawResponse: {
+      mode: "draft",
+      outputShape: "short_form_post",
+      response: "this is the actual draft body that should not be treated as the final reply envelope",
+      memory: {
+        ...baseMemory,
+        conversationState: "draft_ready",
+      },
+      data: {
+        draft: null,
+        quickReplies: [{ id: "qr_1", label: "shorter" }],
+        issuesFixed: ["tightened the opener"],
+      },
+    },
+    plan: null,
+    selectedDraftContext: null,
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: null,
+    styleCard: null,
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "plan_then_draft",
+    },
+    clientTurnId: "turn_prepared_1",
+    issuesFixed: ["tightened the opener"],
+    defaultThreadTitle: "New Chat",
+    currentThreadTitle: "Current thread",
+    nextThreadTitle: "Prepared title",
+    preferredSurfaceMode: "structured",
+    shouldClearReplyWorkflow: false,
+  });
+
+  assert.equal(
+    prepared.rawResponse.response,
+    "this is the actual draft body that should not be treated as the final reply envelope",
+  );
+  assert.equal(prepared.surfaceMode, "generate_full_output");
+  assert.equal(prepared.shapedResponse, "this is the actual draft body that should not be treated as the final reply envelope");
+  assert.equal(
+    prepared.mappedDataSeed.reply !== prepared.rawResponse.response,
+    true,
+  );
+  assert.equal(prepared.mappedDataSeed.draft, prepared.rawResponse.response);
+  assert.equal(prepared.persistencePlan.assistantMessageData.reply, prepared.mappedDataSeed.reply);
+  assert.equal(prepared.persistencePlan.threadUpdate.title, "Prepared title");
+});
+
 test("buildReplyAssistantMessageData preserves reply artifacts and context packet details", () => {
   const mapped = buildReplyAssistantMessageData({
     reply: "pulled 3 grounded reply directions from that post.",
@@ -691,56 +746,59 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
 
   const response = await finalizeReplyTurnWithDeps(
     {
-      plannedTurn: {
-        reply: "ran with option 2 and tightened it into a full reply.",
-        outputShape: "reply_candidate",
-        surfaceMode: "generate_full_output",
-        quickReplies: [{ id: "reply_1", label: "Use this" }],
-        activeReplyContext: {
-          sourceText: "Founders should write every day even if nobody reads it yet.",
-          sourceUrl: "https://x.com/example/status/1",
-          authorHandle: "example",
-          quotedUserAsk: "how should i reply?",
-          confidence: "high",
-          parseReason: "reply_option_selected",
-          awaitingConfirmation: false,
-          stage: "1k_to_10k",
-          tone: "builder",
-          goal: "followers",
-          opportunityId: "chat-reply-1",
-          latestReplyOptions: [],
-          latestReplyDraftOptions: [],
+      preparedTurn: {
+        plannedTurn: {
+          reply: "ran with option 2 and tightened it into a full reply.",
+          outputShape: "reply_candidate",
+          surfaceMode: "generate_full_output",
+          quickReplies: [{ id: "reply_1", label: "Use this" }],
+          activeReplyContext: {
+            sourceText: "Founders should write every day even if nobody reads it yet.",
+            sourceUrl: "https://x.com/example/status/1",
+            authorHandle: "example",
+            quotedUserAsk: "how should i reply?",
+            confidence: "high",
+            parseReason: "reply_option_selected",
+            awaitingConfirmation: false,
+            stage: "1k_to_10k",
+            tone: "builder",
+            goal: "followers",
+            opportunityId: "chat-reply-1",
+            latestReplyOptions: [],
+            latestReplyDraftOptions: [],
+            selectedReplyOptionId: "option_2",
+          },
           selectedReplyOptionId: "option_2",
-        },
-        selectedReplyOptionId: "option_2",
-        replyArtifacts: {
-          kind: "reply_draft",
-          sourceText: "Founders should write every day even if nobody reads it yet.",
-          sourceUrl: "https://x.com/example/status/1",
-          authorHandle: "example",
-          options: [
-            {
-              id: "option_2",
-              label: "Option 2",
-              text: "agree with the principle, but i'd make the reps more deliberate than daily by default.",
-              intent: {
-                label: "useful nuance",
-                strategyPillar: "useful nuance",
-                anchor: "daily reps",
-                rationale: "adds one practical layer",
+          replyArtifacts: {
+            kind: "reply_draft",
+            sourceText: "Founders should write every day even if nobody reads it yet.",
+            sourceUrl: "https://x.com/example/status/1",
+            authorHandle: "example",
+            options: [
+              {
+                id: "option_2",
+                label: "Option 2",
+                text: "agree with the principle, but i'd make the reps more deliberate than daily by default.",
+                intent: {
+                  label: "useful nuance",
+                  strategyPillar: "useful nuance",
+                  anchor: "daily reps",
+                  rationale: "adds one practical layer",
+                },
               },
-            },
-          ],
-          notes: ["Keep it practical."],
-          selectedOptionId: "option_2",
+            ],
+            notes: ["Keep it practical."],
+            selectedOptionId: "option_2",
+          },
+          replyParse: {
+            detected: true,
+            confidence: "high",
+            needsConfirmation: false,
+            parseReason: "reply_option_selected",
+          },
+          eventType: "chat_reply_draft_generated",
         },
-        replyParse: {
-          detected: true,
-          confidence: "high",
-          needsConfirmation: false,
-          parseReason: "reply_option_selected",
-        },
-        eventType: "chat_reply_draft_generated",
+        routingTrace,
       },
       storedMemory: baseMemory,
       routingDiagnostics: {
@@ -755,7 +813,6 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
       storedThreadId: "thread-reply-1",
       storedThreadTitle: "Existing Reply Thread",
       requestedThreadId: "",
-      routingTrace,
       shouldIncludeRoutingTrace: true,
       userId: "user-reply-1",
       activeHandle: "stan",
@@ -874,6 +931,49 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
   assert.equal(json.data.routingTrace.workerExecutions.at(-1).worker, "update_chat_thread");
   assert.equal(json.data.routingTrace.persistedStateChanges.assistantMessageId, "assistant-msg-reply");
   assert.equal(json.data.routingTrace.persistedStateChanges.memory.selectedReplyOptionId, "option_2");
+});
+
+test("prepareHandledReplyTurn gives direct reply-preflight turns runtime resolution before finalization", async () => {
+  const prepared = await prepareHandledReplyTurn({
+    userMessage: "help me reply to this with useful nuance",
+    recentHistory: "user: help me reply",
+    explicitIntent: null,
+    turnSource: "free_text",
+    artifactContext: null,
+    resolvedWorkflowHint: "free_text",
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "free_text",
+    },
+    activeHandle: "stan",
+    creatorAgentContext: null,
+    structuredReplyContext: {
+      sourceText: "Founders should write every day even if nobody reads it yet.",
+      sourceUrl: "https://x.com/example/status/1",
+      authorHandle: "example",
+    },
+    shouldBypassReplyHandling: false,
+    memory: baseMemory,
+    toneRisk: "builder",
+    goal: "followers",
+    replyInsights: {
+      bestSignals: ["adds one useful layer"],
+      cautionSignals: [],
+      recommendedTones: ["builder"],
+      profileLevel: "emerging",
+    },
+    styleCard: null,
+  });
+
+  assert.ok(prepared.handledTurn);
+  assert.equal(prepared.shouldResetReplyWorkflow, false);
+  assert.equal(prepared.handledTurn.routingTrace.runtimeResolution?.workflow, "reply_to_post");
+  assert.equal(prepared.handledTurn.routingTrace.workerExecutions[0]?.worker, "reply_turn_preflight");
+  assert.equal(prepared.handledTurn.routingTrace.workerExecutionSummary.total, 1);
+  assert.deepEqual(prepared.handledTurn.routingTrace.validations, []);
 });
 
 test("persistAssistantTurnWithDeps preserves sequential write order", async () => {
@@ -1913,14 +2013,16 @@ test("reply route ownership stays in runtime modules without shim files or shim 
 
   assert.match(
     routeSource,
-    /from "@\/lib\/agent-v2\/orchestrator\/replyTurnPlanner";/,
+    /from "@\/lib\/agent-v2\/capabilities\/reply\/handledReplyTurn";/,
   );
+  assert.match(routeSource, /prepareChatRouteTurn/);
+  assert.equal(/finalizeResponseEnvelope/.test(routeSource), false);
   assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
 
   assert.match(
     routeReplyFinalizeSource,
-    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnPlanner\.ts";/,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/capabilities\/reply\/handledReplyTurn\.ts";/,
   );
   assert.equal(
     /from "\.\/route\.reply(?:\.ts)?";/.test(routeReplyFinalizeSource),

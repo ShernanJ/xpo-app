@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { normalizeScrapeAccount } from "@/lib/onboarding/sources/scrapeUserTweetsParser";
-import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/scrapeStore";
+import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

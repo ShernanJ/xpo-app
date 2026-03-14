@@ -30,10 +30,13 @@ import {
   type DraftArtifactDetails,
 } from "../../../../../../../lib/onboarding/draftArtifacts.ts";
 import type { DraftBundleResult } from "../../../../../../../lib/agent-v2/orchestrator/draftBundles.ts";
+import { shapeAssistantResponse } from "../../../../../../../lib/agent-v2/orchestrator/responseShaper.ts";
+import { selectResponseShapePlan } from "../../../../../../../lib/agent-v2/orchestrator/surfaceModeSelector.ts";
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
 } from "../../../../../../../lib/agent-v2/orchestrator/replyTurnLogic.ts";
+import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -1102,6 +1105,15 @@ export interface ChatRoutePersistencePlan {
   };
 }
 
+export interface PreparedChatRouteTurn {
+  rawResponse: RawOrchestratorResponse;
+  responseShapePlan: ResponseShapePlan;
+  surfaceMode: SurfaceMode;
+  shapedResponse: string;
+  mappedDataSeed: ChatRouteMappedDataSeed;
+  persistencePlan: ChatRoutePersistencePlan;
+}
+
 function clipContextLine(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) {
@@ -1390,6 +1402,87 @@ export function buildChatRouteMappedData(args: {
     responseNoveltyNotes,
     responseGroundingMode,
     responseGroundingExplanation,
+  };
+}
+
+export function prepareChatRouteTurn(args: {
+  rawResponse: RawOrchestratorResponse;
+  plan: StrategyPlan | null;
+  selectedDraftContext: SelectedDraftContext | null;
+  formatPreference: DraftFormatPreference | null;
+  isVerifiedAccount: boolean;
+  userPreferences: UserPreferences | null;
+  styleCard: VoiceStyleCard | null;
+  routingDiagnostics: NormalizedChatTurnDiagnostics;
+  clientTurnId: string | null;
+  issuesFixed: string[];
+  defaultThreadTitle: string;
+  currentThreadTitle: string | null | undefined;
+  nextThreadTitle: string | null;
+  preferredSurfaceMode: V2ConversationMemory["preferredSurfaceMode"];
+  shouldClearReplyWorkflow: boolean;
+}): PreparedChatRouteTurn {
+  const resultData =
+    args.rawResponse.data &&
+    typeof args.rawResponse.data === "object" &&
+    !Array.isArray(args.rawResponse.data)
+      ? (args.rawResponse.data as Record<string, unknown>)
+      : undefined;
+  const responseShapePlan = selectResponseShapePlan({
+    outputShape: args.rawResponse.outputShape,
+    response: args.rawResponse.response,
+    hasQuickReplies:
+      Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
+    hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
+    hasPlan: Boolean(resultData?.plan),
+    hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
+    conversationState: args.rawResponse.memory.conversationState,
+    preferredSurfaceMode: args.rawResponse.memory.preferredSurfaceMode,
+  });
+  const shapedResponse = shapeAssistantResponse({
+    response: args.rawResponse.response,
+    outputShape: args.rawResponse.outputShape,
+    plan: responseShapePlan,
+  });
+  const preparedResponse = {
+    ...args.rawResponse,
+    response: shapedResponse,
+    surfaceMode: responseShapePlan.surfaceMode,
+    responseShapePlan,
+  };
+  const {
+    mappedData: mappedDataSeed,
+    responseGroundingMode,
+    responseGroundingExplanation,
+  } = buildChatRouteMappedData({
+    result: preparedResponse,
+    plan: args.plan,
+    selectedDraftContext: args.selectedDraftContext,
+    formatPreference: args.formatPreference,
+    isVerifiedAccount: args.isVerifiedAccount,
+    userPreferences: args.userPreferences,
+    styleCard: args.styleCard,
+    routingDiagnostics: args.routingDiagnostics,
+    clientTurnId: args.clientTurnId,
+  });
+
+  return {
+    rawResponse: args.rawResponse,
+    responseShapePlan,
+    surfaceMode: responseShapePlan.surfaceMode,
+    shapedResponse,
+    mappedDataSeed,
+    persistencePlan: buildChatRoutePersistencePlan({
+      mappedDataSeed,
+      issuesFixed: args.issuesFixed,
+      responseGroundingMode,
+      responseGroundingExplanation,
+      defaultThreadTitle: args.defaultThreadTitle,
+      currentThreadTitle: args.currentThreadTitle,
+      nextThreadTitle: args.nextThreadTitle,
+      preferredSurfaceMode: args.preferredSurfaceMode,
+      shouldClearReplyWorkflow: args.shouldClearReplyWorkflow,
+    }),
   };
 }
 

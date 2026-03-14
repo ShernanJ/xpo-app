@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
-import { finalizeResponseEnvelope } from "@/lib/agent-v2/orchestrator/responseEnvelope";
 import { applyRuntimePersistenceTracePatch } from "@/lib/agent-v2/runtime/runtimeTrace";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
@@ -41,10 +40,9 @@ import {
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
 import {
-  buildChatRouteMappedData,
-  buildChatRoutePersistencePlan,
   buildConversationContextFromHistory,
   parseSelectedDraftContext,
+  prepareChatRouteTurn,
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./_lib/request/routeLogic";
@@ -63,10 +61,7 @@ import {
   inferCurrentPlaybookStage,
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
-import {
-  planReplyTurn,
-  resolveReplyTurnState,
-} from "@/lib/agent-v2/orchestrator/replyTurnPlanner";
+import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
@@ -651,42 +646,30 @@ export async function POST(request: NextRequest) {
       growthPayloadForReply
         ? growthPayloadForReply.replyInsights
         : null;
-    const {
-      replyStrategy,
-      replyParseResult,
-      replyContinuation,
-      shouldResetReplyWorkflow,
-      defaultReplyStage,
-      defaultReplyTone,
-      defaultReplyGoal,
-    } = resolveReplyTurnState({
+    const replyTurnPreflight = await prepareHandledReplyTurn({
+      userMessage: effectiveMessage,
+      recentHistory: recentHistoryStr || "None",
+      explicitIntent: effectiveExplicitIntent,
+      turnSource: normalizedTurn.source,
+      artifactContext: normalizedTurn.artifactContext,
+      resolvedWorkflowHint: normalizedTurn.diagnostics.resolvedWorkflow,
+      routingDiagnostics: normalizedTurn.diagnostics,
       activeHandle,
       creatorAgentContext: creatorContextForReply,
-      effectiveMessage,
       structuredReplyContext,
-      artifactContext: normalizedTurn.artifactContext,
-      turnSource: normalizedTurn.source,
       shouldBypassReplyHandling: !normalizedTurn.shouldAllowReplyHandling,
-      activeReplyContext: storedMemory.activeReplyContext,
+      memory: storedMemory,
       toneRisk: body.toneRisk,
       goal: body.goal,
-    });
-
-    const handledReplyTurn = planReplyTurn({
-      activeReplyContext: storedMemory.activeReplyContext,
-      replyContinuation,
-      replyParseResult,
-      defaultReplyStage,
-      defaultReplyTone,
-      defaultReplyGoal,
-      replyStrategy,
       replyInsights,
       styleCard,
     });
+    const shouldResetReplyWorkflow = replyTurnPreflight.shouldResetReplyWorkflow;
+    const handledReplyTurn = replyTurnPreflight.handledTurn;
 
     if (handledReplyTurn) {
       return await finalizeReplyTurn({
-        plannedTurn: handledReplyTurn,
+        preparedTurn: handledReplyTurn,
         storedMemory,
         routingDiagnostics: normalizedTurn.diagnostics,
         clientTurnId,
@@ -725,10 +708,9 @@ export async function POST(request: NextRequest) {
       creatorProfileHints,
       diagnosticContext: effectiveDiagnosticContext,
     });
-    const result = finalizeResponseEnvelope(rawResponse);
 
-    console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
-    const resultData = result.data as Record<string, unknown> | undefined;
+    console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", rawResponse.mode);
+    const resultData = rawResponse.data as Record<string, unknown> | undefined;
     const plan = (resultData?.plan || null) as {
       objective?: string;
       angle?: string;
@@ -741,61 +723,39 @@ export async function POST(request: NextRequest) {
     } | null;
     const shouldPromoteThreadTitle = canPromoteThreadTitle({
       currentTitle: storedThread?.title,
-      topicSummary: result.memory.topicSummary,
-      conversationState: result.memory.conversationState,
+      topicSummary: rawResponse.memory.topicSummary,
+      conversationState: rawResponse.memory.conversationState,
     });
+    const validatedPlan =
+      plan &&
+      typeof plan.objective === "string" &&
+      typeof plan.angle === "string" &&
+      (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
+      Array.isArray(plan.mustInclude) &&
+      Array.isArray(plan.mustAvoid) &&
+      typeof plan.hookType === "string" &&
+      typeof plan.pitchResponse === "string"
+        ? {
+            objective: plan.objective,
+            angle: plan.angle,
+            targetLane: plan.targetLane,
+            mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
+            mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
+            hookType: plan.hookType,
+            pitchResponse: plan.pitchResponse,
+            ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
+          }
+        : null;
     const contextualThreadTitle = shouldPromoteThreadTitle
       ? await generateThreadTitle({
-          topicSummary: result.memory.topicSummary,
+          topicSummary: rawResponse.memory.topicSummary,
           recentHistory: recentHistoryStr || "None",
-          plan:
-            plan &&
-            typeof plan.objective === "string" &&
-            typeof plan.angle === "string" &&
-            (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
-            Array.isArray(plan.mustInclude) &&
-            Array.isArray(plan.mustAvoid) &&
-            typeof plan.hookType === "string" &&
-            typeof plan.pitchResponse === "string"
-              ? {
-                  objective: plan.objective,
-                  angle: plan.angle,
-                  targetLane: plan.targetLane,
-                  mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
-                  mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
-                  hookType: plan.hookType,
-                  pitchResponse: plan.pitchResponse,
-                  ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
-                }
-              : null,
+          plan: validatedPlan,
         })
       : null;
-    const {
-      mappedData: mappedDataSeed,
-      responseGroundingMode,
-      responseGroundingExplanation,
-    } = buildChatRouteMappedData({
-      result,
-      plan:
-        plan &&
-        typeof plan.objective === "string" &&
-        typeof plan.angle === "string" &&
-        (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
-        Array.isArray(plan.mustInclude) &&
-        Array.isArray(plan.mustAvoid) &&
-        typeof plan.hookType === "string" &&
-        typeof plan.pitchResponse === "string"
-          ? {
-              objective: plan.objective,
-              angle: plan.angle,
-              targetLane: plan.targetLane,
-              mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
-              mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
-              hookType: plan.hookType,
-              pitchResponse: plan.pitchResponse,
-              ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
-            }
-          : null,
+    const preparedTurn = prepareChatRouteTurn({
+      rawResponse,
+      plan: validatedPlan,
       selectedDraftContext,
       formatPreference,
       isVerifiedAccount,
@@ -806,23 +766,18 @@ export async function POST(request: NextRequest) {
           : null,
       routingDiagnostics: normalizedTurn.diagnostics,
       clientTurnId,
-    });
-    const persistencePlan = buildChatRoutePersistencePlan({
-      mappedDataSeed,
       issuesFixed:
         Array.isArray(resultData?.issuesFixed)
           ? (resultData?.issuesFixed as string[]).filter((value) => typeof value === "string")
           : [],
-      responseGroundingMode,
-      responseGroundingExplanation,
       defaultThreadTitle: DEFAULT_THREAD_TITLE,
       currentThreadTitle: storedThread?.title,
       nextThreadTitle: shouldPromoteThreadTitle ? contextualThreadTitle : null,
-      preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
+      preferredSurfaceMode: rawResponse.memory.preferredSurfaceMode ?? "natural",
       shouldClearReplyWorkflow: shouldResetReplyWorkflow,
     });
     let mappedData = {
-      ...persistencePlan.assistantMessageData,
+      ...preparedTurn.persistencePlan.assistantMessageData,
     };
     let createdAssistantMessageId: string | undefined;
 
@@ -830,19 +785,19 @@ export async function POST(request: NextRequest) {
       const persistenceResult = await persistAssistantTurn({
         threadId: storedThread.id,
         assistantMessageData: mappedData,
-        threadUpdate: persistencePlan.threadUpdate,
+        threadUpdate: preparedTurn.persistencePlan.threadUpdate,
         buildMemoryUpdate: (assistantMessageId) => ({
-          ...(persistencePlan.memoryUpdate.activeDraftVersionId
+          ...(preparedTurn.persistencePlan.memoryUpdate.activeDraftVersionId
             ? {
                 activeDraftRef: {
                   messageId: assistantMessageId,
-                  versionId: persistencePlan.memoryUpdate.activeDraftVersionId,
-                  revisionChainId: persistencePlan.memoryUpdate.revisionChainId ?? null,
+                  versionId: preparedTurn.persistencePlan.memoryUpdate.activeDraftVersionId,
+                  revisionChainId: preparedTurn.persistencePlan.memoryUpdate.revisionChainId ?? null,
                 },
               }
             : {}),
-          preferredSurfaceMode: persistencePlan.memoryUpdate.preferredSurfaceMode,
-          ...(persistencePlan.memoryUpdate.shouldClearReplyWorkflow
+          preferredSurfaceMode: preparedTurn.persistencePlan.memoryUpdate.preferredSurfaceMode,
+          ...(preparedTurn.persistencePlan.memoryUpdate.shouldClearReplyWorkflow
             ? {
                 activeReplyContext: null,
                 activeReplyArtifactRef: null,
@@ -850,14 +805,14 @@ export async function POST(request: NextRequest) {
               }
             : {}),
         }),
-        draftCandidateCreates: persistencePlan.draftCandidateCreates,
+        draftCandidateCreates: preparedTurn.persistencePlan.draftCandidateCreates,
         draftCandidateContext: {
           userId: session.user.id,
           xHandle: activeHandle,
           runId: storedRun?.id ?? null,
           sourcePrompt: effectiveMessage,
           sourcePlaybook: "chat_bundle",
-          outputShape: result.outputShape,
+          outputShape: rawResponse.outputShape,
         },
       });
       applyRuntimePersistenceTracePatch(routingTrace, persistenceResult.tracePatch);
@@ -871,7 +826,7 @@ export async function POST(request: NextRequest) {
     dispatchPlannedProductEvents({
       events: planMainAssistantTurnProductEvents({
         mappedData,
-        analytics: persistencePlan.analytics,
+        analytics: preparedTurn.persistencePlan.analytics,
         explicitIntent: effectiveExplicitIntent,
       }),
       userId: session.user.id,

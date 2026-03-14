@@ -1,8 +1,7 @@
 import type { V2ConversationMemory } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type { NormalizedChatTurnDiagnostics } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
-import type { PlannedReplyTurn } from "../../../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
 import { buildReplyMemorySnapshot } from "../../../../../../../lib/agent-v2/orchestrator/replyTurnPlanner.ts";
-import type { RoutingTrace } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
+import type { PreparedHandledReplyTurn } from "../../../../../../../lib/agent-v2/capabilities/reply/handledReplyTurn.ts";
 import { applyRuntimePersistenceTracePatch } from "../../../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 import { persistAssistantTurn } from "../persistence/routePersistence.ts";
 import {
@@ -13,7 +12,7 @@ import {
 } from "../response/routeResponse.ts";
 
 export interface FinalizeReplyTurnArgs {
-  plannedTurn: PlannedReplyTurn;
+  preparedTurn: PreparedHandledReplyTurn;
   storedMemory: V2ConversationMemory;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   clientTurnId: string | null;
@@ -21,7 +20,6 @@ export interface FinalizeReplyTurnArgs {
   storedThreadId: string | null;
   storedThreadTitle: string | null;
   requestedThreadId: string;
-  routingTrace?: RoutingTrace | null;
   shouldIncludeRoutingTrace?: boolean;
   userId: string;
   activeHandle: string | null;
@@ -64,20 +62,20 @@ export async function finalizeReplyTurnWithDeps(
 ): Promise<Response> {
   const nextMemory = buildReplyMemorySnapshot({
     storedMemory: args.storedMemory,
-    activeReplyContext: args.plannedTurn.activeReplyContext,
-    selectedReplyOptionId: args.plannedTurn.selectedReplyOptionId,
+    activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,
+    selectedReplyOptionId: args.preparedTurn.plannedTurn.selectedReplyOptionId,
   });
   let mappedData = deps.buildReplyAssistantMessageData({
-    reply: args.plannedTurn.reply,
-    outputShape: args.plannedTurn.outputShape,
-    surfaceMode: args.plannedTurn.surfaceMode,
-    quickReplies: args.plannedTurn.quickReplies,
+    reply: args.preparedTurn.plannedTurn.reply,
+    outputShape: args.preparedTurn.plannedTurn.outputShape,
+    surfaceMode: args.preparedTurn.plannedTurn.surfaceMode,
+    quickReplies: args.preparedTurn.plannedTurn.quickReplies,
     memory: nextMemory,
     routingDiagnostics: args.routingDiagnostics,
     clientTurnId: args.clientTurnId,
     threadTitle: args.storedThreadTitle || args.defaultThreadTitle,
-    replyArtifacts: args.plannedTurn.replyArtifacts || null,
-    replyParse: args.plannedTurn.replyParse || null,
+    replyArtifacts: args.preparedTurn.plannedTurn.replyArtifacts || null,
+    replyParse: args.preparedTurn.plannedTurn.replyParse || null,
   });
 
   let createdAssistantMessageId: string | undefined;
@@ -88,23 +86,21 @@ export async function finalizeReplyTurnWithDeps(
       threadUpdate: { updatedAt: new Date() },
       buildMemoryUpdate: (assistantMessageId) => ({
         preferredSurfaceMode: "structured",
-        activeReplyContext: args.plannedTurn.activeReplyContext,
-        activeReplyArtifactRef: args.plannedTurn.replyArtifacts
+        activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,
+        activeReplyArtifactRef: args.preparedTurn.plannedTurn.replyArtifacts
           ? {
               messageId: assistantMessageId,
-              kind: args.plannedTurn.replyArtifacts.kind,
+              kind: args.preparedTurn.plannedTurn.replyArtifacts.kind,
             }
           : null,
         selectedReplyOptionId:
-          args.plannedTurn.selectedReplyOptionId === undefined
+          args.preparedTurn.plannedTurn.selectedReplyOptionId === undefined
             ? null
-            : args.plannedTurn.selectedReplyOptionId,
+            : args.preparedTurn.plannedTurn.selectedReplyOptionId,
       }),
     });
     createdAssistantMessageId = persistenceResult.assistantMessageId;
-    if (args.routingTrace) {
-      applyRuntimePersistenceTracePatch(args.routingTrace, persistenceResult.tracePatch);
-    }
+    applyRuntimePersistenceTracePatch(args.preparedTurn.routingTrace, persistenceResult.tracePatch);
     mappedData = {
       ...mappedData,
       threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
@@ -113,11 +109,11 @@ export async function finalizeReplyTurnWithDeps(
 
   deps.dispatchPlannedProductEvents({
     events: deps.planReplyAssistantTurnProductEvents({
-      eventType: args.plannedTurn.eventType,
-      outputShape: args.plannedTurn.outputShape,
-      surfaceMode: args.plannedTurn.surfaceMode,
-      replyArtifacts: args.plannedTurn.replyArtifacts || null,
-      replyParse: args.plannedTurn.replyParse || null,
+      eventType: args.preparedTurn.plannedTurn.eventType,
+      outputShape: args.preparedTurn.plannedTurn.outputShape,
+      surfaceMode: args.preparedTurn.plannedTurn.surfaceMode,
+      replyArtifacts: args.preparedTurn.plannedTurn.replyArtifacts || null,
+      replyParse: args.preparedTurn.plannedTurn.replyParse || null,
     }),
     userId: args.userId,
     xHandle: args.activeHandle,
@@ -130,8 +126,9 @@ export async function finalizeReplyTurnWithDeps(
     mappedData,
     createdAssistantMessageId,
     newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,
-    routingTrace:
-      args.shouldIncludeRoutingTrace && args.routingTrace ? args.routingTrace : undefined,
+    routingTrace: args.shouldIncludeRoutingTrace
+      ? args.preparedTurn.routingTrace
+      : undefined,
     loadBilling: args.loadBilling,
   });
 }

@@ -1,7 +1,7 @@
 import { normalizeXAvatarUrl } from "./avatarUrl";
 import { readLatestScrapeCaptureByAccount } from "../store/scrapeCaptureStore";
 import type { XPublicProfile } from "../types";
-import { normalizeAccountInput } from "../validation";
+import { normalizeAccountInput } from "../contracts/validation.ts";
 
 const DEFAULT_X_WEB_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
