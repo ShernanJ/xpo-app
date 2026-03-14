@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BackHomeButton } from "@/components/back-home-button";
 import { LegalFooter } from "@/components/legal-footer";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "shernanjavier@gmail.com";
 
@@ -14,6 +15,8 @@ export const metadata: Metadata = {
 };
 
 export default function TermsPage() {
+  const monetizationEnabled = isMonetizationEnabled();
+
   return (
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-3xl">
@@ -42,47 +45,93 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-white">3. Plans, billing, and credits</h2>
-            <p className="mt-2">
-              We offer Free, Pro, and Founder Pass plans. Paid access is billed through Stripe.
-              Credits reset on the active cycle and do not roll over unless we state otherwise.
-            </p>
-            <p className="mt-2">
-              Pro early pricing remains locked while your subscription stays active. If a subscription
-              lapses or is canceled, reactivation may use then-current pricing.
-            </p>
+            <h2 className="text-lg font-semibold text-white">
+              {monetizationEnabled ? "3. Plans, billing, and credits" : "3. Service access and limits"}
+            </h2>
+            {monetizationEnabled ? (
+              <>
+                <p className="mt-2">
+                  We offer Free, Pro, and Founder Pass plans. Paid access is billed through Stripe.
+                  Credits reset on the active cycle and do not roll over unless we state otherwise.
+                </p>
+                <p className="mt-2">
+                  Pro early pricing remains locked while your subscription stays active. If a subscription
+                  lapses or is canceled, reactivation may use then-current pricing.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2">
+                  Access to the Service may vary by environment, rollout stage, product safeguards,
+                  and operational capacity. We may add, remove, or limit features to protect
+                  reliability, safety, and abuse prevention.
+                </p>
+                <p className="mt-2">
+                  Unless we explicitly say otherwise, feature limits and availability are product
+                  rules rather than purchased entitlements.
+                </p>
+              </>
+            )}
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-white">4. Founder Pass and fair use</h2>
-            <p className="mt-2">
-              Founder Pass includes Pro plan limits and monthly Pro credits while Xpo and this plan
-              are offered. We may apply temporary limits or request manual review for extreme or
-              automated usage that risks platform stability or abuse.
-            </p>
-            <p className="mt-2">
-              If Xpo is acquired or this plan is retired, we will honor your purchase with an
-              equivalent plan or account credit.
-            </p>
+            <h2 className="text-lg font-semibold text-white">
+              {monetizationEnabled ? "4. Founder Pass and fair use" : "4. Service changes"}
+            </h2>
+            {monetizationEnabled ? (
+              <>
+                <p className="mt-2">
+                  Founder Pass includes Pro plan limits and monthly Pro credits while Xpo and this plan
+                  are offered. We may apply temporary limits or request manual review for extreme or
+                  automated usage that risks platform stability or abuse.
+                </p>
+                <p className="mt-2">
+                  If Xpo is acquired or this plan is retired, we will honor your purchase with an
+                  equivalent plan or account credit.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2">
+                  We may change, pause, retire, or replace product features at any time. If we do,
+                  we will aim to do so in a way that protects platform stability and account safety.
+                </p>
+                <p className="mt-2">
+                  Some safeguards or manual review steps may apply when usage patterns create abuse,
+                  reliability, or compliance risk.
+                </p>
+              </>
+            )}
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-white">5. Refunds</h2>
-            <p className="mt-2">
-              Subscription purchases may be refundable within 7 days of first purchase if usage is
-              120 credits or less. Founder Pass purchases may be refundable within 72 hours if usage
-              is 60 credits or less. Full details are on the{" "}
-              <Link href="/refund-policy" className="underline">
-                Refund Policy
-              </Link>
-              .
-            </p>
+            <h2 className="text-lg font-semibold text-white">
+              {monetizationEnabled ? "5. Refunds" : "5. Account changes and cancellations"}
+            </h2>
+            {monetizationEnabled ? (
+              <p className="mt-2">
+                Subscription purchases may be refundable within 7 days of first purchase if usage is
+                120 credits or less. Founder Pass purchases may be refundable within 72 hours if usage
+                is 60 credits or less. Full details are on the{" "}
+                <Link href="/refund-policy" className="underline">
+                  Refund Policy
+                </Link>
+                .
+              </p>
+            ) : (
+              <p className="mt-2">
+                You may stop using the Service at any time. We may suspend or remove access if a
+                feature is retired, an environment changes, or continued access creates safety,
+                security, or operational risk.
+              </p>
+            )}
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-white">6. Acceptable use</h2>
             <p className="mt-2">
-              You agree not to abuse the Service, reverse engineer protected systems, bypass plan
+              You agree not to abuse the Service, reverse engineer protected systems, bypass
+              {monetizationEnabled ? " plan" : " service"}
               limits, submit unlawful content, or interfere with platform operations.
             </p>
           </section>
@@ -90,8 +139,10 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">7. Third-party services</h2>
             <p className="mt-2">
-              The Service relies on third parties, including Stripe for billing and model providers
-              for AI processing. Third-party availability or policy changes may affect functionality.
+              The Service relies on third parties, including
+              {monetizationEnabled ? " Stripe for billing," : ""} authentication providers, and
+              model providers for AI processing. Third-party availability or policy changes may
+              affect functionality.
             </p>
           </section>
 
@@ -123,7 +174,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">11. Contact</h2>
             <p className="mt-2">
-              Billing or policy questions:{" "}
+              {monetizationEnabled ? "Billing or policy questions:" : "Policy questions:"}{" "}
               <a className="underline" href={`mailto:${supportEmail}`}>
                 {supportEmail}
               </a>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { BackHomeButton } from "@/components/back-home-button";
 import { LegalFooter } from "@/components/legal-footer";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "shernanjavier@gmail.com";
 
@@ -14,6 +14,8 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPage() {
+  const monetizationEnabled = isMonetizationEnabled();
+
   return (
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-3xl">
@@ -29,8 +31,10 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-white">1. Information we collect</h2>
             <p className="mt-2">
               We collect account details (such as email and profile identifiers), usage data (feature
-              events, credits usage, logs), and workspace data you provide. For paid plans, payment
-              processing data is handled by Stripe.
+              events, workspace activity, and logs), and workspace data you provide.
+              {monetizationEnabled
+                ? " If you purchase paid access, payment processing data is handled by Stripe."
+                : ""}
             </p>
           </section>
 
@@ -47,7 +51,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-white">3. How we use information</h2>
             <p className="mt-2">
               We use data to operate the Service, enforce limits, prevent abuse, improve model
-              quality, provide support, and process billing/refunds.
+              quality, provide support{monetizationEnabled ? ", and process billing/refunds." : "."}
             </p>
           </section>
 
@@ -55,7 +59,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-white">4. Sharing of information</h2>
             <p className="mt-2">
               We share data with service providers needed to run the product (for example hosting,
-              authentication, AI processing, and Stripe billing). We do not sell personal information.
+              authentication, AI processing{monetizationEnabled ? ", and payment processing" : ""}).
+              We do not sell personal information.
             </p>
           </section>
 
@@ -112,7 +117,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-white">11. Contact</h2>
             <p className="mt-2">
-              Privacy or billing questions:{" "}
+              {monetizationEnabled ? "Privacy or billing questions:" : "Privacy questions:"}{" "}
               <a className="underline" href={`mailto:${supportEmail}`}>
                 {supportEmail}
               </a>

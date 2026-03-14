@@ -50,9 +50,11 @@ export function XShell({ children, footerContent, backgroundOverlay }: XShellPro
                       Pricing
                     </Link>
                   ) : null}
-                  <Link href="/refund-policy" className="px-1.5 py-1 transition hover:text-zinc-200">
-                    Refund Policy
-                  </Link>
+                  {monetizationEnabled ? (
+                    <Link href="/refund-policy" className="px-1.5 py-1 transition hover:text-zinc-200">
+                      Refund Policy
+                    </Link>
+                  ) : null}
                   <Link href="/terms" className="px-1.5 py-1 transition hover:text-zinc-200">
                     Terms
                   </Link>

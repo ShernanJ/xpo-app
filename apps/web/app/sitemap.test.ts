@@ -12,6 +12,7 @@ test("omits pricing from the sitemap when monetization is disabled", async () =>
   const urls = sitemap().map((entry) => entry.url);
 
   expect(urls.some((url) => url.endsWith("/pricing"))).toBe(false);
+  expect(urls.some((url) => url.endsWith("/refund-policy"))).toBe(false);
 });
 
 test("includes pricing in the sitemap when monetization is enabled", async () => {
@@ -21,4 +22,5 @@ test("includes pricing in the sitemap when monetization is enabled", async () =>
   const urls = sitemap().map((entry) => entry.url);
 
   expect(urls.some((url) => url.endsWith("/pricing"))).toBe(true);
+  expect(urls.some((url) => url.endsWith("/refund-policy"))).toBe(true);
 });

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { notFound } from "next/navigation";
 import { BackHomeButton } from "@/components/back-home-button";
 import { LegalFooter } from "@/components/legal-footer";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "shernanjavier@gmail.com";
 
@@ -14,6 +15,10 @@ export const metadata: Metadata = {
 };
 
 export default function RefundPolicyPage() {
+  if (!isMonetizationEnabled()) {
+    notFound();
+  }
+
   return (
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-3xl">

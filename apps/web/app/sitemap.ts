@@ -23,13 +23,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     });
   }
 
-  urls.push(
-    {
+  if (isMonetizationEnabled()) {
+    urls.push({
       url: `${siteUrl}/refund-policy`,
       lastModified: now,
       changeFrequency: "monthly",
       priority: 0.5,
-    },
+    });
+  }
+
+  urls.push(
     {
       url: `${siteUrl}/terms`,
       lastModified: now,
