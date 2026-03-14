@@ -49,6 +49,11 @@ export function ChatHero(props: ChatHeroProps) {
       ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
       : "translate-y-0 scale-100 opacity-100 blur-0"
   }`;
+  const heroComposerMotionClassName = `mt-3 transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+    isLeavingHero
+      ? "translate-y-10 scale-[0.97] opacity-0 blur-[2px] pointer-events-none"
+      : "translate-y-0 scale-100 opacity-100 blur-0"
+  }`;
   const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${
     isLeavingHero ? "-translate-y-4 opacity-0 blur-[2px]" : "translate-y-0 opacity-100 blur-0"
   }`;
@@ -86,7 +91,7 @@ export function ChatHero(props: ChatHeroProps) {
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="mt-3">
+        <form onSubmit={onSubmit} className={heroComposerMotionClassName}>
           <div className={heroInlineComposerSurfaceClassName}>
             <textarea
               value={draftInput}
