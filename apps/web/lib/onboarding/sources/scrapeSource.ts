@@ -2,7 +2,7 @@ import { resolveFreshOnboardingProfilePreview } from "../profilePreview";
 import {
   isScrapeCaptureExpired,
   readLatestScrapeCaptureByAccount,
-} from "../scrapeStore";
+} from "../store/scrapeCaptureStore";
 import type { OnboardingInput } from "../types";
 import { bootstrapScrapeCapture } from "./scrapeBootstrap";
 import type { OnboardingDataSource } from "./types";

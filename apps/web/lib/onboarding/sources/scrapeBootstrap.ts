@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "path";
 import { promisify } from "util";
 
-import { importUserTweetsPayload } from "../importScrapePayload";
-import { parseUserTweetsGraphqlPayload } from "../scrapeUserTweetsParser";
-import { readLatestScrapeCaptureByAccount } from "../scrapeStore";
+import { readLatestScrapeCaptureByAccount } from "../store/scrapeCaptureStore";
 import type { XPublicPost } from "../types";
+import { importUserTweetsPayload } from "./importScrapePayload";
+import { parseUserTweetsGraphqlPayload } from "./scrapeUserTweetsParser";
 
 const execFileAsync = promisify(execFile);
 

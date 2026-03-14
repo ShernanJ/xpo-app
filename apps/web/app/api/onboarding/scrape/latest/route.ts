@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { normalizeScrapeAccount } from "@/lib/onboarding/scrapeUserTweetsParser";
+import { normalizeScrapeAccount } from "@/lib/onboarding/sources/scrapeUserTweetsParser";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/scrapeStore";
 
 export async function GET(request: Request) {

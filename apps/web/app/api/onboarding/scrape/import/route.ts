@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { importUserTweetsPayload } from "@/lib/onboarding/importScrapePayload";
+import { importUserTweetsPayload } from "@/lib/onboarding/sources/importScrapePayload";
 
 interface ScrapeImportBody {
   account?: unknown;

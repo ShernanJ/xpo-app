@@ -2,7 +2,7 @@ import {
   fetchXPublicProfile,
   fetchXRecentPosts,
   hasXApiCredentials,
-} from "../xApi";
+} from "./xApi";
 import type { OnboardingInput } from "../types";
 import type { OnboardingDataSource } from "./types";
 
