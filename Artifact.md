@@ -6,6 +6,7 @@
 - Migration style: staged strangler
 - Last updated: 2026-03-14
 - Current slice: Persisted-state tracing is now landed on the main chat route; the immediate follow-on is reply-path trace unification without inventing fake end-to-end traces
+- Current architecture tracks also include backend/lib and API folder-structure cleanup so new runtime work does not recreate flat backend monoliths
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -21,6 +22,44 @@ Current hotspots:
 - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
 
 The program goal is to make the system feel like one natural ChatGPT-style assistant on the surface while being explicit, typed, and deterministic underneath.
+
+## Frontend architecture track
+- Route roots should be orchestration entrypoints, not flat dumping grounds for every helper, component, and test.
+- Complex routes now target private folders for route-local implementation:
+  - `_features`
+  - `_dialogs`
+  - `_components`
+  - `_hooks`
+  - `_lib`
+- Shared interactive primitives belong in `apps/web/components/ui`.
+- Frontend testing now has an explicit long-term split:
+  - `node:test` for pure state modules
+  - Vitest + React Testing Library for synchronous client components
+  - Playwright for route behavior and accessibility-critical flows
+
+## Backend/lib and API architecture track
+- `apps/web/lib` should scale by domain and ownership boundary, not by one large shared helper layer.
+- `apps/web/lib/agent-v2/orchestrator/` is transitional and should shrink over time into control-plane composition only.
+- New runtime work should trend toward:
+  - `contracts/`
+  - `runtime/`
+  - `core/`
+  - capability-sliced execution folders
+  - worker folders
+  - validator folders
+  - infra adapters kept outside workflow policy
+- `apps/web/app/api` route roots should stay thin and delegate feature-local boundary work to route helpers or route-private folders.
+- Route modules should not become a parallel home for runtime policy that belongs in `apps/web/lib`.
+- Concrete target map now in force:
+  - `apps/web/lib/agent-v2/contracts`, `runtime`, `core`, `memory`, and `agents` remain stable top-level homes
+  - new workflow-local code should trend toward `capabilities/ideation`, `capabilities/planning`, `capabilities/drafting`, `capabilities/revision`, `capabilities/reply`, and `capabilities/analysis`
+  - new fan-out helpers should trend toward `workers/context`, `workers/retrieval`, `workers/candidates`, and `workers/validation`
+  - new deterministic validators should trend toward `validators/draft`, `validators/revision`, and `validators/shared`
+  - `apps/web/app/api/creator/v2/chat` should trend toward thin route roots plus `_lib/normalization`, `_lib/request`, `_lib/persistence`, `_lib/response`, `_lib/reply`, and optional `_tests`
+- Migration rule:
+  - extract new seams into their target home when touched
+  - avoid broad move-only churn
+  - let `orchestrator/` and heavy `route.ts` files shrink incrementally behind tests
 
 ## Architecture principles
 - One top-level runtime owner decides the workflow before any model call.
@@ -100,31 +139,36 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Multi-handle isolation remains required behavior.
 
 ## Transitional notes
-- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline and now delegates chat result parsing/state planning through `apps/web/app/chat/chatTransport.ts` and `apps/web/app/chat/chatReplyState.ts`.
+- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline and now delegates chat result parsing/state planning through `apps/web/app/chat/_features/transport/chatTransport.ts` and `apps/web/app/chat/_features/reply/chatReplyState.ts`.
 - The main chat page has been thinned further by extracting page-local client seams into dedicated helpers:
   - workspace/session/composer:
-    - `apps/web/app/chat/chatWorkspaceState.ts`
-    - `apps/web/app/chat/chatComposerState.ts`
-    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceState.ts`
+    - `apps/web/app/chat/_features/composer/chatComposerState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceLoadState.ts`
   - draft editor/session/persistence/preview/action/history:
-    - `apps/web/app/chat/chatDraftEditorState.ts`
-    - `apps/web/app/chat/chatDraftSessionState.ts`
-    - `apps/web/app/chat/chatDraftPersistenceState.ts`
-    - `apps/web/app/chat/chatDraftPreviewState.ts`
-    - `apps/web/app/chat/chatDraftActionState.ts`
-    - `apps/web/app/chat/chatThreadHistoryState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftEditorState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftSessionState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
+    - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
   - preview presentation:
-    - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
 - The latest frontend hygiene pass also started normalizing large UI surfaces around explicit composition and accessible primitives:
-  - `apps/web/app/chat/ChatMessageRow.tsx`
-  - `apps/web/app/chat/DraftEditorDock.tsx`
+  - `apps/web/app/chat/_features/thread-history/ChatMessageRow.tsx`
+  - `apps/web/app/chat/_features/draft-editor/DraftEditorDock.tsx`
   - `apps/web/components/ui/dialog.tsx`
-  - `apps/web/app/pricing/BillingCadenceToggle.tsx`
+  - `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
 - That pass kept product behavior stable while fixing workspace-scoped client callbacks, semantic draft-preview interactions, dialog accessibility, and login/pricing control semantics.
 - Frontend follow-on work in this slice should keep using the installed skills:
   - `vercel-react-best-practices`
   - `vercel-composition-patterns`
   - `web-design-guidelines`
+- Route-local file organization is now part of the architecture story, not just cleanup:
+  - `apps/web/app/chat` keeps only route entry files at the root
+  - feature code lives under `apps/web/app/chat/_features/*`
+  - route-scoped dialogs live under `apps/web/app/chat/_dialogs/*`
+  - route-scoped presentational components live under `apps/web/app/chat/_components/*`
 - `apps/web/app/chat/page.tsx` still owns too much async orchestration and some large presentational surfaces to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
@@ -174,20 +218,20 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ### Phase 2: Thin the client and route
 - Landed:
-  - main chat turn-resolution and transport payload construction now flow through `apps/web/app/chat/chatTransport.ts`
-  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning now flow through `apps/web/app/chat/chatReplyState.ts`
+  - main chat turn-resolution and transport payload construction now flow through `apps/web/app/chat/_features/transport/chatTransport.ts`
+  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning now flow through `apps/web/app/chat/_features/reply/chatReplyState.ts`
   - workspace/session/composer client seams now flow through dedicated client helpers:
-    - `apps/web/app/chat/chatWorkspaceState.ts`
-    - `apps/web/app/chat/chatComposerState.ts`
-    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceState.ts`
+    - `apps/web/app/chat/_features/composer/chatComposerState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceLoadState.ts`
   - draft editor/session/persistence/preview/action/history client seams now flow through dedicated client helpers:
-    - `apps/web/app/chat/chatDraftEditorState.ts`
-    - `apps/web/app/chat/chatDraftSessionState.ts`
-    - `apps/web/app/chat/chatDraftPersistenceState.ts`
-    - `apps/web/app/chat/chatDraftPreviewState.ts`
-    - `apps/web/app/chat/chatDraftActionState.ts`
-    - `apps/web/app/chat/chatThreadHistoryState.ts`
-  - inline draft preview presentation now flows through `apps/web/app/chat/chatDraftPreviewCard.tsx`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftEditorState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftSessionState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
+    - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
+  - inline draft preview presentation now flows through `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
@@ -196,6 +240,9 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Reduce `apps/web/app/api/creator/v2/chat/route.ts` to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
 - Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.
 - Status: complete with accepted migration debt in page-local workspace/session/composer state and reply-control flow.
+- Route-structure follow-on:
+  - continue shrinking heavy route entrypoints through route-boundary helpers and route-private folders
+  - keep workflow policy in `apps/web/lib` while route modules own only API-boundary concerns
 
 ### Phase 3: Split capability execution
 - Shared capability contract types are already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
@@ -255,6 +302,15 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 ### Phase 5: Validation and retry
 - Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.
 - Retry once inside the same workflow before any surface cleanup.
+- Use this phase to place new validation work directly in the target structure:
+  - `validators/*` for deterministic validators and retry constraints
+  - `workers/validation/*` for worker-plane adapters
+  - `apps/web/app/api/creator/v2/chat/_lib/*` for route-boundary glue
+- Active move order:
+  1. place new validation work in `validators/*` and `workers/validation/*`
+  2. place new route-boundary helpers in `apps/web/app/api/creator/v2/chat/_lib/*`
+  3. move touched capability-local helpers into `capabilities/*`
+  4. shrink `draftPipeline.ts` and `route.ts` after their helper seams have stable homes
 - Status: not started.
 
 ### Phase 6: Rollout and deletion
@@ -304,10 +360,13 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 ## Recent chat-client paydown
 - Highest-ROI page-local state seams were extracted from `apps/web/app/chat/page.tsx` and pinned with focused tests.
 - Shared UI primitives now own more of the client presentation contract:
-  - chat message row rendering in `apps/web/app/chat/ChatMessageRow.tsx`
-  - draft-editor dock layout variants in `apps/web/app/chat/DraftEditorDock.tsx`
+  - chat message row rendering in `apps/web/app/chat/_features/thread-history/ChatMessageRow.tsx`
+  - draft-editor dock layout variants in `apps/web/app/chat/_features/draft-editor/DraftEditorDock.tsx`
   - dialog accessibility/focus behavior in `apps/web/components/ui/dialog.tsx`
-  - pricing cadence semantics in `apps/web/app/pricing/BillingCadenceToggle.tsx`
+  - pricing cadence semantics in `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
+- Frontend enforcement is now partly automated:
+  - `pnpm run test:ui`
+  - `pnpm run test:e2e`
 - The remaining step from the most recent local pass is reassessment, not a required architectural follow-on.
 - If the next agent continues thinning the client, the best remaining candidates are:
   - additional presentational extraction from the draft editor surface

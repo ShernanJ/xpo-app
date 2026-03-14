@@ -50,16 +50,74 @@ User turn
 - As of 2026-03-14, the chat/pricing/login UI is also in an active frontend hygiene pass to follow better React composition, accessibility, and Vercel-style rendering practices without changing transport or backend behavior.
 - The latest UI pass landed:
   - workspace-scoped feedback/source-material callback fixes in `apps/web/app/chat/page.tsx`
-  - message-row extraction in `apps/web/app/chat/ChatMessageRow.tsx`
-  - explicit draft-editor dock variants in `apps/web/app/chat/DraftEditorDock.tsx`
-  - semantic draft preview interaction cleanup in `apps/web/app/chat/chatDraftPreviewCard.tsx`
-  - a shared accessible dialog primitive in `apps/web/components/ui/dialog.tsx`, now used by `apps/web/app/chat/ObservedMetricsModal.tsx`
-  - a semantic billing cadence control in `apps/web/app/pricing/BillingCadenceToggle.tsx`
-  - login label/focus cleanup in `apps/web/app/login/login-form.tsx`
+  - message-row extraction in `apps/web/app/chat/_features/thread-history/ChatMessageRow.tsx`
+  - explicit draft-editor dock variants in `apps/web/app/chat/_features/draft-editor/DraftEditorDock.tsx`
+  - semantic draft preview interaction cleanup in `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
+  - a shared accessible dialog primitive in `apps/web/components/ui/dialog.tsx`, now used by `apps/web/app/chat/_dialogs/ObservedMetricsModal.tsx`
+  - a semantic billing cadence control in `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
+  - login label/focus cleanup in `apps/web/app/login/_components/LoginForm.tsx`
 - When touching frontend code in this slice, explicitly use the installed skills:
   - `vercel-react-best-practices` for React/Next performance and state patterns
   - `vercel-composition-patterns` for component extraction and variant cleanup
   - `web-design-guidelines` for accessibility and interaction semantics
+
+## Frontend operating model
+- Keep route roots thin. In complex routes, only keep route entry files like `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, and route handlers at the route root.
+- Route-local implementation belongs in private folders:
+  - `_features`
+  - `_dialogs`
+  - `_components`
+  - `_hooks`
+  - `_lib`
+- Keep tests with the feature they cover unless the test is Playwright route coverage.
+- Shared UI primitives belong in `apps/web/components/ui`.
+- Frontend verification is now layered:
+  - `pnpm run test:ui`
+  - `pnpm run test:e2e`
+  - keep `node:test` for pure state modules
+
+## Backend/lib and API operating model
+- Keep `apps/web/lib` domain-first and avoid adding broad catch-all helpers at the root of a domain.
+- Inside `apps/web/lib/agent-v2`, prefer stable ownership boundaries:
+  - `contracts/` for transport and shared external contracts
+  - `runtime/` for workflow resolution, trace, and shared executor contracts
+  - `core/` for pure policy and business logic
+  - capability-sliced execution folders, worker folders, and validator folders as the long-term target for new runtime seams
+  - `agents/` for model-facing prompt and generation workers
+- Treat `apps/web/lib/agent-v2/orchestrator/` as transitional. It is still the migration home for many seams, but new work should not expand it casually when a more specific long-term folder is clear.
+- Keep `apps/web/app/api` route roots thin:
+  - `route.ts` is the entrypoint
+  - route-boundary helpers own persistence, response assembly, and feature-local API wiring
+  - workflow policy and validator policy belong in `apps/web/lib`, not in route modules
+- When a route grows beyond an entrypoint, prefer focused route helpers or route-private folders over a larger flat route directory.
+
+## Target folder map
+### `apps/web/lib/agent-v2`
+- `contracts/`: transport and externally shared contracts
+- `runtime/`: workflow resolution, runtime trace, and shared executor contracts
+- `core/`: pure reusable policy and business logic
+- `memory/`: memory retrieval and salience/summary logic
+- `agents/`: model-facing workers and prompt contracts
+- `capabilities/ideation/`: ideation-only execution and helpers
+- `capabilities/planning/`: planning-only execution and helpers
+- `capabilities/drafting/`: drafting, bundle generation, and draft workflow composition
+- `capabilities/revision/`: revising execution and revision-only helpers
+- `capabilities/reply/`: reply execution, reply planning, and reply artifact logic
+- `capabilities/analysis/`: analysis execution and analysis-only helpers
+- `workers/context/`, `workers/retrieval/`, `workers/candidates/`, `workers/validation/`: read-only worker-plane helpers grouped by job
+- `validators/draft/`, `validators/revision/`, `validators/shared/`: deterministic validators and retry-constraint builders
+- `orchestrator/`: transitional control-plane composition only
+
+### `apps/web/app/api/creator/v2/chat`
+- route root:
+  - `route.ts`
+  - `welcome/route.ts`
+- `_lib/normalization/`: turn normalization and request-to-runtime conversion
+- `_lib/request/`: idempotency and route-only request helpers
+- `_lib/persistence/`: route-boundary persistence helpers
+- `_lib/response/`: response-envelope helpers
+- `_lib/reply/`: reply finalization and reply-only route-boundary wiring
+- `_tests/`: route-boundary integration coverage if root-level test files become noisy
 
 ## Current ownership boundaries
 ### Transport
@@ -114,31 +172,35 @@ User turn
   - persistence
   - response envelope
 - Anything beyond that is migration debt.
+- Route-structure guardrail:
+  - keep route entrypoints readable and thin
+  - add route-boundary helpers or route-private folders before adding more feature logic to `route.ts`
+  - do not move capability logic out of `apps/web/lib` just because the route currently calls it
 
 ### Client boundary
 - `apps/web/app/chat/page.tsx`
 - Current reality:
-  - main chat turn-resolution and transport payload construction now delegate through `apps/web/app/chat/chatTransport.ts`
-  - main chat result parsing, assistant-message assembly, reply outcome planning, draft-editor follow-up selection, and thread remap planning now delegate through `apps/web/app/chat/chatReplyState.ts`
+  - main chat turn-resolution and transport payload construction now delegate through `apps/web/app/chat/_features/transport/chatTransport.ts`
+  - main chat result parsing, assistant-message assembly, reply outcome planning, draft-editor follow-up selection, and thread remap planning now delegate through `apps/web/app/chat/_features/reply/chatReplyState.ts`
   - page-local client seams now delegate through dedicated helpers/modules:
     - workspace/session/composer:
-      - `apps/web/app/chat/chatWorkspaceState.ts`
-      - `apps/web/app/chat/chatComposerState.ts`
-      - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+      - `apps/web/app/chat/_features/workspace/chatWorkspaceState.ts`
+      - `apps/web/app/chat/_features/composer/chatComposerState.ts`
+      - `apps/web/app/chat/_features/workspace/chatWorkspaceLoadState.ts`
     - draft editor/session/persistence/preview/action/history:
-      - `apps/web/app/chat/chatDraftEditorState.ts`
-      - `apps/web/app/chat/chatDraftSessionState.ts`
-      - `apps/web/app/chat/chatDraftPersistenceState.ts`
-      - `apps/web/app/chat/chatDraftPreviewState.ts`
-      - `apps/web/app/chat/chatDraftActionState.ts`
-      - `apps/web/app/chat/chatThreadHistoryState.ts`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftEditorState.ts`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftSessionState.ts`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftPersistenceState.ts`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewState.ts`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
+      - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
     - inline preview presentation:
-      - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+      - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
     - UI primitives and presentational extraction:
-      - `apps/web/app/chat/ChatMessageRow.tsx`
-      - `apps/web/app/chat/DraftEditorDock.tsx`
+      - `apps/web/app/chat/_features/thread-history/ChatMessageRow.tsx`
+      - `apps/web/app/chat/_features/draft-editor/DraftEditorDock.tsx`
       - `apps/web/components/ui/dialog.tsx`
-      - `apps/web/app/pricing/BillingCadenceToggle.tsx`
+      - `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
   - the page is thin enough for the Phase 2 boundary cleanup, but not yet a fully ideal transport/view boundary
 - Target architecture ownership:
   - view state
@@ -196,6 +258,15 @@ User turn
 - client-side hidden prompts deciding workflow
 - cleanup regexes standing in for validator + retry
 
+## Folder-structure guardrails
+- Do not grow `apps/web/lib/agent-v2/orchestrator/` as a permanent catch-all.
+- Do not grow `apps/web/app/api/.../route.ts` as a permanent catch-all.
+- New validator work should prefer validator-specific modules.
+- New worker fan-out should prefer worker-specific modules.
+- New capability-local helpers should live with the capability they support.
+- Route-only persistence and response wiring should stay at the route boundary and not drift into shared runtime folders.
+- When touching existing `orchestrator/*` or route-boundary helpers, move the touched seam toward the target folder map instead of creating another transitional bucket.
+
 ## Workflow invariants
 - `recentHistory` is transcript-only.
 - Structured UI actions must use `turnSource + artifactContext`.
@@ -249,18 +320,18 @@ User turn
 
 ### Chat client thinning
 - If you are debugging client-only chat behavior first inspect:
-  - `apps/web/app/chat/chatTransport.ts`
-  - `apps/web/app/chat/chatReplyState.ts`
-  - `apps/web/app/chat/chatWorkspaceState.ts`
-  - `apps/web/app/chat/chatComposerState.ts`
-  - `apps/web/app/chat/chatDraftEditorState.ts`
-  - `apps/web/app/chat/chatDraftSessionState.ts`
-  - `apps/web/app/chat/chatDraftPersistenceState.ts`
-  - `apps/web/app/chat/chatDraftPreviewState.ts`
-  - `apps/web/app/chat/chatDraftActionState.ts`
-  - `apps/web/app/chat/chatThreadHistoryState.ts`
-  - `apps/web/app/chat/chatWorkspaceLoadState.ts`
-  - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+  - `apps/web/app/chat/_features/transport/chatTransport.ts`
+  - `apps/web/app/chat/_features/reply/chatReplyState.ts`
+  - `apps/web/app/chat/_features/workspace/chatWorkspaceState.ts`
+  - `apps/web/app/chat/_features/composer/chatComposerState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftEditorState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftSessionState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftPersistenceState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
+  - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
+  - `apps/web/app/chat/_features/workspace/chatWorkspaceLoadState.ts`
+  - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
 - Reach for `apps/web/app/chat/page.tsx` after those helpers, because many of the highest-risk state transitions have been centralized already.
 
 ### Validation failures
@@ -329,16 +400,18 @@ User turn
 - `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/runtimeContracts.test.ts`
 
 ### Targeted chat-client checks
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatReplyState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatWorkspaceState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatComposerState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftEditorState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftSessionState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftPersistenceState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftPreviewState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatDraftActionState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatThreadHistoryState.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/chatWorkspaceLoadState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/reply/chatReplyState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/workspace/chatWorkspaceState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/composer/chatComposerState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/draft-editor/chatDraftEditorState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/draft-editor/chatDraftSessionState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/draft-editor/chatDraftPersistenceState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/draft-editor/chatDraftPreviewState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/draft-editor/chatDraftActionState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/thread-history/chatThreadHistoryState.test.ts`
+- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/chat/_features/workspace/chatWorkspaceLoadState.test.ts`
+- `pnpm run test:ui`
+- `pnpm run test:e2e:list`
 
 ## Manual QA checklist
 ### Ideation to draft

@@ -18,6 +18,9 @@ Transitional note:
 
 Current active slice:
 - Persisted-state tracing at the route boundary
+- Frontend architecture track: route-private folders, shared UI primitives, and a dedicated frontend test stack
+- Backend/lib architecture track: domain-first folders, thin orchestration entrypoints, and explicit seams between contracts, control flow, workers, validators, and infra
+- API architecture track: thin route entrypoints, route-boundary helpers, and feature-owned route-private folders
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -45,6 +48,100 @@ Current active slice:
   - artifact persistence
   - thread metadata
   - product-event logging
+
+## Frontend Architecture Track
+- Keep App Router route roots thin: only route entry files stay at the route root; route-local implementation moves into private folders.
+- Organize frontend code by feature slice first, not by one flat route folder.
+- Shared primitives live in `apps/web/components/ui`; route-specific state and UI stay inside the route unless they are truly reused.
+- Frontend work in this program must use `vercel-react-best-practices`, `vercel-composition-patterns`, and `web-design-guidelines`.
+- Frontend testing is now split by layer:
+  - pure state modules stay on `node:test`
+  - synchronous client components use Vitest + React Testing Library
+  - route behavior uses Playwright
+
+## Backend/Lib Architecture Track
+- Keep `apps/web/lib` organized by domain first, not by one large shared utility layer.
+- Inside each domain, separate stable contracts and pure logic from orchestration and infra concerns.
+- For `apps/web/lib/agent-v2`, the long-term target is:
+  - `contracts/`: transport and API-facing contracts only
+  - `runtime/`: workflow resolution, runtime trace, and shared execution contracts
+  - `core/`: pure business rules and reusable policy logic
+  - `capabilities/`: workflow-sliced execution modules such as draft, revision, reply, analysis, ideation, and planning
+  - `workers/`: read-only parallel worker helpers
+  - `validators/`: deterministic validation and retry helpers
+  - `memory/`: memory retrieval, salience, and summary management
+  - `agents/`: model-facing prompt builders and worker implementations
+- The current `orchestrator/` folder is transitional and still too broad; the target state is for it to shrink into control-plane composition only.
+- Backend migrations should prefer seam extraction and import redirection first, then directory moves once ownership is clear.
+- Avoid repo-wide folder churn during active behavior slices unless the touched area already needs extraction for correctness or testability.
+- Concrete target map for `apps/web/lib/agent-v2`:
+  - `contracts/`
+    - transport and shared external contracts such as `chatTransport.ts`, `chat.ts`, and `turnContract.ts`
+  - `runtime/`
+    - workflow resolution, runtime trace, and shared execution contracts such as `resolveRuntimeAction.ts`, `runtimeContracts.ts`, and `runtimeTrace.ts`
+  - `core/`
+    - pure reusable policy modules such as novelty, planner normalization, draft policy, retrieval, and style-profile logic
+  - `memory/`
+    - retrieval, salience, summary, and turn-scoped memory modules
+  - `agents/`
+    - model-facing workers, prompt builders, and structured prompt contracts
+  - `capabilities/ideation/`
+    - ideation execution plus ideation-only reply and quick-reply helpers
+  - `capabilities/planning/`
+    - planning execution plus planner feedback, quick replies, and plan-presentation helpers
+  - `capabilities/drafting/`
+    - drafting execution, bundle generation, replanning-to-draft continuation, draft grounding, draft helpers, and the eventual slimmed-down draft workflow composition module
+  - `capabilities/revision/`
+    - revising execution plus revision-only helper logic
+  - `capabilities/reply/`
+    - reply execution, reply continuation planning, reply turn logic, and reply turn planning
+  - `capabilities/analysis/`
+    - analysis execution and analysis-only helpers
+  - `workers/context/`
+    - context and hydration fan-out helpers
+  - `workers/retrieval/`
+    - read-only retrieval fan-out helpers
+  - `workers/candidates/`
+    - candidate-generation fan-out helpers
+  - `workers/validation/`
+    - worker-plane validation fan-out helpers
+  - `validators/draft/`, `validators/revision/`, and `validators/shared/`
+    - deterministic validators and retry-constraint builders
+- Current-file mapping rule:
+  - when touching `apps/web/lib/agent-v2/orchestrator/*`, prefer extracting into one of the target folders above instead of adding another broad orchestrator helper unless the file is still truly control-plane composition
+
+## API Architecture Track
+- Keep `apps/web/app/api` route roots thin: route entry files should primarily handle auth, ownership, input normalization, runtime dispatch, persistence orchestration, and response assembly.
+- Move route-local implementation into focused route-boundary helpers or route-private folders instead of growing large `route.ts` files.
+- For complex route areas such as `apps/web/app/api/creator/v2/chat`, the long-term target is:
+  - `route.ts`: entrypoint only
+  - `turnNormalization.ts`: transport-to-runtime conversion only
+  - `route.persistence.ts`: persistence boundary only
+  - `route.response.ts`: response-envelope assembly only
+  - `route.*` helpers or route-private folders for feature-local boundary logic that should not leak into `apps/web/lib`
+- Route modules should not become an alternate home for workflow policy, validator policy, or capability logic that belongs in `apps/web/lib`.
+- API migrations should follow the same rule as backend/lib migrations:
+  - extract seams first
+  - move files second
+  - keep changes incremental and test-backed
+- Concrete target map for `apps/web/app/api/creator/v2/chat`:
+  - route root:
+    - `route.ts`
+    - `welcome/route.ts`
+  - `_lib/normalization/`
+    - `turnNormalization.ts` and normalization-only helpers
+  - `_lib/request/`
+    - idempotency, request assembly, and route-only request helpers such as `route.idempotency.ts` and any remaining `route.logic.ts` seams that are truly API-boundary concerns
+  - `_lib/persistence/`
+    - `route.persistence.ts` plus route-only persistence helpers
+  - `_lib/response/`
+    - `route.response.ts` plus success and error envelope helpers
+  - `_lib/reply/`
+    - `route.replyFinalize.ts` and reply-only route-boundary wiring
+  - `_tests/`
+    - route-focused integration and boundary tests when root-level route test files stop scaling
+- Current-file mapping rule:
+  - new code in `apps/web/app/api/creator/v2/chat/route.ts` should stay limited to entrypoint control flow; feature-local route work should land in `_lib/*` instead of expanding the route file
 
 ## Documentation Rework
 ### `Artifact.md`
@@ -108,29 +205,38 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - post-orchestrator response mapping and persistence prep live in route-boundary helpers instead of being fully hand-assembled inline in the route.
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
   - reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/route.response.ts` instead of being assembled inline in `route.ts`.
-  - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/chatTransport.ts` instead of building the chat request inline.
-- `apps/web/app/chat/page.tsx` now delegates chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning through `apps/web/app/chat/chatReplyState.ts`.
+  - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/_features/transport/chatTransport.ts` instead of building the chat request inline.
+- `apps/web/app/chat/page.tsx` now delegates chat result parsing, assistant-message assembly, draft-editor follow-up selection, reply outcome planning, and thread remap planning through `apps/web/app/chat/_features/reply/chatReplyState.ts`.
 - `apps/web/app/chat/page.tsx` now delegates page-local client seams through dedicated helpers/modules:
   - workspace/session/composer lifecycle:
-    - `apps/web/app/chat/chatWorkspaceState.ts`
-    - `apps/web/app/chat/chatComposerState.ts`
-    - `apps/web/app/chat/chatWorkspaceLoadState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceState.ts`
+    - `apps/web/app/chat/_features/composer/chatComposerState.ts`
+    - `apps/web/app/chat/_features/workspace/chatWorkspaceLoadState.ts`
   - draft editor/session/persistence/preview/action/history:
-    - `apps/web/app/chat/chatDraftEditorState.ts`
-    - `apps/web/app/chat/chatDraftSessionState.ts`
-    - `apps/web/app/chat/chatDraftPersistenceState.ts`
-    - `apps/web/app/chat/chatDraftPreviewState.ts`
-    - `apps/web/app/chat/chatDraftActionState.ts`
-    - `apps/web/app/chat/chatThreadHistoryState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftEditorState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftSessionState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPersistenceState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewState.ts`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
+    - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
   - presentational preview surface:
-    - `apps/web/app/chat/chatDraftPreviewCard.tsx`
+    - `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
 - The current client-thinning pass also includes UI-practice cleanup without changing transport/runtime ownership:
-  - `apps/web/app/chat/ChatMessageRow.tsx`
-  - `apps/web/app/chat/DraftEditorDock.tsx`
+  - `apps/web/app/chat/_features/thread-history/ChatMessageRow.tsx`
+  - `apps/web/app/chat/_features/draft-editor/DraftEditorDock.tsx`
   - `apps/web/components/ui/dialog.tsx`
-  - `apps/web/app/pricing/BillingCadenceToggle.tsx`
-  - `apps/web/app/chat/ObservedMetricsModal.tsx`
-  - `apps/web/app/login/login-form.tsx`
+  - `apps/web/app/pricing/_components/BillingCadenceToggle.tsx`
+  - `apps/web/app/chat/_dialogs/ObservedMetricsModal.tsx`
+  - `apps/web/app/login/_components/LoginForm.tsx`
+- Route-local folder convention is now part of the frontend target state:
+  - `apps/web/app/chat/_features/*`
+  - `apps/web/app/chat/_dialogs/*`
+  - `apps/web/app/chat/_components/*`
+  - `apps/web/app/pricing/_components/*`
+  - `apps/web/app/login/_components/*`
+- Frontend test stack is now part of Phase 2 instead of deferred architecture debt:
+  - `pnpm run test:ui`
+  - `pnpm run test:e2e`
 - For frontend work in this slice, agents should explicitly use:
   - `vercel-react-best-practices`
   - `vercel-composition-patterns`
@@ -145,6 +251,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - persistence
   - response envelope
 - Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.
+- Route-structure follow-on for this phase:
+  - use focused route-boundary helpers or route-private folders when a route starts mixing entrypoint logic with feature-local implementation
+  - do not let `route.ts` become a catch-all for reply planning, persistence patching, validation policy, or product-event shaping when those seams can be isolated cleanly
 
 ### Phase 3: Split capability execution
 - Shared executor contract is partially landed already in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`; the remaining work is moving capability execution onto it cleanly.
@@ -168,6 +277,10 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `CapabilityExecutionResult`
   - `RuntimeValidationResult`
   - `activeContextRefs` belongs here, not on the normalized turn
+- Follow-on backend/lib structure target for this phase:
+  - move workflow-specific execution helpers toward capability-sliced folders
+  - keep `draftPipeline.ts` and any eventual successor as composition/orchestration, not as the home for validators, retry policy, or feature-local helper sprawl
+  - prefer colocating capability tests with the capability slice they exercise
 
 ### Phase 4: Formalize the parallel worker plane
 - Allow parallelism only inside a chosen workflow for:
@@ -218,6 +331,39 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Reply seam-audit regression landed:
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the absence of `route.reply.ts` / `reply.logic.ts` and requires route-internal reply consumers to import the runtime-owned reply modules directly
   - this turns the last Phase 4 reply-boundary audit into an automated guardrail, so shim-based ownership drift cannot silently return
+
+### Phase 5: Validation, retry, and backend/lib consolidation
+- Goal:
+  - make validation and retry the primary quality gate for draft/revision/reply flows
+  - stop relying on cleanup heuristics as the main fix for malformed outputs
+  - use the same phase to establish a scalable backend/lib folder strategy for agent runtime code
+- Phase 5A active slice:
+  - backend-only delivery validation and single constrained retry for `plan_then_draft` and `revise_draft`
+  - no changes under `apps/web/app/chat/` or `apps/web/app/chat/_features/`
+  - add deterministic delivery validators for truncation, prompt echo, artifact mismatch, and thread/post shape mismatch
+  - record validator outcomes in runtime trace
+  - return a safe non-artifact `coach_question` fallback when the second pass still fails delivery validation
+- Phase 5B structure follow-on:
+  - extract delivery validation, revision validation, and workflow-local retry helpers out of large orchestrator entry files
+  - introduce stable backend/lib and route-boundary folder conventions for new runtime work:
+    - pure contracts do not import route code
+    - validators stay pure and model-free
+    - worker helpers stay read-only and merge-only
+    - capability folders own their workflow-local helper modules and tests
+    - infra adapters stay outside workflow policy modules
+    - route entrypoints stay thin and defer feature-local boundary logic to dedicated helpers or route-private folders
+  - start with `apps/web/lib/agent-v2` before applying similar patterns to other `apps/web/lib` domains
+  - move order for this structure track:
+    1. land new validators and validation workers directly in `validators/*` and `workers/validation/*`
+    2. land new route-boundary helpers directly in `apps/web/app/api/creator/v2/chat/_lib/*`
+    3. extract touched capability-local helpers out of `orchestrator/` into `capabilities/*`
+    4. leave compatibility imports in place only as short-lived migration seams while tests are updated
+    5. shrink `draftPipeline.ts` and `route.ts` only after their adjacent helpers have stable homes
+- Acceptance gates:
+  - new backend runtime work lands in predictable domain/slice folders instead of expanding `orchestrator/` as a catch-all
+  - new route-boundary work lands in dedicated route helpers or route-private folders instead of expanding `route.ts` files as catch-alls
+  - at least one Phase 5 validator slice lands without touching the chat UI
+  - folder moves, when done, are incremental and test-backed rather than broad churn
 - Guardrails now in force:
   - worker fan-out stays merge-only, and parallel workers cannot produce ambiguous state writes
   - memory, artifacts, reply context, and thread state remain sequential-only ownership paths
@@ -232,6 +378,10 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - unsupported factual claims
 - If validation fails, do one constrained repair/retry inside the same workflow.
 - Keep cleanup helpers only as a last-resort surface guard.
+- Use the concrete folder map above when landing this work:
+  - delivery validators go in `validators/draft/` or `validators/revision/`
+  - worker-plane adapters go in `workers/validation/`
+  - route-boundary glue goes in `apps/web/app/api/creator/v2/chat/_lib/*`
 
 ### Phase 6: Rollout and deletion
 - Ship the new runtime shape behind a migration flag if needed.
