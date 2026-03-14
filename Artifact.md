@@ -170,7 +170,9 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - feature code lives under `apps/web/app/chat/_features/*`
   - route-scoped dialogs live under `apps/web/app/chat/_dialogs/*`
   - route-scoped presentational components live under `apps/web/app/chat/_components/*`
-- `apps/web/app/chat/page.tsx` still owns too much async orchestration and some large presentational surfaces to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
+- `apps/web/app/chat/page.tsx` is now materially thinner, down to roughly 5.7k lines after moving thread-history, source-materials, preferences, growth-guide, and analysis state/presentation behind route-private feature seams.
+- `apps/web/app/chat/page.tsx` still owns too much async orchestration to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
+- As of 2026-03-14, chat-page-specific TypeScript regressions from the extraction pass are resolved; remaining full `pnpm exec tsc --noEmit` failures are outside `apps/web/app/chat/page.tsx` and currently sit in unrelated tests and onboarding/shared modules.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.

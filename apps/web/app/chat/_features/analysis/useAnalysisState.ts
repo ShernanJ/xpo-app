@@ -92,7 +92,7 @@ interface UseAnalysisStateOptions {
   context: CreatorAgentContext | null;
   currentPlaybookStage: PlaybookStageKey;
   fetchWorkspace: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  loadWorkspace: (overrides?: unknown, toneOverrides?: unknown) => Promise<unknown>;
+  loadWorkspace: () => Promise<unknown>;
   dedupePreserveOrder: (values: string[]) => string[];
   formatEnumLabel: (value: string) => string;
   formatNicheSummary: (context: CreatorAgentContext) => string;

@@ -252,6 +252,8 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `vercel-composition-patterns`
   - `web-design-guidelines`
 - Residual client debt in `page.tsx` is now mostly async orchestration and large presentation surfaces rather than duplicated state math; that is accepted migration debt after the Phase 2 boundary cleanup.
+- `apps/web/app/chat/page.tsx` has now been reduced to roughly 5.7k lines by pushing thread-history, source-materials, preferences, growth-guide, and analysis seams into route-private features; follow-on frontend work should extend those feature seams instead of re-growing the route root.
+- Current frontend verification note: chat-page-specific extraction regressions are fixed, and remaining full TypeScript failures sit outside `apps/web/app/chat/page.tsx`.
 - Guardrail: keep semantic interaction, accessibility, and extracted UI primitives moving outward from `page.tsx`; do not re-inline them during visual tweaks.
 - Reduce the chat route to:
   - auth

@@ -2050,12 +2050,6 @@ function ChatPageContent() {
     }
   }, []);
 
-  const handleNewChat = useCallback(() => {
-    if (!accountName) return;
-
-    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-    window.history.pushState({}, "", buildWorkspaceChatHref(null));
-  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
@@ -2128,86 +2122,6 @@ function ChatPageContent() {
     typedAssistantLengthsRef.current = typedAssistantLengths;
   }, [typedAssistantLengths]);
 
-  const applyChatWorkspaceReset = useCallback((
-    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
-  ) => {
-    if ("activeThreadId" in reset) {
-      setActiveThreadId(reset.activeThreadId);
-    }
-    if ("threadCreatedInSession" in reset) {
-      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
-    }
-    if ("context" in reset) {
-      setContext(reset.context);
-    }
-    if ("contract" in reset) {
-      setContract(reset.contract);
-    }
-    if ("conversationMemory" in reset) {
-      setConversationMemory(reset.conversationMemory);
-    }
-    if ("streamStatus" in reset) {
-      setStreamStatus(reset.streamStatus);
-    }
-    if ("isWorkspaceInitializing" in reset) {
-      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
-    }
-    if ("analysisOpen" in reset) {
-      setAnalysisOpen(reset.analysisOpen);
-    }
-    if ("backfillNotice" in reset) {
-      setBackfillNotice(reset.backfillNotice);
-    }
-    if ("isAnalysisScrapeRefreshing" in reset) {
-      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
-    }
-    if ("analysisScrapeNotice" in reset) {
-      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
-    }
-    if ("analysisScrapeCooldownUntil" in reset) {
-      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
-    }
-    if ("activeContentFocus" in reset) {
-      setActiveContentFocus(reset.activeContentFocus);
-    }
-    if ("toneInputs" in reset) {
-      setToneInputs(reset.toneInputs);
-    }
-    if ("activeToneInputs" in reset) {
-      setActiveToneInputs(reset.activeToneInputs);
-    }
-    if ("activeStrategyInputs" in reset) {
-      setActiveStrategyInputs(reset.activeStrategyInputs);
-    }
-    if ("draftQueueItems" in reset) {
-      setDraftQueueItems(reset.draftQueueItems);
-    }
-    if ("draftQueueError" in reset) {
-      setDraftQueueError(reset.draftQueueError);
-    }
-    if ("editingDraftCandidateId" in reset) {
-      setEditingDraftCandidateId(reset.editingDraftCandidateId);
-    }
-    if ("editingDraftCandidateText" in reset) {
-      setEditingDraftCandidateText(reset.editingDraftCandidateText);
-    }
-
-    setMessages(reset.messages);
-    setDraftInput(reset.draftInput);
-    setErrorMessage(reset.errorMessage);
-    setActiveDraftEditor(reset.activeDraftEditor);
-    setEditorDraftText(reset.editorDraftText);
-    setEditorDraftPosts(reset.editorDraftPosts);
-    setTypedAssistantLengths(reset.typedAssistantLengths);
-    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
-    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
-    setIsLeavingHero(reset.isLeavingHero);
-  }, [
-    setAnalysisOpen,
-    setAnalysisScrapeCooldownUntil,
-    setAnalysisScrapeNotice,
-    setIsAnalysisScrapeRefreshing,
-  ]);
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
@@ -3103,6 +3017,92 @@ function ChatPageContent() {
     formatEnumLabel,
     formatNicheSummary,
   });
+  const applyChatWorkspaceReset = useCallback((
+    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
+  ) => {
+    if ("activeThreadId" in reset) {
+      setActiveThreadId(reset.activeThreadId);
+    }
+    if ("threadCreatedInSession" in reset) {
+      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
+    }
+    if ("context" in reset) {
+      setContext(reset.context);
+    }
+    if ("contract" in reset) {
+      setContract(reset.contract);
+    }
+    if ("conversationMemory" in reset) {
+      setConversationMemory(reset.conversationMemory);
+    }
+    if ("streamStatus" in reset) {
+      setStreamStatus(reset.streamStatus);
+    }
+    if ("isWorkspaceInitializing" in reset) {
+      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
+    }
+    if ("analysisOpen" in reset) {
+      setAnalysisOpen(reset.analysisOpen);
+    }
+    if ("backfillNotice" in reset) {
+      setBackfillNotice(reset.backfillNotice);
+    }
+    if ("isAnalysisScrapeRefreshing" in reset) {
+      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
+    }
+    if ("analysisScrapeNotice" in reset) {
+      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
+    }
+    if ("analysisScrapeCooldownUntil" in reset) {
+      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
+    }
+    if ("activeContentFocus" in reset) {
+      setActiveContentFocus(reset.activeContentFocus);
+    }
+    if ("toneInputs" in reset) {
+      setToneInputs(reset.toneInputs);
+    }
+    if ("activeToneInputs" in reset) {
+      setActiveToneInputs(reset.activeToneInputs);
+    }
+    if ("activeStrategyInputs" in reset) {
+      setActiveStrategyInputs(reset.activeStrategyInputs);
+    }
+    if ("draftQueueItems" in reset) {
+      setDraftQueueItems(reset.draftQueueItems);
+    }
+    if ("draftQueueError" in reset) {
+      setDraftQueueError(reset.draftQueueError);
+    }
+    if ("editingDraftCandidateId" in reset) {
+      setEditingDraftCandidateId(reset.editingDraftCandidateId);
+    }
+    if ("editingDraftCandidateText" in reset) {
+      setEditingDraftCandidateText(reset.editingDraftCandidateText);
+    }
+
+    setMessages(reset.messages);
+    setDraftInput(reset.draftInput);
+    setErrorMessage(reset.errorMessage);
+    setActiveDraftEditor(reset.activeDraftEditor);
+    setEditorDraftText(reset.editorDraftText);
+    setEditorDraftPosts(reset.editorDraftPosts);
+    setTypedAssistantLengths(reset.typedAssistantLengths);
+    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
+    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
+    setIsLeavingHero(reset.isLeavingHero);
+  }, [
+    setAnalysisOpen,
+    setAnalysisScrapeCooldownUntil,
+    setAnalysisScrapeNotice,
+    setIsAnalysisScrapeRefreshing,
+  ]);
+  const handleNewChat = useCallback(() => {
+    if (!accountName) return;
+
+    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+    window.history.pushState({}, "", buildWorkspaceChatHref(null));
+  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
 
   useEffect(() => {
     void loadWorkspace();

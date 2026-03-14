@@ -51,6 +51,8 @@ User turn
   - workflow execution has real homes under `apps/web/lib/agent-v2/capabilities/*`
   - onboarding has real domain folders under `apps/web/lib/onboarding/{profile,analysis,strategy,pipeline,contracts,shared,store,sources}`
 - As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
+- That same pass has now extracted route-private thread-history, source-materials, preferences, growth-guide, and analysis state/presentation seams, and `apps/web/app/chat/page.tsx` is down to roughly 5.7k lines instead of acting as a single giant mixed client surface.
+- Chat-page-specific TypeScript regressions from that extraction are fixed; any remaining `pnpm exec tsc --noEmit` failures are currently outside `apps/web/app/chat/page.tsx`.
 - As of 2026-03-14, the chat/pricing/login UI is also in an active frontend hygiene pass to follow better React composition, accessibility, and Vercel-style rendering practices without changing transport or backend behavior.
 - The latest UI pass landed:
   - workspace-scoped feedback/source-material callback fixes in `apps/web/app/chat/page.tsx`
@@ -67,6 +69,7 @@ User turn
 
 ## Frontend operating model
 - Keep route roots thin. In complex routes, only keep route entry files like `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, and route handlers at the route root.
+- For `apps/web/app/chat`, do not add new feature-local state machines, modal bodies, or view-state selectors back into `page.tsx`; extend the existing route-private `_features/*` seams instead.
 - Route-local implementation belongs in private folders:
   - `_features`
   - `_dialogs`
