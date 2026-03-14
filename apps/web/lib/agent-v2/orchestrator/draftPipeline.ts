@@ -132,6 +132,7 @@ import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "./ideationExecutor.ts";
 import { executePlanningCapability } from "./planningExecutor.ts";
+import { executeDraftingCapability } from "./draftingExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -1485,97 +1486,68 @@ User Profile Summary:
         buildPlanSourceMessage(approvedPlan),
       );
 
-      const draftResult = await generateDraftWithGroundingRetry({
-        plan: approvedPlan,
-        activeConstraints: draftActiveConstraints,
-        activeDraft,
-        sourceUserMessage: buildPlanSourceMessage(approvedPlan),
-        draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
-        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-        threadFramingStyle: turnThreadFramingStyle,
-        fallbackToWriterWhenCriticRejected: false,
-        topicSummary: approvedPlan.objective,
-        pendingPlan: approvedPlan,
-        groundingPacket: approvedPlanGroundingPacket,
-      });
-
-      if (draftResult.kind === "response") {
-        return draftResult.response;
-      }
-
-      const {
-        writerOutput,
-        criticOutput,
-        draftToDeliver,
-        voiceTarget,
-        retrievalReasons,
-        threadFramingStyle,
-      } = draftResult;
-
-      const noveltyCheck = services.checkDeterministicNovelty(
-        draftToDeliver,
-        historicalTexts,
-      );
-      if (!noveltyCheck.isNovel) {
-        return returnClarificationTree({
-          branchKey: "plan_reject",
-          seedTopic: approvedPlan.objective,
-          pendingPlan: null,
-          replyOverride:
-            "this version felt too close to something you've already posted. let's shift it.",
-        });
-      }
-
-      const rollingSummary = buildRollingSummary({
-        currentSummary: memory.rollingSummary,
-        topicSummary: approvedPlan.objective,
-        approvedPlan,
-        activeConstraints: draftActiveConstraints,
-        latestDraftStatus: "Draft delivered",
-        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-      });
-
-      await writeMemoryLocal({
-        topicSummary: approvedPlan.objective,
-        conversationState: "draft_ready",
-        pendingPlan: null,
-        clarificationState: null,
-        rollingSummary,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference: approvedPlan.formatPreference || turnFormatPreference,
-        latestRefinementInstruction: null,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "draft",
-        outputShape: resolveDraftOutputShape(
-          approvedPlan.formatPreference || turnFormatPreference,
-        ),
-        response: prependFeedbackMemoryNotice(
-          buildDraftReply({
-            userMessage,
-            draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
-            isEdit: false,
-            issuesFixed: criticOutput.issues,
-            styleCard,
-          }),
+      const execution = await executeDraftingCapability({
+        workflow: "plan_then_draft",
+        capability: "drafting",
+        activeContextRefs: [
+          "memory.pendingPlan",
+          "memory.topicSummary",
+          "memory.rollingSummary",
+        ],
+        context: {
+          memory,
+          plan: approvedPlan,
+          activeConstraints: draftActiveConstraints,
+          historicalTexts,
+          userMessage,
+          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+          turnFormatPreference,
+          styleCard,
           feedbackMemoryNotice,
-        ),
-        data: {
-          draft: draftToDeliver,
-          supportAsset: writerOutput.supportAsset,
-          issuesFixed: criticOutput.issues,
-          voiceTarget,
-          noveltyNotes: buildNoveltyNotes({
-            noveltyCheck,
-            retrievalReasons,
-          }),
-          threadFramingStyle,
+          nextAssistantTurnCount,
+          latestDraftStatus: "Draft delivered",
+          refreshRollingSummary: true,
           groundingSources: groundingSourcesForTurn,
           groundingMode: draftGroundingSummary.groundingMode,
           groundingExplanation: draftGroundingSummary.groundingExplanation,
         },
+        services: {
+          checkDeterministicNovelty: services.checkDeterministicNovelty,
+          runDraft: () =>
+            generateDraftWithGroundingRetry({
+              plan: approvedPlan,
+              activeConstraints: draftActiveConstraints,
+              activeDraft,
+              sourceUserMessage: buildPlanSourceMessage(approvedPlan),
+              draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+              formatPreference: approvedPlan.formatPreference || turnFormatPreference,
+              threadFramingStyle: turnThreadFramingStyle,
+              fallbackToWriterWhenCriticRejected: false,
+              topicSummary: approvedPlan.objective,
+              pendingPlan: approvedPlan,
+              groundingPacket: approvedPlanGroundingPacket,
+            }),
+          handleNoveltyConflict: () =>
+            returnClarificationTree({
+              branchKey: "plan_reject",
+              seedTopic: approvedPlan.objective,
+              pendingPlan: null,
+              replyOverride:
+                "this version felt too close to something you've already posted. let's shift it.",
+            }),
+          buildNoveltyNotes,
+        },
+      });
+
+      mergeCapabilityExecutionMeta(execution);
+      if (execution.output.kind === "response") {
+        return execution.output.response;
+      }
+
+      await writeMemoryLocal(execution.output.memoryPatch);
+
+      return {
+        ...execution.output.responseSeed,
         memory,
       };
     }
@@ -2322,74 +2294,60 @@ User Profile Summary:
         return draftResult.response;
       }
 
-      const {
-        writerOutput,
-        criticOutput,
-        draftToDeliver: finalDraft,
-        voiceTarget,
-        retrievalReasons,
-        threadFramingStyle,
-      } = draftResult;
       const historicalTexts = await services.getHistoricalPosts({
         userId,
         xHandle: effectiveXHandle,
       });
-      const noveltyCheck = services.checkDeterministicNovelty(
-        finalDraft,
-        historicalTexts,
-      );
-
-      const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
-        ? buildRollingSummary({
-          currentSummary: memory.rollingSummary,
-          topicSummary: guardedPlan.objective,
-          approvedPlan: guardedPlan,
-          activeConstraints: planActiveConstraints,
-          latestDraftStatus: "Rough draft generated",
-          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-        })
-        : memory.rollingSummary;
-
-      await writeMemoryLocal({
-        topicSummary: guardedPlan.objective,
-        activeConstraints: planActiveConstraints,
-        conversationState: "draft_ready",
-        pendingPlan: null,
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        rollingSummary,
-        formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-        latestRefinementInstruction: null,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "draft",
-        outputShape: resolveDraftOutputShape(guardedPlan.formatPreference || turnFormatPreference),
-        response: prependFeedbackMemoryNotice(
-          buildDraftReply({
-            userMessage,
-            draftPreference: turnDraftPreference,
-            isEdit: false,
-            issuesFixed: criticOutput.issues,
-            styleCard,
-          }),
-          feedbackMemoryNotice,
-        ),
-        data: {
-          draft: finalDraft,
-          supportAsset: writerOutput.supportAsset,
+      const execution = await executeDraftingCapability({
+        workflow: "plan_then_draft",
+        capability: "drafting",
+        activeContextRefs: [
+          "memory.pendingPlan",
+          "memory.topicSummary",
+          "memory.rollingSummary",
+        ],
+        context: {
+          memory,
           plan: guardedPlan,
-          issuesFixed: criticOutput.issues,
-          voiceTarget,
-          noveltyNotes: buildNoveltyNotes({
-            noveltyCheck,
-            retrievalReasons,
-          }),
-          threadFramingStyle,
+          activeConstraints: planActiveConstraints,
+          historicalTexts,
+          userMessage,
+          draftPreference: turnDraftPreference,
+          turnFormatPreference,
+          styleCard,
+          feedbackMemoryNotice,
+          nextAssistantTurnCount,
+          latestDraftStatus: "Rough draft generated",
+          refreshRollingSummary: shouldRefreshRollingSummary(
+            nextAssistantTurnCount,
+            true,
+          ),
           groundingSources: groundingSourcesForTurn,
           groundingMode: draftGroundingSummary.groundingMode,
           groundingExplanation: draftGroundingSummary.groundingExplanation,
+        },
+        services: {
+          checkDeterministicNovelty: services.checkDeterministicNovelty,
+          runDraft: async () => draftResult,
+          buildNoveltyNotes,
+        },
+      });
+
+      mergeCapabilityExecutionMeta(execution);
+      if (execution.output.kind === "response") {
+        return execution.output.response;
+      }
+
+      await writeMemoryLocal({
+        ...execution.output.memoryPatch,
+        activeConstraints: planActiveConstraints,
+      });
+
+      return {
+        ...execution.output.responseSeed,
+        data: {
+          ...execution.output.responseSeed.data,
+          plan: guardedPlan,
         },
         memory,
       };
@@ -2712,100 +2670,73 @@ User Profile Summary:
       draftInstruction,
     );
 
-    const draftResult = await generateDraftWithGroundingRetry({
-      plan: guardedPlan,
-      activeConstraints: draftActiveConstraints,
-      activeDraft,
-      sourceUserMessage: draftInstruction,
-      draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
-      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-      threadFramingStyle: turnThreadFramingStyle,
-      fallbackToWriterWhenCriticRejected: false,
-      topicSummary: guardedPlan.objective,
-      groundingPacket: draftGroundingPacket,
-    });
-
-    if (draftResult.kind === "response") {
-      return draftResult.response;
-    }
-
-    const {
-      writerOutput,
-      criticOutput,
-      draftToDeliver,
-      voiceTarget,
-      retrievalReasons,
-      threadFramingStyle,
-    } = draftResult;
-
-    const noveltyCheck = services.checkDeterministicNovelty(
-      draftToDeliver,
-      historicalTexts,
-    );
-    if (!noveltyCheck.isNovel) {
-      return returnClarificationTree({
-        branchKey: "plan_reject",
-        seedTopic: plan.objective,
-        pendingPlan: null,
-        replyOverride:
-          "that version felt too close to something you've already posted. let's shift it.",
-      });
-    }
-
-    const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, false)
-      ? buildRollingSummary({
-        currentSummary: memory.rollingSummary,
-        topicSummary: guardedPlan.objective,
-        approvedPlan: guardedPlan,
+    const execution = await executeDraftingCapability({
+      workflow: "plan_then_draft",
+      capability: "drafting",
+      activeContextRefs: [
+        "memory.pendingPlan",
+        "memory.topicSummary",
+        "memory.rollingSummary",
+      ],
+      context: {
+        memory,
+        plan: guardedPlan,
         activeConstraints: draftActiveConstraints,
-        latestDraftStatus: "Draft delivered",
-        formatPreference:
-          guardedPlan.formatPreference || turnFormatPreference,
-      })
-      : memory.rollingSummary;
-
-    await writeMemoryLocal({
-      topicSummary: guardedPlan.objective,
-      conversationState: "draft_ready",
-      pendingPlan: null,
-      clarificationState: null,
-      rollingSummary,
-      assistantTurnCount: nextAssistantTurnCount,
-      formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-      latestRefinementInstruction: null,
-      ...clearClarificationPatch(),
-    });
-
-    return {
-      mode: "draft",
-      outputShape: resolveDraftOutputShape(
-        guardedPlan.formatPreference || turnFormatPreference,
-      ),
-      response: prependFeedbackMemoryNotice(
-        buildDraftReply({
-          userMessage,
-          draftPreference:
-            guardedPlan.deliveryPreference || turnDraftPreference,
-          isEdit: false,
-          issuesFixed: criticOutput.issues,
-          styleCard,
-        }),
+        historicalTexts,
+        userMessage,
+        draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+        turnFormatPreference,
+        styleCard,
         feedbackMemoryNotice,
-      ),
-      data: {
-        draft: draftToDeliver,
-        supportAsset: writerOutput.supportAsset,
-        issuesFixed: criticOutput.issues,
-        voiceTarget,
-        noveltyNotes: buildNoveltyNotes({
-          noveltyCheck,
-          retrievalReasons,
-        }),
-        threadFramingStyle,
+        nextAssistantTurnCount,
+        latestDraftStatus: "Draft delivered",
+        refreshRollingSummary: shouldRefreshRollingSummary(
+          nextAssistantTurnCount,
+          false,
+        ),
         groundingSources: groundingSourcesForTurn,
         groundingMode: draftGroundingSummary.groundingMode,
         groundingExplanation: draftGroundingSummary.groundingExplanation,
       },
+      services: {
+        checkDeterministicNovelty: services.checkDeterministicNovelty,
+        runDraft: () =>
+          generateDraftWithGroundingRetry({
+            plan: guardedPlan,
+            activeConstraints: draftActiveConstraints,
+            activeDraft,
+            sourceUserMessage: draftInstruction,
+            draftPreference: guardedPlan.deliveryPreference || turnDraftPreference,
+            formatPreference: guardedPlan.formatPreference || turnFormatPreference,
+            threadFramingStyle: turnThreadFramingStyle,
+            fallbackToWriterWhenCriticRejected: false,
+            topicSummary: guardedPlan.objective,
+            groundingPacket: draftGroundingPacket,
+          }),
+        handleNoveltyConflict: () =>
+          returnClarificationTree({
+            branchKey: "plan_reject",
+            seedTopic: plan.objective,
+            pendingPlan: null,
+            replyOverride:
+              "that version felt too close to something you've already posted. let's shift it.",
+          }),
+        buildNoveltyNotes,
+      },
+    });
+
+    mergeCapabilityExecutionMeta(execution);
+    if (execution.output.kind === "response") {
+      return execution.output.response;
+    }
+
+    await writeMemoryLocal({
+      ...execution.output.memoryPatch,
+      activeConstraints: draftActiveConstraints,
+    });
+
+    return {
+      ...execution.output.responseSeed,
       memory,
     };
   }
