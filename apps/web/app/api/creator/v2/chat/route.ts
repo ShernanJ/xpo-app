@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
-import { applyRuntimePersistenceTracePatch } from "@/lib/agent-v2/runtime/runtimeTrace";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
   createConversationMemorySnapshot,
@@ -46,11 +45,8 @@ import {
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./_lib/request/routeLogic";
-import { persistAssistantTurn } from "./_lib/persistence/routePersistence";
 import {
   buildChatSuccessResponse,
-  dispatchPlannedProductEvents,
-  planMainAssistantTurnProductEvents,
 } from "./_lib/response/routeResponse";
 import { normalizeChatTurn } from "./_lib/normalization/turnNormalization";
 import { findDuplicateTurnReplay } from "./_lib/request/routeIdempotency";
@@ -62,6 +58,7 @@ import {
 } from "@/lib/creator/playbooks";
 import type { StrategyPlan } from "@/lib/agent-v2/contracts/chat";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
+import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
@@ -776,72 +773,19 @@ export async function POST(request: NextRequest) {
       preferredSurfaceMode: rawResponse.memory.preferredSurfaceMode ?? "natural",
       shouldClearReplyWorkflow: shouldResetReplyWorkflow,
     });
-    let mappedData = {
-      ...preparedTurn.persistencePlan.assistantMessageData,
-    };
-    let createdAssistantMessageId: string | undefined;
-
-    if (storedThread) {
-      const persistenceResult = await persistAssistantTurn({
-        threadId: storedThread.id,
-        assistantMessageData: mappedData,
-        threadUpdate: preparedTurn.persistencePlan.threadUpdate,
-        buildMemoryUpdate: (assistantMessageId) => ({
-          ...(preparedTurn.persistencePlan.memoryUpdate.activeDraftVersionId
-            ? {
-                activeDraftRef: {
-                  messageId: assistantMessageId,
-                  versionId: preparedTurn.persistencePlan.memoryUpdate.activeDraftVersionId,
-                  revisionChainId: preparedTurn.persistencePlan.memoryUpdate.revisionChainId ?? null,
-                },
-              }
-            : {}),
-          preferredSurfaceMode: preparedTurn.persistencePlan.memoryUpdate.preferredSurfaceMode,
-          ...(preparedTurn.persistencePlan.memoryUpdate.shouldClearReplyWorkflow
-            ? {
-                activeReplyContext: null,
-                activeReplyArtifactRef: null,
-                selectedReplyOptionId: null,
-              }
-            : {}),
-        }),
-        draftCandidateCreates: preparedTurn.persistencePlan.draftCandidateCreates,
-        draftCandidateContext: {
-          userId: session.user.id,
-          xHandle: activeHandle,
-          runId: storedRun?.id ?? null,
-          sourcePrompt: effectiveMessage,
-          sourcePlaybook: "chat_bundle",
-          outputShape: rawResponse.outputShape,
-        },
-      });
-      applyRuntimePersistenceTracePatch(routingTrace, persistenceResult.tracePatch);
-      createdAssistantMessageId = persistenceResult.assistantMessageId;
-      mappedData = {
-        ...mappedData,
-        threadTitle: persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE,
-      };
-    }
-
-    dispatchPlannedProductEvents({
-      events: planMainAssistantTurnProductEvents({
-        mappedData,
-        analytics: preparedTurn.persistencePlan.analytics,
-        explicitIntent: effectiveExplicitIntent,
-      }),
+    return await finalizeMainAssistantTurn({
+      preparedTurn,
+      routingTrace,
+      shouldIncludeRoutingTrace,
+      storedThreadId: storedThread?.id ?? null,
+      requestedThreadId: threadId,
       userId: session.user.id,
-      xHandle: activeHandle,
-      threadId: storedThread?.id ?? null,
-      messageId: createdAssistantMessageId ?? null,
-      recordProductEvent,
-    });
-
-    return await buildChatSuccessResponse({
-      mappedData,
-      createdAssistantMessageId,
-      newThreadId: !threadId && storedThread ? storedThread.id : undefined,
-      routingTrace: shouldIncludeRoutingTrace ? routingTrace : undefined,
+      activeHandle,
+      runId: storedRun?.id ?? null,
+      sourcePrompt: effectiveMessage,
+      explicitIntent: effectiveExplicitIntent,
       loadBilling: loadBillingStateForResponse,
+      recordProductEvent,
     });
   } catch (error) {
     if (debitedCharge) {

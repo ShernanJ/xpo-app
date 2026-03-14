@@ -20,6 +20,7 @@ import {
 } from "./_lib/request/routeLogic.ts";
 import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./_lib/request/routeIdempotency.ts";
+import { finalizeMainAssistantTurnWithDeps } from "./_lib/main/routeMainFinalize.ts";
 import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
 import {
   buildChatSuccessResponse,
@@ -931,6 +932,260 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
   assert.equal(json.data.routingTrace.workerExecutions.at(-1).worker, "update_chat_thread");
   assert.equal(json.data.routingTrace.persistedStateChanges.assistantMessageId, "assistant-msg-reply");
   assert.equal(json.data.routingTrace.persistedStateChanges.memory.selectedReplyOptionId, "option_2");
+});
+
+test("finalizeMainAssistantTurnWithDeps keeps prepared turns separate from route persistence and response assembly", async () => {
+  let persistedArgs = null;
+  let dispatchedArgs = null;
+  const routingTrace = createBaseRoutingTrace();
+
+  const response = await finalizeMainAssistantTurnWithDeps(
+    {
+      preparedTurn: {
+        rawResponse: {
+          mode: "draft",
+          outputShape: "short_form_post",
+          response: "here's a draft.",
+          memory: {
+            ...baseMemory,
+            conversationState: "draft_ready",
+          },
+          data: {
+            draft: "Ship the thing before your confidence catches up.",
+          },
+        },
+        responseShapePlan: {
+          shouldShowArtifacts: true,
+          shouldAskFollowUp: true,
+          maxFollowUps: 1,
+          surfaceMode: "generate_full_output",
+        },
+        surfaceMode: "generate_full_output",
+        shapedResponse: "here's a draft.",
+        mappedDataSeed: {
+          reply: "here's a draft.",
+          angles: [],
+          quickReplies: [],
+          plan: null,
+          draft: "Ship the thing before your confidence catches up.",
+          drafts: ["Ship the thing before your confidence catches up."],
+          draftArtifacts: [],
+          draftVersions: [],
+          activeDraftVersionId: "version_1",
+          previousVersionSnapshot: undefined,
+          revisionChainId: "chain_1",
+          draftBundle: null,
+          supportAsset: null,
+          groundingSources: [],
+          autoSavedSourceMaterials: null,
+          outputShape: "short_form_post",
+          surfaceMode: "generate_full_output",
+          memory: {
+            ...baseMemory,
+            conversationState: "draft_ready",
+          },
+          routingDiagnostics: {
+            turnSource: "free_text",
+            artifactKind: null,
+            planSeedSource: "message",
+            replyHandlingBypassedReason: null,
+            resolvedWorkflow: "plan_then_draft",
+          },
+          requestTrace: {
+            clientTurnId: "turn_main_1",
+          },
+          replyArtifacts: null,
+          replyParse: null,
+        },
+        persistencePlan: {
+          assistantMessageData: {
+            reply: "here's a draft.",
+            angles: [],
+            quickReplies: [],
+            plan: null,
+            draft: "Ship the thing before your confidence catches up.",
+            drafts: ["Ship the thing before your confidence catches up."],
+            draftArtifacts: [],
+            draftVersions: [],
+            activeDraftVersionId: "version_1",
+            previousVersionSnapshot: undefined,
+            revisionChainId: "chain_1",
+            draftBundle: null,
+            supportAsset: null,
+            groundingSources: [],
+            autoSavedSourceMaterials: null,
+            outputShape: "short_form_post",
+            surfaceMode: "generate_full_output",
+            memory: {
+              ...baseMemory,
+              conversationState: "draft_ready",
+            },
+            routingDiagnostics: {
+              turnSource: "free_text",
+              artifactKind: null,
+              planSeedSource: "message",
+              replyHandlingBypassedReason: null,
+              resolvedWorkflow: "plan_then_draft",
+            },
+            requestTrace: {
+              clientTurnId: "turn_main_1",
+            },
+            threadTitle: "Existing Main Thread",
+            billing: null,
+            contextPacket: {
+              version: "assistant_context_v2",
+              summary: "draft: Ship the thing before your confidence catches up.",
+              planRef: null,
+              draftRef: {
+                excerpt: "Ship the thing before your confidence catches up.",
+                activeDraftVersionId: "version_1",
+                revisionChainId: "chain_1",
+              },
+              grounding: {
+                mode: null,
+                explanation: null,
+                sourceTitles: [],
+              },
+              critique: {
+                issuesFixed: [],
+              },
+              replyRef: null,
+              replyParse: null,
+              artifacts: {
+                outputShape: "short_form_post",
+                surfaceMode: "generate_full_output",
+                quickReplyCount: 0,
+                hasDraft: true,
+              },
+            },
+            replyArtifacts: null,
+            replyParse: null,
+          },
+          memoryUpdate: {
+            preferredSurfaceMode: "structured",
+            activeDraftVersionId: "version_1",
+            revisionChainId: "chain_1",
+            shouldClearReplyWorkflow: true,
+          },
+          threadUpdate: {
+            updatedAt: new Date("2026-03-14T12:00:00.000Z"),
+            title: "Updated Main Thread",
+          },
+          draftCandidateCreates: [
+            {
+              title: "Option A",
+              artifact: {
+                versionId: "artifact_1",
+              },
+              voiceTarget: null,
+              noveltyNotes: ["Fresh angle"],
+            },
+          ],
+          analytics: {
+            primaryGroundingMode: null,
+            primaryGroundingSourceCount: 0,
+            autoSavedSourceMaterialCount: 0,
+          },
+        },
+      },
+      routingTrace,
+      shouldIncludeRoutingTrace: true,
+      storedThreadId: "thread-main-1",
+      requestedThreadId: "",
+      userId: "user-main-1",
+      activeHandle: "stan",
+      runId: "run-main-1",
+      sourcePrompt: "write the post",
+      explicitIntent: "draft",
+      loadBilling: async () => ({ creditsRemaining: 5 }),
+      recordProductEvent: async () => null,
+    },
+    {
+      persistAssistantTurn: async (args) => {
+        persistedArgs = args;
+        return {
+          assistantMessageId: "assistant-msg-main",
+          updatedThreadTitle: "Updated Main Thread",
+          tracePatch: {
+            workerExecutions: [
+              {
+                worker: "persist_assistant_message",
+                capability: "shared",
+                phase: "persistence",
+                mode: "sequential",
+                status: "completed",
+                groupId: null,
+                details: {
+                  threadId: "thread-main-1",
+                  assistantMessageId: "assistant-msg-main",
+                },
+              },
+            ],
+            persistedStateChanges: {
+              assistantMessageId: "assistant-msg-main",
+              thread: {
+                threadId: "thread-main-1",
+                updatedTitle: "Updated Main Thread",
+                titleChanged: true,
+              },
+              memory: {
+                updated: true,
+                preferredSurfaceMode: "structured",
+                activeDraftVersionId: "version_1",
+                clearedReplyWorkflow: true,
+                selectedReplyOptionId: null,
+              },
+              draftCandidates: {
+                attempted: 1,
+                created: 1,
+                skipped: 0,
+              },
+            },
+          },
+        };
+      },
+      planMainAssistantTurnProductEvents,
+      dispatchPlannedProductEvents: (args) => {
+        dispatchedArgs = args;
+      },
+      buildChatSuccessResponse,
+    },
+  );
+
+  assert.equal(persistedArgs.threadId, "thread-main-1");
+  assert.equal(
+    persistedArgs.assistantMessageData.draft,
+    "Ship the thing before your confidence catches up.",
+  );
+  assert.deepEqual(
+    persistedArgs.buildMemoryUpdate("assistant-msg-main"),
+    {
+      activeDraftRef: {
+        messageId: "assistant-msg-main",
+        versionId: "version_1",
+        revisionChainId: "chain_1",
+      },
+      preferredSurfaceMode: "structured",
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
+    },
+  );
+  assert.equal(dispatchedArgs.events.length, 1);
+  assert.equal(dispatchedArgs.events[0].eventType, "draft_generated");
+  assert.equal(dispatchedArgs.threadId, "thread-main-1");
+  assert.equal(dispatchedArgs.messageId, "assistant-msg-main");
+
+  const json = await response.json();
+  assert.equal(json.ok, true);
+  assert.equal(json.data.threadTitle, "Updated Main Thread");
+  assert.equal(json.data.messageId, "assistant-msg-main");
+  assert.equal(json.data.newThreadId, "thread-main-1");
+  assert.equal(json.data.draft, "Ship the thing before your confidence catches up.");
+  assert.equal(
+    json.data.routingTrace.persistedStateChanges.memory.activeDraftVersionId,
+    "version_1",
+  );
 });
 
 test("prepareHandledReplyTurn gives direct reply-preflight turns runtime resolution before finalization", async () => {
@@ -1989,6 +2244,10 @@ test("conversation context builder can exclude the current user turn when thread
 
 test("reply route ownership stays in runtime modules without shim files or shim imports", () => {
   const routeSource = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  const routeMainFinalizeSource = readFileSync(
+    new URL("./_lib/main/routeMainFinalize.ts", import.meta.url),
+    "utf8",
+  );
   const routeReplyFinalizeSource = readFileSync(
     new URL("./_lib/reply/routeReplyFinalize.ts", import.meta.url),
     "utf8",
@@ -2015,10 +2274,18 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     routeSource,
     /from "@\/lib\/agent-v2\/capabilities\/reply\/handledReplyTurn";/,
   );
+  assert.match(routeSource, /finalizeMainAssistantTurn/);
   assert.match(routeSource, /prepareChatRouteTurn/);
   assert.equal(/finalizeResponseEnvelope/.test(routeSource), false);
+  assert.equal(/persistAssistantTurn\(/.test(routeSource), false);
+  assert.equal(/applyRuntimePersistenceTracePatch\(/.test(routeSource), false);
+  assert.equal(/planMainAssistantTurnProductEvents\(/.test(routeSource), false);
   assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
+
+  assert.match(routeMainFinalizeSource, /persistAssistantTurn/);
+  assert.match(routeMainFinalizeSource, /planMainAssistantTurnProductEvents/);
+  assert.match(routeMainFinalizeSource, /applyRuntimePersistenceTracePatch/);
 
   assert.match(
     routeReplyFinalizeSource,
