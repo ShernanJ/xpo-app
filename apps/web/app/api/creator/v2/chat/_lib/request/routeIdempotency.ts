@@ -1,4 +1,4 @@
-import type { ChatRouteResponseData } from "../../route.logic.ts";
+import type { ChatRouteResponseData } from "./routeLogic.ts";
 
 interface ThreadMessageSnapshot {
   id: string;

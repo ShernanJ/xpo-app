@@ -16,7 +16,7 @@ import {
   resolveDraftArtifactKind,
   resolveEffectiveExplicitIntent,
   shouldBypassEmbeddedReplyHandling,
-} from "./route.logic.ts";
+} from "./_lib/request/routeLogic.ts";
 import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./_lib/request/routeIdempotency.ts";
 import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
@@ -1893,7 +1893,10 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     new URL("./_lib/reply/routeReplyFinalize.ts", import.meta.url),
     "utf8",
   );
-  const routeLogicSource = readFileSync(new URL("./route.logic.ts", import.meta.url), "utf8");
+  const routeLogicSource = readFileSync(
+    new URL("./_lib/request/routeLogic.ts", import.meta.url),
+    "utf8",
+  );
   const routeResponseSource = readFileSync(
     new URL("./_lib/response/routeResponse.ts", import.meta.url),
     "utf8",
@@ -1920,7 +1923,7 @@ test("reply route ownership stays in runtime modules without shim files or shim 
 
   assert.match(
     routeLogicSource,
-    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
+    /from "\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/lib\/agent-v2\/orchestrator\/replyTurnLogic\.ts";/,
   );
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeLogicSource), false);
 

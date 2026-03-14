@@ -5,7 +5,7 @@ import type {
 import {
   buildAssistantContextPacket,
   type ChatRouteResponseData,
-} from "../../route.logic.ts";
+} from "../request/routeLogic.ts";
 import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,

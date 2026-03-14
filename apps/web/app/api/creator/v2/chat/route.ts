@@ -46,7 +46,7 @@ import {
   parseSelectedDraftContext,
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
-} from "./route.logic";
+} from "./_lib/request/routeLogic";
 import { persistAssistantTurn } from "./_lib/persistence/routePersistence";
 import {
   buildChatSuccessResponse,

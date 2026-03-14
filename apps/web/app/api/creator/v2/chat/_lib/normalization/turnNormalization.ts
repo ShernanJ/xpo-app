@@ -15,7 +15,7 @@ import {
   parseSelectedDraftContext,
   resolveEffectiveExplicitIntent,
   type SelectedDraftContext,
-} from "../../route.logic.ts";
+} from "../request/routeLogic.ts";
 
 type CreatorChatTurnBody = CreatorChatTransportRequest & Record<string, unknown>;
 
