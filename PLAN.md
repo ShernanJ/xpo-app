@@ -113,12 +113,14 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, and worker trace metadata for plan approval, rough auto-draft, and plan-to-draft fallback paths.
   - targeted draft revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, validation metadata, and worker trace metadata for edit/review turns.
   - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing reply workflow turns straight through the generic coach handler.
+  - the `analyze_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/analysisExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing analysis workflow turns straight through the generic coach handler.
 - Break `draftPipeline.ts` into capability executors:
-  - analysis
+  - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
   - multi-draft bundle generation still lives inline in `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
   - plan-to-draft fallback and replanning branches inside revision/edit flows are still inline in `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
   - route-level reply artifact generation and continuation still live outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
   - `CapabilityExecutionRequest`

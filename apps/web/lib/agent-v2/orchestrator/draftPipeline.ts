@@ -135,6 +135,7 @@ import { executePlanningCapability } from "./planningExecutor.ts";
 import { executeDraftingCapability } from "./draftingExecutor.ts";
 import { executeRevisingCapability } from "./revisingExecutor.ts";
 import { executeReplyingCapability } from "./replyingExecutor.ts";
+import { executeAnalysisCapability } from "./analysisExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -2731,6 +2732,44 @@ User Profile Summary:
     };
   }
 
+  async function handleAnalyzeMode(): Promise<RawOrchestratorResponse> {
+    const execution = await executeAnalysisCapability({
+      workflow: "analyze_post",
+      capability: "analysis",
+      activeContextRefs: [
+        "memory.topicSummary",
+        "memory.rollingSummary",
+      ],
+      context: {
+        userMessage,
+        effectiveContext,
+        topicSummary: memory.topicSummary,
+        styleCard,
+        relevantTopicAnchors,
+        userContextString,
+        goal,
+        memory,
+        antiPatterns,
+        feedbackMemoryNotice,
+        nextAssistantTurnCount,
+        turnFormatPreference,
+        refreshRollingSummary: shouldRefreshRollingSummary(
+          nextAssistantTurnCount,
+          false,
+        ),
+      },
+      services,
+    });
+
+    mergeCapabilityExecutionMeta(execution);
+    await writeMemoryLocal(execution.output.memoryPatch);
+
+    return {
+      ...execution.output.responseSeed,
+      memory,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Execution Routing
   // ---------------------------------------------------------------------------
@@ -2746,6 +2785,7 @@ User Profile Summary:
     case "reply_to_post":
       return handleReplyMode();
     case "analyze_post":
+      return handleAnalyzeMode();
     case "answer_question":
     default:
       return handleCoachMode();
