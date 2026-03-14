@@ -27,7 +27,6 @@ import type {
 } from "@/lib/agent-v2/contracts/turnContract";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
 import type {
-  XPublicProfile,
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
   ToneCasing,
@@ -94,8 +93,6 @@ import {
 } from "./_features/draft-editor/chatDraftPreviewState";
 import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
-import {
-} from "./_features/feedback/feedbackState";
 import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
 import { useFeedbackState } from "./_features/feedback/useFeedbackState";
 import { resolveThreadHistoryHydration } from "./_features/thread-history/chatThreadHistoryState";
@@ -131,6 +128,7 @@ import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
 import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
 import { ExtensionDialog } from "./_features/workspace-chrome/ExtensionDialog";
 import { ThreadDeleteDialog } from "./_features/workspace-chrome/ThreadDeleteDialog";
+import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorkspaceAccountState";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
   resolveAccountAvatarFallback,
@@ -156,19 +154,6 @@ interface ValidationError {
   message: string;
 }
 
-interface OnboardingPreviewSuccess {
-  ok: true;
-  account: string;
-  preview: XPublicProfile | null;
-}
-
-interface OnboardingPreviewFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
-
 interface OnboardingRunSuccess {
   ok: true;
   runId: string;
@@ -185,14 +170,6 @@ interface OnboardingRunFailure {
 }
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
-
-const CHAT_ONBOARDING_LOADING_STEPS = [
-  "collecting the account...",
-  "reading how they write...",
-  "mapping the growth signals...",
-  "building the workspace...",
-  "locking in the new profile...",
-] as const;
 
 interface CreatorAgentContextSuccess {
   ok: true;
@@ -1160,134 +1137,11 @@ function ChatPageContent() {
     accountMenuRef,
     toolsMenuRef,
   } = useWorkspaceChromeState({ accountName });
-  const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
-  const [addAccountInput, setAddAccountInput] = useState("");
-  const [addAccountPreview, setAddAccountPreview] = useState<XPublicProfile | null>(null);
-  const [isAddAccountPreviewLoading, setIsAddAccountPreviewLoading] = useState(false);
-  const [isAddAccountSubmitting, setIsAddAccountSubmitting] = useState(false);
-  const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
-  const [addAccountError, setAddAccountError] = useState<string | null>(null);
-  const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
   const chatThreadsRef = useRef(chatThreads);
-  const normalizedAddAccount = normalizeAccountHandle(addAccountInput);
-  const hasValidAddAccountPreview =
-    Boolean(addAccountPreview) &&
-    normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
 
   useEffect(() => {
     chatThreadsRef.current = chatThreads;
   }, [chatThreads]);
-
-  useEffect(() => {
-    if (!accountName) {
-      return;
-    }
-
-    const url = new URL(window.location.href);
-    const currentUrlHandle = normalizeAccountHandle(url.searchParams.get("xHandle") ?? "");
-    if (currentUrlHandle === accountName) {
-      return;
-    }
-
-    url.searchParams.set("xHandle", accountName);
-    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
-  }, [accountName]);
-
-  useEffect(() => {
-    if (!isAddAccountSubmitting) {
-      setAddAccountLoadingStepIndex(0);
-      return;
-    }
-
-    setAddAccountLoadingStepIndex(0);
-    const interval = window.setInterval(() => {
-      setAddAccountLoadingStepIndex((current) =>
-        Math.min(current + 1, CHAT_ONBOARDING_LOADING_STEPS.length - 1),
-      );
-    }, 1200);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [isAddAccountSubmitting]);
-
-  useEffect(() => {
-    if (!isAddAccountModalOpen) {
-      setAddAccountPreview(null);
-      setIsAddAccountPreviewLoading(false);
-      return;
-    }
-
-    const trimmed = addAccountInput.trim();
-    if (!trimmed || trimmed.length < 2 || readyAccountHandle) {
-      if (!readyAccountHandle) {
-        setAddAccountPreview(null);
-      }
-      setIsAddAccountPreviewLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setIsAddAccountPreviewLoading(true);
-
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const response = await fetch(
-          `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
-          {
-            method: "GET",
-            signal: controller.signal,
-          },
-        );
-
-        const text = await response.text();
-        let data: OnboardingPreviewResponse | null = null;
-
-        try {
-          data = JSON.parse(text) as OnboardingPreviewResponse;
-        } catch {
-          data = null;
-        }
-
-        if (!response.ok || !data || !data.ok) {
-          setAddAccountPreview(null);
-          return;
-        }
-
-        setAddAccountPreview(data.preview);
-      } catch (error) {
-        if ((error as Error).name === "AbortError") {
-          return;
-        }
-
-        setAddAccountPreview(null);
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsAddAccountPreviewLoading(false);
-        }
-      }
-    }, 650);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [addAccountInput, isAddAccountModalOpen, readyAccountHandle]);
-
-  useEffect(() => {
-    if (!requiresXAccountGate) {
-      return;
-    }
-
-    setIsAddAccountModalOpen(true);
-    setAddAccountInput("");
-    setAddAccountPreview(null);
-    setAddAccountError(null);
-    setReadyAccountHandle(null);
-    setIsAddAccountPreviewLoading(false);
-    setErrorMessage(null);
-    setIsLoading(false);
-  }, [requiresXAccountGate]);
 
   const handleRenameSubmit = async (threadId: string) => {
     if (!editingTitle.trim()) {
@@ -1439,6 +1293,38 @@ function ChatPageContent() {
     billingQueryStatus,
     billingQuerySessionId,
     onErrorMessage: setErrorMessage,
+  });
+  const {
+    isAddAccountModalOpen,
+    addAccountInput,
+    addAccountPreview,
+    isAddAccountPreviewLoading,
+    isAddAccountSubmitting,
+    addAccountLoadingStepIndex,
+    addAccountError,
+    readyAccountHandle,
+    normalizedAddAccount,
+    hasValidAddAccountPreview,
+    loadingSteps: addAccountLoadingSteps,
+    switchActiveHandle,
+    openAddAccountModal,
+    closeAddAccountModal,
+    handleAddAccountSubmit,
+    updateAddAccountInput,
+  } = useWorkspaceAccountState({
+    accountName,
+    requiresXAccountGate,
+    normalizeAccountHandle,
+    refreshSession,
+    closeAccountMenu,
+    setAvailableHandles,
+    buildChatWorkspaceUrl: ({ xHandle }) => buildChatWorkspaceUrl({ xHandle }),
+    applyBillingSnapshot,
+    onOpenPricing: () => {
+      setPricingModalOpen(true);
+    },
+    onErrorMessage: setErrorMessage,
+    onLoadingChange: setIsLoading,
   });
   const {
     draftQueueOpen,
@@ -1773,158 +1659,6 @@ function ChatPageContent() {
     },
     [fetchWorkspace, removeSourceMaterialsByIds, trackProductEvent],
   );
-  const switchActiveHandle = useCallback(async (handle: string) => {
-    const normalizedHandle = normalizeAccountHandle(handle);
-    if (!normalizedHandle || normalizedHandle === normalizeAccountHandle(accountName ?? "")) {
-      return;
-    }
-
-    closeAccountMenu();
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const resp = await fetch("/api/creator/profile/handles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: normalizedHandle }),
-      });
-      if (!resp.ok) {
-        throw new Error("Failed to switch handle");
-      }
-
-      await refreshSession({ activeXHandle: normalizedHandle });
-      window.location.href = buildChatWorkspaceUrl({ xHandle: normalizedHandle });
-    } catch (err) {
-      console.error(err);
-      setErrorMessage("Could not switch to account @" + normalizedHandle);
-      setIsLoading(false);
-    }
-  }, [accountName, closeAccountMenu, refreshSession]);
-
-  const closeAddAccountModal = useCallback(() => {
-    if (isAddAccountSubmitting || requiresXAccountGate) {
-      return;
-    }
-
-    setIsAddAccountModalOpen(false);
-    setAddAccountInput("");
-    setAddAccountPreview(null);
-    setAddAccountError(null);
-    setReadyAccountHandle(null);
-    setIsAddAccountPreviewLoading(false);
-  }, [isAddAccountSubmitting, requiresXAccountGate]);
-
-  const finalizeAddedAccount = useCallback(async () => {
-    if (!readyAccountHandle) {
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      await refreshSession();
-      closeAddAccountModal();
-      window.location.href = buildChatWorkspaceUrl({ xHandle: readyAccountHandle });
-    } catch (error) {
-      console.error(error);
-      setErrorMessage(`Could not switch to @${readyAccountHandle}`);
-      setIsLoading(false);
-    }
-  }, [closeAddAccountModal, readyAccountHandle, refreshSession]);
-
-  const handleAddAccountSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (readyAccountHandle) {
-      await finalizeAddedAccount();
-      return;
-    }
-
-    if (!normalizedAddAccount) {
-      setAddAccountError("Enter an X username first.");
-      return;
-    }
-
-    if (normalizedAddAccount === accountName) {
-      setAddAccountError("That account is already active.");
-      return;
-    }
-
-    if (isAddAccountPreviewLoading) {
-      setAddAccountError("Wait for the profile preview to finish loading.");
-      return;
-    }
-
-    if (!hasValidAddAccountPreview) {
-      setAddAccountError("Enter an active X account that resolves in preview first.");
-      return;
-    }
-
-    setIsAddAccountSubmitting(true);
-    setAddAccountError(null);
-
-    try {
-      const startedAt = Date.now();
-      const response = await fetch("/api/onboarding/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          account: normalizedAddAccount,
-          goal: "followers",
-          timeBudgetMinutes: 30,
-          tone: { casing: "lowercase", risk: "safe" },
-        }),
-      });
-
-      const data = (await response.json()) as OnboardingRunResponse;
-
-      if (!response.ok || !data.ok) {
-        if (!data.ok && data.data?.billing) {
-          applyBillingSnapshot(data.data.billing);
-        }
-        if (response.status === 403) {
-          setPricingModalOpen(true);
-        }
-        throw new Error(
-          data.ok ? "Failed to add account." : (data.errors[0]?.message ?? "Failed to add account."),
-        );
-      }
-
-      const remainingDelay = Math.max(0, 2600 - (Date.now() - startedAt));
-      if (remainingDelay > 0) {
-        await new Promise((resolve) => window.setTimeout(resolve, remainingDelay));
-      }
-
-      setAvailableHandles((current) =>
-        current.includes(normalizedAddAccount)
-          ? current
-          : [...current, normalizedAddAccount],
-      );
-      setReadyAccountHandle(normalizedAddAccount);
-    } catch (error) {
-      console.error(error);
-      setAddAccountError(
-        error instanceof Error ? error.message : "Failed to analyze account. Please try again.",
-      );
-    } finally {
-      setIsAddAccountSubmitting(false);
-    }
-  }, [
-    accountName,
-    applyBillingSnapshot,
-    finalizeAddedAccount,
-    hasValidAddAccountPreview,
-    isAddAccountPreviewLoading,
-    normalizedAddAccount,
-    readyAccountHandle,
-    setPricingModalOpen,
-    setAvailableHandles,
-  ]);
-
   const runMissingOnboardingSetup = useCallback(async (): Promise<boolean> => {
     const normalizedHandle = normalizeAccountHandle(accountName ?? "");
     if (!normalizedHandle) {
@@ -3893,12 +3627,7 @@ function ChatPageContent() {
           accountName={accountName}
           canAddAccount={canAddAccount}
           onSwitchActiveHandle={switchActiveHandle}
-          onOpenAddAccount={() => {
-            closeAccountMenu();
-            setIsAddAccountModalOpen(true);
-            setAddAccountError(null);
-            setReadyAccountHandle(null);
-          }}
+          onOpenAddAccount={openAddAccountModal}
           onOpenSettings={() => {
             closeAccountMenu();
             setSettingsModalOpen(true);
@@ -4613,7 +4342,7 @@ function ChatPageContent() {
         preview={addAccountPreview}
         normalizedHandle={normalizedAddAccount}
         loadingStepIndex={addAccountLoadingStepIndex}
-        loadingSteps={CHAT_ONBOARDING_LOADING_STEPS}
+        loadingSteps={addAccountLoadingSteps}
         onOpenChange={(open) => {
           if (!open) {
             closeAddAccountModal();
@@ -4621,10 +4350,7 @@ function ChatPageContent() {
         }}
         onSubmit={handleAddAccountSubmit}
         inputValue={addAccountInput}
-        onInputValueChange={(value) => {
-          setAddAccountInput(value);
-          setAddAccountError(null);
-        }}
+        onInputValueChange={updateAddAccountInput}
         readyAccountHandle={readyAccountHandle}
         hasValidPreview={hasValidAddAccountPreview}
         isPreviewLoading={isAddAccountPreviewLoading}
