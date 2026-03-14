@@ -4,7 +4,7 @@ import {
 import { resolveVoiceTarget } from "../core/voiceTarget.ts";
 import { buildDraftReply } from "./draftReply.ts";
 import { prependFeedbackMemoryNotice } from "./feedbackMemoryNotice.ts";
-import { checkDraftClaimsAgainstGrounding } from "./claimChecker.ts";
+import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import type { ReviserOutput } from "../agents/reviser.ts";
 import type { CriticOutput } from "../agents/critic.ts";
 import type {
@@ -212,15 +212,12 @@ export async function executeRevisingCapability(
     };
   }
 
-  const claimCheck = checkDraftClaimsAgainstGrounding({
+  const revisionValidation = runRevisionValidationWorkers({
+    capability: "revising",
     draft: criticOutput.finalDraft,
     groundingPacket: context.groundingPacket,
   });
-  const revisionValidationStatus = claimCheck.needsClarification
-    ? "clarification_required"
-    : claimCheck.hasUnsupportedClaims || claimCheck.issues.length > 0
-      ? "failed"
-      : "passed";
+  const { claimCheck, validationStatus: revisionValidationStatus } = revisionValidation;
 
   if (claimCheck.needsClarification) {
     return {
@@ -243,27 +240,10 @@ export async function executeRevisingCapability(
           },
         },
         {
-          worker: "claim_checker",
-          capability: "revising",
-          phase: "validation",
-          mode: "sequential",
-          status: "completed",
-          groupId: null,
-          details: {
-            status: revisionValidationStatus,
-            issueCount: claimCheck.issues.length,
-          },
+          ...revisionValidation.workerExecutions[0],
         },
       ],
-      validations: [
-        {
-          validator: "claim_checker",
-          capability: "revising",
-          status: revisionValidationStatus,
-          issues: claimCheck.issues,
-          corrected: Boolean(claimCheck.draft && claimCheck.draft !== criticOutput.finalDraft),
-        },
-      ],
+      validations: revisionValidation.validations,
     };
   }
 
@@ -357,16 +337,7 @@ export async function executeRevisingCapability(
         },
       },
       {
-        worker: "claim_checker",
-        capability: "revising",
-        phase: "validation",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          status: revisionValidationStatus,
-          issueCount: claimCheck.issues.length,
-        },
+        ...revisionValidation.workerExecutions[0],
       },
       {
         worker: "revision_delivery",
@@ -380,14 +351,6 @@ export async function executeRevisingCapability(
         },
       },
     ],
-    validations: [
-      {
-        validator: "claim_checker",
-        capability: "revising",
-        status: revisionValidationStatus,
-        issues: claimCheck.issues,
-        corrected: Boolean(claimCheck.draft && claimCheck.draft !== criticOutput.finalDraft),
-      },
-    ],
+    validations: revisionValidation.validations,
   };
 }

@@ -226,6 +226,10 @@ User turn
 - The sibling novelty retry/write owner remains:
   - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Revision validation now flows through:
+  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts`
+- The revision merge/write owner remains:
+  - `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
 - Worker summaries are standardized by:
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 
@@ -298,7 +302,7 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Continue Phase 4 by isolating the next executor-local seam, with `revisingExecutor.ts` validation groups and the remaining sequential sibling-novelty retry path in `draftBundleExecutor.ts` as the best remaining candidates
+- Continue Phase 4 by standardizing merge and failure rules across the landed worker seams, then decide whether the remaining sibling-novelty retry path in `draftBundleExecutor.ts` should stay intentionally sequential
 - Finish the remaining runtime-contract cleanup around executor boundaries in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
 - Reconcile the remaining parse/prompt wrapper in `apps/web/app/api/creator/v2/chat/route.reply.ts` with the runtime reply capability boundary
 - Keep `apps/web/app/api/creator/v2/chat/route.reply.ts` as a thin route-boundary shim only; do not let reply capability logic drift back into `route.ts`

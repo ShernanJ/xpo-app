@@ -188,6 +188,8 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now merges that validation seam into runtime trace before retry and clarification decisions, while keeping the retry/write path sequential
   - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts` now owns the `draft_bundle_initial_candidates` fan-out for first-pass sibling option generation
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now returns merge-only drafting trace metadata so `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` can parallelize only the safe initial candidate pass while keeping novelty retries and write ownership sequential
+  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts` now owns the deterministic `revision_validation` merge seam for revision claim checking
+  - `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts` now consumes that validation seam while keeping clarification, response shaping, and memory writes in the same sequential owner path
 - Add merge rules for worker outputs.
 - Prohibit ambiguous side effects from worker fan-out.
 - Status: in progress.

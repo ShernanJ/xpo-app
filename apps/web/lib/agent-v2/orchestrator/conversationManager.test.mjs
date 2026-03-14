@@ -8,6 +8,7 @@ import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
 import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
+import { runRevisionValidationWorkers } from "./revisionValidationWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
 
 import {
@@ -499,6 +500,49 @@ test("draft bundle candidate workers parallelize initial sibling generation and 
   assert.deepEqual(
     result.validations.map((validation) => validation.validator),
     ["claim_checker", "claim_checker"],
+  );
+});
+
+test("revision validation workers isolate deterministic revision claim checks", () => {
+  const result = runRevisionValidationWorkers({
+    capability: "revising",
+    draft: [
+      "been in a rabbit hole this week learning how to grow on x.",
+      "a few tweaks actually moved the needle with real follower spikes.",
+    ].join("\n"),
+    groundingPacket: {
+      durableFacts: ["been in a rabbit hole this week learning how to grow on x"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: ["missing evidence for outcome claims"],
+      sourceMaterials: [],
+    },
+  });
+
+  assert.equal(result.claimCheck.hasUnsupportedClaims, true);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "claim_checker",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_validation",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.status),
+    ["failed"],
   );
 });
 
