@@ -90,12 +90,16 @@ import {
 } from "./pendingStatus";
 import { prepareAssistantReplyTransport } from "./chatTransport";
 import {
-  applyCreatedThreadPlanToList,
   buildAssistantMessageFromChatResult,
   readChatResponseStream,
-  resolveCreatedThreadPlan,
   resolveNextDraftEditorSelection,
 } from "./chatReplyState";
+import {
+  buildChatWorkspaceReset,
+  resolveCreatedThreadWorkspaceUpdate,
+  resolveWorkspaceHandle,
+  type ChatWorkspaceReset,
+} from "./chatWorkspaceState";
 import { usePendingStatusLabel } from "./usePendingStatusLabel";
 
 interface ValidationError {
@@ -2644,15 +2648,14 @@ function ChatPageContent() {
   const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
   const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
 
-  const accountName = useMemo(() => {
-    const workspaceHandleFromUrl = normalizeAccountHandle(searchParams.get("xHandle") ?? "");
-    if (workspaceHandleFromUrl) {
-      return workspaceHandleFromUrl;
-    }
-
-    const workspaceHandleFromSession = normalizeAccountHandle(session?.user?.activeXHandle ?? "");
-    return workspaceHandleFromSession || null;
-  }, [searchParams, session?.user?.activeXHandle]);
+  const accountName = useMemo(
+    () =>
+      resolveWorkspaceHandle({
+        searchHandle: searchParams.get("xHandle"),
+        sessionHandle: session?.user?.activeXHandle ?? null,
+      }),
+    [searchParams, session?.user?.activeXHandle],
+  );
   const requiresXAccountGate = status === "authenticated" && !accountName;
   const sourceMaterialsBootstrapKey = useMemo(() => {
     const normalizedHandle = normalizeAccountHandle(accountName ?? "");
@@ -2698,6 +2701,7 @@ function ChatPageContent() {
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const chatThreadsRef = useRef(chatThreads);
   const threadTransitionOutTimeoutRef = useRef<number | null>(null);
   const threadTransitionInTimeoutRef = useRef<number | null>(null);
   const shouldJumpToBottomAfterThreadSwitchRef = useRef(false);
@@ -2705,6 +2709,10 @@ function ChatPageContent() {
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
     normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
+
+  useEffect(() => {
+    chatThreadsRef.current = chatThreads;
+  }, [chatThreads]);
 
   useEffect(() => {
     if (!accountName) {
@@ -2891,20 +2899,7 @@ function ChatPageContent() {
       setChatThreads((current) => current.filter((thread) => thread.id !== deletingThread.id));
 
       if (activeThreadId === deletingThread.id) {
-        setActiveThreadId(null);
-        threadCreatedInSessionRef.current = false;
-        setMessages([]);
-        setDraftInput("");
-        setConversationMemory(null);
-        setActiveDraftEditor(null);
-        setEditorDraftText("");
-        setEditorDraftPosts([]);
-        setTypedAssistantLengths({});
-        setActiveDraftRevealByMessageId({});
-        setRevealedDraftMessageIds({});
-        setErrorMessage(null);
-        setIsLeavingHero(false);
-
+        applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
         window.history.replaceState({}, "", buildWorkspaceChatHref(null));
       }
     } catch (e) {
@@ -3275,6 +3270,30 @@ function ChatPageContent() {
       ),
     );
   }, [fetchWorkspace]);
+  const applyCreatedThreadWorkspaceUpdate = useCallback(
+    (newThreadId?: string | null, threadTitle?: string | null) => {
+      const createdThreadUpdate = resolveCreatedThreadWorkspaceUpdate({
+        currentThreads: chatThreadsRef.current,
+        newThreadId,
+        threadTitle,
+        activeThreadId,
+        accountName,
+      });
+      if (!createdThreadUpdate) {
+        return;
+      }
+
+      setActiveThreadId(createdThreadUpdate.nextActiveThreadId);
+      threadCreatedInSessionRef.current = createdThreadUpdate.threadCreatedInSession;
+      window.history.replaceState(
+        {},
+        "",
+        buildWorkspaceChatHref(createdThreadUpdate.nextHistoryThreadId),
+      );
+      setChatThreads(createdThreadUpdate.nextChatThreads);
+    },
+    [accountName, activeThreadId, buildWorkspaceChatHref],
+  );
 
   const acknowledgePricingModal = useCallback(async () => {
     try {
@@ -3378,21 +3397,8 @@ function ChatPageContent() {
   const handleNewChat = useCallback(() => {
     if (!accountName) return;
 
-    setActiveThreadId(null);
-    threadCreatedInSessionRef.current = false;
-    setMessages([]);
-    setDraftInput("");
-    setConversationMemory(null);
-    setActiveDraftEditor(null);
-    setEditorDraftText("");
-    setEditorDraftPosts([]);
-    setTypedAssistantLengths({});
-    setActiveDraftRevealByMessageId({});
-    setRevealedDraftMessageIds({});
-    setErrorMessage(null);
-    setIsLeavingHero(false);
-
-    window.history.pushState({}, '', buildWorkspaceChatHref(null));
+    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+    window.history.pushState({}, "", buildWorkspaceChatHref(null));
   }, [accountName, buildWorkspaceChatHref]);
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
@@ -3519,6 +3525,81 @@ function ChatPageContent() {
   >({});
   const draftRevealTimeoutsRef = useRef<Record<string, number>>({});
   const hasHydratedDraftRevealRef = useRef(false);
+  function applyChatWorkspaceReset(
+    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
+  ) {
+    if ("activeThreadId" in reset) {
+      setActiveThreadId(reset.activeThreadId);
+    }
+    if ("threadCreatedInSession" in reset) {
+      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
+    }
+    if ("context" in reset) {
+      setContext(reset.context);
+    }
+    if ("contract" in reset) {
+      setContract(reset.contract);
+    }
+    if ("conversationMemory" in reset) {
+      setConversationMemory(reset.conversationMemory);
+    }
+    if ("streamStatus" in reset) {
+      setStreamStatus(reset.streamStatus);
+    }
+    if ("isWorkspaceInitializing" in reset) {
+      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
+    }
+    if ("analysisOpen" in reset) {
+      setAnalysisOpen(reset.analysisOpen);
+    }
+    if ("backfillNotice" in reset) {
+      setBackfillNotice(reset.backfillNotice);
+    }
+    if ("isAnalysisScrapeRefreshing" in reset) {
+      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
+    }
+    if ("analysisScrapeNotice" in reset) {
+      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
+    }
+    if ("analysisScrapeCooldownUntil" in reset) {
+      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
+    }
+    if ("activeContentFocus" in reset) {
+      setActiveContentFocus(reset.activeContentFocus);
+    }
+    if ("toneInputs" in reset) {
+      setToneInputs(reset.toneInputs);
+    }
+    if ("activeToneInputs" in reset) {
+      setActiveToneInputs(reset.activeToneInputs);
+    }
+    if ("activeStrategyInputs" in reset) {
+      setActiveStrategyInputs(reset.activeStrategyInputs);
+    }
+    if ("draftQueueItems" in reset) {
+      setDraftQueueItems(reset.draftQueueItems);
+    }
+    if ("draftQueueError" in reset) {
+      setDraftQueueError(reset.draftQueueError);
+    }
+    if ("editingDraftCandidateId" in reset) {
+      setEditingDraftCandidateId(reset.editingDraftCandidateId);
+    }
+    if ("editingDraftCandidateText" in reset) {
+      setEditingDraftCandidateText(reset.editingDraftCandidateText);
+    }
+
+    setMessages(reset.messages);
+    setDraftInput(reset.draftInput);
+    setErrorMessage(reset.errorMessage);
+    setActiveDraftEditor(reset.activeDraftEditor);
+    setEditorDraftText(reset.editorDraftText);
+    setEditorDraftPosts(reset.editorDraftPosts);
+    setTypedAssistantLengths(reset.typedAssistantLengths);
+    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
+    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
+    setIsLeavingHero(reset.isLeavingHero);
+  }
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
     [context],
@@ -5403,34 +5484,13 @@ function ChatPageContent() {
     }
 
     missingOnboardingSetupAttemptedRef.current.clear();
-    setContext(null);
-    setContract(null);
-    setMessages([]);
-    setDraftInput("");
-    setErrorMessage(null);
-    setStreamStatus(null);
-    setIsWorkspaceInitializing(false);
-    setAnalysisOpen(false);
-    setBackfillNotice(null);
-    setIsAnalysisScrapeRefreshing(false);
-    setAnalysisScrapeNotice(null);
-    setAnalysisScrapeCooldownUntil(null);
-    setActiveContentFocus(null);
-    setToneInputs(DEFAULT_CHAT_TONE_INPUTS);
-    setActiveToneInputs(null);
-    setActiveStrategyInputs(DEFAULT_CHAT_STRATEGY_INPUTS);
-    setActiveDraftEditor(null);
-    setEditorDraftText("");
-    setEditorDraftPosts([]);
-    setDraftQueueItems([]);
-    setDraftQueueError(null);
-    setEditingDraftCandidateId(null);
-    setEditingDraftCandidateText("");
-    setTypedAssistantLengths({});
-    setActiveDraftRevealByMessageId({});
-    setRevealedDraftMessageIds({});
-    setIsLeavingHero(false);
-  }, [accountName, fetchWorkspace]);
+    applyChatWorkspaceReset(
+      buildChatWorkspaceReset("workspace", {
+        defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
+        defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
+      }),
+    );
+  }, [accountName]);
 
   useEffect(() => {
     if (!isLeavingHero) {
@@ -7278,21 +7338,10 @@ function ChatPageContent() {
             syncThreadTitle(responseThreadId, data.data.threadTitle);
           }
 
-          // Re-map the newly created backend thread if we just instantiated it
-          const createdThreadPlan = resolveCreatedThreadPlan({
-            newThreadId: data.data.newThreadId,
-            threadTitle: data.data.threadTitle,
-            activeThreadId,
-            accountName,
-          });
-          if (createdThreadPlan) {
-            setActiveThreadId(createdThreadPlan.threadId);
-            threadCreatedInSessionRef.current = true;
-            window.history.replaceState({}, "", buildWorkspaceChatHref(createdThreadPlan.threadId));
-            setChatThreads((current) =>
-              applyCreatedThreadPlanToList(current, createdThreadPlan),
-            );
-          }
+          applyCreatedThreadWorkspaceUpdate(
+            data.data.newThreadId,
+            data.data.threadTitle,
+          );
 
           return;
         }
@@ -7345,25 +7394,10 @@ function ChatPageContent() {
           syncThreadTitle(responseThreadId, streamedResult.threadTitle);
         }
 
-        // Re-map the newly created backend thread if we just instantiated it
-        const createdThreadPlan = resolveCreatedThreadPlan({
-          newThreadId: streamedResult.newThreadId,
-          threadTitle: streamedResult.threadTitle,
-          activeThreadId,
-          accountName,
-        });
-        if (createdThreadPlan) {
-          setActiveThreadId(createdThreadPlan.threadId);
-          threadCreatedInSessionRef.current = true;
-          window.history.replaceState(
-            {},
-            "",
-            buildWorkspaceChatHref(createdThreadPlan.threadId),
-          );
-          setChatThreads((current) =>
-            applyCreatedThreadPlanToList(current, createdThreadPlan),
-          );
-        }
+        applyCreatedThreadWorkspaceUpdate(
+          streamedResult.newThreadId,
+          streamedResult.threadTitle,
+        );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -7391,6 +7425,7 @@ function ChatPageContent() {
       preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
+      applyCreatedThreadWorkspaceUpdate,
       accountName,
       activeThreadId,
       syncThreadTitle,

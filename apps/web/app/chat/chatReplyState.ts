@@ -29,14 +29,12 @@ export interface DraftDrawerSelectionLike {
   versionId: string;
   revisionChainId?: string;
 }
-
-export interface ChatThreadListItemLike {
-  id: string;
-  title: string;
-  updatedAt: string;
-  createdAt?: string;
-  xHandle?: string | null;
-}
+export {
+  applyCreatedThreadPlanToList,
+  resolveCreatedThreadPlan,
+  type ChatThreadListItemLike,
+  type CreatedThreadPlan,
+} from "./chatWorkspaceState.ts";
 
 export interface ChatReplyResultLike<
   TQuickReply,
@@ -126,15 +124,6 @@ export interface AssistantChatMessageLike<
   contextPacket: TContextPacket | null;
   feedbackValue: null;
   quickReplies?: TQuickReply[];
-}
-
-export interface CreatedThreadPlan {
-  threadId: string;
-  title: string;
-  xHandle: string | null;
-  createdAt: string;
-  updatedAt: string;
-  replaceIds: string[];
 }
 
 interface BuildAssistantMessageFromChatResultArgs<
@@ -290,56 +279,6 @@ export function resolveNextDraftEditorSelection<
     versionId: nextDraftVersionId,
     revisionChainId: args.result.revisionChainId,
   };
-}
-
-export function resolveCreatedThreadPlan(args: {
-  newThreadId?: string | null;
-  threadTitle?: string | null;
-  activeThreadId: string | null;
-  accountName: string | null;
-  now?: Date;
-}): CreatedThreadPlan | null {
-  if (!args.newThreadId) {
-    return null;
-  }
-
-  const timestamp = (args.now ?? new Date()).toISOString();
-  return {
-    threadId: args.newThreadId,
-    title: args.threadTitle?.trim() || "New Chat",
-    xHandle: args.accountName || null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    replaceIds: ["current-workspace", ...(args.activeThreadId ? [args.activeThreadId] : [])],
-  };
-}
-
-export function applyCreatedThreadPlanToList<T extends ChatThreadListItemLike>(
-  current: T[],
-  plan: CreatedThreadPlan,
-): T[] {
-  const exists = current.some((thread) => plan.replaceIds.includes(thread.id));
-  if (exists) {
-    return current.map((thread) =>
-      plan.replaceIds.includes(thread.id)
-        ? ({
-            ...thread,
-            id: plan.threadId,
-          } as T)
-        : thread,
-    );
-  }
-
-  return [
-    {
-      id: plan.threadId,
-      title: plan.title,
-      xHandle: plan.xHandle,
-      createdAt: plan.createdAt,
-      updatedAt: plan.updatedAt,
-    } as T,
-    ...current,
-  ];
 }
 
 interface ChatStreamStatusEvent {
