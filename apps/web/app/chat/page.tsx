@@ -141,6 +141,7 @@ import {
   resolveWorkspaceHandle,
   type ChatWorkspaceReset,
 } from "./chatWorkspaceState";
+import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
 import { usePendingStatusLabel } from "./usePendingStatusLabel";
 
 interface ValidationError {
@@ -4619,41 +4620,16 @@ function ChatPageContent() {
         const contractData: CreatorGenerationContractResponse =
           await contractResponse.json();
 
-        const contextMissingOnboarding =
-          (!contextData.ok &&
-            (contextData.code === "MISSING_ONBOARDING_RUN" ||
-              (contextResponse.status === 404 &&
-                contextData.errors.some((error) =>
-                  error.message.toLowerCase().includes("no onboarding run"),
-                ))));
-        const contractMissingOnboarding =
-          (!contractData.ok &&
-            (contractData.code === "MISSING_ONBOARDING_RUN" ||
-              (contractResponse.status === 404 &&
-                contractData.errors.some((error) =>
-                  error.message.toLowerCase().includes("no onboarding run"),
-                ))));
-        const contextInvalidOnboardingSource =
-          !contextData.ok &&
-          (contextData.code === "ONBOARDING_SOURCE_INVALID" ||
-            (contextResponse.status === 409 &&
-              contextData.errors.some((error) =>
-                error.message.toLowerCase().includes("fallback data"),
-              )));
-        const contractInvalidOnboardingSource =
-          !contractData.ok &&
-          (contractData.code === "ONBOARDING_SOURCE_INVALID" ||
-            (contractResponse.status === 409 &&
-              contractData.errors.some((error) =>
-                error.message.toLowerCase().includes("fallback data"),
-              )));
+        const workspaceLoadState = resolveWorkspaceLoadState({
+          contextResponseOk: contextResponse.ok,
+          contextStatus: contextResponse.status,
+          contextData,
+          contractResponseOk: contractResponse.ok,
+          contractStatus: contractResponse.status,
+          contractData,
+        });
 
-        if (
-          contextMissingOnboarding ||
-          contractMissingOnboarding ||
-          contextInvalidOnboardingSource ||
-          contractInvalidOnboardingSource
-        ) {
+        if (workspaceLoadState.status === "retry_after_onboarding") {
           const didSetup = await runMissingOnboardingSetup();
           if (didSetup) {
             return await loadWorkspace(overrides, toneOverrides);
@@ -4661,32 +4637,17 @@ function ChatPageContent() {
           return { ok: false };
         }
 
-        if (!contextResponse.ok || !contextData.ok) {
-          setErrorMessage(
-            contextData.ok
-              ? "Failed to load the creator context."
-              : (contextData.errors[0]?.message ??
-                "Failed to load the creator context."),
-          );
+        if (workspaceLoadState.status === "error") {
+          setErrorMessage(workspaceLoadState.errorMessage);
           return { ok: false };
         }
 
-        if (!contractResponse.ok || !contractData.ok) {
-          setErrorMessage(
-            contractData.ok
-              ? "Failed to load the generation contract."
-              : (contractData.errors[0]?.message ??
-                "Failed to load the generation contract."),
-          );
-          return { ok: false };
-        }
-
-        setContext(contextData.data);
-        setContract(contractData.data);
+        setContext(workspaceLoadState.contextData);
+        setContract(workspaceLoadState.contractData);
         return {
           ok: true,
-          contextData: contextData.data,
-          contractData: contractData.data,
+          contextData: workspaceLoadState.contextData,
+          contractData: workspaceLoadState.contractData,
         };
       } catch {
         setErrorMessage("Network error while loading the chat workspace.");
