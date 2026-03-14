@@ -7,13 +7,18 @@
 - Last updated: 2026-03-13
 - Current slice: Phase 1 control-plane hardening in progress
 
+## Status language
+- `target architecture` means the intended end state.
+- `landed` means already true in code today.
+- `migration debt` means transitional behavior that still exists and should be removed later.
+
 ## Why this rework exists
 The app is now bottlenecked by infrastructure, not prompt tweaks.
 
 Current hotspots:
-- [apps/web/app/chat/page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) is still a large client monolith that mixes transport, local workflow state, and presentation.
-- [apps/web/app/api/creator/v2/chat/route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) is still too heavy as a route boundary.
-- [apps/web/lib/agent-v2/orchestrator/draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) still owns too many capabilities and too much continuation logic.
+- `apps/web/app/chat/page.tsx` is still a large client monolith that mixes transport, local workflow state, and presentation.
+- `apps/web/app/api/creator/v2/chat/route.ts` is still too heavy as a route boundary.
+- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
 
 The program goal is to make the system feel like one natural ChatGPT-style assistant on the surface while being explicit, typed, and deterministic underneath.
 
@@ -27,6 +32,13 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `reply_to_post`
   - `analyze_post`
 - The control plane stays sequential.
+- Target control-plane order:
+  - transport contract
+  - turn normalization
+  - runtime action resolution
+  - workflow dispatch
+  - persistence
+  - response envelope
 - Parallelism is allowed only inside a chosen workflow and only for read-only or side-effect-free workers.
 - Memory, artifact persistence, reply context, and thread metadata mutate only through the sequential runtime path.
 - Validation and retry are the primary quality strategy.
@@ -55,6 +67,29 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Client-side hidden prompting as the main workflow signal
 - Cleanup heuristics used as the primary fix for routing or generation defects
 
+## Shared contracts in play
+- Transport contract currently standardizes:
+  - `workspaceHandle`
+  - `threadId`
+  - `clientTurnId`
+  - `turnSource`
+  - `artifactContext`
+  - literal `message`
+- Normalized turn currently carries:
+  - transcript-facing and orchestration-facing message variants
+  - `turnSource`
+  - `artifactContext`
+  - `resolvedWorkflow`
+  - `planSeedSource`
+  - `replyHandlingBypassedReason`
+  - `shouldAllowReplyHandling`
+- `planSeedMessage` is route/orchestrator context after normalization, not a normalized-turn field.
+- Shared capability contract types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
+  - `CapabilityExecutionRequest`
+  - `CapabilityExecutionResult`
+  - `RuntimeValidationResult`
+  - `activeContextRefs` belongs here, not on the normalized turn
+
 ## Current invariants
 - `recentHistory` stays transcript-only.
 - Structured UI actions must travel as `turnSource + artifactContext`.
@@ -64,9 +99,16 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Voice grounding and factual grounding stay separated.
 - Multi-handle isolation remains required behavior.
 
+## Transitional notes
+- `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
+- Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
+- Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`, but the route still owns too much surrounding request/event/billing assembly.
+- Runtime trace currently records normalized turn, runtime resolution, worker summary, and validations, but not persisted state changes yet.
+- `pipeline_continuation` remains migration debt to remove, not a desired steady-state source of workflow authority.
+
 ## Phase board
 ### Phase 0: Program reset
-- Rewrite [Artifact.md](/Users/shernanjavier/Projects/stanley-x-mvp/Artifact.md) and [LIVE_AGENT.md](/Users/shernanjavier/Projects/stanley-x-mvp/LIVE_AGENT.md) into migration docs instead of patch logs.
+- Rewrite `Artifact.md` and `LIVE_AGENT.md` into migration docs instead of patch logs.
 - Status: complete.
 
 ### Phase 1: Lock the control plane
@@ -79,28 +121,42 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - reply bypass reason
   - worker execution summary
   - validation results
+- Remaining target-state follow-on:
+  - extend runtime trace to cover persisted state changes too
 - Status: in progress.
 - Landed:
-  - [apps/web/lib/agent-v2/contracts/chatTransport.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/contracts/chatTransport.ts)
-  - [apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts)
-  - [apps/web/lib/agent-v2/runtime/runtimeContracts.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/runtimeContracts.ts)
-  - [apps/web/lib/agent-v2/runtime/runtimeTrace.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/runtime/runtimeTrace.ts)
+  - `apps/web/lib/agent-v2/contracts/chatTransport.ts`
+  - `apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts`
+  - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
+  - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now dispatches from runtime workflow first and tags remaining legacy local overrides as `pipeline_continuation` in the runtime trace instead of silently reclassifying turns
 
 ### Phase 2: Thin the client and route
-- Move transport/request construction out of [page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) into a dedicated chat transport layer plus workspace store.
-- Reduce [route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
-- Status: not started.
+- Landed:
+  - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
+  - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
+  - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
+- Move transport/request construction out of `apps/web/app/chat/page.tsx` into a dedicated chat transport layer plus workspace store.
+- Reduce `apps/web/app/api/creator/v2/chat/route.ts` to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
+- Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.
+- Status: in progress.
 
 ### Phase 3: Split capability execution
-- Break [draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) into capability executors:
-  - ideation
-  - planning
-  - drafting
-  - revising
-  - replying
-  - analysis
-- Ban workflow reclassification inside executors.
-- Status: not started.
+- Shared capability contract types are already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:
+  - `CapabilityExecutionRequest`
+  - `CapabilityExecutionResult`
+  - `RuntimeValidationResult`
+- Remaining work:
+  - break `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` into capability executors:
+    - ideation
+    - planning
+    - drafting
+    - revising
+    - replying
+    - analysis
+  - adopt the shared capability contract cleanly across those executors
+  - ban workflow reclassification inside executors
+- Status: partially landed.
 
 ### Phase 4: Formalize the parallel worker plane
 - Allow worker fan-out only for retrieval, source-material loading, style/profile loading, candidate generation, and validation/scoring.
@@ -114,6 +170,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Status: not started.
 
 ### Phase 6: Rollout and deletion
+- Ship the new runtime shape behind a migration flag if needed.
 - Migrate workflow families in order:
   1. ideation + draft
   2. revision
@@ -121,21 +178,38 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Delete compatibility shims and duplicate routing only when each family is green under vNext.
 - Status: not started.
 
-## Acceptance gates
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/chat/route.test.mjs`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node app/api/creator/v2/chat/turnNormalization.test.mjs`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/contracts/chatTransport.test.ts`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/resolveRuntimeAction.test.mjs`
-- `node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/runtime/runtimeContracts.test.ts`
+## Executable gates today
+- `pnpm run test:v2-route`
 - `pnpm run test:v2-orchestrator`
 - `pnpm run test:v2-response-quality`
+- `pnpm run test:v2-regressions`
 - `pnpm run test:v3-orchestrator`
+- `pnpm run test:transcript-replay`
 - `pnpm build`
 
+## Required migration scenarios
+- `write a post` -> ideation -> pick direction -> draft
+- ideation pick -> revise -> thread conversion
+- pasted post -> reply workflow
+- pasted post without explicit reply ask -> analyze/reply/quote guidance instead of forced reply drafting
+- clarification answer after wrong assumption
+- topic switch after active draft or reply context
+- duplicate `clientTurnId`
+- multi-tab same-profile different-handle isolation
+- reply workflow not hijacking non-reply turns
+- no double-write behavior from worker fan-out
+
+## Required capability eval coverage
+- Ideation quality
+- Shortform draft quality
+- Thread quality
+- Reply quality
+- Keep this visible as required coverage even if it is not yet a standalone gate family
+
 ## Active blockers and risks
-- [page.tsx](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/chat/page.tsx) still owns too much request and workspace logic.
-- [route.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/app/api/creator/v2/chat/route.ts) still owns too much workflow and persistence assembly.
-- [draftPipeline.ts](/Users/shernanjavier/Projects/stanley-x-mvp/apps/web/lib/agent-v2/orchestrator/draftPipeline.ts) still mixes generation, continuation, grounding, revision, and salvage logic.
+- `apps/web/app/chat/page.tsx` still owns too much request and workspace logic.
+- `apps/web/app/api/creator/v2/chat/route.ts` still owns too much workflow and persistence assembly.
+- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still mixes generation, continuation, grounding, revision, and salvage logic.
 - Output cleanup helpers still exist because validator + retry is incomplete.
 
 ## Do not regress

@@ -8,7 +8,6 @@ import {
   createConversationMemorySnapshot,
   createConversationMemory,
   getConversationMemory,
-  updateConversationMemory,
 } from "@/lib/agent-v2/memory/memoryStore";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
@@ -48,10 +47,10 @@ import {
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./route.logic";
+import { persistAssistantTurn } from "./route.persistence";
 import { normalizeChatTurn } from "./turnNormalization";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
-import { isMissingDraftCandidateTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
 import {
   buildRecommendedPlaybookSummaries,
   inferCurrentPlaybookStage,
@@ -794,32 +793,26 @@ export async function POST(request: NextRequest) {
 
       let createdAssistantMessageId: string | undefined;
       if (storedThread) {
-        const assistantMessage = await prisma.chatMessage.create({
-          data: {
-            threadId: storedThread.id,
-            role: "assistant",
-            content: mappedData.reply,
-            data: mappedData as unknown as Prisma.InputJsonValue,
-          },
-        });
-        createdAssistantMessageId = assistantMessage.id;
-        await updateConversationMemory({
+        const persistenceResult = await persistAssistantTurn({
           threadId: storedThread.id,
-          preferredSurfaceMode: "structured",
-          activeReplyContext: args.activeReplyContext,
-          activeReplyArtifactRef: args.replyArtifacts
-            ? {
-                messageId: assistantMessage.id,
-                kind: args.replyArtifacts.kind,
-              }
-            : null,
-          selectedReplyOptionId:
-            args.selectedReplyOptionId === undefined ? null : args.selectedReplyOptionId,
+          assistantMessageData: mappedData,
+          threadUpdate: { updatedAt: new Date() },
+          buildMemoryUpdate: (assistantMessageId) => ({
+            preferredSurfaceMode: "structured",
+            activeReplyContext: args.activeReplyContext,
+            activeReplyArtifactRef: args.replyArtifacts
+              ? {
+                  messageId: assistantMessageId,
+                  kind: args.replyArtifacts.kind,
+                }
+              : null,
+            selectedReplyOptionId:
+              args.selectedReplyOptionId === undefined ? null : args.selectedReplyOptionId,
+          }),
         });
-        await prisma.chatThread.update({
-          where: { id: storedThread.id },
-          data: { updatedAt: new Date() },
-        });
+        createdAssistantMessageId = persistenceResult.assistantMessageId;
+        mappedData.threadTitle =
+          persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE;
       }
 
       if (args.eventType) {
@@ -1172,8 +1165,6 @@ export async function POST(request: NextRequest) {
       : null;
     const {
       mappedData: mappedDataSeed,
-      responseVoiceTarget,
-      responseNoveltyNotes,
       responseGroundingMode,
       responseGroundingExplanation,
     } = buildChatRouteMappedData({
@@ -1230,73 +1221,42 @@ export async function POST(request: NextRequest) {
     let createdAssistantMessageId: string | undefined;
 
     if (storedThread) {
-      const assistantMessage = await prisma.chatMessage.create({
-        data: {
-          threadId: storedThread.id,
-          role: "assistant",
-          content: mappedData.reply,
-          data: mappedData as unknown as Prisma.InputJsonValue,
-        }
-      });
-      createdAssistantMessageId = assistantMessage.id;
-
-      await updateConversationMemory({
+      const persistenceResult = await persistAssistantTurn({
         threadId: storedThread.id,
-        ...(persistencePlan.memoryUpdate.activeDraftVersionId && createdAssistantMessageId
-          ? {
-              activeDraftRef: {
-                messageId: createdAssistantMessageId,
-                versionId: persistencePlan.memoryUpdate.activeDraftVersionId,
-                revisionChainId: persistencePlan.memoryUpdate.revisionChainId ?? null,
-              },
-            }
-          : {}),
-        preferredSurfaceMode: persistencePlan.memoryUpdate.preferredSurfaceMode,
-        ...(persistencePlan.memoryUpdate.shouldClearReplyWorkflow
-          ? {
-              activeReplyContext: null,
-              activeReplyArtifactRef: null,
-              selectedReplyOptionId: null,
-            }
-          : {}),
-      });
-
-      const updatedThread = await prisma.chatThread.update({
-        where: { id: storedThread.id },
-        data: persistencePlan.threadUpdate,
-      });
-
-      mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
-
-      if (persistencePlan.draftCandidateCreates.length > 0) {
-        try {
-          await Promise.all(
-            persistencePlan.draftCandidateCreates.map((candidate) =>
-              prisma.draftCandidate.create({
-                data: {
-                  userId: session.user.id,
-                  ...(activeHandle ? { xHandle: activeHandle } : {}),
-                  threadId: storedThread.id,
-                  runId: storedRun?.id ?? null,
-                  title: candidate.title,
-                  sourcePrompt: effectiveMessage,
-                  sourcePlaybook: "chat_bundle",
-                  outputShape: result.outputShape,
-                  artifact: candidate.artifact as unknown as Prisma.InputJsonValue,
-                  voiceTarget: candidate.voiceTarget
-                    ? (candidate.voiceTarget as unknown as Prisma.InputJsonValue)
-                    : Prisma.JsonNull,
-                  noveltyNotes: candidate.noveltyNotes as unknown as Prisma.InputJsonValue,
+        assistantMessageData: mappedData,
+        threadUpdate: persistencePlan.threadUpdate,
+        buildMemoryUpdate: (assistantMessageId) => ({
+          ...(persistencePlan.memoryUpdate.activeDraftVersionId
+            ? {
+                activeDraftRef: {
+                  messageId: assistantMessageId,
+                  versionId: persistencePlan.memoryUpdate.activeDraftVersionId,
+                  revisionChainId: persistencePlan.memoryUpdate.revisionChainId ?? null,
                 },
-              }),
-            ),
-          );
-        } catch (error) {
-          if (!isMissingDraftCandidateTableError(error)) {
-            throw error;
-          }
-        }
-      }
+              }
+            : {}),
+          preferredSurfaceMode: persistencePlan.memoryUpdate.preferredSurfaceMode,
+          ...(persistencePlan.memoryUpdate.shouldClearReplyWorkflow
+            ? {
+                activeReplyContext: null,
+                activeReplyArtifactRef: null,
+                selectedReplyOptionId: null,
+              }
+            : {}),
+        }),
+        draftCandidateCreates: persistencePlan.draftCandidateCreates,
+        draftCandidateContext: {
+          userId: session.user.id,
+          xHandle: activeHandle,
+          runId: storedRun?.id ?? null,
+          sourcePrompt: effectiveMessage,
+          sourcePlaybook: "chat_bundle",
+          outputShape: result.outputShape,
+        },
+      });
+      createdAssistantMessageId = persistenceResult.assistantMessageId;
+      mappedData.threadTitle =
+        persistenceResult.updatedThreadTitle || DEFAULT_THREAD_TITLE;
     }
 
     if (

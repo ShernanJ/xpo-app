@@ -16,6 +16,7 @@ import {
   resolveEffectiveExplicitIntent,
   shouldBypassEmbeddedReplyHandling,
 } from "./route.logic.ts";
+import { persistAssistantTurnWithDeps } from "./route.persistence.ts";
 import { normalizeChatTurn } from "./turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
@@ -376,6 +377,125 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
   assert.equal(plan.analytics.primaryGroundingMode, "saved_sources");
   assert.equal(plan.analytics.primaryGroundingSourceCount, 1);
   assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
+});
+
+test("persistAssistantTurnWithDeps preserves sequential write order", async () => {
+  const calls = [];
+
+  const result = await persistAssistantTurnWithDeps(
+    {
+      threadId: "thread-1",
+      assistantMessageData: {
+        reply: "here's the draft",
+        threadTitle: "Current thread",
+      },
+      threadUpdate: {
+        updatedAt: new Date("2026-03-13T15:00:00.000Z"),
+        title: "Updated title",
+      },
+      buildMemoryUpdate: (assistantMessageId) => ({
+        preferredSurfaceMode: "natural",
+        activeDraftRef: {
+          messageId: assistantMessageId,
+          versionId: "version-1",
+          revisionChainId: "revision-chain-1",
+        },
+      }),
+      draftCandidateCreates: [
+        {
+          title: "Option one",
+          artifact: { id: "artifact-1" },
+          voiceTarget: { summary: "first" },
+          noveltyNotes: ["note one"],
+        },
+        {
+          title: "Option two",
+          artifact: { id: "artifact-2" },
+          voiceTarget: null,
+          noveltyNotes: ["note two"],
+        },
+      ],
+      draftCandidateContext: {
+        userId: "user-1",
+        xHandle: "stan",
+        runId: "run-1",
+        sourcePrompt: "write me a post",
+        sourcePlaybook: "chat_bundle",
+        outputShape: "short_form_post",
+      },
+    },
+    {
+      async createChatMessage(args) {
+        calls.push(["createChatMessage", args.threadId, args.content]);
+        return { id: "assistant-msg-1" };
+      },
+      async updateConversationMemory(args) {
+        calls.push([
+          "updateConversationMemory",
+          args.threadId,
+          args.activeDraftRef?.messageId,
+          args.activeDraftRef?.versionId,
+        ]);
+        return null;
+      },
+      async updateChatThread(args) {
+        calls.push(["updateChatThread", args.threadId, args.data.title ?? null]);
+        return { title: "Updated title" };
+      },
+      async createDraftCandidate(args) {
+        calls.push(["createDraftCandidate", args.threadId, args.title]);
+        return null;
+      },
+    },
+  );
+
+  assert.equal(result.assistantMessageId, "assistant-msg-1");
+  assert.equal(result.updatedThreadTitle, "Updated title");
+  assert.deepEqual(calls, [
+    ["createChatMessage", "thread-1", "here's the draft"],
+    ["updateConversationMemory", "thread-1", "assistant-msg-1", "version-1"],
+    ["updateChatThread", "thread-1", "Updated title"],
+    ["createDraftCandidate", "thread-1", "Option one"],
+    ["createDraftCandidate", "thread-1", "Option two"],
+  ]);
+});
+
+test("persistAssistantTurnWithDeps skips writes when no thread is available", async () => {
+  const calls = [];
+
+  const result = await persistAssistantTurnWithDeps(
+    {
+      threadId: null,
+      assistantMessageData: {
+        reply: "no-op",
+        threadTitle: "New Chat",
+      },
+      threadUpdate: {
+        updatedAt: new Date("2026-03-13T15:00:00.000Z"),
+      },
+    },
+    {
+      async createChatMessage() {
+        calls.push("createChatMessage");
+        return { id: "unexpected" };
+      },
+      async updateConversationMemory() {
+        calls.push("updateConversationMemory");
+        return null;
+      },
+      async updateChatThread() {
+        calls.push("updateChatThread");
+        return { title: null };
+      },
+      async createDraftCandidate() {
+        calls.push("createDraftCandidate");
+        return null;
+      },
+    },
+  );
+
+  assert.deepEqual(result, {});
+  assert.deepEqual(calls, []);
 });
 
 test("long_form_post remains a valid route draft kind", () => {
