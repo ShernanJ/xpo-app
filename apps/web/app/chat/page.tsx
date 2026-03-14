@@ -136,8 +136,10 @@ import {
 } from "./chatDraftSessionState";
 import {
   readChatResponseStream,
-  resolveAssistantReplySuccessState,
+  resolveAssistantReplyJsonOutcome,
+  resolveAssistantReplyPlan,
 } from "./chatReplyState";
+import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./chatReplyState";
 import {
   buildChatWorkspaceReset,
   resolveCreatedThreadWorkspaceUpdate,
@@ -906,6 +908,20 @@ interface ChatQuickReply {
   explicitIntent?: ChatIntent;
   formatPreference?: "shortform" | "longform" | "thread";
 }
+
+type CreatorAssistantReplyPlan = ResolvedAssistantReplyPlan<
+  ChatQuickReply,
+  CreatorChatSuccess["data"]["plan"],
+  DraftArtifact,
+  DraftVersionEntry,
+  DraftBundlePayload,
+  DraftVersionSnapshot,
+  ReplyArtifacts,
+  ReplyParseEnvelope,
+  CreatorChatSuccess["data"]["contextPacket"],
+  CreatorChatSuccess["data"]["memory"],
+  BillingStatePayload
+>;
 
 const DRAFT_REVEAL_DURATION_MS = 1250;
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
@@ -6364,6 +6380,47 @@ function ChatPageContent() {
     scrollThreadToBottom,
   ]);
 
+  const applyAssistantReplyPlan = useCallback(
+    (replyPlan: CreatorAssistantReplyPlan) => {
+      if (replyPlan.nextBilling) {
+        setBillingState(replyPlan.nextBilling);
+      }
+
+      setMessages((current) => [
+        ...current,
+        replyPlan.buildAssistantMessage(current.length),
+      ]);
+      scrollThreadToBottom();
+
+      if (replyPlan.nextDraftEditor) {
+        setActiveDraftEditor(replyPlan.nextDraftEditor);
+      }
+
+      if (replyPlan.nextConversationMemory) {
+        setConversationMemory(replyPlan.nextConversationMemory);
+      }
+
+      if (replyPlan.nextThreadTitle) {
+        syncThreadTitle(
+          replyPlan.nextThreadTitle.threadId,
+          replyPlan.nextThreadTitle.title,
+        );
+      }
+
+      if (replyPlan.createdThreadPlan) {
+        applyCreatedThreadWorkspaceUpdate(
+          replyPlan.createdThreadPlan.threadId,
+          replyPlan.createdThreadPlan.title,
+        );
+      }
+    },
+    [
+      applyCreatedThreadWorkspaceUpdate,
+      scrollThreadToBottom,
+      syncThreadTitle,
+    ],
+  );
+
   const requestAssistantReply = useCallback(
     async (options: {
       prompt?: string;
@@ -6475,84 +6532,50 @@ function ChatPageContent() {
         const starterQuickReplies = buildDefaultExampleQuickReplies(
           shouldUseLowercaseChipVoice(context),
         );
+        const replyPlanArgs = {
+          activeThreadId,
+          trimmedPrompt,
+          artifactKind: options.artifactContext?.kind ?? null,
+          defaultQuickReplies: starterQuickReplies,
+          selectedDraftContext: effectiveSelectedDraftContext,
+          accountName,
+        } as const;
 
         if (contentType.includes("application/json")) {
           const data: CreatorChatResponse = await response.json();
+          const outcome = resolveAssistantReplyJsonOutcome({
+            responseOk: response.ok,
+            responseStatus: response.status,
+            response: data,
+            failureMessage: "Failed to generate a reply.",
+            replyPlanArgs: {
+              ...replyPlanArgs,
+              mode: "json",
+            },
+          });
 
-          if (!response.ok || !data.ok) {
-            const failure = data as CreatorChatFailure;
-            if (failure.data?.billing) {
+          if (outcome.kind === "failure") {
+            const nextBillingSnapshot =
+              outcome.nextBillingSnapshot as BillingSnapshotPayload | null;
+
+            if (nextBillingSnapshot) {
               setBillingState((current) =>
                 current
                   ? {
                     ...current,
-                    billing: failure.data?.billing ?? current.billing,
+                    billing: nextBillingSnapshot,
                   }
                   : current,
               );
             }
-            if (response.status === 402 || response.status === 403) {
+            if (outcome.shouldOpenPricingModal) {
               setPricingModalOpen(true);
             }
-            setErrorMessage(
-              failure.errors?.[0]?.message ?? "Failed to generate a reply.",
-            );
+            setErrorMessage(outcome.errorMessage);
             return;
           }
 
-          if (data.data.billing) {
-            setBillingState(data.data.billing);
-          }
-
-          const successState = resolveAssistantReplySuccessState({
-            result: data.data,
-            activeThreadId,
-            existingMessageCount: messages.length,
-            trimmedPrompt,
-            artifactKind: options.artifactContext?.kind ?? null,
-            defaultQuickReplies: starterQuickReplies,
-            selectedDraftContext: effectiveSelectedDraftContext,
-            mode: "json",
-            accountName,
-          });
-          setMessages((current) => {
-            const nextAssistantState = resolveAssistantReplySuccessState({
-              result: data.data,
-              activeThreadId,
-              existingMessageCount: current.length,
-              trimmedPrompt,
-              artifactKind: options.artifactContext?.kind ?? null,
-              defaultQuickReplies: starterQuickReplies,
-              selectedDraftContext: effectiveSelectedDraftContext,
-              mode: "json",
-              accountName,
-            });
-
-            return [...current, nextAssistantState.assistantMessage];
-          });
-          scrollThreadToBottom();
-
-          if (successState.nextDraftEditor) {
-            setActiveDraftEditor(successState.nextDraftEditor);
-          }
-
-          if (successState.nextConversationMemory) {
-            setConversationMemory(successState.nextConversationMemory);
-          }
-
-          if (successState.nextThreadTitle) {
-            syncThreadTitle(
-              successState.nextThreadTitle.threadId,
-              successState.nextThreadTitle.title,
-            );
-          }
-
-          if (successState.createdThreadPlan) {
-            applyCreatedThreadWorkspaceUpdate(
-              successState.createdThreadPlan.threadId,
-              successState.createdThreadPlan.title,
-            );
-          }
+          applyAssistantReplyPlan(outcome.replyPlan as CreatorAssistantReplyPlan);
 
           return;
         }
@@ -6565,59 +6588,13 @@ function ChatPageContent() {
           body: response.body,
           onStatus: (message) => setStreamStatus(message),
         });
-
-        const successState = resolveAssistantReplySuccessState({
-          result: streamedResult,
-          activeThreadId,
-          existingMessageCount: messages.length,
-          trimmedPrompt,
-          artifactKind: options.artifactContext?.kind ?? null,
-          defaultQuickReplies: starterQuickReplies,
-          selectedDraftContext: effectiveSelectedDraftContext,
-          mode: "stream",
-          accountName,
-        });
-        if (successState.nextBilling) {
-          setBillingState(successState.nextBilling);
-        }
-        setMessages((current) => {
-          const nextAssistantState = resolveAssistantReplySuccessState({
+        applyAssistantReplyPlan(
+          resolveAssistantReplyPlan({
+            ...replyPlanArgs,
             result: streamedResult,
-            activeThreadId,
-            existingMessageCount: current.length,
-            trimmedPrompt,
-            artifactKind: options.artifactContext?.kind ?? null,
-            defaultQuickReplies: starterQuickReplies,
-            selectedDraftContext: effectiveSelectedDraftContext,
             mode: "stream",
-            accountName,
-          });
-
-          return [...current, nextAssistantState.assistantMessage];
-        });
-        scrollThreadToBottom();
-
-        if (successState.nextDraftEditor) {
-          setActiveDraftEditor(successState.nextDraftEditor);
-        }
-
-        if (successState.nextConversationMemory) {
-          setConversationMemory(successState.nextConversationMemory);
-        }
-
-        if (successState.nextThreadTitle) {
-          syncThreadTitle(
-            successState.nextThreadTitle.threadId,
-            successState.nextThreadTitle.title,
-          );
-        }
-
-        if (successState.createdThreadPlan) {
-          applyCreatedThreadWorkspaceUpdate(
-            successState.createdThreadPlan.threadId,
-            successState.createdThreadPlan.title,
-          );
-        }
+          }) as CreatorAssistantReplyPlan,
+        );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -6645,10 +6622,9 @@ function ChatPageContent() {
       preferenceConstraintRules,
       selectedDraftContext,
       scrollThreadToBottom,
-      applyCreatedThreadWorkspaceUpdate,
+      applyAssistantReplyPlan,
       accountName,
       activeThreadId,
-      syncThreadTitle,
     ],
   );
 

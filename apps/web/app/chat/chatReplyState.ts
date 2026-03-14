@@ -227,6 +227,151 @@ export interface AssistantReplySuccessState<
     | null;
 }
 
+interface ResolveAssistantReplyPlanArgs<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+> extends Omit<
+    ResolveAssistantReplySuccessStateArgs<
+      TQuickReply,
+      TPlan,
+      TDraftArtifact,
+      TDraftVersion,
+      TDraftBundle,
+      TPreviousVersion,
+      TReplyArtifacts,
+      TReplyParse,
+      TContextPacket,
+      TMemory,
+      TBilling
+    >,
+    "existingMessageCount"
+  > {}
+
+export interface AssistantReplyPlan<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+> {
+  buildAssistantMessage: (
+    existingMessageCount: number,
+  ) => AssistantChatMessageLike<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket
+  >;
+  nextDraftEditor: DraftDrawerSelectionLike | null;
+  nextConversationMemory: TMemory | null;
+  nextBilling: TBilling | null;
+  createdThreadPlan: CreatedThreadPlan | null;
+  nextThreadTitle:
+    | {
+        threadId: string;
+        title: string;
+      }
+    | null;
+}
+
+interface ValidationErrorLike {
+  message: string;
+}
+
+interface AssistantReplyFailureLike<TBillingSnapshot> {
+  ok: false;
+  errors: ValidationErrorLike[];
+  data?: {
+    billing?: TBillingSnapshot;
+  } | null;
+}
+
+interface AssistantReplySuccessEnvelope<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+> {
+  ok: true;
+  data: ChatReplyResultLike<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket,
+    TMemory,
+    TBilling
+  >;
+}
+
+export type AssistantReplyJsonOutcome<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+  TFailureBillingSnapshot,
+> =
+  | {
+      kind: "success";
+      replyPlan: AssistantReplyPlan<
+        TQuickReply,
+        TPlan,
+        TDraftArtifact,
+        TDraftVersion,
+        TDraftBundle,
+        TPreviousVersion,
+        TReplyArtifacts,
+        TReplyParse,
+        TContextPacket,
+        TMemory,
+        TBilling
+      >;
+    }
+  | {
+      kind: "failure";
+      errorMessage: string;
+      nextBillingSnapshot: TFailureBillingSnapshot | null;
+      shouldOpenPricingModal: boolean;
+    };
+
 export function buildAssistantMessageFromChatResult<
   TQuickReply,
   TPlan,
@@ -387,7 +532,57 @@ export function resolveAssistantReplySuccessState<
   TMemory,
   TBilling
 > {
-  const assistantMessage = buildAssistantMessageFromChatResult(args);
+  const replyPlan = resolveAssistantReplyPlan(args);
+
+  return {
+    assistantMessage: replyPlan.buildAssistantMessage(args.existingMessageCount),
+    nextDraftEditor: replyPlan.nextDraftEditor,
+    nextConversationMemory: replyPlan.nextConversationMemory,
+    nextBilling: replyPlan.nextBilling,
+    createdThreadPlan: replyPlan.createdThreadPlan,
+    nextThreadTitle: replyPlan.nextThreadTitle,
+  };
+}
+
+export function resolveAssistantReplyPlan<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+>(
+  args: ResolveAssistantReplyPlanArgs<
+    TQuickReply,
+    TPlan,
+    TDraftArtifact,
+    TDraftVersion,
+    TDraftBundle,
+    TPreviousVersion,
+    TReplyArtifacts,
+    TReplyParse,
+    TContextPacket,
+    TMemory,
+    TBilling
+  >,
+): AssistantReplyPlan<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling
+> {
   const nextDraftEditor = resolveNextDraftEditorSelection({
     result: args.result,
     selectedDraftContext: args.selectedDraftContext,
@@ -403,7 +598,11 @@ export function resolveAssistantReplySuccessState<
   const responseThreadId = args.result.newThreadId ?? args.activeThreadId;
 
   return {
-    assistantMessage,
+    buildAssistantMessage: (existingMessageCount) =>
+      buildAssistantMessageFromChatResult({
+        ...args,
+        existingMessageCount,
+      }),
     nextDraftEditor,
     nextConversationMemory: args.result.memory ?? null,
     nextBilling: args.result.billing ?? null,
@@ -415,6 +614,95 @@ export function resolveAssistantReplySuccessState<
             title: args.result.threadTitle,
           }
         : null,
+  };
+}
+
+export function resolveAssistantReplyJsonOutcome<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion extends DraftVersionEntryLike,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+  TFailureBillingSnapshot,
+>(
+  args: {
+    responseOk: boolean;
+    responseStatus: number;
+    response: {
+      ok: boolean;
+      errors?: ValidationErrorLike[];
+      data?: unknown;
+    };
+    failureMessage: string;
+    replyPlanArgs: Omit<
+      ResolveAssistantReplyPlanArgs<
+        TQuickReply,
+        TPlan,
+        TDraftArtifact,
+        TDraftVersion,
+        TDraftBundle,
+        TPreviousVersion,
+        TReplyArtifacts,
+        TReplyParse,
+        TContextPacket,
+        TMemory,
+        TBilling
+      >,
+      "result"
+    >;
+  },
+): AssistantReplyJsonOutcome<
+  TQuickReply,
+  TPlan,
+  TDraftArtifact,
+  TDraftVersion,
+  TDraftBundle,
+  TPreviousVersion,
+  TReplyArtifacts,
+  TReplyParse,
+  TContextPacket,
+  TMemory,
+  TBilling,
+  TFailureBillingSnapshot
+> {
+  if (!args.responseOk || !args.response.ok) {
+    const failure = args.response as AssistantReplyFailureLike<TFailureBillingSnapshot>;
+
+    return {
+      kind: "failure",
+      errorMessage: failure.errors?.[0]?.message ?? args.failureMessage,
+      nextBillingSnapshot: failure.data?.billing ?? null,
+      shouldOpenPricingModal:
+        args.responseStatus === 402 || args.responseStatus === 403,
+    };
+  }
+
+  return {
+    kind: "success",
+    replyPlan: resolveAssistantReplyPlan({
+      ...args.replyPlanArgs,
+      result: (
+        args.response as AssistantReplySuccessEnvelope<
+          TQuickReply,
+          TPlan,
+          TDraftArtifact,
+          TDraftVersion,
+          TDraftBundle,
+          TPreviousVersion,
+          TReplyArtifacts,
+          TReplyParse,
+          TContextPacket,
+          TMemory,
+          TBilling
+        >
+      ).data,
+    }),
   };
 }
 
