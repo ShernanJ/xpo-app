@@ -126,7 +126,6 @@ User turn
   - none; named executor extraction is complete
 - Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
   - reply continuation generation, reply preflight/default resolution, parse-only prompts, reply artifact shaping, and reply surface planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` now sits at the route boundary only for structured reply-action translation and handled-reply persistence/finalization
-  - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ## Capability contract
 - Shared capability types already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:

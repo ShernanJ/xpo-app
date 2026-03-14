@@ -4,7 +4,11 @@ import {
   mapControllerActionToIntent,
   mapIntentToControllerAction,
 } from "../agents/controller";
-import { generateCoachReply } from "../agents/coach";
+import {
+  generateCoachReply,
+  generatePostAnalysis,
+  generateReplyGuidance,
+} from "../agents/coach";
 import { generatePlan } from "../agents/planner";
 import { generateIdeasMenu } from "../agents/ideator";
 import { generateDrafts } from "../agents/writer";
@@ -318,6 +322,8 @@ type RawOrchestratorResponse = Omit<
 export interface ConversationServices {
   controlTurn: typeof controlTurn;
   generateCoachReply: typeof generateCoachReply;
+  generateReplyGuidance: typeof generateReplyGuidance;
+  generatePostAnalysis: typeof generatePostAnalysis;
   generatePlan: typeof generatePlan;
   generateIdeasMenu: typeof generateIdeasMenu;
   generateDrafts: typeof generateDrafts;
@@ -409,6 +415,8 @@ export function createDefaultConversationServices(): ConversationServices {
   return {
     controlTurn,
     generateCoachReply,
+    generateReplyGuidance,
+    generatePostAnalysis,
     generatePlan,
     generateIdeasMenu,
     generateDrafts,

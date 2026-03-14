@@ -120,7 +120,6 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
   - route-level reply continuation generation, parse-only prompts, reply artifact shaping, reply surface planning, and reply preflight/default resolution now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, while `apps/web/app/api/creator/v2/chat/route.reply.ts` remains the route-boundary wrapper for structured reply-action translation and handled-reply persistence/finalization
-  - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
   - `CapabilityExecutionRequest`
