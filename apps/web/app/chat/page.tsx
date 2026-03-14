@@ -104,6 +104,10 @@ import {
   splitThreadDraftPost as splitThreadDraftPostState,
 } from "./chatDraftEditorState";
 import {
+  resolveDraftCardRevisionAction,
+  resolveSelectedThreadFramingChangeAction,
+} from "./chatDraftActionState";
+import {
   getThreadPostCharacterLimit,
   prepareDraftPromotionRequest,
   resolveDraftVersionRevertUpdate,
@@ -1766,18 +1770,6 @@ function buildHeroGreeting(params: {
     : "Hey";
 
   return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
-}
-
-function buildThreadFramingRevisionPrompt(style: ThreadFramingStyle): string {
-  switch (style) {
-    case "numbered":
-      return "keep the same thread but make the framing explicitly numbered with x/x in each post.";
-    case "soft_signal":
-      return "keep the same thread but make the opener clearly signal the thread in a natural way without x/x numbering.";
-    case "none":
-    default:
-      return "keep the same thread but remove thread numbering and make the flow feel natural without explicit thread labels.";
-  }
 }
 
 function formatDraftQueueStatusLabel(status: DraftCandidateStatus): string {
@@ -6733,125 +6725,37 @@ function ChatPageContent() {
       prompt: string,
       threadFramingStyleOverride?: ThreadFramingStyle | null,
     ) => {
-      const message = messages.find((item) => item.id === messageId);
-      if (!message) {
-        return;
-      }
-
-      const bundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
-      if (!bundle) {
-        return;
-      }
-
-      const selectedVersion = bundle.activeVersion;
-      const currentThreadFramingStyle =
-        bundle.activeVersion.artifact?.kind === "thread_seed" ||
-        message.outputShape === "thread_seed"
-          ? getThreadFramingStyle(
-              bundle.activeVersion.artifact ?? message.draftArtifacts?.[0],
-              bundle.activeVersion.content,
-            )
-          : null;
-      const revisionChainId =
-        message.revisionChainId ??
-        message.previousVersionSnapshot?.revisionChainId ??
-        `legacy-chain-${messageId}`;
-
-      setActiveDraftEditor({
+      const draftAction = resolveDraftCardRevisionAction({
         messageId,
-        versionId: selectedVersion.id,
-        revisionChainId,
-      });
-
-      await requestAssistantReply({
         prompt,
-        appendUserMessage: true,
-        turnSource: "draft_action",
-        artifactContext: {
-          kind: "draft_selection",
-          action: "edit",
-          selectedDraftContext: {
-            messageId,
-            versionId: selectedVersion.id,
-            content: selectedVersion.content,
-            source: selectedVersion.source,
-            createdAt: selectedVersion.createdAt,
-            maxCharacterLimit: selectedVersion.maxCharacterLimit,
-            revisionChainId,
-          },
-        },
-        intent: "edit",
-        ...(threadFramingStyleOverride || currentThreadFramingStyle
-          ? {
-              threadFramingStyleOverride:
-                threadFramingStyleOverride ?? currentThreadFramingStyle,
-            }
-          : {}),
-        selectedDraftContextOverride: {
-          messageId,
-          versionId: selectedVersion.id,
-          content: selectedVersion.content,
-          source: selectedVersion.source,
-          createdAt: selectedVersion.createdAt,
-          maxCharacterLimit: selectedVersion.maxCharacterLimit,
-          revisionChainId,
-        },
+        messages,
+        composerCharacterLimit,
+        threadFramingStyleOverride,
       });
+      if (!draftAction) {
+        return;
+      }
+
+      setActiveDraftEditor(draftAction.activeDraftEditor);
+      await requestAssistantReply(draftAction.request);
     },
     [composerCharacterLimit, messages, requestAssistantReply],
   );
 
   const requestSelectedThreadFramingChange = useCallback(
     async (style: ThreadFramingStyle) => {
-      if (
-        !selectedDraftMessage ||
-        !selectedDraftVersion ||
-        !selectedDraftThreadFramingStyle ||
-        selectedDraftThreadFramingStyle === style
-      ) {
+      const draftAction = resolveSelectedThreadFramingChangeAction({
+        selectedDraftMessage,
+        selectedDraftVersion,
+        selectedDraftThreadFramingStyle,
+        nextStyle: style,
+      });
+      if (!draftAction) {
         return;
       }
 
-      const revisionChainId =
-        selectedDraftMessage.revisionChainId ??
-        selectedDraftMessage.previousVersionSnapshot?.revisionChainId ??
-        `revision-chain-${selectedDraftMessage.id}`;
-
-      setActiveDraftEditor({
-        messageId: selectedDraftMessage.id,
-        versionId: selectedDraftVersion.id,
-        revisionChainId,
-      });
-
-      await requestAssistantReply({
-        prompt: buildThreadFramingRevisionPrompt(style),
-        appendUserMessage: true,
-        turnSource: "draft_action",
-        artifactContext: {
-          kind: "draft_selection",
-          action: "edit",
-          selectedDraftContext: {
-            messageId: selectedDraftMessage.id,
-            versionId: selectedDraftVersion.id,
-            content: selectedDraftVersion.content,
-            source: selectedDraftVersion.source,
-            createdAt: selectedDraftVersion.createdAt,
-            maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-            revisionChainId,
-          },
-        },
-        intent: "edit",
-        threadFramingStyleOverride: style,
-        selectedDraftContextOverride: {
-          messageId: selectedDraftMessage.id,
-          versionId: selectedDraftVersion.id,
-          content: selectedDraftVersion.content,
-          source: selectedDraftVersion.source,
-          createdAt: selectedDraftVersion.createdAt,
-          maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-          revisionChainId,
-        },
-      });
+      setActiveDraftEditor(draftAction.activeDraftEditor);
+      await requestAssistantReply(draftAction.request);
     },
     [
       requestAssistantReply,
