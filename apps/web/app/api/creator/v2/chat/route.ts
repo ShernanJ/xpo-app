@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
-import { selectResponseShapePlan } from "@/lib/agent-v2/orchestrator/surfaceModeSelector";
+import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { finalizeResponseEnvelope } from "@/lib/agent-v2/orchestrator/responseEnvelope";
 import { generateThreadTitle } from "@/lib/agent-v2/agents/threadTitle";
 import {
   createConversationMemorySnapshot,
@@ -11,11 +11,7 @@ import {
   updateConversationMemory,
 } from "@/lib/agent-v2/memory/memoryStore";
 import { StyleCardSchema, type UserPreferences } from "@/lib/agent-v2/core/styleProfile";
-import type { VoiceTarget } from "@/lib/agent-v2/core/voiceTarget";
-import type { GroundingPacketSourceMaterial } from "@/lib/agent-v2/orchestrator/groundingPacket";
-import { applyFinalDraftPolicy } from "@/lib/agent-v2/core/finalDraftPolicy";
 import {
-  getXCharacterLimitForAccount,
   resolveThreadFramingStyle,
 } from "@/lib/onboarding/draftArtifacts";
 import {
@@ -44,16 +40,15 @@ import {
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
 import {
-  buildDraftBundleVersionPayload,
-  buildInitialDraftVersionPayload,
+  buildAssistantContextPacket,
+  buildChatRouteMappedData,
+  buildChatRoutePersistencePlan,
   buildConversationContextFromHistory,
-  normalizeDraftPayload,
   parseSelectedDraftContext,
   resolveSelectedDraftContextFromHistory,
   type SelectedDraftContext,
 } from "./route.logic";
 import { normalizeChatTurn } from "./turnNormalization";
-import type { DraftBundleResult } from "@/lib/agent-v2/orchestrator/draftBundles";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
 import { isMissingDraftCandidateTableError } from "@/lib/agent-v2/orchestrator/prismaGuards";
@@ -227,15 +222,6 @@ function buildConversationalDiagnosticContext(args: {
   };
 }
 
-function clipContextLine(value: string, maxLength: number): string {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
 function buildFallbackGrowthStrategySnapshot(activeHandle: string | null): GrowthStrategySnapshot {
   return {
     knownFor: activeHandle ? `${activeHandle}'s niche` : "a clearer niche",
@@ -317,123 +303,6 @@ function toExtensionReplyIntentMetadata(
     strategyPillar: value.strategyPillar,
     anchor: value.anchor,
     rationale: value.rationale,
-  };
-}
-
-function buildAssistantContextPacket(args: {
-  reply: string;
-  plan: StrategyPlan | null;
-  draft: string | null;
-  activeDraftVersionId?: string | null;
-  revisionChainId?: string | null;
-  outputShape: string;
-  surfaceMode: string | null | undefined;
-  issuesFixed: string[];
-  groundingMode: string | null;
-  groundingExplanation: string | null;
-  groundingSources: GroundingPacketSourceMaterial[];
-  quickReplies: unknown[];
-  replyArtifacts?: ChatReplyArtifacts | null;
-  replyParse?: ChatReplyParseEnvelope | null;
-}): {
-  version: "assistant_context_v2";
-  summary: string;
-  planRef: {
-    objective: string;
-    angle: string;
-    targetLane: StrategyPlan["targetLane"];
-    formatPreference: StrategyPlan["formatPreference"] | null;
-  } | null;
-  draftRef: {
-    excerpt: string;
-    activeDraftVersionId: string | null;
-    revisionChainId: string | null;
-  } | null;
-  grounding: {
-    mode: string | null;
-    explanation: string | null;
-    sourceTitles: string[];
-  };
-  critique: {
-    issuesFixed: string[];
-  };
-  replyRef: {
-    kind: "reply_options" | "reply_draft";
-    sourceExcerpt: string;
-    sourceUrl: string | null;
-    authorHandle: string | null;
-    selectedOptionId: string | null;
-    optionLabels: string[];
-  } | null;
-  replyParse: ChatReplyParseEnvelope | null;
-  artifacts: {
-    outputShape: string;
-    surfaceMode: string | null;
-    quickReplyCount: number;
-    hasDraft: boolean;
-  };
-} {
-  const summaryLines = [
-    args.plan
-      ? `plan: ${clipContextLine(args.plan.objective, 100)} | ${clipContextLine(args.plan.angle, 120)}`
-      : null,
-    args.draft ? `draft: ${clipContextLine(args.draft, 220)}` : null,
-    args.groundingExplanation ? `grounding: ${clipContextLine(args.groundingExplanation, 140)}` : null,
-    args.issuesFixed[0] ? `critique: ${clipContextLine(args.issuesFixed[0], 120)}` : null,
-    args.replyArtifacts
-      ? `reply_source: ${clipContextLine(args.replyArtifacts.sourceText, 180)}`
-      : null,
-    !args.plan && !args.draft && args.reply
-      ? `reply: ${clipContextLine(args.reply, 180)}`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-
-  return {
-    version: "assistant_context_v2",
-    summary: summaryLines.join("\n"),
-    planRef: args.plan
-      ? {
-          objective: args.plan.objective,
-          angle: args.plan.angle,
-          targetLane: args.plan.targetLane,
-          formatPreference: args.plan.formatPreference || null,
-        }
-      : null,
-    draftRef: args.draft
-      ? {
-          excerpt: clipContextLine(args.draft, 220),
-          activeDraftVersionId: args.activeDraftVersionId || null,
-          revisionChainId: args.revisionChainId || null,
-        }
-      : null,
-    grounding: {
-      mode: args.groundingMode,
-      explanation: args.groundingExplanation,
-      sourceTitles: args.groundingSources.map((source) => source.title).slice(0, 3),
-    },
-    critique: {
-      issuesFixed: args.issuesFixed.slice(0, 5),
-    },
-    replyRef: args.replyArtifacts
-      ? {
-          kind: args.replyArtifacts.kind,
-          sourceExcerpt: clipContextLine(args.replyArtifacts.sourceText, 220),
-          sourceUrl: args.replyArtifacts.sourceUrl,
-          authorHandle: args.replyArtifacts.authorHandle,
-          selectedOptionId: args.replyArtifacts.selectedOptionId,
-          optionLabels:
-            args.replyArtifacts.kind === "reply_options"
-              ? args.replyArtifacts.options.map((option) => option.label).slice(0, 3)
-              : args.replyArtifacts.options.map((option) => option.label).slice(0, 2),
-        }
-      : null,
-    replyParse: args.replyParse || null,
-    artifacts: {
-      outputShape: args.outputShape,
-      surfaceMode: args.surfaceMode || null,
-      quickReplyCount: args.quickReplies.length,
-      hasDraft: Boolean(args.draft),
-    },
   };
 }
 
@@ -1234,7 +1103,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread?.id);
-    const result = await manageConversationTurn({
+    const rawResult = await manageConversationTurnRaw({
       userId: effectiveUserId,
       xHandle: storedThread?.xHandle || null, // Pipeline context isolation
       threadId: storedThread?.id,
@@ -1256,6 +1125,7 @@ export async function POST(request: NextRequest) {
       creatorProfileHints,
       diagnosticContext,
     });
+    const result = finalizeResponseEnvelope(rawResult);
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", result.mode);
     const resultData = result.data as Record<string, unknown> | undefined;
@@ -1300,244 +1170,62 @@ export async function POST(request: NextRequest) {
               : null,
         })
       : null;
-    const responseShapePlan =
-      result.responseShapePlan ??
-      selectResponseShapePlan({
-        outputShape: result.outputShape,
-        response: result.response,
-        hasQuickReplies: Array.isArray(resultData?.quickReplies) && resultData.quickReplies.length > 0,
-        hasAngles: Array.isArray(resultData?.angles) && resultData.angles.length > 0,
-        hasPlan: Boolean(resultData?.plan),
-        hasDraft: typeof resultData?.draft === "string" && resultData.draft.length > 0,
-        conversationState: result.memory.conversationState,
-        preferredSurfaceMode: result.memory.preferredSurfaceMode,
-      });
-    const rawDraftBundle =
-      resultData &&
-      typeof resultData === "object" &&
-      resultData.draftBundle &&
-      typeof resultData.draftBundle === "object"
-        ? (resultData.draftBundle as DraftBundleResult)
-        : null;
-    const selectedBundleDraft =
-      rawDraftBundle?.options.find((option) => option.id === rawDraftBundle.selectedOptionId)?.draft ??
-      null;
-    const normalizedDraftPayload = normalizeDraftPayload({
-      reply: result.response,
-      draft: selectedBundleDraft ?? (resultData?.draft as string) ?? null,
-      drafts:
-        rawDraftBundle?.options.map((option) => option.draft) ??
-        (resultData?.draft ? [resultData.draft as string] : []),
-      outputShape: result.outputShape,
-      surfaceMode: result.surfaceMode ?? responseShapePlan.surfaceMode,
-      shouldAskFollowUp:
-        responseShapePlan.shouldAskFollowUp && responseShapePlan.maxFollowUps > 0,
-    });
-    const effectiveFormatPreference =
-      plan?.formatPreference ||
-      formatPreference ||
-      result.memory.formatPreference ||
-      (result.outputShape === "thread_seed"
-        ? "thread"
-        : result.outputShape === "long_form_post"
-          ? "longform"
-          : "shortform");
-    const responseThreadFramingStyle =
-      resultData && typeof resultData === "object" && "threadFramingStyle" in resultData
-        ? resolveThreadFramingStyle(
-            (resultData as Record<string, unknown>).threadFramingStyle,
-          )
-        : null;
-    const policyDraft =
-      normalizedDraftPayload.draft && (
-        result.outputShape === "short_form_post" ||
-        result.outputShape === "long_form_post" ||
-        result.outputShape === "thread_seed"
-      )
-        ? applyFinalDraftPolicy({
-            draft: normalizedDraftPayload.draft,
-            formatPreference: effectiveFormatPreference,
-            isVerifiedAccount,
-            userPreferences: effectiveUserPreferences,
-            styleCard:
-              parsedPersistedStyleCard?.success
-                ? parsedPersistedStyleCard.data
-                : null,
-            threadFramingStyle: responseThreadFramingStyle,
-          })
-        : normalizedDraftPayload.draft;
-    const responseVoiceTarget =
-      resultData && typeof resultData === "object" && "voiceTarget" in resultData
-        ? ((resultData as Record<string, unknown>).voiceTarget as VoiceTarget | null)
-        : null;
-    const responseNoveltyNotes =
-      resultData &&
-      typeof resultData === "object" &&
-      Array.isArray((resultData as Record<string, unknown>).noveltyNotes)
-        ? ((resultData as Record<string, unknown>).noveltyNotes as string[])
-        : [];
-    const responseGroundingSources =
-      resultData &&
-      typeof resultData === "object" &&
-      Array.isArray((resultData as Record<string, unknown>).groundingSources)
-        ? ((resultData as Record<string, unknown>).groundingSources as GroundingPacketSourceMaterial[])
-        : [];
-    const responseGroundingMode =
-      resultData &&
-      typeof resultData === "object" &&
-      typeof (resultData as Record<string, unknown>).groundingMode === "string"
-        ? ((resultData as Record<string, unknown>).groundingMode as
-            | "saved_sources"
-            | "current_chat"
-            | "mixed"
-            | "safe_framework")
-        : null;
-    const responseGroundingExplanation =
-      resultData &&
-      typeof resultData === "object" &&
-      typeof (resultData as Record<string, unknown>).groundingExplanation === "string"
-        ? ((resultData as Record<string, unknown>).groundingExplanation as string)
-        : null;
-    const policyDraftBundle = rawDraftBundle
-      ? {
-          ...rawDraftBundle,
-          options: rawDraftBundle.options.map((option) => ({
-            ...option,
-            draft: applyFinalDraftPolicy({
-              draft: option.draft,
-              formatPreference: effectiveFormatPreference,
-              isVerifiedAccount,
-              userPreferences: effectiveUserPreferences,
-              styleCard:
-                parsedPersistedStyleCard?.success
-                  ? parsedPersistedStyleCard.data
-                  : null,
-              threadFramingStyle: option.threadFramingStyle ?? responseThreadFramingStyle,
-            }),
-          })),
-        }
-      : null;
-    const selectedBundleOption =
-      policyDraftBundle?.options.find(
-        (option) => option.id === policyDraftBundle.selectedOptionId,
-      ) ?? policyDraftBundle?.options[0] ?? null;
-    const resolvedPolicyDraft = selectedBundleOption?.draft ?? policyDraft;
-    const policyDrafts =
-      policyDraftBundle?.options.map((option) => option.draft) ??
-      (resolvedPolicyDraft ? [resolvedPolicyDraft] : normalizedDraftPayload.drafts);
-    const draftBundlePayload = policyDraftBundle
-      ? buildDraftBundleVersionPayload({
-          draftBundle: policyDraftBundle,
-          outputShape: result.outputShape,
-          groundingSources: responseGroundingSources,
-          groundingMode: responseGroundingMode,
-          groundingExplanation: responseGroundingExplanation,
-          threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
-        })
-      : null;
-    const singleDraftVersionPayload = !policyDraftBundle
-      ? buildInitialDraftVersionPayload({
-          draft: resolvedPolicyDraft,
-          outputShape: result.outputShape,
-          supportAsset: (resultData?.supportAsset as string) || null,
-          selectedDraftContext,
-          groundingSources: responseGroundingSources,
-          groundingMode: responseGroundingMode,
-          groundingExplanation: responseGroundingExplanation,
-          voiceTarget: responseVoiceTarget,
-          noveltyNotes: responseNoveltyNotes,
-          threadPostMaxCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
-          threadFramingStyle: responseThreadFramingStyle,
-        })
-      : null;
-    const draftVersionPayload = draftBundlePayload ?? singleDraftVersionPayload ?? {
-      draftArtifacts: [],
-    };
-    const mappedData = {
-      reply: normalizedDraftPayload.reply,
-      angles: responseShapePlan.shouldShowArtifacts ? resultData?.angles as unknown[] || [] : [],
-      quickReplies: responseShapePlan.shouldShowArtifacts ? resultData?.quickReplies || [] : [],
-      plan: responseShapePlan.shouldShowArtifacts ? resultData?.plan || null : null,
-      draft: resolvedPolicyDraft,
-      drafts: policyDrafts,
-      draftArtifacts: draftVersionPayload.draftArtifacts,
-      draftVersions: draftVersionPayload.draftVersions,
-      activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
-      previousVersionSnapshot:
-        "previousVersionSnapshot" in draftVersionPayload
-          ? draftVersionPayload.previousVersionSnapshot
-          : undefined,
-      revisionChainId: draftVersionPayload.revisionChainId,
-      draftBundle: draftBundlePayload?.draftBundle ?? null,
-      supportAsset:
-        selectedBundleOption?.supportAsset ?? ((resultData?.supportAsset as string) || null),
-      groundingSources: responseGroundingSources,
-      autoSavedSourceMaterials:
-        resultData &&
-        typeof resultData === "object" &&
-        resultData.autoSavedSourceMaterials &&
-        typeof resultData.autoSavedSourceMaterials === "object"
-          ? (resultData.autoSavedSourceMaterials as {
-              count: number;
-              assets: Array<{
-                id: string;
-                title: string;
-                deletable: boolean;
-              }>;
-            })
+    const {
+      mappedData: mappedDataSeed,
+      responseVoiceTarget,
+      responseNoveltyNotes,
+      responseGroundingMode,
+      responseGroundingExplanation,
+    } = buildChatRouteMappedData({
+      result,
+      plan:
+        plan &&
+        typeof plan.objective === "string" &&
+        typeof plan.angle === "string" &&
+        (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
+        Array.isArray(plan.mustInclude) &&
+        Array.isArray(plan.mustAvoid) &&
+        typeof plan.hookType === "string" &&
+        typeof plan.pitchResponse === "string"
+          ? {
+              objective: plan.objective,
+              angle: plan.angle,
+              targetLane: plan.targetLane,
+              mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
+              mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
+              hookType: plan.hookType,
+              pitchResponse: plan.pitchResponse,
+              ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
+            }
           : null,
-      outputShape: result.outputShape,
-      surfaceMode: result.surfaceMode,
-      memory: result.memory,
+      selectedDraftContext,
+      formatPreference,
+      isVerifiedAccount,
+      userPreferences: effectiveUserPreferences,
+      styleCard:
+        parsedPersistedStyleCard?.success
+          ? parsedPersistedStyleCard.data
+          : null,
       routingDiagnostics: normalizedTurn.diagnostics,
-      requestTrace: {
-        clientTurnId,
-      },
-      replyArtifacts: null,
-      replyParse: null,
-      threadTitle: storedThread?.title || DEFAULT_THREAD_TITLE,
+      clientTurnId,
+    });
+    const persistencePlan = buildChatRoutePersistencePlan({
+      mappedDataSeed,
+      issuesFixed:
+        Array.isArray(resultData?.issuesFixed)
+          ? (resultData?.issuesFixed as string[]).filter((value) => typeof value === "string")
+          : [],
+      responseGroundingMode,
+      responseGroundingExplanation,
+      defaultThreadTitle: DEFAULT_THREAD_TITLE,
+      currentThreadTitle: storedThread?.title,
+      nextThreadTitle: shouldPromoteThreadTitle ? contextualThreadTitle : null,
+      preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
+      shouldClearReplyWorkflow: shouldResetReplyWorkflow,
+    });
+    const mappedData = {
+      ...persistencePlan.assistantMessageData,
       billing: null as Awaited<ReturnType<typeof getBillingStateForUser>> | null,
-      contextPacket: buildAssistantContextPacket({
-        reply: normalizedDraftPayload.reply,
-        plan:
-          plan &&
-          typeof plan.objective === "string" &&
-          typeof plan.angle === "string" &&
-          (plan.targetLane === "original" || plan.targetLane === "reply" || plan.targetLane === "quote") &&
-          Array.isArray(plan.mustInclude) &&
-          Array.isArray(plan.mustAvoid) &&
-          typeof plan.hookType === "string" &&
-          typeof plan.pitchResponse === "string"
-            ? {
-                objective: plan.objective,
-                angle: plan.angle,
-                targetLane: plan.targetLane,
-                mustInclude: plan.mustInclude.filter((value): value is string => typeof value === "string"),
-                mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
-                hookType: plan.hookType,
-                pitchResponse: plan.pitchResponse,
-                ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
-              }
-            : null,
-        draft: resolvedPolicyDraft,
-        activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
-        revisionChainId: draftVersionPayload.revisionChainId,
-        outputShape: result.outputShape,
-        surfaceMode: result.surfaceMode,
-        issuesFixed:
-          Array.isArray(resultData?.issuesFixed)
-            ? (resultData?.issuesFixed as string[]).filter((value) => typeof value === "string")
-            : [],
-        groundingMode: responseGroundingMode,
-        groundingExplanation: responseGroundingExplanation,
-        groundingSources: responseGroundingSources,
-        quickReplies:
-          responseShapePlan.shouldShowArtifacts && Array.isArray(resultData?.quickReplies)
-            ? (resultData.quickReplies as unknown[])
-            : [],
-        replyArtifacts: null,
-        replyParse: null,
-      }),
     };
     let createdAssistantMessageId: string | undefined;
 
@@ -1554,17 +1242,17 @@ export async function POST(request: NextRequest) {
 
       await updateConversationMemory({
         threadId: storedThread.id,
-        ...(draftVersionPayload.activeDraftVersionId && createdAssistantMessageId
+        ...(persistencePlan.memoryUpdate.activeDraftVersionId && createdAssistantMessageId
           ? {
               activeDraftRef: {
                 messageId: createdAssistantMessageId,
-                versionId: draftVersionPayload.activeDraftVersionId,
-                revisionChainId: draftVersionPayload.revisionChainId ?? null,
+                versionId: persistencePlan.memoryUpdate.activeDraftVersionId,
+                revisionChainId: persistencePlan.memoryUpdate.revisionChainId ?? null,
               },
             }
           : {}),
-        preferredSurfaceMode: result.memory.preferredSurfaceMode ?? "natural",
-        ...(shouldResetReplyWorkflow
+        preferredSurfaceMode: persistencePlan.memoryUpdate.preferredSurfaceMode,
+        ...(persistencePlan.memoryUpdate.shouldClearReplyWorkflow
           ? {
               activeReplyContext: null,
               activeReplyArtifactRef: null,
@@ -1573,38 +1261,32 @@ export async function POST(request: NextRequest) {
           : {}),
       });
 
-      const updateData: { updatedAt: Date; title?: string } = { updatedAt: new Date() };
-
-      if (shouldPromoteThreadTitle && contextualThreadTitle) {
-        updateData.title = contextualThreadTitle;
-      }
-
       const updatedThread = await prisma.chatThread.update({
         where: { id: storedThread.id },
-        data: updateData
+        data: persistencePlan.threadUpdate,
       });
 
       mappedData.threadTitle = updatedThread.title || DEFAULT_THREAD_TITLE;
 
-      if (draftBundlePayload?.draftBundle?.options.length) {
+      if (persistencePlan.draftCandidateCreates.length > 0) {
         try {
           await Promise.all(
-            draftBundlePayload.draftBundle.options.map((option) =>
+            persistencePlan.draftCandidateCreates.map((candidate) =>
               prisma.draftCandidate.create({
                 data: {
                   userId: session.user.id,
                   ...(activeHandle ? { xHandle: activeHandle } : {}),
                   threadId: storedThread.id,
                   runId: storedRun?.id ?? null,
-                  title: option.label,
+                  title: candidate.title,
                   sourcePrompt: effectiveMessage,
                   sourcePlaybook: "chat_bundle",
                   outputShape: result.outputShape,
-                  artifact: option.artifact as unknown as Prisma.InputJsonValue,
-                  voiceTarget: option.artifact.voiceTarget
-                    ? (option.artifact.voiceTarget as unknown as Prisma.InputJsonValue)
+                  artifact: candidate.artifact as unknown as Prisma.InputJsonValue,
+                  voiceTarget: candidate.voiceTarget
+                    ? (candidate.voiceTarget as unknown as Prisma.InputJsonValue)
                     : Prisma.JsonNull,
-                  noveltyNotes: (option.artifact.noveltyNotes ?? []) as unknown as Prisma.InputJsonValue,
+                  noveltyNotes: candidate.noveltyNotes as unknown as Prisma.InputJsonValue,
                 },
               }),
             ),
@@ -1616,18 +1298,6 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-
-    const primaryDraftArtifact =
-      draftBundlePayload?.draftBundle
-        ? (
-            draftBundlePayload.draftBundle.options.find(
-              (option) => option.id === draftBundlePayload.draftBundle?.selectedOptionId,
-            )?.artifact ?? draftVersionPayload.draftArtifacts[0]
-          )
-        : draftVersionPayload.draftArtifacts[0] ?? null;
-    const primaryGroundingMode = primaryDraftArtifact?.groundingMode ?? null;
-    const primaryGroundingSourceCount = primaryDraftArtifact?.groundingSources?.length ?? 0;
-    const autoSavedSourceMaterialCount = mappedData.autoSavedSourceMaterials?.count ?? 0;
 
     if (
       (mappedData.outputShape === "short_form_post" ||
@@ -1644,13 +1314,15 @@ export async function POST(request: NextRequest) {
         properties: {
           outputShape: mappedData.outputShape,
           surfaceMode: mappedData.surfaceMode ?? null,
-          groundingMode: primaryGroundingMode,
-          groundingSourceCount: primaryGroundingSourceCount,
+          groundingMode: persistencePlan.analytics.primaryGroundingMode,
+          groundingSourceCount: persistencePlan.analytics.primaryGroundingSourceCount,
           usedSavedSources:
-            primaryGroundingMode === "saved_sources" || primaryGroundingMode === "mixed",
-          usedSafeFramework: primaryGroundingMode === "safe_framework",
+            persistencePlan.analytics.primaryGroundingMode === "saved_sources" ||
+            persistencePlan.analytics.primaryGroundingMode === "mixed",
+          usedSafeFramework:
+            persistencePlan.analytics.primaryGroundingMode === "safe_framework",
           clarificationQuestionsAsked: mappedData.memory?.clarificationQuestionsAsked ?? 0,
-          autoSavedSourceMaterialCount,
+          autoSavedSourceMaterialCount: persistencePlan.analytics.autoSavedSourceMaterialCount,
         },
       }).catch((error) => console.error("Failed to record draft_generated event:", error));
     }
@@ -1679,9 +1351,9 @@ export async function POST(request: NextRequest) {
     mappedData.billing = await getBillingStateForUser(effectiveUserId);
 
     return NextResponse.json(
-      {
-        ok: true,
-        data: {
+        {
+          ok: true,
+          data: {
           ...mappedData,
           ...(createdAssistantMessageId ? { messageId: createdAssistantMessageId } : {}),
           newThreadId: !threadId && storedThread ? storedThread.id : undefined

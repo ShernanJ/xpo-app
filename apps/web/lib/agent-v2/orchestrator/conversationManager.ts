@@ -305,10 +305,10 @@ async function maybeCaptureAntiPattern(args: {
  * The V2 state machine.
  */
 
-export async function manageConversationTurn(
+export async function manageConversationTurnRaw(
   input: OrchestratorInput,
   overrides?: Partial<ConversationServices>,
-): Promise<OrchestratorResponse> {
+): Promise<RawOrchestratorResponse> {
   const services = { ...createDefaultConversationServices(), ...overrides } as ConversationServices;
   const context = await buildTurnContext(input, services);
   const route = await resolveRoutingPolicy(context, services);
@@ -487,5 +487,13 @@ export async function manageConversationTurn(
         }
       : responseWithAutoSavedSources;
 
-  return finalizeOrchestratorResponse(responseWithRoutingTrace);
+  return responseWithRoutingTrace;
+}
+
+export async function manageConversationTurn(
+  input: OrchestratorInput,
+  overrides?: Partial<ConversationServices>,
+): Promise<OrchestratorResponse> {
+  const rawResponse = await manageConversationTurnRaw(input, overrides);
+  return finalizeOrchestratorResponse(rawResponse);
 }

@@ -1,8 +1,12 @@
 import { isConstraintDeclaration, respondConversationally } from "./chatResponder.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
-import { buildFastReplyOrchestratorResponse } from "./responseEnvelope.ts";
+import { buildFastReplyRawResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
-import type { ConversationServices, OrchestratorResponse, RoutingTrace } from "./conversationManager.ts";
+import type {
+  ConversationServices,
+  RawOrchestratorResponse,
+  RoutingTrace,
+} from "./conversationManager.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
 import { resolveRuntimeAction } from "../runtime/resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
@@ -13,7 +17,7 @@ export interface RoutingPolicyResult {
   resolvedMode: V2ChatIntent;
   routingTrace: RoutingTrace;
   memory: TurnContext["memory"];
-  fastReplyResponse?: OrchestratorResponse;
+  fastReplyResponse?: RawOrchestratorResponse;
 }
 
 function clearClarificationPatch() {
@@ -187,13 +191,13 @@ export async function resolveRoutingPolicy(
         resolvedMode: mode,
         routingTrace,
         memory: finalMemory,
-        fastReplyResponse: buildFastReplyOrchestratorResponse({
+        fastReplyResponse: buildFastReplyRawResponse({
           response: fastReply,
           memory: finalMemory,
           data: {
             routingTrace,
           },
-        }),
+        }) as RawOrchestratorResponse,
       };
     }
   }

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildChatRoutePersistencePlan,
+  buildChatRouteMappedData,
   buildDraftBundleVersionPayload,
   buildInitialDraftVersionPayload,
   buildConversationContextFromHistory,
@@ -17,6 +19,29 @@ import {
 import { normalizeChatTurn } from "./turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/orchestrator/correctionRepair.ts";
+
+const baseMemory = {
+  conversationState: "needs_more_context",
+  topicSummary: "growth on x",
+  lastIdeationAngles: [],
+  concreteAnswerCount: 0,
+  currentDraftArtifactId: null,
+  activeDraftRef: null,
+  rollingSummary: null,
+  pendingPlan: null,
+  clarificationState: null,
+  assistantTurnCount: 1,
+  latestRefinementInstruction: null,
+  unresolvedQuestion: null,
+  clarificationQuestionsAsked: 0,
+  preferredSurfaceMode: "natural",
+  formatPreference: "shortform",
+  activeConstraints: [],
+  activeReplyContext: null,
+  activeReplyArtifactRef: null,
+  selectedReplyOptionId: null,
+  voiceFidelity: "balanced",
+};
 
 test("selectedDraftContext defaults route intent to edit when explicit intent is missing", () => {
   const selectedDraftContext = parseSelectedDraftContext({
@@ -138,6 +163,219 @@ test("normalizeDraftPayload emits thread-native non-question copy for thread rev
 
   assert.equal(result.reply.toLowerCase().includes("thread"), true);
   assert.equal(result.reply.includes("?"), false);
+});
+
+test("buildChatRouteMappedData uses finalized response-shape ownership for artifact visibility", () => {
+  const mapped = buildChatRouteMappedData({
+    result: {
+      outputShape: "coach_question",
+      response: "what angle do you want to push?",
+      surfaceMode: "ask_one_question",
+      responseShapePlan: {
+        surfaceMode: "ask_one_question",
+        shouldShowArtifacts: false,
+        shouldAskFollowUp: true,
+        maxFollowUps: 1,
+      },
+      memory: baseMemory,
+      data: {
+        plan: {
+          objective: "should not leak",
+          angle: "should stay hidden",
+          targetLane: "original",
+        },
+        quickReplies: [{ id: "qr_1", label: "go" }],
+        angles: [{ title: "hidden angle" }],
+      },
+    },
+    plan: {
+      objective: "should not leak",
+      angle: "should stay hidden",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: [],
+      hookType: "question",
+      pitchResponse: "hidden",
+    },
+    selectedDraftContext: null,
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: null,
+    styleCard: null,
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "free_text",
+    },
+    clientTurnId: "turn_1",
+  });
+
+  assert.deepEqual(mapped.mappedData.angles, []);
+  assert.deepEqual(mapped.mappedData.quickReplies, []);
+  assert.equal(mapped.mappedData.plan, null);
+  assert.equal(mapped.mappedData.surfaceMode, "ask_one_question");
+});
+
+test("buildChatRouteMappedData derives draft handoff from finalized envelope fields", () => {
+  const mapped = buildChatRouteMappedData({
+    result: {
+      outputShape: "short_form_post",
+      response: "",
+      surfaceMode: "revise_and_return",
+      responseShapePlan: {
+        surfaceMode: "revise_and_return",
+        shouldShowArtifacts: true,
+        shouldAskFollowUp: false,
+        maxFollowUps: 0,
+      },
+      memory: {
+        ...baseMemory,
+        conversationState: "editing",
+      },
+      data: {
+        draft: "updated draft body",
+      },
+    },
+    plan: null,
+    selectedDraftContext: null,
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: null,
+    styleCard: null,
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "free_text",
+    },
+    clientTurnId: "turn_2",
+  });
+
+  assert.equal(mapped.mappedData.reply.includes("?"), false);
+  assert.equal(mapped.mappedData.draft, "updated draft body");
+});
+
+test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, and analytics from mapped data", () => {
+  const plan = buildChatRoutePersistencePlan({
+    mappedDataSeed: {
+      reply: "here's the draft. take a look.",
+      angles: [],
+      quickReplies: [],
+      plan: null,
+      draft: "selected draft",
+      drafts: ["selected draft", "backup draft"],
+      draftArtifacts: [
+        {
+          id: "artifact-1",
+          title: "Primary draft",
+          kind: "short_form_post",
+          content: "selected draft",
+          voiceTarget: { summary: "plainspoken" },
+          noveltyNotes: ["lead with proof"],
+          groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
+          groundingMode: "saved_sources",
+          groundingExplanation: "Grounded in saved material.",
+        },
+      ],
+      draftVersions: [
+        {
+          id: "version-1",
+          content: "selected draft",
+          source: "assistant_generated",
+          createdAt: "2026-03-13T12:00:00.000Z",
+          basedOnVersionId: null,
+          weightedCharacterCount: 120,
+          maxCharacterLimit: 280,
+        },
+      ],
+      activeDraftVersionId: "version-1",
+      previousVersionSnapshot: undefined,
+      revisionChainId: "revision-chain-1",
+      draftBundle: {
+        kind: "sibling_options",
+        selectedOptionId: "option-2",
+        options: [
+          {
+            id: "option-1",
+            label: "Option one",
+            versionId: "version-1",
+            content: "first draft",
+            artifact: {
+              id: "bundle-artifact-1",
+              title: "Option one",
+              kind: "short_form_post",
+              content: "first draft",
+              voiceTarget: { summary: "first" },
+              noveltyNotes: ["open with tension"],
+              groundingSources: [],
+              groundingMode: "saved_sources",
+              groundingExplanation: "Saved sources",
+            },
+          },
+          {
+            id: "option-2",
+            label: "Option two",
+            versionId: "version-2",
+            content: "selected draft",
+            artifact: {
+              id: "bundle-artifact-2",
+              title: "Option two",
+              kind: "short_form_post",
+              content: "selected draft",
+              voiceTarget: { summary: "second" },
+              noveltyNotes: ["keep it tighter"],
+              groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
+              groundingMode: "saved_sources",
+              groundingExplanation: "Saved sources",
+            },
+          },
+        ],
+      },
+      supportAsset: null,
+      groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
+      autoSavedSourceMaterials: {
+        count: 2,
+        assets: [],
+      },
+      outputShape: "short_form_post",
+      surfaceMode: "generate_full_output",
+      memory: baseMemory,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "free_text",
+      },
+      requestTrace: {
+        clientTurnId: "turn_3",
+      },
+      replyArtifacts: null,
+      replyParse: null,
+    },
+    issuesFixed: ["tightened the opener"],
+    responseGroundingMode: "saved_sources",
+    responseGroundingExplanation: "Grounded in saved material.",
+    defaultThreadTitle: "New Chat",
+    currentThreadTitle: "Current thread",
+    nextThreadTitle: "Sharper thread title",
+    preferredSurfaceMode: "structured",
+    shouldClearReplyWorkflow: true,
+  });
+
+  assert.equal(plan.assistantMessageData.threadTitle, "Current thread");
+  assert.equal(plan.assistantMessageData.contextPacket.draftRef?.activeDraftVersionId, "version-1");
+  assert.equal(plan.threadUpdate.title, "Sharper thread title");
+  assert.equal(plan.memoryUpdate.activeDraftVersionId, "version-1");
+  assert.equal(plan.memoryUpdate.shouldClearReplyWorkflow, true);
+  assert.equal(plan.draftCandidateCreates.length, 2);
+  assert.equal(plan.draftCandidateCreates[1]?.title, "Option two");
+  assert.equal(plan.analytics.primaryGroundingMode, "saved_sources");
+  assert.equal(plan.analytics.primaryGroundingSourceCount, 1);
+  assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
 });
 
 test("long_form_post remains a valid route draft kind", () => {

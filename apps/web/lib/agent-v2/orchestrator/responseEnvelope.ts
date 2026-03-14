@@ -22,6 +22,11 @@ export interface FinalizedResponseEnvelope extends RawResponseEnvelope {
   responseShapePlan: ResponseShapePlan;
 }
 
+export type RawFastReplyEnvelope<TData = unknown> =
+  RawResponseEnvelope & {
+    data?: TData;
+  };
+
 export type FinalizedFastReplyEnvelope<TData = unknown> =
   FinalizedResponseEnvelope & {
     data?: TData;
@@ -66,11 +71,21 @@ export function buildFastReplyOrchestratorResponse<TData = unknown>(args: {
   memory: V2ConversationMemory;
   data?: TData;
 }): FinalizedFastReplyEnvelope<TData> {
-  return finalizeResponseEnvelope({
+  return finalizeResponseEnvelope(
+    buildFastReplyRawResponse(args),
+  ) as FinalizedFastReplyEnvelope<TData>;
+}
+
+export function buildFastReplyRawResponse<TData = unknown>(args: {
+  response: string;
+  memory: V2ConversationMemory;
+  data?: TData;
+}): RawFastReplyEnvelope<TData> {
+  return {
     mode: "coach",
     outputShape: "coach_question",
     response: args.response,
     data: args.data,
     memory: args.memory,
-  }) as FinalizedFastReplyEnvelope<TData>;
+  };
 }
