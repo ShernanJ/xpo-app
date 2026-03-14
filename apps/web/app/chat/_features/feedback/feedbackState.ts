@@ -4,6 +4,12 @@ export type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
 export type FeedbackReportStatus = "open" | "resolved" | "cancelled";
 export type FeedbackReportFilter = "all" | FeedbackReportStatus;
 
+export interface FeedbackImageDraft {
+  id: string;
+  file: File;
+  previewUrl: string;
+}
+
 export interface FeedbackAttachmentPayload {
   id: string;
   name: string;
