@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildReplyParseEnvelope,
   parseEmbeddedReplyRequest,
   resolveReplyContinuation,
   shouldClearReplyWorkflow,
@@ -47,6 +48,36 @@ how do i reply to that?`,
 
   assert.equal(result.classification, "reply_request_with_embedded_post");
   assert.equal(result.context?.confidence, "medium");
+});
+
+test("parseEmbeddedReplyRequest keeps pasted posts without an explicit reply ask out of forced reply mode", () => {
+  const result = parseEmbeddedReplyRequest({
+    message: `@naval
+
+Specific knowledge is becoming the only durable leverage.
+
+This framing is interesting because it turns leverage into a positioning problem.
+
+Can you break down what's strong about it?`,
+  });
+
+  assert.equal(result.classification, "embedded_post_without_reply_request");
+  assert.equal(result.context?.authorHandle, "naval");
+  assert.equal(result.context?.quotedUserAsk, null);
+});
+
+test("buildReplyParseEnvelope marks medium-confidence embedded reply requests as confirmation-needed", () => {
+  const result = parseEmbeddedReplyRequest({
+    message: `been thinking about this line all day:
+
+most people sound generic because they optimize for approval first
+
+how do i reply to that?`,
+  });
+
+  const envelope = buildReplyParseEnvelope(result);
+  assert.equal(envelope?.detected, true);
+  assert.equal(envelope?.needsConfirmation, true);
 });
 
 test("resolveReplyContinuation maps option picks and draft revisions from active reply context", () => {
@@ -145,5 +176,18 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
       replyContinuation: { type: "select_option", optionIndex: 0 },
     }),
     false,
+  );
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext,
+      turnSource: "reply_action",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: { type: "select_option", optionIndex: 0 },
+    }),
+    true,
   );
 });

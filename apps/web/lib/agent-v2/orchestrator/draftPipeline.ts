@@ -1575,6 +1575,8 @@ User Profile Summary:
   }
 
   if (canAskPlanClarification()) {
+    const broadTopicDraftRequest = inferBroadTopicDraftRequest(userMessage);
+
     if (
       turnDraftContextSlots.ambiguousReferenceNeedsClarification &&
       turnDraftContextSlots.ambiguousReference
@@ -1608,11 +1610,31 @@ User Profile Summary:
       missingAutobiographicalGroundingForTurn
     ) {
       const clarificationQuestion = inferMissingSpecificQuestion(userMessage);
+      const shouldUseEntityClarificationTree =
+        Boolean(
+          broadTopicDraftRequest &&
+            (
+              turnDraftContextSlots.entityNeedsDefinition ||
+              /\b(?:extension|plugin|tool|app|product)\b/i.test(userMessage) ||
+              looksLikeOpaqueEntityTopic({
+                topic: broadTopicDraftRequest,
+                userMessage,
+                activeConstraints: memory.activeConstraints,
+              })
+            ),
+        );
+
+      if (clarificationQuestion && shouldUseEntityClarificationTree) {
+        return returnClarificationTree({
+          branchKey: "entity_context_missing",
+          seedTopic: broadTopicDraftRequest,
+        });
+      }
 
       if (clarificationQuestion) {
         return returnClarificationQuestion({
           question: clarificationQuestion,
-          topicSummary: inferBroadTopicDraftRequest(userMessage) || memory.topicSummary,
+          topicSummary: broadTopicDraftRequest || memory.topicSummary,
         });
       }
     }

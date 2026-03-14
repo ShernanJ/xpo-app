@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server.js";
 
-import type { AppSession } from "@/lib/auth/types";
-import { prisma } from "@/lib/db";
+import type { AppSession } from "./auth/types.ts";
+import { prisma } from "./db.ts";
 
 import {
   getWorkspaceHandleFromRequest,
   normalizeWorkspaceHandle,
-} from "./workspaceHandle";
+} from "./workspaceHandle.ts";
 
 type WorkspaceHandleFailureCode =
   | "HANDLE_REQUIRED"

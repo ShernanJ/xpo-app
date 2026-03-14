@@ -169,3 +169,44 @@ test("scopeMemoryForCurrentTurn clears stale reply workflow state on non-reply t
   assert.equal(result.selectedReplyOptionId, null);
   assert.equal(result.topicSummary, memory.topicSummary);
 });
+
+test("scopeMemoryForCurrentTurn clears both reply and draft residue on a strong topic switch", () => {
+  const memory = buildMemory({
+    activeReplyContext: {
+      sourceText: "Most people optimize for approval first.",
+      sourceUrl: null,
+      authorHandle: "creator",
+      quotedUserAsk: "how should i reply to that?",
+      confidence: "high",
+      parseReason: "reply_ask_with_post_metadata",
+      awaitingConfirmation: false,
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+      opportunityId: "chat-reply-1",
+      latestReplyOptions: [{ id: "opt-1", label: "nuance", text: "Option 1" }],
+      latestReplyDraftOptions: [],
+      selectedReplyOptionId: "opt-1",
+    },
+    activeReplyArtifactRef: {
+      messageId: "assistant_reply_1",
+      kind: "reply_options",
+    },
+    selectedReplyOptionId: "opt-1",
+  });
+
+  const result = scopeMemoryForCurrentTurn({
+    userMessage: "different topic: help me write about onboarding mistakes instead",
+    memory,
+    resolvedWorkflow: "plan_then_draft",
+  });
+
+  assert.equal(result.conversationState, "ready_to_ideate");
+  assert.equal(result.topicSummary, null);
+  assert.equal(result.currentDraftArtifactId, null);
+  assert.equal(result.activeDraftRef, null);
+  assert.equal(result.activeReplyContext, null);
+  assert.equal(result.activeReplyArtifactRef, null);
+  assert.equal(result.selectedReplyOptionId, null);
+  assert.deepEqual(result.activeConstraints, memory.activeConstraints);
+});

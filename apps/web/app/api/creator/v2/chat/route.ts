@@ -53,6 +53,7 @@ import {
   planMainAssistantTurnProductEvents,
 } from "./route.response";
 import { normalizeChatTurn } from "./turnNormalization";
+import { findDuplicateTurnReplay } from "./route.idempotency";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/orchestrator/conversationalDiagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
 import {
@@ -315,6 +316,41 @@ export async function POST(request: NextRequest) {
       threadId: storedThread.id,
       userId: session.user.id,
     });
+  }
+
+  if (threadId && storedThread && clientTurnId) {
+    const duplicateTurnReplay = await findDuplicateTurnReplay(
+      {
+        threadId: storedThread.id,
+        clientTurnId,
+      },
+      {
+        listThreadMessages: ({ threadId: duplicateThreadId }) =>
+          prisma.chatMessage.findMany({
+            where: {
+              threadId: duplicateThreadId,
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+            take: 80,
+            select: {
+              id: true,
+              role: true,
+              data: true,
+              createdAt: true,
+            },
+          }),
+      },
+    );
+
+    if (duplicateTurnReplay) {
+      return await buildChatSuccessResponse({
+        mappedData: duplicateTurnReplay.mappedData,
+        createdAssistantMessageId: duplicateTurnReplay.assistantMessageId,
+        loadBilling: () => getBillingStateForUser(session.user.id),
+      });
+    }
   }
 
   if (runId) {
