@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildContentAdjustments,
   buildContentInsights,
-} from "./contentInsights.ts";
+} from "./analysis/contentInsights.ts";
 
 test("content insights roll up statuses, shapes, and outcomes", () => {
   const insights = buildContentInsights([

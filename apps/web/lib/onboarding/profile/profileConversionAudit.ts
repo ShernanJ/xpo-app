@@ -1,4 +1,4 @@
-import type { CreatorAgentContext } from "../agentContext.ts";
+import type { CreatorAgentContext } from "../strategy/agentContext.ts";
 import type { OnboardingResult } from "../types.ts";
 
 export interface ProfileConversionAudit {

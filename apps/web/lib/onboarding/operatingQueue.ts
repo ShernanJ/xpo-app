@@ -1,7 +1,7 @@
 import type { StrategyAdjustments, ReplyInsights } from "../extension/replyOpportunities.ts";
-import type { ContentAdjustments, ContentInsights } from "./contentInsights.ts";
+import type { ContentAdjustments, ContentInsights } from "./analysis/contentInsights.ts";
 import type { ProfileConversionAudit } from "./profile/profileConversionAudit.ts";
-import type { CreatorAgentContext } from "./agentContext.ts";
+import type { CreatorAgentContext } from "./strategy/agentContext.ts";
 
 export type OperatingQueueLane = "profile" | "reply" | "post" | "review";
 export type OperatingQueuePriority = "high" | "medium" | "low";

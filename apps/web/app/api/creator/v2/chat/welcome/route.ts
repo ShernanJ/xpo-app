@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
-import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { generateWelcome } from "@/lib/agent-v2/agents/coach";
 import {
   buildWelcomeFallbackMessage,

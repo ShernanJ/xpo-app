@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   isThinCoachInput,
   validateCoachReplyText,
-} from "./coachReply.ts";
+} from "./strategy/coachReply.ts";
 
 test("isThinCoachInput treats taxonomy labels as thin", () => {
   assert.equal(isThinCoachInput("operator lessons"), true);

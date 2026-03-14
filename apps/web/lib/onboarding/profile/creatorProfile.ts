@@ -4,8 +4,8 @@ import {
   computePostEngagement,
   detectHookPattern,
   isLowSignalEntityCandidate,
-} from "../analysis";
-import { buildPerformanceModel } from "../performanceModel";
+} from "../analysis/postAnalysis";
+import { buildPerformanceModel } from "../analysis/performanceModel";
 import type {
   AudienceBreadth,
   ContentType,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { buildPerformanceModel } from "@/lib/onboarding/performanceModel";
+import { buildPerformanceModel } from "@/lib/onboarding/analysis/performanceModel";
 import { readOnboardingRunById } from "@/lib/onboarding/store";
 
 interface PerformanceModelRequest {

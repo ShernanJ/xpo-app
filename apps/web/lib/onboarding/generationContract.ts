@@ -1,8 +1,8 @@
-import { buildCreatorAgentContext } from "./agentContext";
+import { buildCreatorAgentContext } from "./strategy/agentContext";
 import type {
   ContentAdjustments,
   ContentInsights,
-} from "./contentInsights";
+} from "./analysis/contentInsights";
 import type {
   ReplyInsights,
   StrategyAdjustments,

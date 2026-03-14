@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { prisma } from "@/lib/db";
-import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import type { DraftGroundingSource } from "@/lib/onboarding/draftArtifacts";
 import {

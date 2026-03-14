@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildCreatorGenerationContract } from "@/lib/onboarding/generationContract";
-import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/contextEnrichment";
+import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
 import {
   applyCreatorToneOverrides,
   applyCreatorStrategyOverrides,
   extractCreatorToneOverrides,
   extractCreatorStrategyOverrides,
-} from "@/lib/onboarding/strategyOverrides";
+} from "@/lib/onboarding/strategy/strategyOverrides";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";

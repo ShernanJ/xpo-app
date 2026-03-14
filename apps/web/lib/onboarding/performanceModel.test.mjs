@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 test("performance model includes link-post safety guidance for follower growth", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./performanceModel.ts", import.meta.url)),
+    fileURLToPath(new URL("./analysis/performanceModel.ts", import.meta.url)),
     "utf8",
   );
 

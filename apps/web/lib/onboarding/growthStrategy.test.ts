@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildGrowthStrategySnapshot } from "./growthStrategy.ts";
+import { buildGrowthStrategySnapshot } from "./strategy/growthStrategy.ts";
 
 function createProfile(overrides = {}) {
   return {

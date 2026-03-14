@@ -3,7 +3,7 @@ import {
   computeEngagementBaseline,
   computeGrowthStage,
   computeHookPatterns,
-} from "./analysis";
+} from "./analysis/postAnalysis";
 import { resolveOnboardingDataSource } from "./sources/resolveOnboardingSource";
 import type {
   AnalysisConfidence,

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
 import { buildCreatorProfileHintsFromCreatorProfile } from "@/lib/agent-v2/orchestrator/creatorProfileHints";
-import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";

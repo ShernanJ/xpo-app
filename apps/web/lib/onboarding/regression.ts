@@ -1,4 +1,4 @@
-import { buildCreatorAgentContext } from "./agentContext";
+import { buildCreatorAgentContext } from "./strategy/agentContext";
 import type { OnboardingResult } from "./types";
 
 type LegacyRegressionIntent = "coach" | "ideate" | "draft" | "review";

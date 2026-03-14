@@ -8,7 +8,7 @@ import {
   upsertReplyOpportunityLifecycle,
 } from "@/lib/extension/replyOpportunities";
 import { recordProductEvent } from "@/lib/productEvents";
-import { buildCreatorAgentContext } from "@/lib/onboarding/agentContext";
+import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store";
 import {
   assertExtensionReplyDraftResponseShape,

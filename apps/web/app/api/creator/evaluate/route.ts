@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { evaluateCreatorProfile } from "@/lib/onboarding/evaluation";
+import { evaluateCreatorProfile } from "@/lib/onboarding/analysis/evaluation";
 import {
   readOnboardingRunById,
   readRecentOnboardingRuns,
