@@ -6,6 +6,7 @@ interface AccountMenuPanelProps {
   className: string;
   accountMenuVisible: boolean;
   accountMenuOpen: boolean;
+  monetizationEnabled: boolean;
   availableHandles: string[];
   accountName: string | null;
   canAddAccount: boolean;
@@ -27,6 +28,7 @@ export function AccountMenuPanel(props: AccountMenuPanelProps) {
     className,
     accountMenuVisible,
     accountMenuOpen,
+    monetizationEnabled,
     availableHandles,
     accountName,
     canAddAccount,
@@ -93,36 +95,40 @@ export function AccountMenuPanel(props: AccountMenuPanelProps) {
           <ChevronRight className="h-4 w-4" />
         </button>
 
-        <button
-          type="button"
-          onClick={onToggleRateLimitsMenu}
-          className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-        >
-          <span>Rate limits remaining</span>
-          <ChevronDown
-            className={`h-4 w-4 transition-transform ${rateLimitsMenuOpen ? "rotate-180" : ""}`}
-          />
-        </button>
-        {rateLimitsMenuOpen ? (
-          <div className="mb-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-zinc-300">{rateLimitWindowLabel}</span>
-              <span className="font-semibold text-zinc-100">
-                {rateLimitsRemainingPercent !== null ? `${rateLimitsRemainingPercent}%` : "—"}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-zinc-500">Resets {rateLimitResetLabel}</p>
-            {showRateLimitUpgradeCta ? (
-              <button
-                type="button"
-                onClick={onOpenPricing}
-                className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 transition hover:bg-white/5 hover:text-white"
-              >
-                <span>{rateLimitUpgradeLabel}</span>
-                <ArrowUpRight className="h-4 w-4" />
-              </button>
+        {monetizationEnabled ? (
+          <>
+            <button
+              type="button"
+              onClick={onToggleRateLimitsMenu}
+              className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+            >
+              <span>Rate limits remaining</span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${rateLimitsMenuOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+            {rateLimitsMenuOpen ? (
+              <div className="mb-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-zinc-300">{rateLimitWindowLabel}</span>
+                  <span className="font-semibold text-zinc-100">
+                    {rateLimitsRemainingPercent !== null ? `${rateLimitsRemainingPercent}%` : "—"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">Resets {rateLimitResetLabel}</p>
+                {showRateLimitUpgradeCta ? (
+                  <button
+                    type="button"
+                    onClick={onOpenPricing}
+                    className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 transition hover:bg-white/5 hover:text-white"
+                  >
+                    <span>{rateLimitUpgradeLabel}</span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
             ) : null}
-          </div>
+          </>
         ) : null}
       </div>
     </div>

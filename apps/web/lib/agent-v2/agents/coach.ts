@@ -238,11 +238,13 @@ async function generateGuidanceReply(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    retryConstraints?: string[];
   },
 ): Promise<CoachReply | null> {
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
+  const retryConstraints = options?.retryConstraints || [];
 
   const toningCues = styleCard
     ? [
@@ -296,6 +298,8 @@ RULES:
 - If the user gives a concrete topic, repeat that topic in the follow-up question so it feels specific.
 - Avoid generic follow-up questions. "tell me more" is almost always too weak.
 ${buildCapabilityRuleBlock(capability).join("\n")}
+
+${retryConstraints.length ? `RETRY CONSTRAINTS:\n${retryConstraints.map((constraint) => `- ${constraint}`).join("\n")}` : ""}
 
 TONE ADAPTATION:
 ${toningCues || "Mirror the user's energy."}
@@ -355,6 +359,7 @@ export async function generateCoachReply(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    retryConstraints?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(
@@ -380,6 +385,7 @@ export async function generateReplyGuidance(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    retryConstraints?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(
@@ -405,6 +411,7 @@ export async function generatePostAnalysis(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    retryConstraints?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(

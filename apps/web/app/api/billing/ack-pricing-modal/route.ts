@@ -5,8 +5,16 @@ import {
   getBillingStateForUser,
   markPricingModalSeen,
 } from "@/lib/billing/entitlements";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 export async function POST() {
+  if (!isMonetizationEnabled()) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "billing", message: "Not found." }] },
+      { status: 404 },
+    );
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(

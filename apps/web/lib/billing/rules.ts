@@ -1,4 +1,5 @@
 import type { BillingPlan } from "@/lib/generated/prisma/client";
+import { isMonetizationEnabled } from "./monetization";
 
 export type DraftAnalysisMode = "analyze" | "compare";
 
@@ -6,6 +7,10 @@ export function canAccessDraftAnalysis(
   plan: BillingPlan,
   mode: DraftAnalysisMode,
 ): boolean {
+  if (!isMonetizationEnabled()) {
+    return true;
+  }
+
   if (mode === "analyze") {
     return true;
   }

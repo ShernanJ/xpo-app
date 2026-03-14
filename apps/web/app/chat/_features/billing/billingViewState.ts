@@ -134,17 +134,61 @@ export const MODAL_PRO_APPROX_DRAFT_TURNS = Math.floor(
 );
 
 export function resolveBillingViewState(params: {
+  monetizationEnabled: boolean;
   billingState: BillingStatePayload | null;
   dismissedBillingWarningLevel: "low" | "critical" | null;
   isBillingLoading: boolean;
   selectedModalProCadence: "monthly" | "annual";
 }): BillingViewState {
   const {
+    monetizationEnabled,
     billingState,
     dismissedBillingWarningLevel,
     isBillingLoading,
     selectedModalProCadence,
   } = params;
+
+  if (!monetizationEnabled) {
+    return {
+      activeBillingSnapshot: null,
+      modalMonthlyCents: DEFAULT_MODAL_PRO_MONTHLY_CENTS,
+      modalAnnualCents: DEFAULT_MODAL_PRO_ANNUAL_CENTS,
+      lifetimeOfferCents: DEFAULT_MODAL_LIFETIME_CENTS,
+      billingCreditsLabel: "",
+      rateLimitsRemainingPercent: null,
+      rateLimitWindowLabel: "",
+      rateLimitResetLabel: "",
+      rateLimitUpgradeLabel: "",
+      showRateLimitUpgradeCta: false,
+      settingsPlanLabel: "",
+      settingsCreditsRemaining: 0,
+      settingsCreditLimit: 0,
+      settingsCreditsUsed: 0,
+      settingsCreditsRemainingPercent: null,
+      billingWarningLevel: "none",
+      showBillingWarningBanner: false,
+      pricingModalDismissLabel: "Close",
+      proMonthlyOfferEnabled: false,
+      proAnnualOfferEnabled: false,
+      selectedModalProIsAnnual: selectedModalProCadence === "annual",
+      selectedModalProCents:
+        selectedModalProCadence === "annual"
+          ? DEFAULT_MODAL_PRO_ANNUAL_CENTS
+          : DEFAULT_MODAL_PRO_MONTHLY_CENTS,
+      selectedModalProOffer:
+        selectedModalProCadence === "annual" ? "pro_annual" : "pro_monthly",
+      selectedModalProOfferEnabled: false,
+      selectedModalProPriceSuffix:
+        selectedModalProCadence === "annual" ? "/year" : "/month",
+      isProActive: false,
+      isProMonthlyCurrent: false,
+      isProAnnualCurrent: false,
+      isFounderCurrent: false,
+      selectedModalProIsCurrent: false,
+      selectedModalProNeedsPortalSwitch: false,
+      selectedModalProButtonLabel: "",
+    };
+  }
 
   const activeBillingSnapshot = billingState?.billing ?? null;
   const proMonthlyOffer = billingState?.offers.find(

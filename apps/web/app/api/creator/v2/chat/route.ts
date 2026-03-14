@@ -27,6 +27,7 @@ import { getServerSession } from "@/lib/auth/serverSession";
 import { ACTION_CREDIT_COST } from "@/lib/billing/config";
 import { consumeCredits, refundCredits } from "@/lib/billing/credits";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
@@ -213,6 +214,7 @@ function buildConversationalDiagnosticContext(args: {
 }
 
 export async function POST(request: NextRequest) {
+  const monetizationEnabled = isMonetizationEnabled();
   const sessionPromise = getServerSession();
   const bodyResultPromise: Promise<
     | { ok: true; value: CreatorChatRequest }
@@ -237,6 +239,10 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = bodyResult.value;
+  const loadBillingStateForResponse = () =>
+    monetizationEnabled
+      ? getBillingStateForUser(session.user.id)
+      : Promise.resolve(null);
 
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
   const runId = typeof body.runId === "string" ? body.runId.trim() : "";
@@ -358,7 +364,7 @@ export async function POST(request: NextRequest) {
       return await buildChatSuccessResponse({
         mappedData: duplicateTurnReplay.mappedData,
         createdAssistantMessageId: duplicateTurnReplay.assistantMessageId,
-        loadBilling: () => getBillingStateForUser(session.user.id),
+        loadBilling: loadBillingStateForResponse,
       });
     }
   }
@@ -500,68 +506,71 @@ export async function POST(request: NextRequest) {
 
   try {
     const effectiveUserId = session.user.id;
-    const debitIdempotencyKey = `chat:${effectiveUserId}:${storedThread?.id || "new"}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const creditResult = await consumeCredits({
-      userId: effectiveUserId,
-      cost: turnCreditCost,
-      idempotencyKey: debitIdempotencyKey,
-      source: "creator_v2_chat",
-      metadata: {
-        intent: effectiveExplicitIntent || "auto",
-        threadId: storedThread?.id || null,
-      },
-    });
-
-    if (!creditResult.ok) {
-      if (creditResult.reason === "RATE_LIMITED") {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: "RATE_LIMITED",
-            errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
-            data: {
-              billing: creditResult.snapshot,
-            },
-          },
-          {
-            status: 429,
-            headers: creditResult.retryAfterSeconds
-              ? { "Retry-After": String(creditResult.retryAfterSeconds) }
-              : undefined,
-          },
-        );
-      }
-
-      if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: "PLAN_REQUIRED",
-            errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
-            data: {
-              billing: creditResult.snapshot,
-            },
-          },
-          { status: 403 },
-        );
-      }
-
-      return NextResponse.json(
-        {
-          ok: false,
-          code: "INSUFFICIENT_CREDITS",
-          errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
-          data: {
-            billing: creditResult.snapshot,
-          },
+    if (monetizationEnabled) {
+      const debitIdempotencyKey = `chat:${effectiveUserId}:${storedThread?.id || "new"}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+      const creditResult = await consumeCredits({
+        userId: effectiveUserId,
+        cost: turnCreditCost,
+        idempotencyKey: debitIdempotencyKey,
+        source: "creator_v2_chat",
+        metadata: {
+          intent: effectiveExplicitIntent || "auto",
+          threadId: storedThread?.id || null,
         },
-        { status: 402 },
-      );
+      });
+
+      if (!creditResult.ok) {
+        if (creditResult.reason === "RATE_LIMITED") {
+          return NextResponse.json(
+            {
+              ok: false,
+              code: "RATE_LIMITED",
+              errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
+              data: {
+                billing: creditResult.snapshot,
+              },
+            },
+            {
+              status: 429,
+              headers: creditResult.retryAfterSeconds
+                ? { "Retry-After": String(creditResult.retryAfterSeconds) }
+                : undefined,
+            },
+          );
+        }
+
+        if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
+          return NextResponse.json(
+            {
+              ok: false,
+              code: "PLAN_REQUIRED",
+              errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
+              data: {
+                billing: creditResult.snapshot,
+              },
+            },
+            { status: 403 },
+          );
+        }
+
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "INSUFFICIENT_CREDITS",
+            errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          { status: 402 },
+        );
+      }
+
+      debitedCharge = {
+        cost: creditResult.cost,
+        idempotencyKey: creditResult.idempotencyKey,
+      };
     }
-    debitedCharge = {
-      cost: creditResult.cost,
-      idempotencyKey: creditResult.idempotencyKey,
-    };
 
     let recentHistoryStr = "None";
     let activeDraft: string | undefined;
@@ -688,7 +697,7 @@ export async function POST(request: NextRequest) {
         shouldIncludeRoutingTrace,
         userId: session.user.id,
         activeHandle,
-        loadBilling: () => getBillingStateForUser(effectiveUserId),
+        loadBilling: loadBillingStateForResponse,
         recordProductEvent,
       });
     }
@@ -877,7 +886,7 @@ export async function POST(request: NextRequest) {
       createdAssistantMessageId,
       newThreadId: !threadId && storedThread ? storedThread.id : undefined,
       routingTrace: shouldIncludeRoutingTrace ? routingTrace : undefined,
-      loadBilling: () => getBillingStateForUser(effectiveUserId),
+      loadBilling: loadBillingStateForResponse,
     });
   } catch (error) {
     if (debitedCharge) {

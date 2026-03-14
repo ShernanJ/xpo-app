@@ -16,6 +16,11 @@ import type {
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { runConversationValidationWorkers } from "../../workers/validation/conversationValidationWorkers.ts";
+import type {
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
+} from "../../runtime/runtimeContracts.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -60,19 +65,96 @@ export async function executeReplyingCapability(
   },
 ): Promise<CapabilityExecutionResult<ReplyingCapabilityOutput>> {
   const { context, services } = args;
-  const replyGuidance = await services.generateReplyGuidance(
-    context.userMessage,
-    context.effectiveContext,
-    context.topicSummary,
-    context.styleCard,
-    context.relevantTopicAnchors,
-    context.userContextString,
+  const buildFallbackResponse = () =>
+    "that reply guidance came back malformed twice. want me to retry from the post angle or the actual wording?";
+
+  const runReplyAttempt = async (attempt: {
+    retryConstraints?: string[];
+    validationGroupId: string;
+  }) => {
+    const replyGuidance = await services.generateReplyGuidance(
+      context.userMessage,
+      context.effectiveContext,
+      context.topicSummary,
+      context.styleCard,
+      context.relevantTopicAnchors,
+      context.userContextString,
+      {
+        goal: context.goal,
+        conversationState: context.memory.conversationState,
+        antiPatterns: context.antiPatterns,
+        retryConstraints: attempt.retryConstraints,
+      },
+    );
+
+    const fallbackResponse =
+      replyGuidance?.response ||
+      "paste the post or tell me the angle you want to take, and i'll help you find the strongest reply lane.";
+    const validation = runConversationValidationWorkers({
+      capability: "replying",
+      groupId: attempt.validationGroupId,
+      response: fallbackResponse,
+      sourceUserMessage: context.userMessage,
+    });
+
+    return {
+      replyGuidance,
+      validation,
+      finalResponse: validation.correctedResponse,
+    };
+  };
+
+  const accumulatedWorkers: RuntimeWorkerExecution[] = [];
+  const accumulatedValidations: RuntimeValidationResult[] = [];
+
+  const firstAttempt = await runReplyAttempt({
+    validationGroupId: "reply_delivery_validation_initial",
+  });
+
+  accumulatedWorkers.push(
     {
-      goal: context.goal,
-      conversationState: context.memory.conversationState,
-      antiPatterns: context.antiPatterns,
+      worker: "reply_guidance",
+      capability: args.capability,
+      phase: "execution",
+      mode: "sequential",
+      status: "completed",
+      groupId: null,
+      details: {
+        hadReply: Boolean(firstAttempt.replyGuidance?.response),
+        hadFollowUp: Boolean(firstAttempt.replyGuidance?.probingQuestion),
+      },
     },
+    ...firstAttempt.validation.workerExecutions,
   );
+  accumulatedValidations.push(...firstAttempt.validation.validations);
+
+  const finalAttempt = firstAttempt.validation.hasFailures &&
+      firstAttempt.validation.retryConstraints.length > 0
+    ? await runReplyAttempt({
+        retryConstraints: firstAttempt.validation.retryConstraints,
+        validationGroupId: "reply_delivery_validation_retry",
+      })
+    : firstAttempt;
+
+  if (finalAttempt !== firstAttempt) {
+    accumulatedWorkers.push(
+      {
+        worker: "reply_guidance",
+        capability: args.capability,
+        phase: "execution",
+        mode: "sequential",
+        status: "completed",
+        groupId: null,
+        details: {
+          hadReply: Boolean(finalAttempt.replyGuidance?.response),
+          hadFollowUp: Boolean(finalAttempt.replyGuidance?.probingQuestion),
+          retry: true,
+        },
+      },
+      ...finalAttempt.validation.workerExecutions,
+    );
+    accumulatedValidations.push(...finalAttempt.validation.validations);
+  }
 
   const nextConcreteAnswerCount =
     context.userMessage.length > 15
@@ -87,13 +169,15 @@ export async function executeReplyingCapability(
         activeConstraints: context.memory.activeConstraints,
         latestDraftStatus: "Context gathering",
         formatPreference: context.memory.formatPreference || context.turnFormatPreference,
-        unresolvedQuestion: replyGuidance?.probingQuestion || null,
+        unresolvedQuestion: finalAttempt.replyGuidance?.probingQuestion || null,
       })
     : context.memory.rollingSummary;
 
-  const finalResponse =
-    replyGuidance?.response ||
-    "paste the post or tell me the angle you want to take, and i'll help you find the strongest reply lane.";
+  const chosenAttempt = finalAttempt.validation.hasFailures ? null : finalAttempt;
+  const finalResponse = chosenAttempt
+    ? chosenAttempt.finalResponse
+    : buildFallbackResponse();
+  const finalProbingQuestion = chosenAttempt?.replyGuidance?.probingQuestion || null;
 
   return {
     workflow: args.workflow,
@@ -116,25 +200,13 @@ export async function executeReplyingCapability(
         concreteAnswerCount: nextConcreteAnswerCount,
         rollingSummary,
         assistantTurnCount: context.nextAssistantTurnCount,
-        unresolvedQuestion: replyGuidance?.probingQuestion || null,
-        clarificationQuestionsAsked: replyGuidance?.probingQuestion
+        unresolvedQuestion: finalProbingQuestion,
+        clarificationQuestionsAsked: finalProbingQuestion
           ? context.memory.clarificationQuestionsAsked + 1
           : context.memory.clarificationQuestionsAsked,
       },
     },
-    workers: [
-      {
-        worker: "reply_guidance",
-        capability: args.capability,
-        phase: "execution",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          hadReply: Boolean(replyGuidance?.response),
-          hadFollowUp: Boolean(replyGuidance?.probingQuestion),
-        },
-      },
-    ],
+    workers: accumulatedWorkers,
+    validations: accumulatedValidations,
   };
 }

@@ -1,5 +1,5 @@
 import type { CreatorGenerationOutputShape } from "../contracts/generationContract";
-import type { VoiceTarget } from "../agent-v2/core/voiceTarget";
+import type { VoiceTarget } from "../../agent-v2/core/voiceTarget";
 
 export type ThreadFramingStyle = "none" | "soft_signal" | "numbered";
 

@@ -19,6 +19,7 @@ import {
   findExistingSubscriptionForCustomer,
   resolveCheckoutBaseUrl,
 } from "@/lib/billing/stripe";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 const CheckoutRequestSchema = z.object({
   offer: z.enum(["pro_monthly", "pro_annual", "lifetime"]),
@@ -71,6 +72,13 @@ function conflictError(message: string, code = "ALREADY_SUBSCRIBED") {
 }
 
 export async function POST(request: NextRequest) {
+  if (!isMonetizationEnabled()) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "billing", message: "Not found." }] },
+      { status: 404 },
+    );
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(

@@ -134,7 +134,7 @@ export async function getContentInsightsForUser(args: {
   userId: string;
   xHandle?: string | null;
 }) {
-  const { prisma } = await import("../db.ts");
+  const { prisma } = await import("../../db.ts");
   const xHandle = normalizeHandle(args.xHandle);
   const items = await prisma.draftCandidate.findMany({
     where: {

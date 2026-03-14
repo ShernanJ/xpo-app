@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 const scanlineStyle = {
   backgroundImage:
@@ -14,6 +15,8 @@ interface XShellProps {
 }
 
 export function XShell({ children, footerContent, backgroundOverlay }: XShellProps) {
+  const monetizationEnabled = isMonetizationEnabled();
+
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="mx-auto min-h-screen max-w-7xl px-2 py-2 sm:px-4 sm:py-4">
@@ -42,9 +45,11 @@ export function XShell({ children, footerContent, backgroundOverlay }: XShellPro
               </p>
               {footerContent ?? (
                 <nav className="flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-3 text-xs text-zinc-500">
-                  <Link href="/pricing" className="px-1.5 py-1 transition hover:text-zinc-200">
-                    Pricing
-                  </Link>
+                  {monetizationEnabled ? (
+                    <Link href="/pricing" className="px-1.5 py-1 transition hover:text-zinc-200">
+                      Pricing
+                    </Link>
+                  ) : null}
                   <Link href="/refund-policy" className="px-1.5 py-1 transition hover:text-zinc-200">
                     Refund Policy
                   </Link>

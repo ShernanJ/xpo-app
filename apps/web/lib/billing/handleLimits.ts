@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 
 import { BILLING_HANDLE_LIMITS } from "@/lib/billing/config";
 import { ensureBillingEntitlement } from "@/lib/billing/entitlements";
+import { isMonetizationEnabled } from "./monetization";
 
 function normalizeHandle(value: string | null | undefined): string | null {
   if (!value) {
@@ -62,8 +63,18 @@ export async function validateHandleLimit(args: {
     }
 > {
   const normalizedTarget = normalizeHandle(args.targetHandle);
-  const entitlement = await ensureBillingEntitlement(args.userId);
   const knownHandles = await getKnownHandlesForUser(args.userId);
+
+  if (!isMonetizationEnabled()) {
+    return {
+      ok: true,
+      plan: "free" as const,
+      limit: null,
+      knownHandles,
+    };
+  }
+
+  const entitlement = await ensureBillingEntitlement(args.userId);
   const limit = BILLING_HANDLE_LIMITS[entitlement.plan];
 
   if (!normalizedTarget) {

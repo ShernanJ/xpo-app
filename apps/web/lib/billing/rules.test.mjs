@@ -19,6 +19,22 @@ test("paid plans can access draft analysis compare mode", () => {
   assert.equal(canAccessDraftAnalysis("lifetime", "compare"), true);
 });
 
+test("free plan can access compare mode when monetization is disabled", () => {
+  const original = process.env.NEXT_PUBLIC_ENABLE_MONETIZATION;
+  process.env.NEXT_PUBLIC_ENABLE_MONETIZATION = "";
+
+  try {
+    assert.equal(canAccessDraftAnalysis("free", "compare"), true);
+  } finally {
+    if (original === undefined) {
+      delete process.env.NEXT_PUBLIC_ENABLE_MONETIZATION;
+      return;
+    }
+
+    process.env.NEXT_PUBLIC_ENABLE_MONETIZATION = original;
+  }
+});
+
 test("completed paid checkout should activate pro immediately", () => {
   assert.equal(
     shouldActivateProFromCheckoutSession({

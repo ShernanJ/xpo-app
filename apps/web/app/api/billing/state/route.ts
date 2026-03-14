@@ -13,6 +13,7 @@ import {
   getCheckoutSessionById,
   getSubscriptionById,
 } from "@/lib/billing/stripe";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { shouldActivateProFromCheckoutSession } from "@/lib/billing/rules";
 
 async function reconcileBillingFromCheckoutSession(args: {
@@ -185,6 +186,13 @@ async function reconcileBillingFromStoredStripeState(args: {
 }
 
 export async function GET(request: NextRequest) {
+  if (!isMonetizationEnabled()) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "billing", message: "Not found." }] },
+      { status: 404 },
+    );
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(

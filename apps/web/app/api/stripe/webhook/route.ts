@@ -17,6 +17,7 @@ import {
   constructStripeWebhookEvent,
   type StripeWebhookEvent,
 } from "@/lib/billing/stripe";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -284,6 +285,10 @@ async function dispatchStripeEvent(event: StripeWebhookEvent): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
+  if (!isMonetizationEnabled()) {
+    return NextResponse.json({ ok: true, monetizationEnabled: false });
+  }
+
   const signature = request.headers.get("stripe-signature");
   if (!signature) {
     return NextResponse.json(

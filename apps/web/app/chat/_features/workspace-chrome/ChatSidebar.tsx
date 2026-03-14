@@ -34,6 +34,7 @@ interface ChatSidebarProps {
   accountMenuOpen: boolean;
   onToggleAccountMenu: () => void;
   accountMenuVisible: boolean;
+  monetizationEnabled: boolean;
   availableHandles: string[];
   accountName: string | null;
   canAddAccount: boolean;
@@ -83,6 +84,7 @@ export function ChatSidebar(props: ChatSidebarProps) {
     accountMenuOpen,
     onToggleAccountMenu,
     accountMenuVisible,
+    monetizationEnabled,
     availableHandles,
     accountName,
     canAddAccount,
@@ -390,6 +392,7 @@ export function ChatSidebar(props: ChatSidebarProps) {
               className="absolute bottom-full left-2 right-2 z-20 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
               accountMenuVisible={accountMenuVisible}
               accountMenuOpen={accountMenuOpen}
+              monetizationEnabled={monetizationEnabled}
               availableHandles={availableHandles}
               accountName={accountName}
               canAddAccount={canAddAccount}
@@ -446,6 +449,7 @@ export function ChatSidebar(props: ChatSidebarProps) {
               className="absolute bottom-full left-0 z-20 w-64 rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-xl"
               accountMenuVisible={accountMenuVisible}
               accountMenuOpen={accountMenuOpen}
+              monetizationEnabled={monetizationEnabled}
               availableHandles={availableHandles}
               accountName={accountName}
               canAddAccount={canAddAccount}

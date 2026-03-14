@@ -9,6 +9,7 @@ import {
   canAccessDraftAnalysis,
   getDraftAnalysisUpgradeMessage,
 } from "@/lib/billing/rules";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import {
   ensureBillingEntitlement,
   getBillingStateForUser,
@@ -30,6 +31,7 @@ function parseMode(value: unknown): DraftInspectorMode | null {
 }
 
 export async function POST(request: NextRequest) {
+  const monetizationEnabled = isMonetizationEnabled();
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -78,23 +80,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const entitlement = await ensureBillingEntitlement(session.user.id);
-  if (!canAccessDraftAnalysis(entitlement.plan, mode)) {
-    const billingState = await getBillingStateForUser(session.user.id);
-    return NextResponse.json(
-      {
-        ok: false,
-        code: "PLAN_REQUIRED",
-        errors: [
-          {
-            field: "billing",
-            message: getDraftAnalysisUpgradeMessage(mode),
-          },
-        ],
-        data: { billing: billingState.billing },
-      },
-      { status: 403 },
-    );
+  if (monetizationEnabled) {
+    const entitlement = await ensureBillingEntitlement(session.user.id);
+    if (!canAccessDraftAnalysis(entitlement.plan, mode)) {
+      const billingState = await getBillingStateForUser(session.user.id);
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "PLAN_REQUIRED",
+          errors: [
+            {
+              field: "billing",
+              message: getDraftAnalysisUpgradeMessage(mode),
+            },
+          ],
+          data: { billing: billingState.billing },
+        },
+        { status: 403 },
+      );
+    }
   }
 
   const creditCost =
@@ -112,69 +116,71 @@ export async function POST(request: NextRequest) {
       return workspaceHandle.response;
     }
 
-    const debitIdempotencyKey = `draft-analysis:${session.user.id}:${threadId}:${mode}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const creditResult = await consumeCredits({
-      userId: session.user.id,
-      cost: creditCost,
-      idempotencyKey: debitIdempotencyKey,
-      source: "creator_v2_draft_analysis",
-      metadata: {
-        mode,
-        threadId,
-      },
-    });
-
-    if (!creditResult.ok) {
-      if (creditResult.reason === "RATE_LIMITED") {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: "RATE_LIMITED",
-            errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
-            data: {
-              billing: creditResult.snapshot,
-            },
-          },
-          {
-            status: 429,
-            headers: creditResult.retryAfterSeconds
-              ? { "Retry-After": String(creditResult.retryAfterSeconds) }
-              : undefined,
-          },
-        );
-      }
-
-      if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: "PLAN_REQUIRED",
-            errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
-            data: {
-              billing: creditResult.snapshot,
-            },
-          },
-          { status: 403 },
-        );
-      }
-
-      return NextResponse.json(
-        {
-          ok: false,
-          code: "INSUFFICIENT_CREDITS",
-          errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
-          data: {
-            billing: creditResult.snapshot,
-          },
+    if (monetizationEnabled) {
+      const debitIdempotencyKey = `draft-analysis:${session.user.id}:${threadId}:${mode}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+      const creditResult = await consumeCredits({
+        userId: session.user.id,
+        cost: creditCost,
+        idempotencyKey: debitIdempotencyKey,
+        source: "creator_v2_draft_analysis",
+        metadata: {
+          mode,
+          threadId,
         },
-        { status: 402 },
-      );
-    }
+      });
 
-    debitedCharge = {
-      cost: creditResult.cost,
-      idempotencyKey: creditResult.idempotencyKey,
-    };
+      if (!creditResult.ok) {
+        if (creditResult.reason === "RATE_LIMITED") {
+          return NextResponse.json(
+            {
+              ok: false,
+              code: "RATE_LIMITED",
+              errors: [{ field: "rate", message: "Too many requests. Please wait a minute." }],
+              data: {
+                billing: creditResult.snapshot,
+              },
+            },
+            {
+              status: 429,
+              headers: creditResult.retryAfterSeconds
+                ? { "Retry-After": String(creditResult.retryAfterSeconds) }
+                : undefined,
+            },
+          );
+        }
+
+        if (creditResult.reason === "ENTITLEMENT_INACTIVE") {
+          return NextResponse.json(
+            {
+              ok: false,
+              code: "PLAN_REQUIRED",
+              errors: [{ field: "billing", message: "Billing is not active. Update payment to continue." }],
+              data: {
+                billing: creditResult.snapshot,
+              },
+            },
+            { status: 403 },
+          );
+        }
+
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "INSUFFICIENT_CREDITS",
+            errors: [{ field: "billing", message: "You've reached your credit limit. Upgrade to continue." }],
+            data: {
+              billing: creditResult.snapshot,
+            },
+          },
+          { status: 402 },
+        );
+      }
+
+      debitedCharge = {
+        cost: creditResult.cost,
+        idempotencyKey: creditResult.idempotencyKey,
+      };
+    }
 
     const ownedThread = await resolveOwnedThreadForWorkspace({
       threadId,
@@ -218,8 +224,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const billingState = await getBillingStateForUser(session.user.id);
-
     return NextResponse.json({
       ok: true,
       data: {
@@ -227,7 +231,9 @@ export async function POST(request: NextRequest) {
         prompt,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        billing: billingState,
+        billing: monetizationEnabled
+          ? await getBillingStateForUser(session.user.id)
+          : null,
       },
     });
   } catch (error) {

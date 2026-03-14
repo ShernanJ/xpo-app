@@ -1,14 +1,11 @@
 import { expect, test } from "playwright/test";
 
-test("pricing page uses a semantic billing cadence control", async ({ page }) => {
-  await page.goto("/pricing");
+test("pricing is hidden when monetization is disabled", async ({ page }) => {
+  await page.goto("/");
 
-  const monthly = page.getByRole("radio", { name: "Monthly" });
-  const annual = page.getByRole("radio", { name: "Annual" });
+  await expect(page.getByRole("link", { name: "Pricing" })).toHaveCount(0);
+  await expect(page.getByText("Simple pricing. Predictable usage.")).toHaveCount(0);
 
-  await expect(page.getByRole("radiogroup", { name: "Billing cadence" })).toBeVisible();
-  await expect(monthly).toHaveAttribute("aria-checked", "true");
-
-  await annual.click();
-  await expect(annual).toHaveAttribute("aria-checked", "true");
+  const response = await page.goto("/pricing");
+  expect(response?.status()).toBe(404);
 });

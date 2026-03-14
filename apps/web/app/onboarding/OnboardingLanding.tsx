@@ -8,6 +8,7 @@ import { ArrowLeft, PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import type { BillingStatePayload } from "@/lib/billing/types";
 import type { XPublicPost, XPublicProfile } from "@/lib/onboarding/types";
 
@@ -809,6 +810,7 @@ function buildGuestAnalysisPreview(
 
 export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
   const { status, update } = useSession();
+  const monetizationEnabled = isMonetizationEnabled();
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLaunchingLoading, setIsLaunchingLoading] = useState(false);
@@ -853,6 +855,9 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const landingProApproxDraftTurns = Math.floor(
     LANDING_PRO_CREDITS_PER_MONTH / LANDING_DRAFT_TURN_CREDIT_COST,
   );
+  const visibleFaqItems = monetizationEnabled
+    ? FAQ_ITEMS
+    : FAQ_ITEMS.filter((item) => item.question !== "Can I switch plans later?");
   const autofillStyles = (
     <style jsx>{`
       .landingAccountInput:-webkit-autofill,
@@ -1368,9 +1373,11 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
   const landingFooterLinks = (
     <nav className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-3 text-center text-xs text-zinc-500">
-      <Link href="/pricing" className="px-1.5 py-1 transition hover:text-zinc-200">
-        Pricing
-      </Link>
+      {monetizationEnabled ? (
+        <Link href="/pricing" className="px-1.5 py-1 transition hover:text-zinc-200">
+          Pricing
+        </Link>
+      ) : null}
       <Link href="/refund-policy" className="px-1.5 py-1 transition hover:text-zinc-200">
         Refund Policy
       </Link>
@@ -2321,148 +2328,150 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           </div>
         </motion.section>
 
-        <motion.section
-          initial="hidden"
-          whileInView="visible"
-          viewport={LANDING_SECTION_VIEWPORT}
-          variants={sectionReveal(0.18)}
-          className="mx-auto mt-12 w-full max-w-5xl sm:mt-14"
-        >
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            Pricing
-          </p>
-          <h2 className="mt-3 font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            Simple pricing. Predictable usage.
-          </h2>
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion h-full rounded-2xl border border-white/10 bg-white/[0.02] p-5 pb-7 flex flex-col">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">Free</p>
-              <p className="mt-2 text-3xl font-semibold">$0</p>
-              <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
-              <p className="mt-4 text-xs text-zinc-500">{LANDING_FREE_CREDITS_PER_MONTH} credits/month</p>
-              <div className="mt-4 space-y-2 text-sm text-zinc-300">
-                <p>• Core chat + onboarding included</p>
-                <p>• Draft analysis: Analyze</p>
-                <p>• Multiple X accounts on one shared credit pool</p>
-                <p>
-                  • ≈ {landingFreeApproxChatTurns} chat turns or ≈ {landingFreeApproxDraftTurns} draft/review turns
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={scrollToScraper}
-                className="mt-auto inline-flex w-full items-center justify-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05]"
-              >
-                Start for Free
-              </button>
-            </motion.article>
+        {monetizationEnabled ? (
+          <motion.section
+            initial="hidden"
+            whileInView="visible"
+            viewport={LANDING_SECTION_VIEWPORT}
+            variants={sectionReveal(0.18)}
+            className="mx-auto mt-12 w-full max-w-5xl sm:mt-14"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Pricing
+            </p>
+            <h2 className="mt-3 font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              Simple pricing. Predictable usage.
+            </h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion h-full rounded-2xl border border-white/10 bg-white/[0.02] p-5 pb-7 flex flex-col">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">Free</p>
+                <p className="mt-2 text-3xl font-semibold">$0</p>
+                <p className="mt-2 text-sm text-zinc-400">Try it in minutes. No card required.</p>
+                <p className="mt-4 text-xs text-zinc-500">{LANDING_FREE_CREDITS_PER_MONTH} credits/month</p>
+                <div className="mt-4 space-y-2 text-sm text-zinc-300">
+                  <p>• Core chat + onboarding included</p>
+                  <p>• Draft analysis: Analyze</p>
+                  <p>• Multiple X accounts on one shared credit pool</p>
+                  <p>
+                    • ≈ {landingFreeApproxChatTurns} chat turns or ≈ {landingFreeApproxDraftTurns} draft/review turns
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={scrollToScraper}
+                  className="mt-auto inline-flex w-full items-center justify-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-200 transition hover:bg-white/[0.05]"
+                >
+                  Start for Free
+                </button>
+              </motion.article>
 
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-5 pb-7 flex flex-col">
-              <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
-              <div className="flex items-start justify-between gap-3">
-                <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
-                  Most popular
-                </p>
-                <div className="flex flex-col items-end gap-1">
-                  <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
-                    <span
-                      className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${
-                        landingProIsAnnual ? "translate-x-full" : "translate-x-0"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setLandingProCadence("monthly")}
-                      disabled={!landingProMonthlyEnabled}
-                      className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                        !landingProMonthlyEnabled
-                          ? "cursor-not-allowed text-zinc-600"
-                          : landingProIsAnnual
-                            ? "text-zinc-300 hover:text-white"
-                            : "text-black"
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                    <div className="relative z-10 flex-1">
+              <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-white/20 bg-white/[0.05] p-5 pb-7 flex flex-col">
+                <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl transition-opacity duration-300 group-hover:opacity-90" />
+                <div className="flex items-start justify-between gap-3">
+                  <p className="inline-flex whitespace-nowrap rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-200">
+                    Most popular
+                  </p>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="relative inline-flex w-full max-w-[172px] rounded-full border border-white/20 bg-black/35 p-0.5">
+                      <span
+                        className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white transition-transform duration-200 ${
+                          landingProIsAnnual ? "translate-x-full" : "translate-x-0"
+                        }`}
+                      />
                       <button
                         type="button"
-                        onClick={() => setLandingProCadence("annual")}
-                        disabled={!landingProAnnualEnabled}
-                        className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
-                          !landingProAnnualEnabled
+                        onClick={() => setLandingProCadence("monthly")}
+                        disabled={!landingProMonthlyEnabled}
+                        className={`relative z-10 flex-1 rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
+                          !landingProMonthlyEnabled
                             ? "cursor-not-allowed text-zinc-600"
                             : landingProIsAnnual
-                              ? "text-black"
-                              : "text-zinc-300 hover:text-white"
+                              ? "text-zinc-300 hover:text-white"
+                              : "text-black"
                         }`}
                       >
-                        Annual
+                        Monthly
                       </button>
+                      <div className="relative z-10 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setLandingProCadence("annual")}
+                          disabled={!landingProAnnualEnabled}
+                          className={`w-full rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition ${
+                            !landingProAnnualEnabled
+                              ? "cursor-not-allowed text-zinc-600"
+                              : landingProIsAnnual
+                                ? "text-black"
+                                : "text-zinc-300 hover:text-white"
+                          }`}
+                        >
+                          Annual
+                        </button>
+                      </div>
+                      {landingProMonthlyEnabled && landingProAnnualEnabled ? (
+                        <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
+                          2 months free
+                        </span>
+                      ) : null}
                     </div>
-                    {landingProMonthlyEnabled && landingProAnnualEnabled ? (
-                      <span className="pointer-events-none absolute left-3/4 top-full z-20 mt-1 w-max -translate-x-1/2 whitespace-nowrap rounded-full border border-emerald-300/35 bg-emerald-400/10 px-1.5 py-[3px] text-[7px] font-semibold uppercase leading-none tracking-[0.1em] text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)]">
-                        2 months free
-                      </span>
-                    ) : null}
                   </div>
                 </div>
-              </div>
-              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">Pro</p>
-              <p className="mt-2 text-3xl font-semibold">
-                {formatUsdPrice(landingSelectedProCents)}
-                <span className="text-sm font-medium text-zinc-400">{landingSelectedProPriceSuffix}</span>
-              </p>
-              <div className="mt-4 space-y-2 text-sm text-zinc-200">
-                <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month</p>
-                <p>• Draft analysis: Analyze + Compare</p>
-                <p>• Multiple X accounts on one shared credit pool</p>
-                <p>• Higher throughput + priority processing</p>
-                <p>
-                  • ≈ {landingProApproxChatTurns} chat turns or ≈ {landingProApproxDraftTurns} draft/review turns
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-300">Pro</p>
+                <p className="mt-2 text-3xl font-semibold">
+                  {formatUsdPrice(landingSelectedProCents)}
+                  <span className="text-sm font-medium text-zinc-400">{landingSelectedProPriceSuffix}</span>
                 </p>
-              </div>
-              <div className="mt-auto pt-8">
-                <button
-                  type="button"
-                  onClick={scrollToScraper}
-                  className="inline-flex w-full cursor-pointer items-center justify-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
-                >
-                  Get Started
-                </button>
-              </div>
-            </motion.article>
+                <div className="mt-4 space-y-2 text-sm text-zinc-200">
+                  <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month</p>
+                  <p>• Draft analysis: Analyze + Compare</p>
+                  <p>• Multiple X accounts on one shared credit pool</p>
+                  <p>• Higher throughput + priority processing</p>
+                  <p>
+                    • ≈ {landingProApproxChatTurns} chat turns or ≈ {landingProApproxDraftTurns} draft/review turns
+                  </p>
+                </div>
+                <div className="mt-auto pt-8">
+                  <button
+                    type="button"
+                    onClick={scrollToScraper}
+                    className="inline-flex w-full cursor-pointer items-center justify-center rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-black transition hover:bg-zinc-200"
+                  >
+                    Get Started
+                  </button>
+                </div>
+              </motion.article>
 
-            <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-5 pb-7 flex flex-col">
-              <div className="pointer-events-none absolute -left-14 top-6 h-32 w-32 rounded-full bg-amber-300/25 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
-              <div className="pointer-events-none absolute -right-16 -top-14 h-36 w-36 rounded-full bg-amber-200/20 blur-3xl animate-pulse" />
-              <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_24%,rgba(251,191,36,0.2)_50%,transparent_76%)] opacity-40 transition-opacity duration-500 group-hover:opacity-70" />
-              <Sparkles className="pointer-events-none absolute right-6 top-6 h-4 w-4 text-amber-100/90 drop-shadow-[0_0_10px_rgba(251,191,36,0.65)]" />
-              <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
-                <Sparkles className="h-3.5 w-3.5 text-amber-100" />
-                Founder Pass
-              </p>
-              <p className="mt-2 text-3xl font-semibold">{formatUsdPrice(landingLifetimeCents)}</p>
-              <p className="mt-2 text-sm text-zinc-200">One-time payment. No recurring billing.</p>
-              <div className="mt-4 space-y-2 text-sm text-zinc-200">
-                <p>• Includes Pro features</p>
-                <p>• Draft analysis: Analyze + Compare</p>
-                <p>• Multiple X accounts on one shared credit pool</p>
-                <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month included</p>
-                <p>• Priority founder lane</p>
-              </div>
-              <div className="mt-auto pt-8">
-                <button
-                  type="button"
-                  onClick={scrollToScraper}
-                  className="inline-flex w-full cursor-pointer items-center justify-center rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
-                >
-                  Get Started
-                </button>
-              </div>
-            </motion.article>
-          </div>
-        </motion.section>
+              <motion.article whileHover={LANDING_CARD_HOVER} className="landing-card-motion group relative h-full overflow-hidden rounded-2xl border border-amber-200/35 bg-amber-200/[0.08] p-5 pb-7 flex flex-col">
+                <div className="pointer-events-none absolute -left-14 top-6 h-32 w-32 rounded-full bg-amber-300/25 blur-2xl transition-opacity duration-300 group-hover:opacity-95" />
+                <div className="pointer-events-none absolute -right-16 -top-14 h-36 w-36 rounded-full bg-amber-200/20 blur-3xl animate-pulse" />
+                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,transparent_24%,rgba(251,191,36,0.2)_50%,transparent_76%)] opacity-40 transition-opacity duration-500 group-hover:opacity-70" />
+                <Sparkles className="pointer-events-none absolute right-6 top-6 h-4 w-4 text-amber-100/90 drop-shadow-[0_0_10px_rgba(251,191,36,0.65)]" />
+                <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-100" />
+                  Founder Pass
+                </p>
+                <p className="mt-2 text-3xl font-semibold">{formatUsdPrice(landingLifetimeCents)}</p>
+                <p className="mt-2 text-sm text-zinc-200">One-time payment. No recurring billing.</p>
+                <div className="mt-4 space-y-2 text-sm text-zinc-200">
+                  <p>• Includes Pro features</p>
+                  <p>• Draft analysis: Analyze + Compare</p>
+                  <p>• Multiple X accounts on one shared credit pool</p>
+                  <p>• {LANDING_PRO_CREDITS_PER_MONTH} credits/month included</p>
+                  <p>• Priority founder lane</p>
+                </div>
+                <div className="mt-auto pt-8">
+                  <button
+                    type="button"
+                    onClick={scrollToScraper}
+                    className="inline-flex w-full cursor-pointer items-center justify-center rounded-full border border-amber-200/50 bg-amber-100/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100 transition hover:bg-amber-100/18"
+                  >
+                    Get Started
+                  </button>
+                </div>
+              </motion.article>
+            </div>
+          </motion.section>
+        ) : null}
 
         <motion.section
           initial="hidden"
@@ -2476,7 +2485,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
             Common questions
           </h2>
           <div className="mt-6 space-y-3">
-            {FAQ_ITEMS.map((item, index) => {
+            {visibleFaqItems.map((item, index) => {
               const isOpen = openFaqIndexes.includes(index);
               return (
                 <motion.article

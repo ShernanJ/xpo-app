@@ -16,6 +16,11 @@ import type {
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import { prependFeedbackMemoryNotice } from "../../orchestrator/feedbackMemoryNotice.ts";
+import { runConversationValidationWorkers } from "../../workers/validation/conversationValidationWorkers.ts";
+import type {
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
+} from "../../runtime/runtimeContracts.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -60,19 +65,96 @@ export async function executeAnalysisCapability(
   },
 ): Promise<CapabilityExecutionResult<AnalysisCapabilityOutput>> {
   const { context, services } = args;
-  const analysisReply = await services.generatePostAnalysis(
-    context.userMessage,
-    context.effectiveContext,
-    context.topicSummary,
-    context.styleCard,
-    context.relevantTopicAnchors,
-    context.userContextString,
+  const buildFallbackResponse = () =>
+    "that analysis came back malformed twice. want me to retry from the angle, the hook, or the proof?";
+
+  const runAnalysisAttempt = async (attempt: {
+    retryConstraints?: string[];
+    validationGroupId: string;
+  }) => {
+    const analysisReply = await services.generatePostAnalysis(
+      context.userMessage,
+      context.effectiveContext,
+      context.topicSummary,
+      context.styleCard,
+      context.relevantTopicAnchors,
+      context.userContextString,
+      {
+        goal: context.goal,
+        conversationState: context.memory.conversationState,
+        antiPatterns: context.antiPatterns,
+        retryConstraints: attempt.retryConstraints,
+      },
+    );
+
+    const fallbackResponse =
+      analysisReply?.response ||
+      "paste the post or tell me what you want to diagnose, and i'll break down the angle, tension, and what it's doing.";
+    const validation = runConversationValidationWorkers({
+      capability: "analysis",
+      groupId: attempt.validationGroupId,
+      response: fallbackResponse,
+      sourceUserMessage: context.userMessage,
+    });
+
+    return {
+      analysisReply,
+      validation,
+      finalResponse: validation.correctedResponse,
+    };
+  };
+
+  const accumulatedWorkers: RuntimeWorkerExecution[] = [];
+  const accumulatedValidations: RuntimeValidationResult[] = [];
+
+  const firstAttempt = await runAnalysisAttempt({
+    validationGroupId: "analysis_delivery_validation_initial",
+  });
+
+  accumulatedWorkers.push(
     {
-      goal: context.goal,
-      conversationState: context.memory.conversationState,
-      antiPatterns: context.antiPatterns,
+      worker: "analysis_guidance",
+      capability: args.capability,
+      phase: "execution",
+      mode: "sequential",
+      status: "completed",
+      groupId: null,
+      details: {
+        hadReply: Boolean(firstAttempt.analysisReply?.response),
+        hadFollowUp: Boolean(firstAttempt.analysisReply?.probingQuestion),
+      },
     },
+    ...firstAttempt.validation.workerExecutions,
   );
+  accumulatedValidations.push(...firstAttempt.validation.validations);
+
+  const finalAttempt = firstAttempt.validation.hasFailures &&
+      firstAttempt.validation.retryConstraints.length > 0
+    ? await runAnalysisAttempt({
+        retryConstraints: firstAttempt.validation.retryConstraints,
+        validationGroupId: "analysis_delivery_validation_retry",
+      })
+    : firstAttempt;
+
+  if (finalAttempt !== firstAttempt) {
+    accumulatedWorkers.push(
+      {
+        worker: "analysis_guidance",
+        capability: args.capability,
+        phase: "execution",
+        mode: "sequential",
+        status: "completed",
+        groupId: null,
+        details: {
+          hadReply: Boolean(finalAttempt.analysisReply?.response),
+          hadFollowUp: Boolean(finalAttempt.analysisReply?.probingQuestion),
+          retry: true,
+        },
+      },
+      ...finalAttempt.validation.workerExecutions,
+    );
+    accumulatedValidations.push(...finalAttempt.validation.validations);
+  }
 
   const nextConcreteAnswerCount =
     context.userMessage.length > 15
@@ -87,13 +169,15 @@ export async function executeAnalysisCapability(
         activeConstraints: context.memory.activeConstraints,
         latestDraftStatus: "Context gathering",
         formatPreference: context.memory.formatPreference || context.turnFormatPreference,
-        unresolvedQuestion: analysisReply?.probingQuestion || null,
+        unresolvedQuestion: finalAttempt.analysisReply?.probingQuestion || null,
       })
     : context.memory.rollingSummary;
 
-  const finalResponse =
-    analysisReply?.response ||
-    "paste the post or tell me what you want to diagnose, and i'll break down the angle, tension, and what it's doing.";
+  const chosenAttempt = finalAttempt.validation.hasFailures ? null : finalAttempt;
+  const finalResponse = chosenAttempt
+    ? chosenAttempt.finalResponse
+    : buildFallbackResponse();
+  const finalProbingQuestion = chosenAttempt?.analysisReply?.probingQuestion || null;
 
   return {
     workflow: args.workflow,
@@ -116,25 +200,13 @@ export async function executeAnalysisCapability(
         concreteAnswerCount: nextConcreteAnswerCount,
         rollingSummary,
         assistantTurnCount: context.nextAssistantTurnCount,
-        unresolvedQuestion: analysisReply?.probingQuestion || null,
-        clarificationQuestionsAsked: analysisReply?.probingQuestion
+        unresolvedQuestion: finalProbingQuestion,
+        clarificationQuestionsAsked: finalProbingQuestion
           ? context.memory.clarificationQuestionsAsked + 1
           : context.memory.clarificationQuestionsAsked,
       },
     },
-    workers: [
-      {
-        worker: "analysis_guidance",
-        capability: args.capability,
-        phase: "execution",
-        mode: "sequential",
-        status: "completed",
-        groupId: null,
-        details: {
-          hadReply: Boolean(analysisReply?.response),
-          hadFollowUp: Boolean(analysisReply?.probingQuestion),
-        },
-      },
-    ],
+    workers: accumulatedWorkers,
+    validations: accumulatedValidations,
   };
 }

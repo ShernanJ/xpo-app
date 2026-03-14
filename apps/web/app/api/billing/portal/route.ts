@@ -7,8 +7,16 @@ import {
   ensureStripeCustomer,
   resolveCheckoutBaseUrl,
 } from "@/lib/billing/stripe";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
 export async function POST(request: NextRequest) {
+  if (!isMonetizationEnabled()) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "billing", message: "Not found." }] },
+      { status: 404 },
+    );
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(

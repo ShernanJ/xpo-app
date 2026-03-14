@@ -56,6 +56,7 @@ import {
   type BillingSnapshotPayload,
   type BillingStatePayload,
 } from "./_features/billing/billingViewState";
+import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { PricingDialog } from "./_features/billing/PricingDialog";
 import { SettingsDialog } from "./_features/billing/SettingsDialog";
 import {
@@ -905,6 +906,7 @@ interface WorkspaceLoadResult {
 }
 
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
+const monetizationEnabled = isMonetizationEnabled();
 const chatProviderStorageKey = "stanley-x-chat-provider";
 const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
   goal: "followers",
@@ -1650,6 +1652,12 @@ function ChatPageContent() {
       openModalIfFirstVisit?: boolean;
       checkoutSessionId?: string;
     }) => {
+      if (!monetizationEnabled) {
+        setBillingState(null);
+        setPricingModalOpen(false);
+        return;
+      }
+
       if (!session?.user?.id) {
         return;
       }
@@ -1695,7 +1703,7 @@ function ChatPageContent() {
   }, [accountName, fetchWorkspace]);
 
   const loadDraftQueue = useCallback(async () => {
-    if (!session?.user?.id) {
+    if (!monetizationEnabled || !session?.user?.id) {
       return;
     }
 
@@ -1869,10 +1877,15 @@ function ChatPageContent() {
           ? billingQuerySessionId
           : undefined,
     });
-  }, [billingQuerySessionId, billingQueryStatus, loadBillingState, session?.user?.id]);
+  }, [
+    billingQuerySessionId,
+    billingQueryStatus,
+    loadBillingState,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
-    if (!billingQueryStatus || !session?.user?.id) {
+    if (!monetizationEnabled || !billingQueryStatus || !session?.user?.id) {
       return;
     }
 
@@ -1883,9 +1896,19 @@ function ChatPageContent() {
         checkoutSessionId: billingQuerySessionId || undefined,
       });
     }
-  }, [billingQuerySessionId, billingQueryStatus, loadBillingState, session?.user?.id]);
+  }, [
+    billingQuerySessionId,
+    billingQueryStatus,
+    loadBillingState,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
+    if (!monetizationEnabled) {
+      setDismissedBillingWarningLevel(null);
+      return;
+    }
+
     const lowCreditWarning = billingState?.billing?.lowCreditWarning ?? false;
     const criticalCreditWarning =
       billingState?.billing?.criticalCreditWarning ?? false;
@@ -1893,9 +1916,16 @@ function ChatPageContent() {
     if (!lowCreditWarning && !criticalCreditWarning) {
       setDismissedBillingWarningLevel(null);
     }
-  }, [billingState?.billing?.criticalCreditWarning, billingState?.billing?.lowCreditWarning]);
+  }, [
+    billingState?.billing?.criticalCreditWarning,
+    billingState?.billing?.lowCreditWarning,
+  ]);
 
   useEffect(() => {
+    if (!monetizationEnabled) {
+      return;
+    }
+
     const billingPlan = billingState?.billing?.plan ?? null;
     const billingCycle = billingState?.billing?.billingCycle ?? null;
 
@@ -1952,6 +1982,10 @@ function ChatPageContent() {
   );
 
   const acknowledgePricingModal = useCallback(async () => {
+    if (!monetizationEnabled) {
+      return;
+    }
+
     try {
       const response = await fetch("/api/billing/ack-pricing-modal", {
         method: "POST",
@@ -1967,6 +2001,10 @@ function ChatPageContent() {
 
   const openCheckoutForOffer = useCallback(
     async (offer: "pro_monthly" | "pro_annual" | "lifetime") => {
+      if (!monetizationEnabled) {
+        return;
+      }
+
       setCheckoutLoadingOffer(offer);
       try {
         const response = await fetch("/api/billing/checkout", {
@@ -2022,6 +2060,10 @@ function ChatPageContent() {
   );
 
   const openBillingPortal = useCallback(async () => {
+    if (!monetizationEnabled) {
+      return;
+    }
+
     setIsOpeningBillingPortal(true);
     try {
       const response = await fetch("/api/billing/portal", {
@@ -4815,6 +4857,7 @@ function ChatPageContent() {
   const billingViewState = useMemo(
     () =>
       resolveBillingViewState({
+        monetizationEnabled,
         billingState,
         dismissedBillingWarningLevel,
         isBillingLoading,
@@ -4940,6 +4983,7 @@ function ChatPageContent() {
           accountMenuOpen={accountMenuOpen}
           onToggleAccountMenu={toggleAccountMenu}
           accountMenuVisible={accountMenuVisible}
+          monetizationEnabled={monetizationEnabled}
           availableHandles={availableHandles}
           accountName={accountName}
           canAddAccount={canAddAccount}
@@ -4962,7 +5006,9 @@ function ChatPageContent() {
           showRateLimitUpgradeCta={showRateLimitUpgradeCta}
           rateLimitUpgradeLabel={rateLimitUpgradeLabel}
           onOpenPricing={() => {
-            setPricingModalOpen(true);
+            if (monetizationEnabled) {
+              setPricingModalOpen(true);
+            }
             closeAccountMenu();
           }}
           avatarUrl={context?.avatarUrl ?? null}
@@ -5413,6 +5459,7 @@ function ChatPageContent() {
       <SettingsDialog
         open={settingsModalOpen}
         onOpenChange={setSettingsModalOpen}
+        monetizationEnabled={monetizationEnabled}
         planStatusLabel={
           activeBillingSnapshot?.status === "past_due"
             ? "Past due"
@@ -5432,7 +5479,9 @@ function ChatPageContent() {
         rateLimitUpgradeLabel={rateLimitUpgradeLabel}
         onOpenPricing={() => {
           setSettingsModalOpen(false);
-          setPricingModalOpen(true);
+          if (monetizationEnabled) {
+            setPricingModalOpen(true);
+          }
         }}
         settingsCreditsRemaining={settingsCreditsRemaining}
         settingsCreditsUsed={settingsCreditsUsed}
@@ -5444,44 +5493,46 @@ function ChatPageContent() {
         }}
       />
 
-      <PricingDialog
-        open={pricingModalOpen}
-        onOpenChange={(open) => {
-          setPricingModalOpen(open);
-          if (!open) {
+      {monetizationEnabled ? (
+        <PricingDialog
+          open={pricingModalOpen}
+          onOpenChange={(open) => {
+            setPricingModalOpen(open);
+            if (!open) {
+              void acknowledgePricingModal();
+            }
+          }}
+          onOpenPricingPage={() => {
+            setPricingModalOpen(false);
             void acknowledgePricingModal();
-          }
-        }}
-        onOpenPricingPage={() => {
-          setPricingModalOpen(false);
-          void acknowledgePricingModal();
-          window.location.href = "/pricing";
-        }}
-        dismissLabel={pricingModalDismissLabel}
-        selectedModalProIsAnnual={selectedModalProIsAnnual}
-        selectedModalProCents={selectedModalProCents}
-        selectedModalProPriceSuffix={selectedModalProPriceSuffix}
-        setSelectedModalProCadence={setSelectedModalProCadence}
-        isProActive={isProActive}
-        isFounderCurrent={isFounderCurrent}
-        selectedModalProIsCurrent={selectedModalProIsCurrent}
-        selectedModalProNeedsPortalSwitch={selectedModalProNeedsPortalSwitch}
-        selectedModalProOfferEnabled={selectedModalProOfferEnabled}
-        selectedModalProButtonLabel={selectedModalProButtonLabel}
-        isSelectedModalProCheckoutLoading={isSelectedModalProCheckoutLoading}
-        isOpeningBillingPortal={isOpeningBillingPortal}
-        onOpenBillingPortal={() => {
-          void openBillingPortal();
-        }}
-        onOpenCheckout={(offer) => {
-          void openCheckoutForOffer(offer);
-        }}
-        selectedModalProOffer={selectedModalProOffer}
-        lifetimeAmountCents={lifetimeOffer?.amountCents ?? 0}
-        lifetimeSlotSummary={lifetimeSlotSummary}
-        lifetimeOfferEnabled={lifetimeOffer?.enabled !== false}
-        supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
-      />
+            window.location.href = "/pricing";
+          }}
+          dismissLabel={pricingModalDismissLabel}
+          selectedModalProIsAnnual={selectedModalProIsAnnual}
+          selectedModalProCents={selectedModalProCents}
+          selectedModalProPriceSuffix={selectedModalProPriceSuffix}
+          setSelectedModalProCadence={setSelectedModalProCadence}
+          isProActive={isProActive}
+          isFounderCurrent={isFounderCurrent}
+          selectedModalProIsCurrent={selectedModalProIsCurrent}
+          selectedModalProNeedsPortalSwitch={selectedModalProNeedsPortalSwitch}
+          selectedModalProOfferEnabled={selectedModalProOfferEnabled}
+          selectedModalProButtonLabel={selectedModalProButtonLabel}
+          isSelectedModalProCheckoutLoading={isSelectedModalProCheckoutLoading}
+          isOpeningBillingPortal={isOpeningBillingPortal}
+          onOpenBillingPortal={() => {
+            void openBillingPortal();
+          }}
+          onOpenCheckout={(offer) => {
+            void openCheckoutForOffer(offer);
+          }}
+          selectedModalProOffer={selectedModalProOffer}
+          lifetimeAmountCents={lifetimeOffer?.amountCents ?? 0}
+          lifetimeSlotSummary={lifetimeSlotSummary}
+          lifetimeOfferEnabled={lifetimeOffer?.enabled !== false}
+          supportEmail={billingState?.supportEmail ?? "shernanjavier@gmail.com"}
+        />
+      ) : null}
 
       <FeedbackDialog
         open={feedbackModalOpen}
