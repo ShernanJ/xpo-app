@@ -5,7 +5,7 @@
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
 - Last updated: 2026-03-13
-- Current slice: Phase 1 control-plane hardening in progress
+- Current slice: Phase 4 worker-plane cleanup in progress
 
 ## Status language
 - `target architecture` means the intended end state.
@@ -177,9 +177,12 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ### Phase 4: Formalize the parallel worker plane
 - Allow worker fan-out only for retrieval, source-material loading, style/profile loading, candidate generation, and validation/scoring.
+- Landed:
+  - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts` now owns the `initial_context_load` fan-out for style-rule extraction, core-fact extraction, and source-material asset loading
+  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now consumes that helper as a merge-only worker seam and keeps all memory/style/artifact/thread writes in the sequential path
 - Add merge rules for worker outputs.
 - Prohibit ambiguous side effects from worker fan-out.
-- Status: not started.
+- Status: in progress.
 
 ### Phase 5: Validation and retry
 - Add deterministic validators for truncation, prompt echo, artifact mismatch, thread/post shape mismatch, and unsupported factual claims.

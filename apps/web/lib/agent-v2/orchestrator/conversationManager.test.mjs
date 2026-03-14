@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
+import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+
 import {
   evaluateDraftContextSlots,
 } from "./draftContextSlots.ts";
@@ -59,6 +61,110 @@ import { isMissingDraftCandidateTableError } from "./prismaGuards.ts";
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "./claimChecker.ts";
 import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
+
+test("initial context load workers return mergeable outputs for identified users", async () => {
+  const result = await loadInitialContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write about onboarding",
+    recentHistory: "assistant: none",
+    services: {
+      extractStyleRules: async () => ["avoid emojis"],
+      extractCoreFacts: async () => ["User rewrote onboarding in January"],
+      getSourceMaterialAssets: async () => [
+        {
+          id: "asset_1",
+          userId: "user_1",
+          xHandle: "stan",
+          type: "story",
+          title: "Onboarding rebuild",
+          tags: ["onboarding"],
+          verified: true,
+          claims: ["The onboarding rewrite cut friction."],
+          snippets: ["We rewrote onboarding after seeing drop-off."],
+          doNotClaim: [],
+          lastUsedAt: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(result.extractedRules, ["avoid emojis"]);
+  assert.deepEqual(result.extractedFacts, ["User rewrote onboarding in January"]);
+  assert.equal(result.sourceMaterialAssets.length, 1);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      phase: execution.phase,
+      mode: execution.mode,
+      status: execution.status,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "extract_style_rules",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+      {
+        worker: "extract_core_facts",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+      {
+        worker: "load_source_material_assets",
+        phase: "context_load",
+        mode: "parallel",
+        status: "completed",
+        groupId: "initial_context_load",
+      },
+    ],
+  );
+});
+
+test("initial context load workers skip anonymous users without changing outputs", async () => {
+  let extractStyleRulesCalls = 0;
+  let extractCoreFactsCalls = 0;
+  let sourceMaterialCalls = 0;
+
+  const result = await loadInitialContextWorkers({
+    userId: "anonymous",
+    effectiveXHandle: "default",
+    userMessage: "write about onboarding",
+    recentHistory: "assistant: none",
+    services: {
+      extractStyleRules: async () => {
+        extractStyleRulesCalls += 1;
+        return ["avoid emojis"];
+      },
+      extractCoreFacts: async () => {
+        extractCoreFactsCalls += 1;
+        return ["User rewrote onboarding in January"];
+      },
+      getSourceMaterialAssets: async () => {
+        sourceMaterialCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  assert.equal(extractStyleRulesCalls, 0);
+  assert.equal(extractCoreFactsCalls, 0);
+  assert.equal(sourceMaterialCalls, 0);
+  assert.equal(result.extractedRules, null);
+  assert.equal(result.extractedFacts, null);
+  assert.deepEqual(result.sourceMaterialAssets, []);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => execution.status),
+    ["skipped", "skipped", "skipped"],
+  );
+});
 
 test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("draft a post for me"), true);
