@@ -114,10 +114,6 @@ import {
   selectRelevantSourceMaterials,
   type SourceMaterialAssetRecord,
 } from "./sourceMaterials";
-import {
-  buildDraftBundleBriefs,
-  type DraftBundleResult,
-} from "./draftBundles";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -136,6 +132,7 @@ import { executeDraftingCapability } from "./draftingExecutor.ts";
 import { executeRevisingCapability } from "./revisingExecutor.ts";
 import { executeReplyingCapability } from "./replyingExecutor.ts";
 import { executeAnalysisCapability } from "./analysisExecutor.ts";
+import { executeDraftBundleCapability } from "./draftBundleExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -1182,165 +1179,6 @@ User Profile Summary:
     };
   }
 
-  async function generateDraftBundleWithGroundingRetry(args: {
-    plan: StrategyPlan;
-    activeConstraints: string[];
-    sourceUserMessage?: string | null;
-    draftPreference: DraftPreference;
-    topicSummary?: string | null;
-    groundingPacket?: GroundingPacket;
-  }): Promise<
-    | {
-        kind: "success";
-        draftBundle: DraftBundleResult;
-        draft: string;
-        drafts: string[];
-        supportAsset: string | null;
-        issuesFixed: string[];
-      }
-    | {
-        kind: "response";
-        response: RawOrchestratorResponse;
-      }
-  > {
-    const bundleBriefs = buildDraftBundleBriefs({
-      userMessage: args.sourceUserMessage || userMessage,
-      basePlan: args.plan,
-      sourceMaterials: selectedSourceMaterials,
-    });
-
-    if (bundleBriefs.length === 0) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to build draft options.",
-          memory,
-        },
-      };
-    }
-
-    const historicalTexts = await services.getHistoricalPosts({
-      userId,
-      xHandle: effectiveXHandle,
-    });
-    const options: DraftBundleResult["options"] = [];
-
-    for (const brief of bundleBriefs) {
-      const bundlePlan: StrategyPlan = {
-        ...args.plan,
-        objective: brief.objective,
-        angle: brief.angle,
-        hookType: brief.hookType,
-        mustInclude: Array.from(new Set([...args.plan.mustInclude, ...brief.mustInclude])),
-        mustAvoid: Array.from(new Set([...args.plan.mustAvoid, ...brief.mustAvoid])),
-        formatPreference: "shortform",
-      };
-
-      let bundleDraftResult = await generateDraftWithGroundingRetry({
-        plan: bundlePlan,
-        activeConstraints: args.activeConstraints,
-        sourceUserMessage: brief.prompt,
-        draftPreference: args.draftPreference,
-        formatPreference: "shortform",
-        threadFramingStyle: null,
-        fallbackToWriterWhenCriticRejected: false,
-        topicSummary: args.topicSummary,
-        groundingPacket: args.groundingPacket,
-      });
-
-      if (bundleDraftResult.kind === "response") {
-        return bundleDraftResult;
-      }
-
-      const earlierDrafts = options.map((option) => option.draft);
-      let noveltyCheck = services.checkDeterministicNovelty(
-        bundleDraftResult.draftToDeliver,
-        [...historicalTexts, ...earlierDrafts],
-      );
-
-      if (!noveltyCheck.isNovel && earlierDrafts.length > 0) {
-        bundleDraftResult = await generateDraftWithGroundingRetry({
-          plan: {
-            ...bundlePlan,
-            mustAvoid: Array.from(
-              new Set([
-                ...bundlePlan.mustAvoid,
-                "Do not mirror the opener, structure, or payoff from the earlier bundle options.",
-              ]),
-            ),
-          },
-          activeConstraints: Array.from(
-            new Set([
-              ...args.activeConstraints,
-              `Sibling novelty: make "${brief.label}" clearly distinct from the earlier bundle options.`,
-            ]),
-          ),
-          sourceUserMessage: `${brief.prompt} Keep it clearly distinct from the earlier bundle options.`,
-          draftPreference: args.draftPreference,
-          formatPreference: "shortform",
-          threadFramingStyle: null,
-          fallbackToWriterWhenCriticRejected: false,
-          topicSummary: args.topicSummary,
-          groundingPacket: args.groundingPacket,
-        });
-
-        if (bundleDraftResult.kind === "response") {
-          return bundleDraftResult;
-        }
-
-        noveltyCheck = services.checkDeterministicNovelty(
-          bundleDraftResult.draftToDeliver,
-          [...historicalTexts, ...earlierDrafts],
-        );
-      }
-
-      options.push({
-        id: `bundle-${brief.id}`,
-        label: brief.label,
-        framing: brief.id,
-        draft: bundleDraftResult.draftToDeliver,
-        supportAsset: bundleDraftResult.writerOutput.supportAsset ?? null,
-        issuesFixed: bundleDraftResult.criticOutput.issues,
-        voiceTarget: bundleDraftResult.voiceTarget,
-        noveltyNotes: buildNoveltyNotes({
-          noveltyCheck,
-          retrievalReasons: bundleDraftResult.retrievalReasons,
-        }),
-        threadFramingStyle: bundleDraftResult.threadFramingStyle,
-        groundingSources: groundingSourcesForTurn,
-        groundingMode: draftGroundingSummary.groundingMode,
-        groundingExplanation: draftGroundingSummary.groundingExplanation,
-      });
-    }
-
-    if (options.length === 0) {
-      return {
-        kind: "response",
-        response: {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to write draft options.",
-          memory,
-        },
-      };
-    }
-
-    return {
-      kind: "success",
-      draftBundle: {
-        kind: "sibling_options",
-        selectedOptionId: options[0].id,
-        options,
-      },
-      draft: options[0].draft,
-      drafts: options.map((option) => option.draft),
-      supportAsset: options[0].supportAsset,
-      issuesFixed: Array.from(new Set(options.flatMap((option) => option.issuesFixed))),
-    };
-  }
-
   if (
     !explicitIntent &&
     activeDraft &&
@@ -2204,16 +2042,64 @@ User Profile Summary:
         shouldFastStartFromGroundedContext)
     ) {
       if (isMultiDraftTurn) {
-        const draftBundleResult = await generateDraftBundleWithGroundingRetry({
-          plan: guardedPlan,
-          activeConstraints: planActiveConstraints,
-          sourceUserMessage: planInput.planMessage,
-          draftPreference: turnDraftPreference,
-          topicSummary: guardedPlan.objective,
-          groundingPacket: planGroundingPacket,
+        const historicalTexts = await services.getHistoricalPosts({
+          userId,
+          xHandle: effectiveXHandle,
+        });
+        const execution = await executeDraftBundleCapability({
+          workflow: "plan_then_draft",
+          capability: "drafting",
+          activeContextRefs: [
+            "memory.pendingPlan",
+            "memory.topicSummary",
+            "memory.rollingSummary",
+          ],
+          context: {
+            userMessage: planInput.planMessage || userMessage,
+            memory,
+            plan: guardedPlan,
+            activeConstraints: planActiveConstraints,
+            sourceMaterials: selectedSourceMaterials,
+            draftPreference: turnDraftPreference,
+            topicSummary: guardedPlan.objective,
+            groundingPacket: planGroundingPacket,
+            historicalTexts,
+            turnFormatPreference,
+            nextAssistantTurnCount,
+            refreshRollingSummary: shouldRefreshRollingSummary(nextAssistantTurnCount, true),
+            feedbackMemoryNotice,
+            groundingSources: groundingSourcesForTurn,
+            groundingMode: draftGroundingSummary.groundingMode,
+            groundingExplanation: draftGroundingSummary.groundingExplanation,
+          },
+          services: {
+            runSingleDraft: ({
+              plan,
+              activeConstraints,
+              sourceUserMessage,
+              draftPreference,
+              topicSummary,
+              groundingPacket,
+            }) =>
+              generateDraftWithGroundingRetry({
+                plan,
+                activeConstraints,
+                sourceUserMessage,
+                draftPreference,
+                formatPreference: "shortform",
+                threadFramingStyle: null,
+                fallbackToWriterWhenCriticRejected: false,
+                topicSummary,
+                groundingPacket,
+              }),
+            checkDeterministicNovelty: services.checkDeterministicNovelty,
+            buildNoveltyNotes,
+          },
         });
 
-        if (draftBundleResult.kind === "response" && draftBundleResult.response.mode === "error") {
+        mergeCapabilityExecutionMeta(execution);
+
+        if (execution.output.kind === "response" && execution.output.response.mode === "error") {
           await writeMemoryLocal(planMemoryPatch);
           return {
             ...planResponseSeed,
@@ -2221,52 +2107,14 @@ User Profile Summary:
           };
         }
 
-        if (draftBundleResult.kind === "response") {
-          return draftBundleResult.response;
+        if (execution.output.kind === "response") {
+          return execution.output.response;
         }
 
-        const rollingSummary = shouldRefreshRollingSummary(nextAssistantTurnCount, true)
-          ? buildRollingSummary({
-              currentSummary: memory.rollingSummary,
-              topicSummary: guardedPlan.objective,
-              approvedPlan: guardedPlan,
-              activeConstraints: planActiveConstraints,
-              latestDraftStatus: "Draft bundle generated",
-              formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-            })
-          : memory.rollingSummary;
-
-        await writeMemoryLocal({
-          topicSummary: guardedPlan.objective,
-          activeConstraints: planActiveConstraints,
-          conversationState: "draft_ready",
-          pendingPlan: null,
-          clarificationState: null,
-          assistantTurnCount: nextAssistantTurnCount,
-          rollingSummary,
-          formatPreference: guardedPlan.formatPreference || turnFormatPreference,
-          latestRefinementInstruction: null,
-          ...clearClarificationPatch(),
-        });
+        await writeMemoryLocal(execution.output.memoryPatch);
 
         return {
-          mode: "draft",
-          outputShape: "short_form_post",
-          response: prependFeedbackMemoryNotice(
-            "pulled four different post directions from what i already know about you.",
-            feedbackMemoryNotice,
-          ),
-          data: {
-            draft: draftBundleResult.draft,
-            drafts: draftBundleResult.drafts,
-            draftBundle: draftBundleResult.draftBundle,
-            supportAsset: draftBundleResult.supportAsset,
-            plan: guardedPlan,
-            issuesFixed: draftBundleResult.issuesFixed,
-            groundingSources: groundingSourcesForTurn,
-            groundingMode: draftGroundingSummary.groundingMode,
-            groundingExplanation: draftGroundingSummary.groundingExplanation,
-          },
+          ...execution.output.responseSeed,
           memory,
         };
       }

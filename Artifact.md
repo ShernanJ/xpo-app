@@ -158,6 +158,8 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor through the shared capability contract and keeps only draft handoff / continuation logic around it
   - initial single-draft execution now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor for plan approval, rough auto-draft, and plan-to-draft fallback delivery paths
+  - multi-draft bundle generation now executes through `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
+  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor through the shared capability contract, while preserving the existing fallback from hard bundle-generation errors back to plan presentation
   - targeted revision now executes through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
   - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` now consumes that executor for edit/review delivery and merges returned validation metadata at the pipeline boundary
   - the `reply_to_post` workflow now executes through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`
@@ -167,7 +169,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Remaining work:
   - adopt the shared capability contract cleanly across those executors
   - ban workflow reclassification inside executors
-  - move multi-draft bundle plus plan-to-draft fallback/replanning continuation branches off inline `draftPipeline.ts` control flow
+  - move plan-to-draft fallback/replanning continuation branches off inline `draftPipeline.ts` control flow
   - reconcile route-level reply artifact generation with the runtime capability boundary
 - Status: complete with accepted migration debt.
 
