@@ -13,3 +13,4 @@ export {
 export { handlePlanClarificationTurn } from "./planClarificationTurn.ts";
 export { handlePendingPlanTurn } from "./pendingPlanTurn.ts";
 export { handleAutoApprovedPlanTurn } from "./autoApprovedPlanTurn.ts";
+export { handlePlanModeTurn } from "./planModeTurn.ts";

@@ -356,18 +356,59 @@ test("draft pipeline delegates pending-plan decisions to the planning capability
 });
 
 test("draft pipeline delegates auto-approved plan execution to the planning capability layer", () => {
+  const planModeTurnSource = readFileSync(
+    new URL("../capabilities/planning/planModeTurn.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    planModeTurnSource,
+    /handleAutoApprovedPlanTurn/,
+  );
+  assert.equal(
+    /executeDraftBundleCapability\(/.test(planModeTurnSource),
+    false,
+  );
+  assert.equal(
+    /latestDraftStatus: "Rough draft generated"/.test(planModeTurnSource),
+    false,
+  );
+});
+
+test("draft pipeline delegates plan-mode orchestration to the planning capability layer", () => {
   const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
-    /handleAutoApprovedPlanTurn/,
+    /handlePlanModeTurn/,
   );
   assert.equal(
-    /executeDraftBundleCapability\(/.test(draftPipelineSource),
+    /executePlanningCapability\(/.test(draftPipelineSource),
+    false,
+  );
+});
+
+test("draft pipeline delegates revise and replan mode routing to the revision capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handleDraftEditReviewTurn/,
+  );
+  assert.equal(
+    /executeRevisingCapability\(/.test(draftPipelineSource),
     false,
   );
   assert.equal(
-    /latestDraftStatus: "Rough draft generated"/.test(draftPipelineSource),
+    /executeReplanningCapability\(/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /normalizeDraftRevisionInstruction\(/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /prisma\.chatMessage\.findFirst\(/.test(draftPipelineSource),
     false,
   );
 });

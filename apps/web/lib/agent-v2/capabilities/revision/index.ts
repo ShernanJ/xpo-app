@@ -10,3 +10,4 @@ export {
   resumeActiveDraftSemanticRepair,
   type ActiveDraftTurnOutcome,
 } from "./activeDraftTurn.ts";
+export { handleDraftEditReviewTurn } from "./draftEditReviewTurn.ts";

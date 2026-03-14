@@ -10,11 +10,9 @@ import {
   type RoutingTracePatch,
 } from "./draftPipelineHelpers";
 import {
-  buildPlanFailureResponse,
   isBareDraftRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
-  shouldUseRevisionDraftPath,
 } from "./conversationManagerLogic";
 import {
   buildEffectiveContext,
@@ -31,7 +29,6 @@ import {
   getXCharacterLimitForAccount,
   type ThreadFramingStyle,
 } from "../../onboarding/shared/draftArtifacts.ts";
-import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
 import {
   hasConcreteCorrectionDetail,
@@ -40,13 +37,11 @@ import {
   looksLikeSourceTransparencyRequest,
   looksLikeSemanticCorrection,
 } from "./correctionRepair";
-import { normalizeDraftRevisionInstruction } from "./draftRevision";
 import {
   extractConcreteSceneAnchors,
   NO_FABRICATION_CONSTRAINT,
   NO_FABRICATION_MUST_AVOID,
 } from "./draftGrounding";
-import { isConstraintDeclaration } from "./chatResponder";
 import { buildDraftReply } from "./draftReply";
 import {
   buildFeedbackMemoryNotice,
@@ -93,26 +88,24 @@ import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
 import { executeIdeationCapability } from "../capabilities/ideation/ideationCapability.ts";
-import { executePlanningCapability } from "../capabilities/planning/planningCapability.ts";
 import {
   handleNonDraftCoachTurn,
   handleNonDraftCorrectionTurn,
 } from "../capabilities/planning/nonDraftCoachTurn.ts";
 import { handlePlanClarificationTurn } from "../capabilities/planning/planClarificationTurn.ts";
-import { handleAutoApprovedPlanTurn } from "../capabilities/planning/autoApprovedPlanTurn.ts";
+import { handlePlanModeTurn } from "../capabilities/planning/planModeTurn.ts";
 import { handlePendingPlanTurn } from "../capabilities/planning/pendingPlanTurn.ts";
 import {
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
 import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
-import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
+import { handleDraftEditReviewTurn } from "../capabilities/revision/draftEditReviewTurn.ts";
 import {
   handleActiveDraftCoachTurn,
   resumeActiveDraftSemanticRepair,
 } from "../capabilities/revision/activeDraftTurn.ts";
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
-import { executeReplanningCapability } from "./replanningExecutor.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -1200,120 +1193,45 @@ User Profile Summary:
   }
 
   async function handlePlanMode(): Promise<RawOrchestratorResponse> {
-    const clarificationAwarePlanInput = buildClarificationAwarePlanInput({
-      userMessage,
-      activeConstraints: effectiveActiveConstraints,
-    });
-    const usesClarificationPlanInput =
-      clarificationAwarePlanInput.planMessage !== userMessage ||
-      clarificationAwarePlanInput.activeConstraints !== effectiveActiveConstraints;
-    const usesGroundedTopicPlanInput =
-      !usesClarificationPlanInput && Boolean(groundedTopicDraftInput.planMessage);
-    const planInput = usesClarificationPlanInput
-      ? clarificationAwarePlanInput
-      : groundedTopicDraftInput.planMessage
-        ? {
-            planMessage: groundedTopicDraftInput.planMessage,
-            activeConstraints: groundedTopicDraftInput.nextConstraints,
-          }
-        : clarificationAwarePlanInput;
-    routingTrace.planInputSource = usesClarificationPlanInput
-      ? "clarification_answer"
-      : usesGroundedTopicPlanInput
-        ? "grounded_topic"
-        : "raw_user_message";
-    const preparedPlanActiveConstraints = Array.from(
-      new Set([
-        ...planInput.activeConstraints,
-        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-      ]),
-    );
-    const preparedPlanGroundingPacket = buildGroundingPacketForContext(
-      preparedPlanActiveConstraints,
-      planInput.planMessage,
-    );
-    const execution = await executePlanningCapability({
-      workflow: "plan_then_draft",
-      capability: "planning",
-      activeContextRefs: [
-        "memory.pendingPlan",
-        "memory.topicSummary",
-        "memory.latestRefinementInstruction",
-        "memory.lastIdeationAngles",
-      ],
-      context: {
-        planInputMessage: planInput.planMessage,
-        planActiveConstraints: preparedPlanActiveConstraints,
-        planGroundingPacket: preparedPlanGroundingPacket,
-        memory,
-        effectiveContext,
-        activeDraft,
-        goal,
-        antiPatterns,
-        turnDraftPreference,
-        turnFormatPreference,
-        baseVoiceTarget,
-        creatorProfileHints,
-        selectedSourceMaterials,
-        shouldForceNoFabricationGuardrailForTurn,
-        styleCard,
-        nextAssistantTurnCount,
-        feedbackMemoryNotice,
-      },
-      services,
-    });
-
-    mergeCapabilityExecutionMeta(execution);
-
-    if (execution.output.kind === "plan_failure") {
-      routingTrace.planFailure = execution.output.failureReason
-        ? { reason: execution.output.failureReason }
-        : { reason: "the planner request failed" };
-      return {
-        ...execution.output.responseSeed,
-        memory,
-      };
-    }
-
-    routingTrace.planFailure = null;
-
-    const {
-      plan: guardedPlan,
-      planActiveConstraints,
-      planGroundingPacket,
-      responseSeed: planResponseSeed,
-      memoryPatch: planMemoryPatch,
-    } = execution.output;
-
-    // V3: Rough draft mode. When the turn planner forced draft (user said
-    // "just write it" / "go ahead"), auto-approve the plan and proceed
-    // directly to drafting instead of waiting for explicit approval.
-    const autoApprovedPlanTurn = await handleAutoApprovedPlanTurn({
+    return handlePlanModeTurn({
       memory,
       getMemory: () => memory,
-      guardedPlan,
-      planActiveConstraints,
-      planGroundingPacket,
-      planResponseSeed,
-      planMemoryPatch,
+      userMessage,
+      effectiveActiveConstraints,
+      safeFrameworkConstraint,
+      groundedTopicDraftInput,
+      effectiveContext,
+      activeDraft,
+      goal,
+      antiPatterns,
+      turnDraftPreference,
+      turnFormatPreference,
+      baseVoiceTarget,
+      creatorProfileHints,
+      selectedSourceMaterials,
+      shouldForceNoFabricationGuardrailForTurn,
+      styleCard,
+      nextAssistantTurnCount,
+      feedbackMemoryNotice,
       shouldAutoDraft:
         ((turnPlan?.userGoal === "draft" &&
           (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
           shouldFastStartFromGroundedContext),
       isMultiDraftTurn,
-      selectedSourceMaterials,
-      turnDraftPreference,
-      turnFormatPreference,
-      nextAssistantTurnCount,
-      feedbackMemoryNotice,
       groundingSources: groundingSourcesForTurn,
       groundingMode: draftGroundingSummary.groundingMode,
       groundingExplanation: draftGroundingSummary.groundingExplanation,
-      activeDraft,
-      userMessage,
-      planInputMessage: planInput.planMessage,
-      styleCard,
       turnThreadFramingStyle,
+      buildClarificationAwarePlanInput,
+      buildGroundingPacketForContext,
+      setPlanInputSource: (source) => {
+        routingTrace.planInputSource = source;
+      },
+      setPlanFailure: (reason, failed) => {
+        routingTrace.planFailure = failed
+          ? { reason: reason || "the planner request failed" }
+          : null;
+      },
       loadHistoricalTexts: () => loadHistoricalTextsWithTrace("drafting"),
       writeMemory: writeMemoryLocal,
       applyExecutionMeta: mergeCapabilityExecutionMeta,
@@ -1321,234 +1239,70 @@ User Profile Summary:
       runGroundedDraft: generateDraftWithGroundingRetry,
       checkDeterministicNovelty: services.checkDeterministicNovelty,
       buildNoveltyNotes,
+      services: {
+        generatePlan: services.generatePlan,
+      },
     });
-
-    if (autoApprovedPlanTurn) {
-      return autoApprovedPlanTurn;
-    }
-
-    await writeMemoryLocal(planMemoryPatch);
-    return {
-      ...planResponseSeed,
-      memory,
-    };
   }
 
   async function handleDraftEditReviewMode(): Promise<RawOrchestratorResponse> {
-    // V3: Harden the edit path. If mode is edit/review but the frontend
-    // did not send activeDraft, try to recover the last draft from the
-    // most recent assistant message in the thread.
-    let effectiveActiveDraft = activeDraft;
-    if (
-      !effectiveActiveDraft &&
-      runtimeWorkflow === "revise_draft" &&
-      threadId
-    ) {
-      try {
-        const lastDraftMessage = await prisma.chatMessage.findFirst({
-          where: {
-            threadId,
-            role: "assistant",
-          },
-          orderBy: { createdAt: "desc" },
-          select: { data: true },
-        });
-        const messageData = lastDraftMessage?.data as
-          | Record<string, unknown>
-          | undefined;
-        if (
-          messageData?.draft &&
-          typeof messageData.draft === "string"
-        ) {
-          effectiveActiveDraft = messageData.draft;
-        }
-      } catch {
-        // Non-critical — if recovery fails, fall through to fresh draft.
-      }
-    }
-
-    if (runtimeWorkflow === "revise_draft" && !effectiveActiveDraft) {
-      return returnClarificationQuestion({
-        question: "paste the draft you want me to improve, or open one from this thread and i'll revise it.",
-        traceReason: "missing_active_draft_for_edit",
-      });
-    }
-
-    const revisionActiveConstraints = Array.from(
-      new Set([
-        ...(isConstraintDeclaration(userMessage)
-          ? [...effectiveActiveConstraints, userMessage.trim()]
-          : effectiveActiveConstraints),
-        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-      ]),
-    );
-
-    if (
-      shouldUseRevisionDraftPath({
-        mode,
-        workflow: runtimeWorkflow,
-        activeDraft: effectiveActiveDraft,
-      }) &&
-      effectiveActiveDraft
-    ) {
-      const revision = normalizeDraftRevisionInstruction(
-        draftInstruction,
-        effectiveActiveDraft,
-      );
-      const execution = await executeRevisingCapability({
-        workflow: "revise_draft",
-        capability: "revising",
-        activeContextRefs: [
-          "memory.latestRefinementInstruction",
-          "memory.activeDraftRef",
-          "memory.topicSummary",
-          "memory.rollingSummary",
-        ],
-        context: {
-          memory,
-          activeDraft: effectiveActiveDraft,
-          revision,
-          revisionActiveConstraints,
-          effectiveContext,
-          relevantTopicAnchors,
-          styleCard,
-          maxCharacterLimit,
-          goal,
-          antiPatterns,
-          turnDraftPreference,
-          turnFormatPreference,
-          threadPostMaxCharacterLimit,
-          turnThreadFramingStyle,
-          userMessage,
-          groundingPacket,
-          feedbackMemoryNotice,
-          nextAssistantTurnCount,
-          refreshRollingSummary: shouldRefreshRollingSummary(
-            nextAssistantTurnCount,
-            false,
-          ),
-          latestRefinementInstruction: draftInstruction,
-          groundingSources: groundingSourcesForTurn,
-          groundingMode: draftGroundingSummary.groundingMode,
-          groundingExplanation: draftGroundingSummary.groundingExplanation,
-        },
-        services: {
-          generateRevisionDraft: services.generateRevisionDraft,
-          critiqueDrafts: services.critiqueDrafts,
-          buildClarificationResponse: () =>
-            returnClarificationQuestion({
-              question: buildGroundedProductClarificationQuestion(
-                effectiveActiveDraft || memory.topicSummary || userMessage,
-              ),
-            }),
-        },
-      });
-
-      mergeCapabilityExecutionMeta(execution);
-      if (execution.output.kind === "response") {
-        return execution.output.response;
-      }
-
-      await writeMemoryLocal(execution.output.memoryPatch);
-
-      return {
-        ...execution.output.responseSeed,
-        memory,
-      };
-    }
-
-    const historicalTexts = await loadHistoricalTextsWithTrace("planning");
-    const execution = await executeReplanningCapability({
-      workflow: "plan_then_draft",
-      capability: "planning",
-      activeContextRefs: [
-        "memory.pendingPlan",
-        "memory.latestRefinementInstruction",
-        "memory.topicSummary",
-        "memory.rollingSummary",
-      ],
-      context: {
-        memory,
-        userMessage,
-        draftInstruction,
-        revisionActiveConstraints,
-        effectiveContext,
-        activeDraft,
-        historicalTexts,
-        goal,
-        antiPatterns,
-        turnDraftPreference,
-        turnFormatPreference,
-        baseVoiceTarget,
-        creatorProfileHints,
-        selectedSourceMaterials,
-        shouldForceNoFabricationGuardrailForTurn,
-        styleCard,
+    return handleDraftEditReviewTurn({
+      memory,
+      getMemory: () => memory,
+      userMessage,
+      mode,
+      runtimeWorkflow,
+      threadId,
+      activeDraft,
+      draftInstruction,
+      effectiveActiveConstraints,
+      safeFrameworkConstraint,
+      effectiveContext,
+      relevantTopicAnchors,
+      styleCard,
+      maxCharacterLimit,
+      threadPostMaxCharacterLimit,
+      goal,
+      antiPatterns,
+      turnDraftPreference,
+      turnFormatPreference,
+      turnThreadFramingStyle,
+      groundingPacket,
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      refreshRollingSummary: shouldRefreshRollingSummary(
         nextAssistantTurnCount,
-        refreshRollingSummary: shouldRefreshRollingSummary(
-          nextAssistantTurnCount,
-          false,
-        ),
-        feedbackMemoryNotice,
-        turnThreadFramingStyle,
-        groundingPacket,
-        groundingSources: groundingSourcesForTurn,
-        groundingMode: draftGroundingSummary.groundingMode,
-        groundingExplanation: draftGroundingSummary.groundingExplanation,
+        false,
+      ),
+      groundingSources: groundingSourcesForTurn,
+      groundingMode: draftGroundingSummary.groundingMode,
+      groundingExplanation: draftGroundingSummary.groundingExplanation,
+      baseVoiceTarget,
+      creatorProfileHints,
+      selectedSourceMaterials,
+      shouldForceNoFabricationGuardrailForTurn,
+      writeMemory: writeMemoryLocal,
+      loadHistoricalTexts: () => loadHistoricalTextsWithTrace("planning"),
+      applyExecutionMeta: mergeCapabilityExecutionMeta,
+      applyRoutingTracePatch,
+      setPlanFailure: (reason, failed) => {
+        routingTrace.planFailure = failed
+          ? { reason: reason || "the planner request failed" }
+          : null;
       },
+      buildGroundedProductClarificationQuestion,
+      buildGroundingPacketForContext,
+      runGroundedDraft: generateDraftWithGroundingRetry,
+      buildNoveltyNotes,
+      returnClarificationQuestion,
+      returnClarificationTree,
       services: {
         generatePlan: services.generatePlan,
+        generateRevisionDraft: services.generateRevisionDraft,
+        critiqueDrafts: services.critiqueDrafts,
         checkDeterministicNovelty: services.checkDeterministicNovelty,
-        buildGroundingPacketForContext,
-        runDraft: ({ plan, activeConstraints, groundingPacket }) =>
-          generateDraftWithGroundingRetry({
-            plan,
-            activeConstraints,
-            activeDraft,
-            sourceUserMessage: draftInstruction,
-            draftPreference: plan.deliveryPreference || turnDraftPreference,
-            formatPreference: plan.formatPreference || turnFormatPreference,
-            threadFramingStyle: turnThreadFramingStyle,
-            fallbackToWriterWhenCriticRejected: false,
-            topicSummary: plan.objective,
-            groundingPacket,
-          }),
-        handleNoveltyConflict: (planObjective) =>
-          returnClarificationTree({
-            branchKey: "plan_reject",
-            seedTopic: planObjective,
-            pendingPlan: null,
-            replyOverride:
-              "that version felt too close to something you've already posted. let's shift it.",
-          }),
-        buildNoveltyNotes,
       },
     });
-
-    mergeCapabilityExecutionMeta(execution);
-    if (execution.output.kind === "plan_failure") {
-      routingTrace.planFailure = execution.output.failureReason
-        ? { reason: execution.output.failureReason }
-        : { reason: "the planner request failed" };
-      return {
-        ...execution.output.responseSeed,
-        memory,
-      };
-    }
-
-    routingTrace.planFailure = null;
-
-    if (execution.output.kind === "response") {
-      applyRoutingTracePatch(execution.output.routingTracePatch);
-      return execution.output.response;
-    }
-
-    await writeMemoryLocal(execution.output.memoryPatch);
-
-    return {
-      ...execution.output.responseSeed,
-      memory,
-    };
   }
 
   async function handleCoachMode(): Promise<RawOrchestratorResponse> {
