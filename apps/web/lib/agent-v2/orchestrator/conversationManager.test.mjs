@@ -330,6 +330,23 @@ test("draft pipeline delegates plan clarification routing to the planning capabi
   );
 });
 
+test("draft pipeline delegates pending-plan decisions to the planning capability layer", () => {
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+
+  assert.match(
+    draftPipelineSource,
+    /handlePendingPlanTurn/,
+  );
+  assert.equal(
+    /interpretPlannerFeedback\(/.test(draftPipelineSource),
+    false,
+  );
+  assert.equal(
+    /say the word and i'll draft it, or tell me what to tweak\./.test(draftPipelineSource),
+    false,
+  );
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 

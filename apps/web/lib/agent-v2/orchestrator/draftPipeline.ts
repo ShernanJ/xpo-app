@@ -2,8 +2,6 @@ import {
   buildGroundedTopicDraftInput,
   inferDraftPreference,
   extractPriorUserTurn,
-  buildPlanPitch,
-  withPlanPreferences,
   buildDraftGroundingSummary,
   inferDraftFormatPreference,
   resolveRequestedThreadFramingStyle,
@@ -35,7 +33,6 @@ import {
 } from "../../onboarding/shared/draftArtifacts.ts";
 import { prisma } from "../../db";
 import { buildClarificationTree } from "./clarificationTree";
-import { buildPlannerQuickReplies } from "./plannerQuickReplies";
 import {
   hasConcreteCorrectionDetail,
   looksLikeConfusionPing,
@@ -55,7 +52,6 @@ import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,
 } from "./feedbackMemoryNotice";
-import { interpretPlannerFeedback } from "./plannerFeedback";
 import {
   inferBroadTopicDraftRequest,
   isOpenEndedWildcardDraftRequest,
@@ -66,10 +62,7 @@ import { stripSelectedAnglePromptPrefix } from "./selectedAnglePrompt.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine";
 import { evaluateDraftContextSlots } from "./draftContextSlots";
 import {
-  appendNoFabricationConstraint,
-  hasNoFabricationPlanGuardrail,
   shouldForceNoFabricationPlanGuardrail,
-  withNoFabricationPlanGuardrail,
 } from "./draftGrounding";
 import {
   addGroundingUnknowns,
@@ -79,10 +72,8 @@ import {
   type GroundingPacket,
 } from "./groundingPacket";
 import {
-  applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
 } from "./creatorHintPolicy";
-import { applySourceMaterialBiasToPlan } from "./sourceMaterialPlanPolicy";
 import { buildSourceMaterialDraftConstraints } from "./sourceMaterialDraftPolicy";
 import {
   mergeSourceMaterialsIntoGroundingPacket,
@@ -108,6 +99,7 @@ import {
   handleNonDraftCorrectionTurn,
 } from "../capabilities/planning/nonDraftCoachTurn.ts";
 import { handlePlanClarificationTurn } from "../capabilities/planning/planClarificationTurn.ts";
+import { handlePendingPlanTurn } from "../capabilities/planning/pendingPlanTurn.ts";
 import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
@@ -1002,25 +994,46 @@ User Profile Summary:
     }) === "approve_pending_plan" &&
     memory.pendingPlan
   ) {
-    const pendingPlanHasNoFabrication = hasNoFabricationPlanGuardrail(memory.pendingPlan);
-    const baseDraftActiveConstraints = Array.from(
-      new Set([
-        ...effectiveActiveConstraints,
-        ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-      ]),
-    );
-    const draftActiveConstraints = pendingPlanHasNoFabrication
-      ? appendNoFabricationConstraint(baseDraftActiveConstraints)
-      : baseDraftActiveConstraints;
-    const decision = await interpretPlannerFeedback(userMessage, memory.pendingPlan);
+    const pendingPlanTurn = await handlePendingPlanTurn({
+      userMessage,
+      memory,
+      effectiveActiveConstraints,
+      safeFrameworkConstraint,
+      activeDraft,
+      effectiveContext,
+      goal,
+      antiPatterns,
+      turnDraftPreference,
+      turnFormatPreference,
+      baseVoiceTarget,
+      groundingPacket,
+      creatorProfileHints,
+      selectedSourceMaterials,
+      styleCard,
+      feedbackMemoryNotice,
+      nextAssistantTurnCount,
+      writeMemory: writeMemoryLocal,
+      clearClarificationPatch,
+      buildGroundingPacketForContext,
+      buildPlanSourceMessage,
+      returnClarificationTree,
+      services: {
+        generatePlan: services.generatePlan,
+      },
+    });
 
-    if (decision === "approve") {
-      const approvedPlan = memory.pendingPlan;
-      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
-      const approvedPlanGroundingPacket = buildGroundingPacketForContext(
+    if (pendingPlanTurn.kind === "response") {
+      return pendingPlanTurn.response;
+    }
+
+    if (pendingPlanTurn.kind === "approve") {
+      const {
+        approvedPlan,
         draftActiveConstraints,
-        buildPlanSourceMessage(approvedPlan),
-      );
+        approvedPlanGroundingPacket,
+        approvedDraftPreference,
+      } = pendingPlanTurn;
+      const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
 
       const execution = await executeDraftingCapability({
         workflow: "plan_then_draft",
@@ -1036,7 +1049,7 @@ User Profile Summary:
           activeConstraints: draftActiveConstraints,
           historicalTexts,
           userMessage,
-          draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+          draftPreference: approvedDraftPreference,
           turnFormatPreference,
           styleCard,
           feedbackMemoryNotice,
@@ -1055,7 +1068,7 @@ User Profile Summary:
               activeConstraints: draftActiveConstraints,
               activeDraft,
               sourceUserMessage: buildPlanSourceMessage(approvedPlan),
-              draftPreference: approvedPlan.deliveryPreference || turnDraftPreference,
+              draftPreference: approvedDraftPreference,
               formatPreference: approvedPlan.formatPreference || turnFormatPreference,
               threadFramingStyle: turnThreadFramingStyle,
               fallbackToWriterWhenCriticRejected: false,
@@ -1087,126 +1100,6 @@ User Profile Summary:
         memory,
       };
     }
-
-    if (decision === "revise") {
-      const revisionPrompt = [
-        `Current plan objective: ${memory.pendingPlan.objective}`,
-        `Current plan angle: ${memory.pendingPlan.angle}`,
-        `Requested revision: ${userMessage}`,
-      ].join("\n");
-
-      const revisedPlan = await services.generatePlan(
-        revisionPrompt,
-        memory.topicSummary,
-        effectiveActiveConstraints,
-        effectiveContext,
-        activeDraft,
-      {
-        goal,
-        conversationState: memory.conversationState,
-        antiPatterns,
-        draftPreference: turnDraftPreference,
-        formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
-        activePlan: memory.pendingPlan,
-        latestRefinementInstruction: memory.latestRefinementInstruction,
-        lastIdeationAngles: memory.lastIdeationAngles,
-        voiceTarget: baseVoiceTarget,
-        groundingPacket,
-        creatorProfileHints,
-      },
-    );
-
-      if (!revisedPlan) {
-        return {
-          mode: "error",
-          outputShape: "coach_question",
-          response: "Failed to revise the plan.",
-          memory,
-        };
-      }
-
-      const revisedPlanWithPreference = applySourceMaterialBiasToPlan(
-        applyCreatorProfileHintsToPlan(
-          withPlanPreferences(
-            revisedPlan,
-            turnDraftPreference,
-            memory.pendingPlan.formatPreference || turnFormatPreference,
-          ),
-          creatorProfileHints,
-        ),
-        selectedSourceMaterials,
-        {
-          hasAutobiographicalGrounding: hasAutobiographicalGrounding(groundingPacket),
-        },
-      );
-      const guardedRevisedPlan = pendingPlanHasNoFabrication
-        ? withNoFabricationPlanGuardrail(revisedPlanWithPreference)
-        : revisedPlanWithPreference;
-
-      await writeMemoryLocal({
-        topicSummary: guardedRevisedPlan.objective,
-        conversationState: "plan_pending_approval",
-        pendingPlan: guardedRevisedPlan,
-        clarificationState: null,
-        assistantTurnCount: nextAssistantTurnCount,
-        formatPreference:
-          guardedRevisedPlan.formatPreference || turnFormatPreference,
-        latestRefinementInstruction: null,
-        ...clearClarificationPatch(),
-      });
-
-      return {
-        mode: "plan",
-        outputShape: "planning_outline",
-        response: prependFeedbackMemoryNotice(
-          buildPlanPitch(guardedRevisedPlan),
-          feedbackMemoryNotice,
-        ),
-        data: {
-          plan: guardedRevisedPlan,
-          quickReplies: buildPlannerQuickReplies({
-            plan: guardedRevisedPlan,
-            styleCard,
-            context: "approval",
-          }),
-        },
-        memory,
-      };
-    }
-
-    if (decision === "reject") {
-      return returnClarificationTree({
-        branchKey: "plan_reject",
-        seedTopic: memory.pendingPlan.objective,
-        pendingPlan: null,
-      });
-    }
-
-    await writeMemoryLocal({
-      conversationState: "plan_pending_approval",
-      pendingPlan: memory.pendingPlan,
-      assistantTurnCount: nextAssistantTurnCount,
-      formatPreference: memory.pendingPlan.formatPreference || turnFormatPreference,
-      ...clearClarificationPatch(),
-    });
-
-    return {
-      mode: "plan",
-      outputShape: "planning_outline",
-      response: prependFeedbackMemoryNotice(
-        "say the word and i'll draft it, or tell me what to tweak.",
-        feedbackMemoryNotice,
-      ),
-      data: {
-        plan: memory.pendingPlan,
-        quickReplies: buildPlannerQuickReplies({
-          plan: memory.pendingPlan,
-          styleCard,
-          context: "approval",
-        }),
-      },
-      memory,
-    };
   }
 
   // V3: Over-questioning guard. After 2 concrete answers from the user,
