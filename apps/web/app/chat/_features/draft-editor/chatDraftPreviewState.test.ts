@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { computeXWeightedCharacterCount } from "../../lib/onboarding/draftArtifacts.ts";
+import { computeXWeightedCharacterCount } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import {
   buildDraftCharacterCounterMeta,

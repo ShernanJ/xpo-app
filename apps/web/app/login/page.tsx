@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { XShell } from "@/components/x-shell";
-import { LoginForm } from "./login-form";
+import { LoginForm } from "./_components/LoginForm";
 
 export const metadata: Metadata = {
   title: "Login",

@@ -12,32 +12,32 @@ export function usePendingStatusLabel(args: {
   plan: PendingStatusPlan | null;
   backendStatus?: string | null;
 }): string | null {
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [advancedPlanKey, setAdvancedPlanKey] = useState<string | null>(null);
+  const planKey = args.isActive && args.plan ? JSON.stringify(args.plan) : null;
+  const secondStepDelay = args.plan?.steps[1]?.afterMs;
 
   useEffect(() => {
-    if (!args.isActive || !args.plan) {
-      setElapsedMs(0);
-      return;
-    }
-
-    setElapsedMs(0);
-    const secondStepDelay = args.plan.steps[1]?.afterMs;
-    if (typeof secondStepDelay !== "number") {
+    if (!planKey || typeof secondStepDelay !== "number") {
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      setElapsedMs(secondStepDelay);
+      setAdvancedPlanKey(planKey);
     }, secondStepDelay);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [args.isActive, args.plan]);
+  }, [planKey, secondStepDelay]);
 
   if (!args.isActive) {
     return null;
   }
+
+  const elapsedMs =
+    planKey && planKey === advancedPlanKey && typeof secondStepDelay === "number"
+      ? secondStepDelay
+      : 0;
 
   return resolvePendingStatusLabel({
     plan: args.plan,

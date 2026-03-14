@@ -1,4 +1,4 @@
-import type { DraftArtifactDetails } from "../../lib/onboarding/draftArtifacts.ts";
+import type { DraftArtifactDetails } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 type DraftArtifact = DraftArtifactDetails;
 

@@ -2,7 +2,7 @@ import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,
   type DraftArtifactDetails,
-} from "../../lib/onboarding/draftArtifacts.ts";
+} from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import { buildEditableThreadPosts, ensureEditableThreadPosts, joinThreadPosts } from "./chatDraftEditorState.ts";
 import { getDraftVersionSupportAsset, type ChatMessageLike, type DraftVersionEntryLike } from "./chatDraftSessionState.ts";

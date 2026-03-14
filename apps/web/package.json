@@ -9,6 +9,11 @@
     "lint": "eslint",
     "test:coach-reply": "node --test --experimental-strip-types lib/onboarding/coachReply.test.mjs",
     "test:draft-validator": "node --test --experimental-strip-types lib/onboarding/draftValidator.test.mjs",
+    "test:ui": "vitest run",
+    "test:ui:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:frontend": "pnpm run test:ui && pnpm run test:e2e",
     "test:v2-response-quality": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/responseQuality.test.mjs",
     "test:v2-regressions": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/regressions/chatRegression.test.mjs",
     "test:v2-orchestrator": "node --test --experimental-strip-types --experimental-specifier-resolution=node lib/agent-v2/orchestrator/conversationManager.test.mjs",
@@ -46,6 +51,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/pg": "^8.18.0",
@@ -54,9 +62,11 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "fast-check": "3.23.2",
+    "jsdom": "^28.1.0",
     "playwright": "^1.58.2",
     "prisma": "^7.4.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.0"
   }
 }

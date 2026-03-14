@@ -1,5 +1,5 @@
-import { computeXWeightedCharacterCount } from "../../lib/onboarding/draftArtifacts.ts";
-import type { DraftArtifactDetails } from "../../lib/onboarding/draftArtifacts.ts";
+import { computeXWeightedCharacterCount } from "../../../../lib/onboarding/draftArtifacts.ts";
+import type { DraftArtifactDetails } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 type DraftArtifact = DraftArtifactDetails;
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";

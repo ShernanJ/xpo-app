@@ -1,4 +1,4 @@
-import type { ThreadFramingStyle } from "../../lib/onboarding/draftArtifacts.ts";
+import type { ThreadFramingStyle } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import { getThreadFramingStyle } from "./chatDraftPreviewState.ts";
 import {

@@ -4,7 +4,7 @@ import {
   inferThreadFramingStyleFromPosts,
   type DraftArtifactDetails,
   type ThreadFramingStyle,
-} from "../../lib/onboarding/draftArtifacts.ts";
+} from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import { getThreadPostCharacterLimit, type DraftBundleLike } from "./chatDraftPersistenceState.ts";
 import { splitThreadContent } from "./chatDraftEditorState.ts";

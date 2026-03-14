@@ -1,4 +1,4 @@
-import { normalizeWorkspaceHandle } from "../../lib/workspaceHandle.ts";
+import { normalizeWorkspaceHandle } from "../../../../lib/workspaceHandle.ts";
 
 export interface ChatThreadListItemLike {
   id: string;

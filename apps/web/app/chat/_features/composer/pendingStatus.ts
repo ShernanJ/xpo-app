@@ -1,9 +1,9 @@
-import type { V2ChatIntent } from "../../lib/agent-v2/contracts/chat.ts";
+import type { V2ChatIntent } from "../../../../lib/agent-v2/contracts/chat.ts";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
-} from "../../lib/agent-v2/contracts/turnContract.ts";
-import type { ThreadFramingStyle } from "../../lib/onboarding/draftArtifacts.ts";
+} from "../../../../lib/agent-v2/contracts/turnContract.ts";
+import type { ThreadFramingStyle } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 export type PendingStatusWorkflow =
   | "answer_question"

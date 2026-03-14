@@ -1,14 +1,14 @@
-import type { DraftFormatPreference } from "../../lib/agent-v2/contracts/chat.ts";
+import type { DraftFormatPreference } from "../../../../lib/agent-v2/contracts/chat.ts";
 import {
   buildCreatorChatTransportRequest,
   createClientTurnId,
   type CreatorChatTransportRequest,
-} from "../../lib/agent-v2/contracts/chatTransport.ts";
+} from "../../../../lib/agent-v2/contracts/chatTransport.ts";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
-} from "../../lib/agent-v2/contracts/turnContract.ts";
-import type { ThreadFramingStyle } from "../../lib/onboarding/draftArtifacts.ts";
+} from "../../../../lib/agent-v2/contracts/turnContract.ts";
+import type { ThreadFramingStyle } from "../../../../lib/onboarding/draftArtifacts.ts";
 import type {
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
@@ -16,11 +16,11 @@ import type {
   ToneRisk,
   TransformationMode,
   UserGoal,
-} from "../../lib/onboarding/types.ts";
+} from "../../../../lib/onboarding/types.ts";
 import {
   buildPendingStatusPlan,
   type PendingStatusPlan,
-} from "./pendingStatus.ts";
+} from "../composer/pendingStatus.ts";
 
 type ChatIntent =
   | "coach"

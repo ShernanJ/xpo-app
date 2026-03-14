@@ -34,8 +34,8 @@ export {
   resolveCreatedThreadPlan,
   type ChatThreadListItemLike,
   type CreatedThreadPlan,
-} from "./chatWorkspaceState.ts";
-import { resolveCreatedThreadPlan, type CreatedThreadPlan } from "./chatWorkspaceState.ts";
+} from "../workspace/chatWorkspaceState.ts";
+import { resolveCreatedThreadPlan, type CreatedThreadPlan } from "../workspace/chatWorkspaceState.ts";
 
 export interface ChatReplyResultLike<
   TQuickReply,
@@ -227,7 +227,7 @@ export interface AssistantReplySuccessState<
     | null;
 }
 
-interface ResolveAssistantReplyPlanArgs<
+type ResolveAssistantReplyPlanArgs<
   TQuickReply,
   TPlan,
   TDraftArtifact,
@@ -239,7 +239,7 @@ interface ResolveAssistantReplyPlanArgs<
   TContextPacket,
   TMemory,
   TBilling,
-> extends Omit<
+> = Omit<
     ResolveAssistantReplySuccessStateArgs<
       TQuickReply,
       TPlan,
@@ -254,7 +254,7 @@ interface ResolveAssistantReplyPlanArgs<
       TBilling
     >,
     "existingMessageCount"
-  > {}
+  >;
 
 export interface AssistantReplyPlan<
   TQuickReply,

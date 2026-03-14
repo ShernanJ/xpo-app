@@ -78,11 +78,11 @@ import {
 import {
   ObservedMetricsModal,
   type ObservedMetricsFormState,
-} from "./ObservedMetricsModal";
+} from "./_dialogs/ObservedMetricsModal";
 import {
   DesktopDraftEditorDock,
   MobileDraftEditorDock,
-} from "./DraftEditorDock";
+} from "./_features/draft-editor/DraftEditorDock";
 import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
@@ -90,12 +90,12 @@ import {
 import {
   type PendingStatusPlan,
   type PendingStatusWorkflow,
-} from "./pendingStatus";
-import { prepareAssistantReplyTransport } from "./chatTransport";
+} from "./_features/composer/pendingStatus";
+import { prepareAssistantReplyTransport } from "./_features/transport/chatTransport";
 import {
   prepareComposerSubmission,
   resolveComposerQuickReplyUpdate,
-} from "./chatComposerState";
+} from "./_features/composer/chatComposerState";
 import {
   addThreadDraftPost as addThreadDraftPostState,
   buildDraftEditorHydrationState,
@@ -107,16 +107,16 @@ import {
   moveThreadDraftPost as moveThreadDraftPostState,
   removeThreadDraftPost as removeThreadDraftPostState,
   splitThreadDraftPost as splitThreadDraftPostState,
-} from "./chatDraftEditorState";
+} from "./_features/draft-editor/chatDraftEditorState";
 import {
   resolveDraftCardRevisionAction,
   resolveSelectedThreadFramingChangeAction,
-} from "./chatDraftActionState";
+} from "./_features/draft-editor/chatDraftActionState";
 import {
   getThreadPostCharacterLimit,
   prepareDraftPromotionRequest,
   resolveDraftVersionRevertUpdate,
-} from "./chatDraftPersistenceState";
+} from "./_features/draft-editor/chatDraftPersistenceState";
 import {
   buildDraftArtifactRevealKey,
   buildDraftBundleRevealKey,
@@ -126,34 +126,34 @@ import {
   resolveDisplayedDraftCharacterLimit,
   resolveInlineDraftPreviewState,
   resolvePrimaryDraftRevealKey,
-} from "./chatDraftPreviewState";
+} from "./_features/draft-editor/chatDraftPreviewState";
 import {
   AnimatedDraftText,
   InlineDraftPreviewCard,
-} from "./chatDraftPreviewCard";
-import { resolveThreadHistoryHydration } from "./chatThreadHistoryState";
+} from "./_features/draft-editor/chatDraftPreviewCard";
+import { resolveThreadHistoryHydration } from "./_features/thread-history/chatThreadHistoryState";
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
   resolveDraftTimelineNavigation,
   resolveDraftTimelineState,
   resolveOpenDraftEditorState,
-} from "./chatDraftSessionState";
+} from "./_features/draft-editor/chatDraftSessionState";
 import {
   readChatResponseStream,
   resolveAssistantReplyJsonOutcome,
   resolveAssistantReplyPlan,
-} from "./chatReplyState";
-import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./chatReplyState";
+} from "./_features/reply/chatReplyState";
+import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./_features/reply/chatReplyState";
 import {
   buildChatWorkspaceReset,
   resolveCreatedThreadWorkspaceUpdate,
   resolveWorkspaceHandle,
   type ChatWorkspaceReset,
-} from "./chatWorkspaceState";
-import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
-import { usePendingStatusLabel } from "./usePendingStatusLabel";
-import { ChatMessageRow } from "./ChatMessageRow";
+} from "./_features/workspace/chatWorkspaceState";
+import { resolveWorkspaceLoadState } from "./_features/workspace/chatWorkspaceLoadState";
+import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
+import { ChatMessageRow } from "./_features/thread-history/ChatMessageRow";
 
 interface ValidationError {
   field: string;
