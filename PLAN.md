@@ -147,6 +147,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
 - Landed fourth seam:
   - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts` now owns the deterministic `draft_guard_validation_*` fan-out for concrete-scene drift and grounded-product drift checks
   - `draftPipeline.ts` now merges those validation-worker results into runtime trace before retry/clarification decisions, without changing the existing retry flow or sequential writes
+- Landed fifth seam:
+  - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts` now owns the `draft_bundle_initial_candidates` fan-out for first-pass sibling option generation inside draft bundles
+  - `generateDraftWithGroundingRetry()` now returns merge-only worker, validation, and trace-patch metadata so `draftBundleExecutor.ts` can parallelize only the safe initial candidate pass while keeping sibling novelty retries and all writes sequential
 - Add merge rules so parallel workers cannot produce ambiguous state writes.
 - Prohibit parallel writes to memory, artifacts, reply context, or thread state.
 

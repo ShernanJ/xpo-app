@@ -12,6 +12,7 @@ import {
 import type {
   ConversationServices,
   OrchestratorResponse,
+  RoutingTracePatch,
 } from "./draftPipelineHelpers.ts";
 import type {
   DraftFormatPreference,
@@ -100,6 +101,7 @@ export interface ReplanningCapabilityPlanFailureOutput {
 export interface ReplanningCapabilityResponseOutput {
   kind: "response";
   response: RawOrchestratorResponse;
+  routingTracePatch?: RoutingTracePatch;
 }
 
 export type ReplanningCapabilityOutput =

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
 import { loadInitialContextWorkers } from "./contextLoadWorkers.ts";
+import { runDraftBundleCandidateWorkers } from "./draftBundleCandidateWorkers.ts";
 import { runDraftGuardValidationWorkers } from "./draftGuardValidationWorkers.ts";
 import { loadHistoricalTextWorkers } from "./historicalTextWorkers.ts";
 import { hydrateTurnContextWorkers } from "./turnContextHydrationWorkers.ts";
@@ -355,6 +356,149 @@ test("draft guard validation workers merge deterministic drift checks as paralle
   assert.deepEqual(
     result.validations.map((validation) => validation.status),
     ["failed", "passed"],
+  );
+});
+
+test("draft bundle candidate workers parallelize initial sibling generation and preserve merge order", async () => {
+  const seenPrompts = [];
+  const result = await runDraftBundleCandidateWorkers({
+    capability: "drafting",
+    basePlan: {
+      objective: "Turn onboarding lessons into posts",
+      angle: "Use concrete onboarding wins",
+      targetLane: "original",
+      mustInclude: ["Keep it concrete."],
+      mustAvoid: ["No generic advice."],
+      hookType: "story",
+      pitchResponse: "let's draft a few options",
+      formatPreference: "shortform",
+    },
+    bundleBriefs: [
+      {
+        id: "lesson_reflection",
+        label: "Lesson / Reflection",
+        prompt: "Write the reflective option.",
+        objective: "Reflect on the onboarding lesson",
+        angle: "Lead with the shift in perspective",
+        hookType: "lesson",
+        mustInclude: ["Lead with the lesson."],
+        mustAvoid: ["Do not sound procedural."],
+      },
+      {
+        id: "proof_result",
+        label: "Proof / Result",
+        prompt: "Write the proof option.",
+        objective: "Show the onboarding result",
+        angle: "Lead with the result",
+        hookType: "proof",
+        mustInclude: ["Open with the result."],
+        mustAvoid: ["Do not sound vague."],
+      },
+    ],
+    activeConstraints: ["Keep it first person."],
+    draftPreference: "balanced",
+    topicSummary: "onboarding lessons",
+    turnFormatPreference: "shortform",
+    services: {
+      runSingleDraft: async ({ plan, sourceUserMessage }) => {
+        seenPrompts.push(sourceUserMessage);
+        return {
+          kind: "success",
+          writerOutput: {
+            angle: plan.angle,
+            draft: `draft for ${plan.objective}`,
+            supportAsset: `asset for ${plan.objective}`,
+            whyThisWorks: "",
+            watchOutFor: "",
+          },
+          criticOutput: {
+            approved: true,
+            finalAngle: plan.angle,
+            finalDraft: `final for ${plan.objective}`,
+            issues: [],
+          },
+          draftToDeliver: `final for ${plan.objective}`,
+          voiceTarget: {
+            casing: "normal",
+            compression: "tight",
+            formality: "neutral",
+            hookStyle: "blunt",
+            emojiPolicy: "none",
+            ctaPolicy: "none",
+            risk: "safe",
+            lane: "original",
+            summary: "tight original post",
+            rationale: [],
+          },
+          retrievalReasons: [`anchor for ${plan.objective}`],
+          threadFramingStyle: null,
+          workers: [
+            {
+              worker: "claim_checker",
+              capability: "drafting",
+              phase: "validation",
+              mode: "sequential",
+              status: "completed",
+              groupId: null,
+              details: {
+                status: "passed",
+              },
+            },
+          ],
+          validations: [
+            {
+              validator: "claim_checker",
+              capability: "drafting",
+              status: "passed",
+              issues: [],
+              corrected: false,
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(seenPrompts, [
+    "Write the reflective option.",
+    "Write the proof option.",
+  ]);
+  assert.deepEqual(
+    result.candidates.map((candidate) => candidate.brief.id),
+    ["lesson_reflection", "proof_result"],
+  );
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      mode: execution.mode,
+      groupId: execution.groupId,
+    })),
+    [
+      {
+        worker: "generate_bundle_candidate",
+        mode: "parallel",
+        groupId: "draft_bundle_initial_candidates",
+      },
+      {
+        worker: "claim_checker",
+        mode: "sequential",
+        groupId: null,
+      },
+      {
+        worker: "generate_bundle_candidate",
+        mode: "parallel",
+        groupId: "draft_bundle_initial_candidates",
+      },
+      {
+        worker: "claim_checker",
+        mode: "sequential",
+        groupId: null,
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.validations.map((validation) => validation.validator),
+    ["claim_checker", "claim_checker"],
   );
 });
 

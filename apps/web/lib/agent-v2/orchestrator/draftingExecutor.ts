@@ -20,6 +20,8 @@ import type {
 import type {
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
+  RuntimeValidationResult,
+  RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
 import {
   resolveDraftOutputShape,
@@ -27,6 +29,7 @@ import {
 import type {
   ConversationServices,
   OrchestratorResponse,
+  RoutingTracePatch,
 } from "./draftPipelineHelpers.ts";
 import type { GroundingPacketSourceMaterial } from "./groundingPacket.ts";
 
@@ -36,6 +39,12 @@ type RawOrchestratorResponse = Omit<
 >;
 
 type RawResponseSeed = Omit<RawOrchestratorResponse, "memory">;
+
+interface DraftingCapabilityRunMeta {
+  workers?: RuntimeWorkerExecution[];
+  validations?: RuntimeValidationResult[];
+  routingTracePatch?: RoutingTracePatch;
+}
 
 export interface DraftingCapabilityRunSuccess {
   kind: "success";
@@ -48,11 +57,11 @@ export interface DraftingCapabilityRunSuccess {
 }
 
 export type DraftingCapabilityRunResult =
-  | DraftingCapabilityRunSuccess
-  | {
+  | (DraftingCapabilityRunSuccess & DraftingCapabilityRunMeta)
+  | (DraftingCapabilityRunMeta & {
       kind: "response";
       response: RawOrchestratorResponse;
-    };
+    });
 
 export interface DraftingCapabilityContext {
   memory: V2ConversationMemory;
@@ -93,6 +102,7 @@ export interface DraftingCapabilityReadyOutput {
 export interface DraftingCapabilityResponseOutput {
   kind: "response";
   response: RawOrchestratorResponse;
+  routingTracePatch?: RoutingTracePatch;
 }
 
 export type DraftingCapabilityOutput =
@@ -119,6 +129,8 @@ export async function executeDraftingCapability(
       workflow: args.workflow,
       capability: args.capability,
       output: draftResult,
+      workers: draftResult.workers,
+      validations: draftResult.validations,
     };
   }
 
@@ -133,8 +145,10 @@ export async function executeDraftingCapability(
       output: {
         kind: "response",
         response: await services.handleNoveltyConflict(),
+        routingTracePatch: draftResult.routingTracePatch,
       },
       workers: [
+        ...(draftResult.workers ?? []),
         {
           worker: "draft_delivery",
           capability: "drafting",
@@ -148,6 +162,7 @@ export async function executeDraftingCapability(
           },
         },
       ],
+      validations: draftResult.validations,
     };
   }
 
@@ -210,6 +225,7 @@ export async function executeDraftingCapability(
       },
     },
     workers: [
+      ...(draftResult.workers ?? []),
       {
         worker: "draft_delivery",
         capability: "drafting",
@@ -224,5 +240,6 @@ export async function executeDraftingCapability(
         },
       },
     ],
+    validations: draftResult.validations,
   };
 }

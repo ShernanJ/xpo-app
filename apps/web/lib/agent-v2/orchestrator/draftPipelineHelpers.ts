@@ -302,6 +302,11 @@ export interface RoutingTrace {
     | null;
 }
 
+export interface RoutingTracePatch {
+  clarification?: RoutingTrace["clarification"];
+  draftGuard?: RoutingTrace["draftGuard"];
+}
+
 export type OrchestratorResponse = {
   mode: "coach" | "ideate" | "plan" | "draft" | "error";
   outputShape: V2ChatOutputShape;
