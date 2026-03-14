@@ -18,6 +18,11 @@ import {
   resolveEffectiveExplicitIntent,
   shouldBypassEmbeddedReplyHandling,
 } from "./_lib/request/routeLogic.ts";
+import {
+  canPromoteThreadTitle,
+  prepareManagedMainTurnWithDeps,
+  validatePreparedTurnPlan,
+} from "./_lib/request/routePostprocess.ts";
 import { persistAssistantTurnWithDeps } from "./_lib/persistence/routePersistence.ts";
 import { findDuplicateTurnReplayInMessages } from "./_lib/request/routeIdempotency.ts";
 import {
@@ -744,6 +749,194 @@ test("buildChatSuccessResponse exposes routingTrace only when provided", async (
   const json = await response.json();
 
   assert.deepEqual(json.data.routingTrace, routingTrace);
+});
+
+test("validatePreparedTurnPlan only accepts complete strategy plans", () => {
+  assert.equal(validatePreparedTurnPlan(null), null);
+  assert.equal(
+    validatePreparedTurnPlan({
+      objective: "turn this into a founder lesson",
+      angle: "one scar tissue insight",
+      targetLane: "somewhere_else",
+      mustInclude: ["specific story"],
+      mustAvoid: ["vague opener", false],
+      hookType: "confession",
+      pitchResponse: "keep it grounded",
+    }),
+    null,
+  );
+
+  const plan = validatePreparedTurnPlan({
+    objective: "turn this into a founder lesson",
+    angle: "one scar tissue insight",
+    targetLane: "original",
+    mustInclude: ["specific story", 4],
+    mustAvoid: ["vague opener", false],
+    hookType: "confession",
+    pitchResponse: "keep it grounded",
+    formatPreference: "thread",
+  });
+
+  assert.deepEqual(plan, {
+    objective: "turn this into a founder lesson",
+    angle: "one scar tissue insight",
+    targetLane: "original",
+    mustInclude: ["specific story"],
+    mustAvoid: ["vague opener"],
+    hookType: "confession",
+    pitchResponse: "keep it grounded",
+    formatPreference: "thread",
+  });
+});
+
+test("canPromoteThreadTitle only promotes specific ideation-ready topics", () => {
+  assert.equal(
+    canPromoteThreadTitle({
+      currentTitle: "New Chat",
+      conversationState: "draft_ready",
+      topicSummary: "how founder-led sales changed our retention curve",
+    }),
+    true,
+  );
+  assert.equal(
+    canPromoteThreadTitle({
+      currentTitle: "Brainstorm with me",
+      conversationState: "ready_to_ideate",
+      topicSummary: "what should i post today",
+    }),
+    false,
+  );
+  assert.equal(
+    canPromoteThreadTitle({
+      currentTitle: "Great thread",
+      conversationState: "needs_more_context",
+      topicSummary: "how founder-led sales changed our retention curve",
+    }),
+    false,
+  );
+});
+
+test("prepareManagedMainTurnWithDeps owns plan validation, title promotion, and prepared-turn assembly", async () => {
+  let threadTitleArgs = null;
+  let preparedArgs = null;
+
+  const preparedTurn = await prepareManagedMainTurnWithDeps(
+    {
+      rawResponse: {
+        mode: "draft",
+        outputShape: "short_form_post",
+        response: "here's a grounded draft",
+        memory: {
+          ...baseMemory,
+          conversationState: "draft_ready",
+          topicSummary: "how founder-led sales changed our retention curve",
+          preferredSurfaceMode: "natural",
+        },
+        data: {
+          plan: {
+            objective: "turn this into a founder lesson",
+            angle: "one scar tissue insight",
+            targetLane: "original",
+            mustInclude: ["specific story", 4],
+            mustAvoid: ["vague opener", false],
+            hookType: "confession",
+            pitchResponse: "keep it grounded",
+            formatPreference: "thread",
+          },
+          issuesFixed: ["tightened hook", 7],
+        },
+      },
+      recentHistory: "user: what lesson changed your sales process?",
+      selectedDraftContext: null,
+      formatPreference: "thread",
+      isVerifiedAccount: true,
+      userPreferences: null,
+      styleCard: null,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "plan_then_draft",
+      },
+      clientTurnId: "turn_postprocess_1",
+      currentThreadTitle: "New Chat",
+      shouldClearReplyWorkflow: true,
+    },
+    {
+      generateThreadTitle: async (args) => {
+        threadTitleArgs = args;
+        return "Founder-led sales retention lesson";
+      },
+      prepareChatRouteTurn: (args) => {
+        preparedArgs = args;
+        return {
+          rawResponse: args.rawResponse,
+          responseShapePlan: {
+            surfaceMode: "generate_full_output",
+            shouldShowArtifacts: true,
+            shouldAskFollowUp: true,
+            maxFollowUps: 1,
+          },
+          surfaceMode: "generate_full_output",
+          shapedResponse: "here's a grounded draft",
+          mappedDataSeed: {
+            reply: "here's a grounded draft",
+            angles: [],
+            quickReplies: [],
+            plan: args.plan,
+            draft: null,
+            drafts: [],
+            draftArtifacts: [],
+            draftVersions: [],
+            draftBundle: null,
+            supportAsset: null,
+            groundingSources: [],
+            autoSavedSourceMaterials: null,
+            outputShape: "short_form_post",
+            surfaceMode: "generate_full_output",
+            memory: args.rawResponse.memory,
+            routingDiagnostics: args.routingDiagnostics,
+            requestTrace: {
+              clientTurnId: args.clientTurnId,
+            },
+            replyArtifacts: null,
+            replyParse: null,
+          },
+          persistencePlan: {
+            assistantMessageData: {},
+            buildMemoryUpdate: () => ({}),
+            threadUpdate: {
+              updatedAt: new Date("2026-03-14T10:00:00.000Z"),
+            },
+            draftCandidateCreates: [],
+            analytics: {
+              primaryGroundingMode: null,
+              primaryGroundingSourceCount: 0,
+              autoSavedSourceMaterialCount: 0,
+            },
+          },
+        };
+      },
+    },
+  );
+
+  assert.equal(threadTitleArgs.topicSummary, "how founder-led sales changed our retention curve");
+  assert.deepEqual(threadTitleArgs.plan, {
+    objective: "turn this into a founder lesson",
+    angle: "one scar tissue insight",
+    targetLane: "original",
+    mustInclude: ["specific story"],
+    mustAvoid: ["vague opener"],
+    hookType: "confession",
+    pitchResponse: "keep it grounded",
+    formatPreference: "thread",
+  });
+  assert.equal(preparedArgs.nextThreadTitle, "Founder-led sales retention lesson");
+  assert.equal(preparedArgs.defaultThreadTitle, "New Chat");
+  assert.equal(preparedArgs.issuesFixed.length, 1);
+  assert.equal(preparedArgs.issuesFixed[0], "tightened hook");
+  assert.equal(preparedTurn.persistencePlan.threadUpdate.updatedAt instanceof Date, true);
 });
 
 test("finalizeReplyTurnWithDeps keeps reply planning separate from route persistence and response assembly", async () => {
@@ -2428,6 +2621,10 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     new URL("./_lib/request/routePreflight.ts", import.meta.url),
     "utf8",
   );
+  const routePostprocessSource = readFileSync(
+    new URL("./_lib/request/routePostprocess.ts", import.meta.url),
+    "utf8",
+  );
   const routeControlPlaneSource = readFileSync(
     new URL("./_lib/control/routeControlPlane.ts", import.meta.url),
     "utf8",
@@ -2451,7 +2648,7 @@ test("reply route ownership stays in runtime modules without shim files or shim 
     /from "@\/lib\/agent-v2\/capabilities\/reply\/handledReplyTurn";/,
   );
   assert.match(routeSource, /finalizeMainAssistantTurn/);
-  assert.match(routeSource, /prepareChatRouteTurn/);
+  assert.match(routeSource, /prepareManagedMainTurn/);
   assert.match(routeSource, /resolveRouteThreadState/);
   assert.match(routeSource, /resolveRouteProfileContext/);
   assert.match(routeSource, /loadRouteConversationContext/);
@@ -2470,6 +2667,8 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   assert.equal(/findDuplicateTurnReplay\(/.test(routeSource), false);
   assert.equal(/consumeCredits\(/.test(routeSource), false);
   assert.equal(/refundCredits\(/.test(routeSource), false);
+  assert.equal(/generateThreadTitle\(/.test(routeSource), false);
+  assert.equal(/canPromoteThreadTitle\(/.test(routeSource), false);
   assert.equal(/from "\.\/route\.reply(?:\.ts)?";/.test(routeSource), false);
   assert.equal(/from "\.\/reply\.logic(?:\.ts)?";/.test(routeSource), false);
 
@@ -2479,6 +2678,8 @@ test("reply route ownership stays in runtime modules without shim files or shim 
   assert.match(routePreflightSource, /resolveWorkspaceHandleForRequest/);
   assert.match(routePreflightSource, /readLatestOnboardingRunByHandle/);
   assert.match(routePreflightSource, /getConversationMemory/);
+  assert.match(routePostprocessSource, /generateThreadTitle/);
+  assert.match(routePostprocessSource, /prepareChatRouteTurn/);
   assert.match(routeControlPlaneSource, /findDuplicateTurnReplay/);
   assert.match(routeControlPlaneSource, /consumeCredits/);
   assert.match(routeControlPlaneSource, /refundCredits/);
