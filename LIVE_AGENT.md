@@ -100,8 +100,9 @@ User turn
 - `apps/web/app/chat/page.tsx`
 - Current reality:
   - main chat turn-resolution and transport payload construction now delegate through `apps/web/app/chat/chatTransport.ts`
+  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, and thread remap planning now delegate through `apps/web/app/chat/chatReplyState.ts`
   - workspace/session/composer state still lives mainly in the page
-  - the page is thinner than before, but not yet a fully clean transport/view boundary
+  - the page is thin enough for the Phase 2 boundary cleanup, but not yet a fully ideal transport/view boundary
 - Target architecture ownership:
   - view state
   - workspace selection state
@@ -270,6 +271,6 @@ User turn
 - keep ideation, shortform draft, thread, and reply eval coverage visible even when not promoted to standalone gate families
 
 ## Next structural targets
-- Finish thinning `apps/web/app/chat/page.tsx`
-- Revisit any remaining reply-control debt in `apps/web/app/api/creator/v2/chat/route.ts` only if it still blocks the Phase 2 exit criteria
 - Split `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- Move capability execution behind the shared runtime executor contract in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`
+- Revisit residual route/client migration debt only when it blocks Phase 3 executor extraction

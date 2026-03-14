@@ -100,7 +100,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Multi-handle isolation remains required behavior.
 
 ## Transitional notes
-- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline, but it still owns too much workspace/session/composer state to count as a thin client yet.
+- `apps/web/app/chat/page.tsx` no longer hand-builds the main chat transport payload inline and now delegates chat result parsing/state planning through `apps/web/app/chat/chatTransport.ts` and `apps/web/app/chat/chatReplyState.ts`, but it still owns too much workspace/session/composer state to be the long-term ideal client boundary.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still heavy and still owns more request assembly, persistence assembly, and thread mutation than the target architecture wants.
 - Current code still finalizes/shapes the orchestrator response before route persistence and thread updates.
 - Sequential assistant-message persistence, thread updates, and draft-candidate writes now flow through `apps/web/app/api/creator/v2/chat/route.persistence.ts`.
@@ -136,6 +136,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 ### Phase 2: Thin the client and route
 - Landed:
   - main chat turn-resolution and transport payload construction now flow through `apps/web/app/chat/chatTransport.ts`
+  - main chat result parsing, assistant-message assembly, draft-editor follow-up selection, and thread remap planning now flow through `apps/web/app/chat/chatReplyState.ts`
   - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-orchestrator response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/route.persistence.ts`
@@ -143,7 +144,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Move transport/request construction out of `apps/web/app/chat/page.tsx` into a dedicated chat transport layer plus workspace store.
 - Reduce `apps/web/app/api/creator/v2/chat/route.ts` to auth, ownership checks, normalization, runtime dispatch, persistence, and response envelope assembly.
 - Keep workflow signals in structured transport and eliminate hidden prompt-based routing if found.
-- Status: in progress.
+- Status: complete with accepted migration debt in page-local workspace/session/composer state and reply-control flow.
 
 ### Phase 3: Split capability execution
 - Shared capability contract types are already landed in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`:

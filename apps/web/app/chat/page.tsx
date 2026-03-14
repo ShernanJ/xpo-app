@@ -89,6 +89,13 @@ import {
   type PendingStatusWorkflow,
 } from "./pendingStatus";
 import { prepareAssistantReplyTransport } from "./chatTransport";
+import {
+  applyCreatedThreadPlanToList,
+  buildAssistantMessageFromChatResult,
+  readChatResponseStream,
+  resolveCreatedThreadPlan,
+  resolveNextDraftEditorSelection,
+} from "./chatReplyState";
 import { usePendingStatusLabel } from "./usePendingStatusLabel";
 
 interface ValidationError {
@@ -684,27 +691,6 @@ interface CreatorChatFailure {
 }
 
 type CreatorChatResponse = CreatorChatSuccess | CreatorChatFailure;
-
-interface CreatorChatStreamStatusEvent {
-  type: "status";
-  phase: "planning" | "writing" | "critic" | "finalizing";
-  message: string;
-}
-
-interface CreatorChatStreamResultEvent {
-  type: "result";
-  data: CreatorChatSuccess["data"];
-}
-
-interface CreatorChatStreamErrorEvent {
-  type: "error";
-  message: string;
-}
-
-type CreatorChatStreamEvent =
-  | CreatorChatStreamStatusEvent
-  | CreatorChatStreamResultEvent
-  | CreatorChatStreamErrorEvent;
 
 type DraftArtifact = DraftArtifactDetails;
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
@@ -7257,59 +7243,29 @@ function ChatPageContent() {
             setBillingState(data.data.billing);
           }
 
+          const starterQuickReplies = buildDefaultExampleQuickReplies(
+            shouldUseLowercaseChipVoice(context),
+          );
           setMessages((current) => [
             ...current,
-            {
-              id: data.data.messageId ?? `assistant-${Date.now() + 1}`,
-              threadId: data.data.newThreadId ?? activeThreadId ?? undefined,
-              role: "assistant",
-              content: data.data.reply,
-              createdAt: new Date().toISOString(),
-              angles: data.data.angles,
-              plan: data.data.plan ?? null,
-              draft: data.data.draft || null,
-              drafts: data.data.drafts,
-              draftArtifacts: data.data.draftArtifacts,
-              draftVersions: data.data.draftVersions,
-              activeDraftVersionId: data.data.activeDraftVersionId,
-              draftBundle: data.data.draftBundle ?? null,
-              previousVersionSnapshot: data.data.previousVersionSnapshot ?? null,
-              revisionChainId: data.data.revisionChainId,
-              supportAsset: data.data.supportAsset,
-              autoSavedSourceMaterials: data.data.autoSavedSourceMaterials ?? null,
-              outputShape: data.data.outputShape,
-              surfaceMode: data.data.surfaceMode,
-              replyArtifacts: data.data.replyArtifacts ?? null,
-              replyParse: data.data.replyParse ?? null,
-              feedbackValue: null,
-              quickReplies:
-                data.data.quickReplies && data.data.quickReplies.length > 0
-                  ? data.data.quickReplies
-                  : current.length === 0 &&
-                    !trimmedPrompt &&
-                    options.artifactContext?.kind !== "selected_angle"
-                    ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
-                    : undefined,
-            },
+            buildAssistantMessageFromChatResult({
+              result: data.data,
+              activeThreadId,
+              existingMessageCount: current.length,
+              trimmedPrompt,
+              artifactKind: options.artifactContext?.kind ?? null,
+              defaultQuickReplies: starterQuickReplies,
+            }),
           ]);
           scrollThreadToBottom();
 
-          const nextDraftVersionId =
-            data.data.activeDraftVersionId ??
-            (data.data.draftVersions && data.data.draftVersions.length > 0
-              ? data.data.draftVersions[data.data.draftVersions.length - 1]?.id
-              : null);
-
-          if (
-            effectiveSelectedDraftContext &&
-            data.data.messageId &&
-            nextDraftVersionId
-          ) {
-            setActiveDraftEditor({
-              messageId: data.data.messageId,
-              versionId: nextDraftVersionId,
-              revisionChainId: data.data.revisionChainId,
-            });
+          const nextDraftEditor = resolveNextDraftEditorSelection({
+            result: data.data,
+            selectedDraftContext: effectiveSelectedDraftContext,
+            mode: "json",
+          });
+          if (nextDraftEditor) {
+            setActiveDraftEditor(nextDraftEditor);
           }
 
           // Store returned memory blob
@@ -7323,28 +7279,19 @@ function ChatPageContent() {
           }
 
           // Re-map the newly created backend thread if we just instantiated it
-          if (data.data.newThreadId) {
-            const newId = data.data.newThreadId as string;
-            setActiveThreadId(newId);
+          const createdThreadPlan = resolveCreatedThreadPlan({
+            newThreadId: data.data.newThreadId,
+            threadTitle: data.data.threadTitle,
+            activeThreadId,
+            accountName,
+          });
+          if (createdThreadPlan) {
+            setActiveThreadId(createdThreadPlan.threadId);
             threadCreatedInSessionRef.current = true;
-            window.history.replaceState({}, '', buildWorkspaceChatHref(newId));
-            setChatThreads((current) => {
-              // If the thread is already in the list (remapping), update it
-              const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
-              if (exists) {
-                return current.map(t =>
-                  t.id === "current-workspace" || t.id === activeThreadId
-                    ? { ...t, id: newId }
-                    : t
-                );
-              }
-              // Otherwise, insert the new thread at the top
-              const newTitle = data.data.threadTitle?.trim() || "New Chat";
-              return [
-                { id: newId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-                ...current
-              ];
-            });
+            window.history.replaceState({}, "", buildWorkspaceChatHref(createdThreadPlan.threadId));
+            setChatThreads((current) =>
+              applyCreatedThreadPlanToList(current, createdThreadPlan),
+            );
           }
 
           return;
@@ -7354,113 +7301,38 @@ function ChatPageContent() {
           throw new Error("The chat stream did not return a readable body.");
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let streamedResult: CreatorChatSuccess["data"] | null = null;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const rawLine of lines) {
-            const line = rawLine.trim();
-            if (!line) {
-              continue;
-            }
-
-            const event = JSON.parse(line) as CreatorChatStreamEvent;
-
-            if (event.type === "status") {
-              setStreamStatus(event.message);
-              continue;
-            }
-
-            if (event.type === "result") {
-              streamedResult = event.data;
-              continue;
-            }
-
-            if (event.type === "error") {
-              throw new Error(event.message);
-            }
-          }
-        }
-
-        if (buffer.trim()) {
-          const event = JSON.parse(buffer.trim()) as CreatorChatStreamEvent;
-          if (event.type === "status") {
-            setStreamStatus(event.message);
-          } else if (event.type === "result") {
-            streamedResult = event.data;
-          } else if (event.type === "error") {
-            throw new Error(event.message);
-          }
-        }
-
-        if (!streamedResult) {
-          throw new Error("The chat stream finished without a result.");
-        }
+        const streamedResult = await readChatResponseStream<CreatorChatSuccess["data"]>({
+          body: response.body,
+          onStatus: (message) => setStreamStatus(message),
+        });
 
         if (streamedResult.billing) {
           setBillingState(streamedResult.billing);
         }
 
+        const starterQuickReplies = buildDefaultExampleQuickReplies(
+          shouldUseLowercaseChipVoice(context),
+        );
         setMessages((current) => [
           ...current,
-          {
-            id: streamedResult.messageId ?? `assistant-${Date.now() + 1}`,
-            threadId: streamedResult.newThreadId ?? activeThreadId ?? undefined,
-            role: "assistant",
-            content: streamedResult.reply,
-            createdAt: new Date().toISOString(),
-            angles: streamedResult.angles,
-            plan: streamedResult.plan ?? null,
-            draft: streamedResult.draft || null,
-            drafts: streamedResult.drafts,
-            draftArtifacts: streamedResult.draftArtifacts,
-            draftVersions: streamedResult.draftVersions,
-            activeDraftVersionId: streamedResult.activeDraftVersionId,
-            draftBundle: streamedResult.draftBundle ?? null,
-            previousVersionSnapshot: streamedResult.previousVersionSnapshot ?? null,
-            revisionChainId: streamedResult.revisionChainId,
-            supportAsset: streamedResult.supportAsset,
-            autoSavedSourceMaterials: streamedResult.autoSavedSourceMaterials ?? null,
-            outputShape: streamedResult.outputShape,
-            surfaceMode: streamedResult.surfaceMode,
-            replyArtifacts: streamedResult.replyArtifacts ?? null,
-            replyParse: streamedResult.replyParse ?? null,
-            contextPacket: streamedResult.contextPacket ?? null,
-            feedbackValue: null,
-            quickReplies:
-              streamedResult.quickReplies && streamedResult.quickReplies.length > 0
-                ? streamedResult.quickReplies
-                : current.length === 0 &&
-                  !trimmedPrompt &&
-                  options.artifactContext?.kind !== "selected_angle"
-                  ? buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context))
-                  : undefined,
-          },
+          buildAssistantMessageFromChatResult({
+            result: streamedResult,
+            activeThreadId,
+            existingMessageCount: current.length,
+            trimmedPrompt,
+            artifactKind: options.artifactContext?.kind ?? null,
+            defaultQuickReplies: starterQuickReplies,
+          }),
         ]);
         scrollThreadToBottom();
 
-        if (
-          effectiveSelectedDraftContext &&
-          streamedResult.messageId &&
-          streamedResult.activeDraftVersionId &&
-          streamedResult.draft
-        ) {
-          setActiveDraftEditor({
-            messageId: streamedResult.messageId,
-            versionId: streamedResult.activeDraftVersionId,
-            revisionChainId: streamedResult.revisionChainId,
-          });
+        const nextDraftEditor = resolveNextDraftEditorSelection({
+          result: streamedResult,
+          selectedDraftContext: effectiveSelectedDraftContext,
+          mode: "stream",
+        });
+        if (nextDraftEditor) {
+          setActiveDraftEditor(nextDraftEditor);
         }
 
         // Store returned memory blob from stream
@@ -7474,26 +7346,23 @@ function ChatPageContent() {
         }
 
         // Re-map the newly created backend thread if we just instantiated it
-        if (streamedResult.newThreadId) {
-          const generatedId = streamedResult.newThreadId;
-          setActiveThreadId(generatedId);
+        const createdThreadPlan = resolveCreatedThreadPlan({
+          newThreadId: streamedResult.newThreadId,
+          threadTitle: streamedResult.threadTitle,
+          activeThreadId,
+          accountName,
+        });
+        if (createdThreadPlan) {
+          setActiveThreadId(createdThreadPlan.threadId);
           threadCreatedInSessionRef.current = true;
-          window.history.replaceState({}, '', buildWorkspaceChatHref(generatedId));
-          setChatThreads((current) => {
-            const exists = current.some(t => t.id === "current-workspace" || t.id === activeThreadId);
-            if (exists) {
-              return current.map(t =>
-                t.id === "current-workspace" || t.id === activeThreadId
-                  ? { ...t, id: generatedId }
-                  : t
-              );
-            }
-            const newTitle = streamedResult.threadTitle?.trim() || "New Chat";
-            return [
-              { id: generatedId, title: newTitle, xHandle: accountName || null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-              ...current
-            ];
-          });
+          window.history.replaceState(
+            {},
+            "",
+            buildWorkspaceChatHref(createdThreadPlan.threadId),
+          );
+          setChatThreads((current) =>
+            applyCreatedThreadPlanToList(current, createdThreadPlan),
+          );
         }
       } catch (error) {
         setErrorMessage(
