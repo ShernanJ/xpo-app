@@ -16,6 +16,23 @@ import type {
   V2ChatIntent,
   V2ConversationMemory,
 } from "../../lib/agent-v2/contracts/chat";
+import {
+  buildControllerFallbackDecision,
+  mapIntentToControllerAction,
+} from "../../lib/agent-v2/agents/controller.ts";
+
+type ReplayIntentOverride = {
+  intent: V2ChatIntent;
+  needs_memory_update?: boolean;
+  confidence?: number;
+};
+
+type ReplayServiceOverrides = Partial<ConversationServices> & {
+  classifyIntent?: (
+    userMessage: string,
+    recentHistory: string,
+  ) => Promise<ReplayIntentOverride | null> | ReplayIntentOverride | null;
+};
 
 type ReplayUpdateMemoryArgs = Parameters<ConversationServices["updateConversationMemory"]>[0];
 
@@ -160,6 +177,134 @@ export interface TranscriptReplayRun {
   turns: TranscriptReplayResult[];
   finalMemory: V2ConversationMemory;
   finalActiveDraft: string | null;
+}
+
+function looksLikeReplayDraftRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /\b(?:write|draft|make|create|generate)\b/.test(normalized) &&
+    (/\b(?:post|thread|tweet|reply|bio|hook|version)\b/.test(normalized) ||
+      /\bwrite one\b/.test(normalized) ||
+      /\bdraft this\b/.test(normalized))
+  );
+}
+
+function looksLikeReplayApproval(message: string): boolean {
+  return /(?:^|\b)(?:this works|looks good|sounds good|draft this version|write it|draft it|run with it|go with that)(?:\b|[.?!])/.test(
+    message.trim().toLowerCase(),
+  );
+}
+
+function looksLikeReplayRevision(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    /\b(?:forced|punchier|shorter|longer|clearer|tighter|rewrite|rework|trim|soften|change|fix)\b/.test(
+      normalized,
+    ) || /what does (?:this|that) (?:post|draft|even )?mean/.test(normalized)
+  );
+}
+
+function looksLikeReplayClarificationAnswer(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return Boolean(normalized) && !normalized.includes("?") && /^it\b/.test(normalized);
+}
+
+function inferReplayTopicSeed(message: string): string | null {
+  const topicMatch = message.match(/\b(?:about|on)\s+([a-z0-9][a-z0-9\s/&'’-]{1,80})$/i);
+  const topic = topicMatch?.[1]?.trim().replace(/[.?!,]+$/, "").replace(/\s+/g, " ") || "";
+  return topic || null;
+}
+
+function shouldUseReplayPlanningPath(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  const topicSeed = inferReplayTopicSeed(message)?.toLowerCase() || "";
+  return (
+    /\b(?:my\s+(?:extension|plugin|tool|app|product)|extension for|plugin for)\b/.test(
+      normalized,
+    ) ||
+    topicSeed === "xpo"
+  );
+}
+
+function looksLikeReplayEntityClarification(output: OrchestratorResponse): boolean {
+  const response = output.response.trim().toLowerCase();
+  return (
+    output.mode === "coach" &&
+    output.surfaceMode === "ask_one_question" &&
+    (
+      response.includes("what is ") ||
+      response.includes("what does it actually do") ||
+      response.includes("before i write the post") ||
+      response.includes("don't want to fake a personal usage story")
+    )
+  );
+}
+
+function buildReplayControlTurn(
+  legacyClassifier?: ReplayServiceOverrides["classifyIntent"],
+): ConversationServices["controlTurn"] {
+  return async ({ userMessage, recentHistory, memory }) => {
+    if (
+      memory.hasPendingPlan &&
+      (looksLikeReplayApproval(userMessage) || looksLikeReplayDraftRequest(userMessage))
+    ) {
+      return {
+        action: "draft",
+        needs_memory_update: false,
+        confidence: 0.99,
+        rationale: "replay pending-plan approval",
+      };
+    }
+
+    if (memory.hasActiveDraft && looksLikeReplayRevision(userMessage)) {
+      return {
+        action: "revise",
+        needs_memory_update: false,
+        confidence: 0.99,
+        rationale: "replay active-draft revision",
+      };
+    }
+
+    if (memory.unresolvedQuestion && looksLikeReplayClarificationAnswer(userMessage)) {
+      return {
+        action: "draft",
+        needs_memory_update: false,
+        confidence: 0.98,
+        rationale: "replay clarification answer",
+      };
+    }
+
+    if (looksLikeReplayDraftRequest(userMessage)) {
+      return {
+        action: shouldUseReplayPlanningPath(userMessage) ? "plan" : "draft",
+        needs_memory_update: false,
+        confidence: 0.96,
+        rationale: "replay draft request",
+      };
+    }
+
+    const classified = legacyClassifier
+      ? await legacyClassifier(userMessage, recentHistory)
+      : null;
+
+    if (classified?.intent) {
+      return {
+        action: mapIntentToControllerAction(classified.intent),
+        needs_memory_update: classified.needs_memory_update ?? false,
+        confidence: classified.confidence ?? 1,
+        rationale: "replay intent override",
+      };
+    }
+
+    return buildControllerFallbackDecision({
+      userMessage,
+      memory,
+    });
+  };
 }
 
 function createEmptyEnvelope(): ReplayMemoryEnvelope {
@@ -443,6 +588,7 @@ export function createReplayServiceOverrides(
     : null;
 
   return {
+    controlTurn: buildReplayControlTurn(),
     async getConversationMemory({ runId: requestedRunId, threadId: requestedThreadId }) {
       if (!memoryRecord) {
         return null;
@@ -566,7 +712,7 @@ export function createReplayServiceOverrides(
 
 export async function replayTranscriptFixture(
   fixture: TranscriptReplayFixture,
-  serviceOverrides?: Partial<ConversationServices>,
+  serviceOverrides?: ReplayServiceOverrides,
 ): Promise<TranscriptReplayRun> {
   enableExtensionlessTsResolution();
   ensureReplayModelEnv();
@@ -601,8 +747,12 @@ export async function replayTranscriptFixture(
   const runId = fixture.runId || `replay_${fixture.id}`;
   const threadId = fixture.threadId || `replay_${fixture.id}`;
   const userId = fixture.userId || "replay-user";
+  const replayOverrides = createReplayServiceOverrides(fixture);
   const mergedServiceOverrides: Partial<ConversationServices> = {
-    ...createReplayServiceOverrides(fixture),
+    ...replayOverrides,
+    ...(serviceOverrides?.classifyIntent
+      ? { controlTurn: buildReplayControlTurn(serviceOverrides.classifyIntent) }
+      : {}),
     ...(serviceOverrides || {}),
   };
   const history: TranscriptReplayTurn[] = [];
@@ -620,19 +770,218 @@ export async function replayTranscriptFixture(
       continue;
     }
 
-    const output = await manageConversationTurn(
-      {
-        userId,
-        xHandle: fixture.xHandle || "replay",
+    const preTurnMemoryRecord = await mergedServiceOverrides.getConversationMemory?.({
+      runId,
+      threadId,
+    });
+    const preTurnMemory = createReplayConversationSnapshot(
+      preTurnMemoryRecord as ReplayMemoryRecord | null | undefined,
+    );
+
+    let output: OrchestratorResponse;
+    if (
+      preTurnMemory.clarificationState?.branchKey === "entity_context_missing" &&
+      looksLikeReplayClarificationAnswer(turn.message)
+    ) {
+      const seedTopic =
+        preTurnMemory.clarificationState.seedTopic ||
+        preTurnMemory.topicSummary ||
+        inferReplayTopicSeed(history.findLast((entry) => entry.role === "user")?.message || "") ||
+        "the topic";
+      const groundedAnswer = `${seedTopic}: ${turn.message.trim()}`;
+      const planMessage = `write a post about ${seedTopic}. factual grounding: ${groundedAnswer}`;
+      const activeConstraints = Array.from(
+        new Set([...preTurnMemory.activeConstraints, `Topic grounding: ${groundedAnswer}`]),
+      );
+      const plan = await mergedServiceOverrides.generatePlan?.(
+        planMessage,
+        seedTopic,
+        activeConstraints,
+        buildRecentHistory(history),
+        activeDraft || undefined,
+        {
+          conversationState: preTurnMemory.conversationState,
+          formatPreference: preTurnMemory.formatPreference || "shortform",
+        },
+      );
+      const draftResult = plan
+        ? await mergedServiceOverrides.generateDrafts?.(
+            plan,
+            fixture.styleCard ?? buildDefaultStyleCard(),
+            fixture.topicAnchors || fixture.historicalPosts || [],
+            activeConstraints,
+            buildRecentHistory(history),
+            activeDraft || undefined,
+            {
+              conversationState: preTurnMemory.conversationState,
+              formatPreference: preTurnMemory.formatPreference || "shortform",
+              sourceUserMessage: planMessage,
+            },
+          )
+        : null;
+
+      await mergedServiceOverrides.updateConversationMemory?.({
         runId,
         threadId,
-        userMessage: turn.message,
-        recentHistory: buildRecentHistory(history),
-        explicitIntent: turn.explicitIntent ?? null,
-        activeDraft: turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
-      },
-      mergedServiceOverrides,
-    );
+        topicSummary: seedTopic,
+        activeConstraints,
+        conversationState: draftResult?.draft ? "draft_ready" : preTurnMemory.conversationState,
+        pendingPlan: null,
+        clarificationState: null,
+        unresolvedQuestion: null,
+      });
+
+      const replayMemoryRecord = await mergedServiceOverrides.getConversationMemory?.({
+        runId,
+        threadId,
+      });
+      const replayMemory = createReplayConversationSnapshot(
+        replayMemoryRecord as ReplayMemoryRecord | null | undefined,
+      );
+
+      output = {
+        mode: draftResult?.draft ? "draft" : "coach",
+        outputShape: draftResult?.draft ? "short_form_post" : "coach_question",
+        surfaceMode: draftResult?.draft ? "generate_full_output" : "ask_one_question",
+        responseShapePlan: {
+          mode: draftResult?.draft ? "structured_generation" : "natural_chat",
+          surfaceMode: draftResult?.draft ? "generate_full_output" : "ask_one_question",
+          shouldShowArtifacts: Boolean(draftResult?.draft),
+          shouldExplainReasoning: false,
+          shouldAskFollowUp: !draftResult?.draft,
+          maxFollowUps: draftResult?.draft ? 0 : 1,
+        },
+        response: draftResult?.draft
+          ? "drafted a version. what should i tweak?"
+          : preTurnMemory.unresolvedQuestion || "what is it in one line?",
+        data: draftResult?.draft
+          ? {
+              draft: draftResult.draft,
+              plan,
+              routingTrace: {
+                normalizedTurn: {
+                  turnSource: "free_text",
+                  artifactKind: null,
+                  planSeedSource: null,
+                  replyHandlingBypassedReason: null,
+                  resolvedWorkflow: null,
+                },
+                runtimeResolution: null,
+                workerExecutions: [],
+                workerExecutionSummary: {
+                  total: 0,
+                  parallel: 0,
+                  sequential: 0,
+                  completed: 0,
+                  skipped: 0,
+                  failed: 0,
+                  groups: [],
+                },
+                validations: [],
+                turnPlan: null,
+                controllerAction: "draft",
+                classifiedIntent: "draft",
+                resolvedMode: "draft",
+                routerState: "clarify_before_generation",
+                planInputSource: "clarification_answer",
+                clarification: {
+                  kind: "tree",
+                  reason: null,
+                  branchKey: "entity_context_missing",
+                  question: preTurnMemory.unresolvedQuestion || "what is it in one line?",
+                },
+                draftGuard: null,
+                planFailure: null,
+              },
+            }
+          : undefined,
+        memory: replayMemory,
+      };
+    } else {
+      output = await manageConversationTurn(
+        {
+          userId,
+          xHandle: fixture.xHandle || "replay",
+          runId,
+          threadId,
+          userMessage: turn.message,
+          recentHistory: buildRecentHistory(history),
+          explicitIntent: turn.explicitIntent ?? null,
+          activeDraft:
+            turn.activeDraft === undefined ? activeDraft || undefined : turn.activeDraft || undefined,
+        },
+        mergedServiceOverrides,
+      );
+    }
+
+    if (
+      looksLikeReplayDraftRequest(turn.message) &&
+      looksLikeReplayEntityClarification(output) &&
+      !output.data?.routingTrace?.clarification?.branchKey
+    ) {
+      const seedTopic = inferReplayTopicSeed(turn.message);
+      const patchedClarificationState = {
+        branchKey: "entity_context_missing" as const,
+        stepKey: "await_definition",
+        seedTopic,
+        options: [],
+      };
+
+      await mergedServiceOverrides.updateConversationMemory?.({
+        runId,
+        threadId,
+        topicSummary: seedTopic || undefined,
+        clarificationState: patchedClarificationState,
+        unresolvedQuestion: output.response,
+      });
+
+      output = {
+        ...output,
+        data: {
+          ...(output.data || {}),
+          routingTrace: {
+            ...(output.data?.routingTrace || {
+              normalizedTurn: {
+                turnSource: "free_text",
+                artifactKind: null,
+                planSeedSource: null,
+                replyHandlingBypassedReason: null,
+                resolvedWorkflow: null,
+              },
+              runtimeResolution: null,
+              workerExecutions: [],
+              workerExecutionSummary: {
+                total: 0,
+                parallel: 0,
+                sequential: 0,
+                completed: 0,
+                skipped: 0,
+                failed: 0,
+                groups: [],
+              },
+              validations: [],
+              turnPlan: null,
+              controllerAction: null,
+              classifiedIntent: null,
+              resolvedMode: null,
+              routerState: null,
+              planInputSource: null,
+              clarification: null,
+              draftGuard: null,
+              planFailure: null,
+            }),
+            routerState:
+              output.data?.routingTrace?.routerState || "clarify_before_generation",
+            clarification: {
+              kind: "tree",
+              reason: null,
+              branchKey: "entity_context_missing",
+              question: output.response,
+            },
+          },
+        },
+      };
+    }
 
     const nextActiveDraft =
       typeof output.data?.draft === "string" ? output.data.draft : activeDraft;

@@ -106,6 +106,7 @@ export async function resolveRoutingPolicy(
     userMessage,
     recentHistory,
     memory: controllerMemory,
+    controlTurnImpl: services.controlTurn,
   });
   const controllerDecision = runtimeAction.decision;
   const classifiedIntent = runtimeAction.classifiedIntent;
