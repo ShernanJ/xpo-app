@@ -11,7 +11,7 @@ export type IntentClassification = z.infer<typeof IntentClassificationSchema>;
 
 /**
  * High speed, deterministic intent classifier using openai/gpt-oss-120b.
- * Decides what mode the orchestrator should run next.
+ * Decides what mode the runtime should run next.
  * 
  * CONSERVATIVE BIAS: When in doubt, route to "coach" so the agent asks a question
  * rather than generating content the user didn't explicitly ask for.

@@ -104,7 +104,7 @@ function runGroundingRegressionCheck(params: {
         ? "ideation_angles"
         : "short_form_post");
   const issues = [
-    "Legacy grounding regression checks are deprecated. Use the v2 response-quality and orchestrator suites instead.",
+    "Legacy grounding regression checks are deprecated. Use the v2 response-quality and runtime suites instead.",
   ];
 
   return {

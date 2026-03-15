@@ -11,7 +11,7 @@ If you want the shortest path to understanding the runtime, read in this order:
 3. `runtime/turnContextBuilder.ts`
 4. `runtime/routingPolicy.ts`
 5. `runtime/resolveRuntimeAction.ts`
-6. `orchestrator/draftPipeline.ts`
+6. `runtime/draftPipeline.ts`
 7. the relevant folder under `capabilities/`
 
 If you are debugging a live `/api/creator/v2/chat` turn, also read:
@@ -184,19 +184,19 @@ Examples:
 - preference constraints
 - voice target selection
 
-### `orchestrator/`
+### `runtime/`
 
-This folder is transitional.
+This folder is the control plane and execution spine.
 
 Current reality:
 
-- `draftPipeline.ts` still acts as the main execution spine after runtime selection
-- some older "orchestrator" naming remains while control-plane ownership is moving into `runtime/`
+- workflow selection, dispatch, tracing, and response packaging all live here
+- the old `orchestrator/` folder has been dissolved; deletion guards now live in runtime ownership tests
 
 Practical advice:
 
 - for workflow choice, start in `runtime/`
-- for capability dispatch and execution branching, you still need `orchestrator/draftPipeline.ts`
+- for capability dispatch and execution branching, read `runtime/draftPipeline.ts`
 
 ## Turn Lifecycle
 
@@ -209,7 +209,7 @@ The internal lifecycle is:
 5. hydrate style profile and retrieval anchors
 6. resolve routing policy
 7. resolve exactly one workflow
-8. run `draftPipeline.ts`
+8. run `runtime/draftPipeline.ts`
 9. fan out to extra workers as needed
 10. delegate to the chosen capability
 11. merge worker and validation trace metadata

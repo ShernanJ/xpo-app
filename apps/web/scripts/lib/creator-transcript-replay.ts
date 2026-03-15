@@ -928,7 +928,7 @@ export async function replayTranscriptFixture(
     const message =
       error instanceof Error ? error.message : "Unknown conversationManager import failure";
     throw new Error(
-      `Live transcript replay could not load the orchestrator. Current blocker: ${message}`,
+      `Live transcript replay could not load the runtime conversation manager. Current blocker: ${message}`,
     );
   }
 

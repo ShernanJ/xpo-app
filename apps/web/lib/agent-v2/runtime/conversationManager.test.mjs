@@ -425,7 +425,7 @@ test("conversation manager no longer acts as a helper or service barrel", () => 
   assert.equal(/export \{\s*looksGenericTopicSummary/.test(conversationManagerSource), false);
 });
 
-test("runtime conversation manager and worker plane stay out of orchestrator once ownership moves", () => {
+test("runtime conversation manager and worker plane stay out of legacy runtime paths once ownership moves", () => {
   assert.equal(existsSync(new URL("../orchestrator/conversationManager.ts", import.meta.url)), false);
   assert.equal(existsSync(new URL("../orchestrator/workerPlane.ts", import.meta.url)), false);
 
@@ -459,7 +459,7 @@ test("runtime conversation manager and worker plane stay out of orchestrator onc
   }
 });
 
-test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
+test("legacy revision validation shim stays deleted once worker ownership is direct", () => {
   assert.equal(existsSync(new URL("../orchestrator/revisionValidationWorkers.ts", import.meta.url)), false);
 });
 
@@ -490,7 +490,7 @@ test("draft pipeline helper blob stays deleted once ownership is split", () => {
   }
 });
 
-test("grounding leaf modules stay out of orchestrator once ownership moves", () => {
+test("grounding leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/groundingPacket.ts",
     "../orchestrator/draftGrounding.ts",
@@ -549,7 +549,7 @@ test("grounding leaf modules stay out of orchestrator once ownership moves", () 
   }
 });
 
-test("response helper leaf modules stay out of orchestrator once ownership moves", () => {
+test("response helper leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/assistantReplyStyle.ts",
     "../orchestrator/chatResponder.ts",
@@ -620,7 +620,7 @@ test("response helper leaf modules stay out of orchestrator once ownership moves
   }
 });
 
-test("worker adapter leaf modules stay out of orchestrator once ownership moves", () => {
+test("worker adapter leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/contextLoadWorkers.ts",
     "../orchestrator/historicalTextWorkers.ts",
@@ -670,7 +670,7 @@ test("worker adapter leaf modules stay out of orchestrator once ownership moves"
   }
 });
 
-test("planning helper leaf modules stay out of orchestrator once ownership moves", () => {
+test("planning helper leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/clarificationTree.ts",
     "../orchestrator/draftFastStart.ts",
@@ -718,7 +718,7 @@ test("planning helper leaf modules stay out of orchestrator once ownership moves
   }
 });
 
-test("workflow helper leaf modules stay out of orchestrator once ownership moves", () => {
+test("workflow helper leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/draftBundles.ts",
     "../orchestrator/draftBundleExecutor.ts",
@@ -777,7 +777,7 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
   }
 });
 
-test("core and persistence leaf modules stay out of orchestrator once ownership moves", () => {
+test("core and persistence leaf modules stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/prismaGuards.ts",
     "../orchestrator/angleNovelty.ts",
@@ -823,7 +823,7 @@ test("core and persistence leaf modules stay out of orchestrator once ownership 
   }
 });
 
-test("conversation heuristics stay out of orchestrator once ownership moves", () => {
+test("conversation heuristics stay out of legacy runtime paths once ownership moves", () => {
   assert.equal(existsSync(new URL("../orchestrator/conversationManagerLogic.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
@@ -856,7 +856,7 @@ test("conversation heuristics stay out of orchestrator once ownership moves", ()
   }
 });
 
-test("drafting leaf helpers stay out of orchestrator once ownership moves", () => {
+test("drafting leaf helpers stay out of legacy runtime paths once ownership moves", () => {
   const deletedPaths = [
     "../orchestrator/selectedAnglePrompt.ts",
     "../orchestrator/selectedAnglePrompt.test.ts",
@@ -865,7 +865,7 @@ test("drafting leaf helpers stay out of orchestrator once ownership moves", () =
     assert.equal(
       existsSync(new URL(relativePath, import.meta.url)),
       false,
-      `${relativePath} should be deleted from orchestrator`,
+      `${relativePath} should stay deleted from legacy runtime paths`,
     );
   }
 
@@ -1103,7 +1103,7 @@ test("runtime turn planner stays out of orchestrator once ownership moves", () =
   }
 });
 
-test("runtime context-routing-memory helpers stay out of orchestrator once ownership moves", () => {
+test("runtime context-routing-memory helpers stay out of legacy runtime paths once ownership moves", () => {
   const deletedModulePaths = [
     "../orchestrator/turnContextBuilder.ts",
     "../orchestrator/routingPolicy.ts",
@@ -1144,7 +1144,7 @@ test("runtime context-routing-memory helpers stay out of orchestrator once owner
   }
 });
 
-test("orchestrator directory stays deleted once runtime ownership migration completes", () => {
+test("legacy orchestrator directory stays deleted once runtime ownership migration completes", () => {
   assert.equal(existsSync(new URL("../orchestrator/", import.meta.url)), false);
 });
 
