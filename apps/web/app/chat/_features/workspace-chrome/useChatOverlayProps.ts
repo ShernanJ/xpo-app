@@ -1,15 +1,39 @@
 "use client";
 
 import type {
+  ChangeEventHandler,
   DragEventHandler,
+  FormEventHandler,
   KeyboardEventHandler,
   RefObject,
 } from "react";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
-import type { DraftQueueCandidate } from "../draft-queue/draftQueueViewState";
+import type { DraftCounterMeta } from "../draft-editor/chatDraftPreviewState";
+import type {
+  DraftQueueCandidate,
+  DraftQueueObservedMetricsCandidate,
+} from "../draft-queue/draftQueueViewState";
+import type {
+  FeedbackCategory,
+  FeedbackHistoryItem,
+  FeedbackImageDraft,
+  FeedbackReportFilter,
+  FeedbackReportStatus,
+} from "../feedback/feedbackState";
+import type {
+  SourceMaterialAsset,
+  SourceMaterialDraftState,
+  SourceMaterialType,
+} from "../source-materials/sourceMaterialsState";
 import type { ChatOverlaysProps } from "./ChatOverlays";
+
+type GrowthGuideDialogProps = NonNullable<ChatOverlaysProps["growthGuideDialogProps"]>;
+type ProfileAnalysisDialogProps = NonNullable<
+  ChatOverlaysProps["profileAnalysisDialogProps"]
+>;
+type AddAccountDialogProps = ChatOverlaysProps["addAccountDialogProps"];
 
 interface UseChatOverlayPropsOptions {
   draftQueueOpen: boolean;
@@ -24,7 +48,7 @@ interface UseChatOverlayPropsOptions {
   isVerifiedAccount: boolean;
   handleDraftQueueOpenChange: (open: boolean) => void;
   submitQuickStarter: (prompt: string) => Promise<void>;
-  startEditingDraftCandidate: (candidateId: string) => void;
+  startEditingDraftCandidate: (candidateId: string, content: string) => void;
   cancelEditingDraftCandidate: () => void;
   setEditingDraftCandidateText: (value: string) => void;
   mutateDraftQueueCandidate: (candidateId: string, payload: {
@@ -32,8 +56,8 @@ interface UseChatOverlayPropsOptions {
     content?: string;
     rejectionReason?: string;
     observedMetrics?: Record<string, unknown>;
-  }) => Promise<void>;
-  openObservedMetricsModal: (candidate: DraftQueueCandidate) => void;
+  }) => Promise<boolean>;
+  openObservedMetricsModal: (candidate: DraftQueueObservedMetricsCandidate) => void;
   openSourceMaterialEditor: (params: { assetId?: string; title?: string | null }) => Promise<void>;
   copyPreviewDraft: (messageId: string, content: string) => Promise<void>;
   shareDraftEditorToX: () => void;
@@ -60,22 +84,22 @@ interface UseChatOverlayPropsOptions {
   setSettingsModalOpen: (open: boolean) => void;
   planStatusLabel: string;
   settingsPlanLabel: string;
-  rateLimitResetLabel: string | null;
+  rateLimitResetLabel: string;
   isOpeningBillingPortal: boolean;
   openBillingPortal: () => Promise<void>;
   showRateLimitUpgradeCta: boolean;
-  rateLimitUpgradeLabel: string | null;
+  rateLimitUpgradeLabel: string;
   settingsCreditsRemaining: number;
   settingsCreditsUsed: number;
   settingsCreditLimit: number;
-  settingsCreditsRemainingPercent: number;
+  settingsCreditsRemainingPercent: number | null;
   pricingModalOpen: boolean;
   handlePricingModalOpenChange: (open: boolean) => void;
   pricingModalDismissLabel: string;
   selectedModalProIsAnnual: boolean;
   selectedModalProCents: number;
   selectedModalProPriceSuffix: string;
-  setSelectedModalProCadence: (annual: boolean) => void;
+  setSelectedModalProCadence: (cadence: "monthly" | "annual") => void;
   isProActive: boolean;
   isFounderCurrent: boolean;
   selectedModalProIsCurrent: boolean;
@@ -84,53 +108,49 @@ interface UseChatOverlayPropsOptions {
   selectedModalProButtonLabel: string;
   isSelectedModalProCheckoutLoading: boolean;
   openCheckoutForOffer: (offer: "pro_monthly" | "pro_annual" | "lifetime") => Promise<void>;
-  selectedModalProOffer: "pro_monthly" | "pro_annual" | null;
+  selectedModalProOffer: "pro_monthly" | "pro_annual";
   lifetimeAmountCents: number;
-  lifetimeSlotSummary: string | null;
+  lifetimeSlotSummary:
+    | {
+        total: number;
+        sold: number;
+        reserved: number;
+        remaining: number;
+      }
+    | null;
   lifetimeOfferEnabled: boolean;
   feedbackModalOpen: boolean;
   setFeedbackModalOpen: (open: boolean) => void;
-  submitFeedback: () => Promise<void>;
-  feedbackCategory: "bug" | "feature" | "general";
-  setFeedbackCategory: (value: "bug" | "feature" | "general") => void;
+  submitFeedback: FormEventHandler<HTMLFormElement>;
+  feedbackCategory: FeedbackCategory;
+  setFeedbackCategory: (value: FeedbackCategory) => void;
   activeFeedbackTitle: string;
   updateActiveFeedbackTitle: (value: string) => void;
   activeFeedbackDraft: string;
   updateActiveFeedbackDraft: (value: string) => void;
   feedbackEditorRef: RefObject<HTMLTextAreaElement | null>;
   handleFeedbackEditorKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
-  applyFeedbackMarkdownToken: (token: "bold" | "italic" | "code" | "bullet") => void;
-  feedbackImages: Array<{
-    id: string;
-    url: string;
-    fileName: string;
-    mimeType: string;
-  }>;
+  applyFeedbackMarkdownToken: (token: "bold" | "italic" | "bullet" | "link") => void;
+  feedbackImages: FeedbackImageDraft[];
   feedbackFileInputRef: RefObject<HTMLInputElement | null>;
   isFeedbackDropActive: boolean;
-  handleFeedbackImageSelection: (files: FileList | File[]) => void;
+  handleFeedbackImageSelection: ChangeEventHandler<HTMLInputElement>;
   handleFeedbackDropZoneDragOver: DragEventHandler<HTMLDivElement>;
   handleFeedbackDropZoneDragLeave: DragEventHandler<HTMLDivElement>;
   handleFeedbackDropZoneDrop: DragEventHandler<HTMLDivElement>;
   removeFeedbackImage: (imageId: string) => void;
   accountName: string | null;
   activeThreadId: string | null;
-  feedbackHistory: Array<{
-    id: string;
-    title: string | null;
-    category: string;
-    status: string;
-    createdAt: string;
-  }>;
-  feedbackHistoryFilter: "all" | "open" | "closed";
-  setFeedbackHistoryFilter: (value: "all" | "open" | "closed") => void;
+  feedbackHistory: FeedbackHistoryItem[];
+  feedbackHistoryFilter: FeedbackReportFilter;
+  setFeedbackHistoryFilter: (value: FeedbackReportFilter) => void;
   feedbackHistoryQuery: string;
   setFeedbackHistoryQuery: (value: string) => void;
   isFeedbackHistoryLoading: boolean;
   feedbackStatusUpdatingIds: Record<string, boolean>;
   updateFeedbackSubmissionStatus: (
     submissionId: string,
-    status: "open" | "closed",
+    status: FeedbackReportStatus,
   ) => Promise<void>;
   sessionUserId: string | null;
   sessionEmail: string | null;
@@ -140,25 +160,16 @@ interface UseChatOverlayPropsOptions {
   setExtensionModalOpen: (open: boolean) => void;
   sourceMaterialsOpen: boolean;
   setSourceMaterialsOpen: (open: boolean) => void;
-  seedSourceMaterials: () => Promise<void>;
+  seedSourceMaterials: () => Promise<unknown>;
   isSourceMaterialsLoading: boolean;
   isSourceMaterialsSaving: boolean;
   sourceMaterialsNotice: string | null;
-  sourceMaterialDraft: {
-    id: string | null;
-    title: string;
-    type: string;
-    verified: boolean;
-    claims: string[];
-    tags: string[];
-    snippets: string[];
-    doNotClaim: string[];
-  };
+  sourceMaterialDraft: SourceMaterialDraftState;
   resetSourceMaterialDraft: () => void;
   clearSourceMaterialsNotice: () => void;
   applyClaimExample: (claim: string) => void;
   updateSourceMaterialTitle: (value: string) => void;
-  updateSourceMaterialType: (value: string) => void;
+  updateSourceMaterialType: (value: SourceMaterialType) => void;
   toggleSourceMaterialVerified: () => void;
   updateSourceMaterialClaims: (value: string) => void;
   sourceMaterialAdvancedOpen: boolean;
@@ -170,58 +181,57 @@ interface UseChatOverlayPropsOptions {
   saveSourceMaterial: () => Promise<void>;
   sourceMaterialsLibraryOpen: boolean;
   toggleSourceMaterialsLibraryOpen: () => void;
-  sourceMaterials: Array<{
-    id: string;
-    title: string;
-    type: string;
-    verified: boolean;
-  }>;
-  selectSourceMaterial: (materialId: string) => void;
+  sourceMaterials: SourceMaterialAsset[];
+  selectSourceMaterial: (asset: SourceMaterialAsset) => void;
   preferencesOpen: boolean;
   setPreferencesOpen: (open: boolean) => void;
   savePreferences: () => Promise<void>;
   isPreferencesLoading: boolean;
   isPreferencesSaving: boolean;
-  preferenceCasing: "normal" | "lowercase";
-  setPreferenceCasing: (value: "normal" | "lowercase") => void;
-  preferenceBulletStyle: "dash" | "bullet" | "numbered";
-  setPreferenceBulletStyle: (value: "dash" | "bullet" | "numbered") => void;
-  preferenceWritingMode: "direct" | "polished" | "punchy";
-  setPreferenceWritingMode: (value: "direct" | "polished" | "punchy") => void;
+  preferenceCasing: "auto" | "normal" | "lowercase" | "uppercase";
+  setPreferenceCasing: (value: "auto" | "normal" | "lowercase" | "uppercase") => void;
+  preferenceBulletStyle: "auto" | "-" | ">";
+  setPreferenceBulletStyle: (value: "auto" | "-" | ">") => void;
+  preferenceWritingMode: "voice" | "balanced" | "growth";
+  setPreferenceWritingMode: (value: "voice" | "balanced" | "growth") => void;
   preferenceUseEmojis: boolean;
   togglePreferenceUseEmojis: () => void;
   preferenceAllowProfanity: boolean;
   togglePreferenceAllowProfanity: () => void;
   preferenceBlacklistInput: string;
-  handlePreferenceBlacklistInputChange: (value: string) => void;
+  handlePreferenceBlacklistInputChange: ChangeEventHandler<HTMLInputElement>;
   handlePreferenceBlacklistInputKeyDown: KeyboardEventHandler<HTMLInputElement>;
   preferenceBlacklistedTerms: string[];
-  removePreferenceBlacklistedTerm: (term: string) => void;
+  removePreferenceBlacklistedTerm: (index: number) => void;
   effectivePreferenceMaxCharacters: number;
   setPreferenceMaxCharacters: (value: number) => void;
   previewDisplayName: string;
   previewUsername: string;
   previewAvatarUrl: string | null;
   preferencesPreviewDraft: string;
-  preferencesPreviewCounter: string;
+  preferencesPreviewCounter: DraftCounterMeta;
   playbookModalOpen: boolean;
   handleGrowthGuideOpenChange: (open: boolean) => void;
-  playbookStage: string;
-  setPlaybookStage: (value: string) => void;
-  filteredStagePlaybooks: unknown[];
-  selectedPlaybook: unknown;
-  handleApplyPlaybook: (playbook: unknown) => void;
+  playbookStage: GrowthGuideDialogProps["playbookStage"];
+  setPlaybookStage: GrowthGuideDialogProps["onPlaybookStageChange"];
+  filteredStagePlaybooks: GrowthGuideDialogProps["filteredStagePlaybooks"];
+  selectedPlaybook: GrowthGuideDialogProps["selectedPlaybook"];
+  handleApplyPlaybook: GrowthGuideDialogProps["onSelectPlaybook"];
   growthGuideSelectedPlaybookRef: RefObject<HTMLElement | null>;
-  playbookTemplateTab: string;
-  setPlaybookTemplateTab: (value: string) => void;
-  personalizedPlaybookTemplates: unknown[];
+  playbookTemplateTab: GrowthGuideDialogProps["playbookTemplateTab"];
+  setPlaybookTemplateTab: GrowthGuideDialogProps["onPlaybookTemplateTabChange"];
+  personalizedPlaybookTemplates: GrowthGuideDialogProps["personalizedPlaybookTemplates"];
   activePlaybookTemplateId: string | null;
-  setActivePlaybookTemplateId: (value: string | null) => void;
+  setActivePlaybookTemplateId: (value: string) => void;
   activePlaybookTemplateText: string | null;
   playbookTemplatePreviewCounter: string;
   copiedPlaybookTemplateId: string | null;
-  handleCopyPlaybookTemplate: (template: unknown) => Promise<void>;
-  buildTemplateWhyItWorksPoints: (tab: string) => string[];
+  handleCopyPlaybookTemplate: (
+    template: Parameters<GrowthGuideDialogProps["onCopyPlaybookTemplate"]>[0],
+  ) => Promise<void>;
+  buildTemplateWhyItWorksPoints: (
+    tab: GrowthGuideDialogProps["playbookTemplateTab"],
+  ) => string[];
   growthGuidePreviewDisplayName: string;
   growthGuidePreviewUsername: string;
   growthGuidePreviewAvatarUrl: string | null;
@@ -229,43 +239,40 @@ interface UseChatOverlayPropsOptions {
   openAnalysis: () => void;
   analysisOpen: boolean;
   setAnalysisOpen: (open: boolean) => void;
-  currentPlaybookStage: string | null;
-  analysisFollowerProgress: unknown;
-  analysisDiagnosisSummary: string | null;
-  analysisSnapshotCards: unknown[];
+  currentPlaybookStage: ProfileAnalysisDialogProps["currentPlaybookStage"];
+  analysisFollowerProgress: ProfileAnalysisDialogProps["analysisFollowerProgress"];
+  analysisDiagnosisSummary: ProfileAnalysisDialogProps["analysisDiagnosisSummary"];
+  analysisSnapshotCards: ProfileAnalysisDialogProps["analysisSnapshotCards"];
   analysisPositioningIsTentative: boolean;
-  analysisPriorityItems: string[];
-  analysisRecommendedPlaybooks: unknown[];
+  analysisPriorityItems: ProfileAnalysisDialogProps["analysisPriorityItems"];
+  analysisRecommendedPlaybooks: ProfileAnalysisDialogProps["analysisRecommendedPlaybooks"];
   analysisLearningStrengths: string[];
   analysisLearningCautions: string[];
   analysisLearningExperiments: string[];
-  analysisReplyConversionHighlights: string[];
-  analysisVoiceSignalChips: string[];
+  analysisReplyConversionHighlights:
+    ProfileAnalysisDialogProps["analysisReplyConversionHighlights"];
+  analysisVoiceSignalChips: ProfileAnalysisDialogProps["analysisVoiceSignalChips"];
   analysisKeepList: string[];
   analysisAvoidList: string[];
-  analysisEvidencePosts: unknown[];
+  analysisEvidencePosts: ProfileAnalysisDialogProps["analysisEvidencePosts"];
   analysisScrapeNotice: string | null;
-  analysisScrapeNoticeTone: "default" | "warning" | "success";
+  analysisScrapeNoticeTone: ProfileAnalysisDialogProps["analysisScrapeNoticeTone"];
   isAnalysisScrapeCoolingDown: boolean;
-  analysisScrapeCooldownLabel: string | null;
+  analysisScrapeCooldownLabel: ProfileAnalysisDialogProps["analysisScrapeCooldownLabel"];
   isAnalysisScrapeRefreshing: boolean;
   handleManualProfileScrapeRefresh: () => Promise<void>;
   closeAnalysis: () => void;
   openGrowthGuide: () => void;
-  openGrowthGuideForRecommendation: (stage: string, playbookId: string) => void;
+  openGrowthGuideForRecommendation: ProfileAnalysisDialogProps["onOpenGrowthGuideForRecommendation"];
   isAddAccountModalOpen: boolean;
   requiresXAccountGate: boolean;
   isAddAccountSubmitting: boolean;
-  addAccountPreview: {
-    handle: string;
-    displayName: string | null;
-    avatarUrl: string | null;
-  } | null;
+  addAccountPreview: AddAccountDialogProps["preview"];
   normalizedAddAccount: string;
   addAccountLoadingStepIndex: number;
-  addAccountLoadingSteps: string[];
+  addAccountLoadingSteps: AddAccountDialogProps["loadingSteps"];
   closeAddAccountModal: () => void;
-  handleAddAccountSubmit: () => Promise<void>;
+  handleAddAccountSubmit: AddAccountDialogProps["onSubmit"];
   addAccountInput: string;
   updateAddAccountInput: (value: string) => void;
   readyAccountHandle: string | null;

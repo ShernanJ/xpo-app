@@ -13,23 +13,10 @@ import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
-  getXCharacterLimitForAccount,
   type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
-import type {
-  PostingCadenceCapacity,
-  ReplyBudgetPerDay,
-  ToneCasing,
-  ToneRisk,
-  TransformationMode,
-  UserGoal,
-} from "@/lib/onboarding/types";
-import {
-  type PlaybookDefinition,
-  type PlaybookTemplateTab,
-} from "@/lib/creator/playbooks";
 import {
   type BillingSnapshotPayload,
   type BillingStatePayload,
@@ -43,7 +30,6 @@ import {
 } from "@/lib/workspaceHandle";
 import {
   type PendingStatusPlan,
-  type PendingStatusWorkflow,
 } from "./_features/composer/pendingStatus";
 import { ChatComposerDock } from "./_features/composer/ChatComposerDock";
 import { ChatHero } from "./_features/composer/ChatHero";
@@ -95,6 +81,27 @@ import {
   resolveSidebarThreadSections,
   WORKSPACE_CHROME_TOOLS,
 } from "./_features/workspace-chrome/workspaceChromeViewState";
+import {
+  DEFAULT_CHAT_STRATEGY_INPUTS,
+  DEFAULT_CHAT_TONE_INPUTS,
+  HERO_EXIT_TRANSITION_MS,
+  buildTemplateWhyItWorksPoints,
+  chatProviderStorageKey,
+  dedupePreserveOrder,
+  formatEnumLabel,
+  formatNicheSummary,
+  getComposerCharacterLimit,
+  inferInitialToneInputs,
+  isDraftPendingWorkflow,
+  normalizeAccountHandle,
+  personalizePlaybookTemplateText,
+  shouldShowDraftOutputForMessage,
+  shouldShowOptionArtifactsForMessage,
+  shouldShowQuickRepliesForMessage,
+  showDevTools,
+  type ChatStrategyInputs,
+  type ChatToneInputs,
+} from "./_features/chat-page/chatPageViewState";
 import { useSourceMaterialsState } from "./_features/source-materials/useSourceMaterialsState";
 import { usePreferencesState } from "./_features/preferences/usePreferencesState";
 import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideState";
@@ -371,267 +378,7 @@ interface ChatQuickReply {
   formatPreference?: "shortform" | "longform" | "thread";
 }
 
-function isDraftPendingWorkflow(
-  workflow: PendingStatusWorkflow | null | undefined,
-): workflow is "plan_then_draft" | "revise_draft" {
-  return workflow === "plan_then_draft" || workflow === "revise_draft";
-}
-
-interface ChatStrategyInputs {
-  goal: UserGoal;
-  postingCadenceCapacity: PostingCadenceCapacity;
-  replyBudgetPerDay: ReplyBudgetPerDay;
-  transformationMode: TransformationMode;
-}
-
-interface ChatToneInputs {
-  toneCasing: ToneCasing;
-  toneRisk: ToneRisk;
-}
-
-const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const monetizationEnabled = isMonetizationEnabled();
-const chatProviderStorageKey = "stanley-x-chat-provider";
-const DEFAULT_CHAT_STRATEGY_INPUTS: ChatStrategyInputs = {
-  goal: "followers",
-  postingCadenceCapacity: "1_per_day",
-  replyBudgetPerDay: "5_15",
-  transformationMode: "optimize",
-};
-const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
-  toneCasing: "normal",
-  toneRisk: "safe",
-};
-
-const HERO_EXIT_TRANSITION_MS = 720;
-function formatEnumLabel(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function dedupePreserveOrder(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-
-  for (const value of values) {
-    const normalized = value.trim();
-    if (!normalized) {
-      continue;
-    }
-
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    deduped.push(normalized);
-  }
-
-  return deduped;
-}
-
-function personalizePlaybookTemplateText(params: {
-  text: string;
-  tab: PlaybookTemplateTab;
-  playbook: PlaybookDefinition;
-  context: CreatorAgentContext | null;
-}): string {
-  const { text, tab, playbook, context } = params;
-  const dominantTopic =
-    context?.creatorProfile.topics.dominantTopics[0]?.label?.trim() ?? "";
-  const nicheTopic = context ? formatNicheSummary(context).toLowerCase() : "";
-  const topic = (dominantTopic || nicheTopic || "your niche")
-    .replace(/[_-]+/g, " ")
-    .toLowerCase();
-  const audience =
-    context?.creatorProfile.topics.audienceSignals[0]?.trim().toLowerCase() ??
-    "the right audience";
-  const outcome = playbook.outcome.toLowerCase();
-
-  const replacementsByTab: Record<PlaybookTemplateTab, string[]> = {
-    hook: [topic, `the one update that drove ${outcome}`],
-    reply: [topic, "a practical next step", `what's working for ${audience}`],
-    thread: [topic, "what changed", "what i learned", "what to do next"],
-    cta: [topic, "the exact checklist", "what to do this week"],
-  };
-
-  const replacements = replacementsByTab[tab];
-  let replacementCursor = 0;
-  let personalized = text.replace(/___/g, () => {
-    const next =
-      replacements[replacementCursor] ??
-      replacements[replacements.length - 1] ??
-      topic;
-    replacementCursor += 1;
-    return next;
-  });
-
-  if (!/___/.test(text) && tab === "cta") {
-    const keyword = topic
-      .split(/\s+/)
-      .filter(Boolean)[0]
-      ?.replace(/[^a-z0-9]/gi, "")
-      .toUpperCase();
-    personalized = `${personalized}\n\nreply "${keyword || "START"}" if you want the exact steps.`;
-  }
-
-  personalized = personalized
-    .replace(/\s{2,}/g, " ")
-    .replace(/ \./g, ".")
-    .trim();
-
-  const voice = context?.creatorProfile.voice;
-  const shouldLowercase =
-    voice?.primaryCasing === "lowercase" &&
-    (voice?.lowercaseSharePercent ?? 0) >= 70;
-
-  if (shouldLowercase) {
-    return personalized.toLowerCase();
-  }
-
-  return applyNormalSentenceCasing(personalized);
-}
-
-function buildTemplateWhyItWorksPoints(tab: PlaybookTemplateTab): string[] {
-  switch (tab) {
-    case "hook":
-      return [
-        "clear first line that earns the stop.",
-        "specific enough to attract the right audience.",
-        "easy to expand into a full post without losing focus.",
-      ];
-    case "reply":
-      return [
-        "adds value fast instead of generic agreement.",
-        "gives a practical next step people can use.",
-        "sounds like a real conversation, not a canned comment.",
-      ];
-    case "thread":
-      return [
-        "simple structure makes it easy to scan.",
-        "each step naturally leads to the next point.",
-        "keeps readers to the end because flow is clear.",
-      ];
-    case "cta":
-      return [
-        "asks for one clear action with low friction.",
-        "tells people exactly what to do next.",
-        "ties the action to immediate value.",
-      ];
-    default:
-      return [
-        "short enough to read in one glance.",
-        "specific enough to feel practical.",
-        "clear enough to act on immediately.",
-      ];
-  }
-}
-
-function applyNormalSentenceCasing(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/(^|[.!?]\s+|\n)([a-z])/g, (_, prefix: string, character: string) =>
-      `${prefix}${character.toUpperCase()}`,
-    )
-    .replace(
-      /(^|\n)(\s*(?:-|>)\s*)([a-z])/g,
-      (_, prefix: string, marker: string, character: string) =>
-        `${prefix}${marker}${character.toUpperCase()}`,
-    );
-}
-
-function normalizeAccountHandle(value: string): string {
-  return value.trim().replace(/^@+/, "").toLowerCase();
-}
-
-function inferInitialToneInputs(params: {
-  context: CreatorAgentContext;
-  contract: CreatorGenerationContract;
-}): ChatToneInputs {
-  const { context, contract } = params;
-  const voice = context.creatorProfile.voice;
-  const isLongFormCreator =
-    contract.planner.outputShape === "long_form_post" ||
-    contract.planner.outputShape === "thread_seed" ||
-    voice.multiLinePostRate >= 30 ||
-    voice.averageLengthBand === "long";
-
-  const stronglyLowercaseShortForm =
-    voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 75 &&
-    voice.multiLinePostRate < 35;
-  const overwhelminglyLowercaseLongForm =
-    voice.primaryCasing === "lowercase" &&
-    voice.lowercaseSharePercent >= 92 &&
-    voice.multiLinePostRate < 10;
-  const shouldUseLowercase = isLongFormCreator
-    ? overwhelminglyLowercaseLongForm
-    : stronglyLowercaseShortForm;
-
-  return {
-    toneCasing: shouldUseLowercase ? "lowercase" : "normal",
-    toneRisk: contract.writer.targetRisk,
-  };
-}
-
-function getComposerCharacterLimit(context: CreatorAgentContext | null): number {
-  return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
-}
-
-function shouldShowQuickRepliesForMessage(message: ChatMessage): boolean {
-  if (!message.quickReplies?.length) {
-    return false;
-  }
-
-  if (!message.surfaceMode) {
-    return true;
-  }
-
-  return (
-    message.surfaceMode === "ask_one_question" ||
-    message.surfaceMode === "offer_options"
-  );
-}
-
-function shouldShowOptionArtifactsForMessage(message: ChatMessage): boolean {
-  if (!message.surfaceMode) {
-    return true;
-  }
-
-  return message.surfaceMode === "offer_options";
-}
-
-function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
-  if (!message.surfaceMode) {
-    return true;
-  }
-
-  return (
-    message.surfaceMode === "generate_full_output" ||
-    message.surfaceMode === "revise_and_return"
-  );
-}
-
-// V3: inferComposerIntent was removed. The backend turn planner and LLM
-// classifier are now fully authoritative for intent classification.
-// See: lib/agent-v2/runtime/turnPlanner.ts
-
-function formatNicheSummary(context: CreatorAgentContext): string {
-  const { primaryNiche, targetNiche } = context.creatorProfile.niche;
-
-  if (
-    primaryNiche === "generalist" &&
-    targetNiche &&
-    targetNiche !== "generalist"
-  ) {
-    return `Broad Right Now -> ${formatEnumLabel(targetNiche)}`;
-  }
-
-  return formatEnumLabel(primaryNiche);
-}
 
 export default function ChatPage() {
   return (
