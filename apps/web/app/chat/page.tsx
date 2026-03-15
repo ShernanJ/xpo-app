@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useSearchParams, useParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
@@ -24,10 +23,7 @@ import {
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { useBillingState } from "./_features/billing/useBillingState";
 import { DraftEditorSurface } from "./_features/draft-editor/DraftEditorSurface";
-import {
-  buildChatWorkspaceUrl,
-  buildWorkspaceHandleHeaders,
-} from "@/lib/workspaceHandle";
+import { buildChatWorkspaceUrl } from "@/lib/workspaceHandle";
 import {
   type PendingStatusPlan,
 } from "./_features/composer/pendingStatus";
@@ -55,9 +51,7 @@ import {
   useAssistantReplyOrchestrator,
   type UseAssistantReplyOrchestratorResult,
 } from "./_features/reply/useAssistantReplyOrchestrator";
-import {
-  resolveWorkspaceHandle,
-} from "./_features/workspace/chatWorkspaceState";
+import { useChatRouteWorkspaceState } from "./_features/workspace/useChatRouteWorkspaceState";
 import { useChatWorkspaceBootstrap } from "./_features/workspace/useChatWorkspaceBootstrap";
 import { useChatWorkspaceReset } from "./_features/workspace/useChatWorkspaceReset";
 import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
@@ -383,46 +377,22 @@ export default function ChatPage() {
 
 function ChatPageContent() {
   const { data: session, status, update: refreshSession } = useSession();
-  const searchParams = useSearchParams();
-  const searchParamsKey = searchParams.toString();
-  const params = useParams();
-  const threadIdRaw = params?.threadId as string | string[] | undefined;
-
-  const threadIdParam = (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ?? searchParams.get("threadId")?.trim() ?? null;
-  const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
-  const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
-  const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
-
-  const accountName = useMemo(
-    () =>
-      resolveWorkspaceHandle({
-        searchHandle: searchParams.get("xHandle"),
-        sessionHandle: session?.user?.activeXHandle ?? null,
-      }),
-    [searchParams, session?.user?.activeXHandle],
-  );
-  const requiresXAccountGate = status === "authenticated" && !accountName;
-  const sourceMaterialsBootstrapKey = useMemo(() => {
-    const normalizedHandle = normalizeAccountHandle(accountName ?? "");
-    const accountKey = normalizedHandle || session?.user?.id?.trim() || "default";
-    return `xpo:stories-proof-bootstrap:${accountKey}`;
-  }, [accountName, session?.user?.id]);
-  const buildWorkspaceHeaders = useCallback(
-    (headers?: HeadersInit) => buildWorkspaceHandleHeaders(accountName, headers),
-    [accountName],
-  );
-  const fetchWorkspace = useCallback(
-    (input: RequestInfo | URL, init?: RequestInit) =>
-      fetch(input, {
-        ...init,
-        headers: buildWorkspaceHeaders(init?.headers),
-      }),
-    [buildWorkspaceHeaders],
-  );
-  const buildWorkspaceChatHref = useCallback(
-    (threadId?: string | null) => buildChatWorkspaceUrl({ threadId, xHandle: accountName }),
-    [accountName],
-  );
+  const {
+    accountName,
+    backfillJobId,
+    billingQuerySessionId,
+    billingQueryStatus,
+    buildWorkspaceChatHref,
+    fetchWorkspace,
+    requiresXAccountGate,
+    searchParamsKey,
+    sourceMaterialsBootstrapKey,
+    threadIdParam,
+  } = useChatRouteWorkspaceState({
+    sessionHandle: session?.user?.activeXHandle ?? null,
+    sessionUserId: session?.user?.id,
+    status,
+  });
 
   const {
     hoveredThreadId,
