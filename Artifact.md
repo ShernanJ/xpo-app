@@ -17,7 +17,7 @@
 The app is now bottlenecked by infrastructure, not prompt tweaks.
 
 Current hotspots:
-- `apps/web/app/chat/page.tsx` is now a thinner route orchestrator, but it still carries too much cross-feature prop plumbing and route-level async coordination.
+- `apps/web/app/chat/page.tsx` is now a thinner route coordinator, but it still carries too much cross-feature prop plumbing and route-level async coordination.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still too heavy as a route boundary.
 - `apps/web/lib/agent-v2/runtime/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
 

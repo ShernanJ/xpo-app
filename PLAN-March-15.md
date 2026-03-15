@@ -1,7 +1,7 @@
 # Plan: Document Current Chat Progress and Introduce Focused Route-Local Context
 
 ## Summary
-- Update `PLAN.md`, `Artifact.md`, and `LIVE_AGENT.md` to reflect the actual current chat state: `apps/web/app/chat/page.tsx` is now roughly `1.5k` lines, the major page-local state machines have already been extracted, and the remaining client debt is mostly orchestration and prop plumbing rather than one giant monolith.
+- Update `PLAN.md`, `Artifact.md`, and `LIVE_AGENT.md` to reflect the actual current chat state: `apps/web/app/chat/page.tsx` is now roughly `1.5k` lines, the major page-local state machines have already been extracted, and the remaining client debt is mostly coordination and prop plumbing rather than one giant monolith.
 - Add explicit frontend guidance that `useContext` is the next preferred tool for route-local sibling state sharing, but only through focused providers. Do not introduce Redux/MobX for this route, and do not create a single mega `ChatPageContext`.
 - Plan one concrete implementation slice: a route-local `workspace-chrome` provider that replaces the highest-ROI remaining prop drilling between the page, `ChatWorkspaceCanvas`, `ChatHeader`, and `ChatSidebar`.
 
@@ -13,7 +13,7 @@
   - Add a decision rule: use focused route-local context when multiple sibling surfaces need the same state/actions and the page has started building prop objects that mostly mirror child contracts.
 
 - `Artifact.md`
-  - Update the current hotspot description for `apps/web/app/chat/page.tsx` from “client monolith” to “route orchestrator with remaining prop-plumbing debt.”
+  - Update the current hotspot description for `apps/web/app/chat/page.tsx` from “client monolith” to “route coordinator with remaining prop-plumbing debt.”
   - Add a frontend architecture principle:
     - prefer route-private providers over wider prop bags once seam extraction is done
     - context contracts should use `state`, `actions`, and `meta`
@@ -99,7 +99,7 @@
   - stale `~5.7k` page references are removed or rewritten
   - a new follow-on item exists for route-local provider extraction
 - `Artifact.md` reflects the current hotspot accurately:
-  - `page.tsx` is described as a route orchestrator with remaining prop-plumbing debt
+  - `page.tsx` is described as a route coordinator with remaining prop-plumbing debt
   - focused route-local context is added as an explicit frontend practice
   - the next frontend slice is named as `workspace-chrome` provider extraction
 - `LIVE_AGENT.md` gives agents an implementation rule set:
