@@ -111,7 +111,6 @@ import {
 import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./_features/reply/chatReplyState";
 import {
   buildChatWorkspaceReset,
-  resolveCreatedThreadWorkspaceUpdate,
   resolveWorkspaceHandle,
   type ChatWorkspaceReset,
 } from "./_features/workspace/chatWorkspaceState";
@@ -122,6 +121,7 @@ import { MessageArtifactSections } from "./_features/thread-history/MessageArtif
 import { MessageContent } from "./_features/thread-history/MessageContent";
 import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
+import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
 import { useThreadViewState } from "./_features/thread-history/useThreadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
 import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
@@ -1052,8 +1052,6 @@ function ChatPageContent() {
     [accountName],
   );
 
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(threadIdParam);
-  const [chatThreads, setChatThreads] = useState<Array<{ id: string; title: string; updatedAt: string }>>([]);
   const {
     hoveredThreadId,
     setHoveredThreadId,
@@ -1086,63 +1084,29 @@ function ChatPageContent() {
     accountMenuRef,
     toolsMenuRef,
   } = useWorkspaceChromeState({ accountName });
-  const chatThreadsRef = useRef(chatThreads);
-
-  useEffect(() => {
-    chatThreadsRef.current = chatThreads;
-  }, [chatThreads]);
-
-  const handleRenameSubmit = async (threadId: string) => {
-    if (!editingTitle.trim()) {
-      setEditingThreadId(null);
-      return;
-    }
-    const cleanTitle = editingTitle.trim();
-    setChatThreads(current => current.map(t => t.id === threadId ? { ...t, title: cleanTitle } : t));
-    setEditingThreadId(null);
-
-    try {
-      await fetchWorkspace(`/api/creator/v2/threads/${threadId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: cleanTitle })
-      });
-    } catch (e) {
-      console.error("Failed to rename thread", e);
-    }
-  };
-
-  const confirmDeleteThread = async () => {
-    if (!threadToDelete) return;
-
-    const deletingThread = threadToDelete;
-
-    try {
-      const response = await fetchWorkspace(`/api/creator/v2/threads/${deletingThread.id}`, {
-        method: "DELETE",
-      });
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data?.ok || data?.data?.deleted !== true) {
-        throw new Error("Failed to delete thread");
-      }
-
-      setChatThreads((current) => current.filter((thread) => thread.id !== deletingThread.id));
-
-      if (activeThreadId === deletingThread.id) {
-        applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-        window.history.replaceState({}, "", buildWorkspaceChatHref(null));
-      }
-    } catch (e) {
-      console.error("Failed to delete thread", e);
-      setErrorMessage("Failed to delete the chat. Try again.");
-    } finally {
-      clearThreadToDelete();
-    }
-  };
+  const {
+    activeThreadId,
+    setActiveThreadId,
+    chatThreads,
+    threadCreatedInSessionRef,
+    threadStateResetVersion,
+    handleRenameSubmit,
+    confirmDeleteThread,
+    syncThreadTitle,
+    applyCreatedThreadWorkspaceUpdate,
+  } = useChatThreadState({
+    accountName,
+    initialThreadId: threadIdParam,
+    editingTitle,
+    threadToDelete,
+    setEditingThreadId,
+    clearThreadToDelete,
+    fetchWorkspace,
+    buildWorkspaceChatHref,
+    onErrorMessage: setErrorMessage,
+  });
 
   // Guard against initializeThread re-fetching when we just created a thread in-session
-  const threadCreatedInSessionRef = useRef(false);
   const growthGuideSelectedPlaybookRef = useRef<HTMLElement | null>(null);
 
   const [context, setContext] = useState<CreatorAgentContext | null>(null);
@@ -1308,61 +1272,6 @@ function ChatPageContent() {
   const [selectedThreadPostByMessageId, setSelectedThreadPostByMessageId] = useState<
     Record<string, number>
   >({});
-
-  useEffect(() => {
-    if (!accountName) return;
-    fetchWorkspace("/api/creator/v2/threads")
-      .then(res => res.json())
-      .then(data => {
-        if (data.ok && data.data?.threads) {
-          setChatThreads(data.data.threads);
-        }
-      })
-      .catch(err => console.error("Failed to fetch threads:", err));
-  }, [accountName, fetchWorkspace]);
-
-  const syncThreadTitle = useCallback((threadId: string, title: string) => {
-    const cleanTitle = title.trim();
-    if (!cleanTitle) {
-      return;
-    }
-
-    setChatThreads((current) =>
-      current.map((thread) =>
-        thread.id === threadId
-          ? {
-            ...thread,
-            title: cleanTitle,
-            updatedAt: new Date().toISOString(),
-          }
-          : thread,
-      ),
-    );
-  }, []);
-  const applyCreatedThreadWorkspaceUpdate = useCallback(
-    (newThreadId?: string | null, threadTitle?: string | null) => {
-      const createdThreadUpdate = resolveCreatedThreadWorkspaceUpdate({
-        currentThreads: chatThreadsRef.current,
-        newThreadId,
-        threadTitle,
-        activeThreadId,
-        accountName,
-      });
-      if (!createdThreadUpdate) {
-        return;
-      }
-
-      setActiveThreadId(createdThreadUpdate.nextActiveThreadId);
-      threadCreatedInSessionRef.current = createdThreadUpdate.threadCreatedInSession;
-      window.history.replaceState(
-        {},
-        "",
-        buildWorkspaceChatHref(createdThreadUpdate.nextHistoryThreadId),
-      );
-      setChatThreads(createdThreadUpdate.nextChatThreads);
-    },
-    [accountName, activeThreadId, buildWorkspaceChatHref],
-  );
 
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
@@ -1752,6 +1661,8 @@ function ChatPageContent() {
     setEditingDraftCandidateId,
     setEditingDraftCandidateText,
     setIsAnalysisScrapeRefreshing,
+    setActiveThreadId,
+    threadCreatedInSessionRef,
   ]);
   const handleNewChat = useCallback(() => {
     if (!accountName) return;
@@ -1759,6 +1670,14 @@ function ChatPageContent() {
     applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
     window.history.pushState({}, "", buildWorkspaceChatHref(null));
   }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
+
+  useEffect(() => {
+    if (threadStateResetVersion === 0) {
+      return;
+    }
+
+    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+  }, [applyChatWorkspaceReset, threadStateResetVersion]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -3160,6 +3079,7 @@ function ChatPageContent() {
     messages.length,
     setIsThreadHydrating,
     shouldJumpToBottomAfterThreadSwitchRef,
+    threadCreatedInSessionRef,
   ]);
 
   const handleAngleSelect = useCallback(
