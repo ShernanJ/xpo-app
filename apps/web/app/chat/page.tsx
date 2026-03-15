@@ -2,7 +2,6 @@
 
 import {
   Suspense,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -12,7 +11,6 @@ import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
-  type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
@@ -34,12 +32,9 @@ import {
   resolveComposerViewState,
 } from "./_features/composer/composerViewState";
 import { useComposerInteractions } from "./_features/composer/useComposerInteractions";
-import {
-  resolveDraftCardRevisionAction,
-  resolveSelectedThreadFramingChangeAction,
-} from "./_features/draft-editor/chatDraftActionState";
 import { useDraftEditorState } from "./_features/draft-editor/useDraftEditorState";
 import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
+import { useDraftRevisionActions } from "./_features/draft-editor/useDraftRevisionActions";
 import {
   useSelectedDraftState,
   useSelectedDraftTimelineState,
@@ -1193,51 +1188,16 @@ function ChatPageContent() {
     setIsLeavingHero,
   });
 
-  const requestDraftCardRevision = useCallback(
-    async (
-      messageId: string,
-      prompt: string,
-      threadFramingStyleOverride?: ThreadFramingStyle | null,
-    ) => {
-      const draftAction = resolveDraftCardRevisionAction({
-        messageId,
-        prompt,
-        messages,
-        composerCharacterLimit,
-        threadFramingStyleOverride,
-      });
-      if (!draftAction) {
-        return;
-      }
-
-      setActiveDraftEditor(draftAction.activeDraftEditor);
-      await requestAssistantReply(draftAction.request);
-    },
-    [composerCharacterLimit, messages, requestAssistantReply],
-  );
-
-  const requestSelectedThreadFramingChange = useCallback(
-    async (style: ThreadFramingStyle) => {
-      const draftAction = resolveSelectedThreadFramingChangeAction({
-        selectedDraftMessage,
-        selectedDraftVersion,
-        selectedDraftThreadFramingStyle,
-        nextStyle: style,
-      });
-      if (!draftAction) {
-        return;
-      }
-
-      setActiveDraftEditor(draftAction.activeDraftEditor);
-      await requestAssistantReply(draftAction.request);
-    },
-    [
-      requestAssistantReply,
+  const { requestDraftCardRevision, requestSelectedThreadFramingChange } =
+    useDraftRevisionActions<ChatMessage>({
+      messages,
+      composerCharacterLimit,
       selectedDraftMessage,
-      selectedDraftThreadFramingStyle,
       selectedDraftVersion,
-    ],
-  );
+      selectedDraftThreadFramingStyle,
+      requestAssistantReply,
+      setActiveDraftEditor,
+    });
 
   useThreadHistoryHydration<ChatMessage>({
     accountName,
