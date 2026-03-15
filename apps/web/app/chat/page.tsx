@@ -39,11 +39,7 @@ import {
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import { BillingDialogs } from "./_features/billing/BillingDialogs";
 import { useBillingState } from "./_features/billing/useBillingState";
-import {
-  DesktopDraftEditorDock,
-  MobileDraftEditorDock,
-} from "./_features/draft-editor/DraftEditorDock";
-import { DraftEditorPanel } from "./_features/draft-editor/DraftEditorPanel";
+import { DraftEditorSurface } from "./_features/draft-editor/DraftEditorSurface";
 import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
@@ -639,7 +635,7 @@ function shouldShowDraftOutputForMessage(message: ChatMessage): boolean {
 
 // V3: inferComposerIntent was removed. The backend turn planner and LLM
 // classifier are now fully authoritative for intent classification.
-// See: lib/agent-v2/orchestrator/turnPlanner.ts
+// See: lib/agent-v2/runtime/turnPlanner.ts
 
 function formatNicheSummary(context: CreatorAgentContext): string {
   const { primaryNiche, targetNiche } = context.creatorProfile.niche;
@@ -2169,129 +2165,62 @@ function ChatPageContent() {
         </div >
       </div >
 
-      {
-        selectedDraftVersion && selectedDraftBundle ? (
-          <>
-            <DesktopDraftEditorDock>
-              <DraftEditorPanel
-                layout="desktop"
-                identity={draftEditorIdentity}
-                isVerifiedAccount={isVerifiedAccount}
-                timelinePosition={selectedDraftTimelinePosition}
-                timelineLength={selectedDraftTimeline.length}
-                canNavigateDraftBack={canNavigateDraftBack}
-                canNavigateDraftForward={canNavigateDraftForward}
-                onNavigateTimeline={navigateDraftTimeline}
-                onClose={() => setActiveDraftEditor(null)}
-                primaryActionLabel={draftEditorPrimaryActionLabel}
-                isPrimaryActionDisabled={isDraftEditorPrimaryActionDisabled}
-                onPrimaryAction={() => {
-                  void (shouldShowRevertDraftCta
-                    ? revertToSelectedDraftVersion()
-                    : saveDraftEditor());
-                }}
-                isSelectedDraftThread={isSelectedDraftThread}
-                selectedDraftArtifact={selectedDraftArtifact}
-                selectedDraftThreadFramingStyle={selectedDraftThreadFramingStyle}
-                onChangeThreadFraming={(style) => {
-                  void requestSelectedThreadFramingChange(style);
-                }}
-                isMainChatLocked={isMainChatLocked}
-                isViewingHistoricalDraftVersion={isViewingHistoricalDraftVersion}
-                editorDraftPosts={editorDraftPosts}
-                selectedDraftThreadPostIndex={selectedDraftThreadPostIndex}
-                selectedDraftMessageId={selectedDraftMessageId}
-                onSelectThreadPost={(index) =>
-                  setSelectedThreadPostByMessageId((current) => ({
-                    ...current,
-                    [selectedDraftMessageId!]: index,
-                  }))
-                }
-                onUpdateThreadDraftPost={updateThreadDraftPost}
-                onMoveThreadDraftPost={moveThreadDraftPost}
-                onSplitThreadDraftPost={splitThreadDraftPost}
-                onMergeThreadDraftPostDown={mergeThreadDraftPostDown}
-                onAddThreadDraftPost={addThreadDraftPost}
-                onRemoveThreadDraftPost={removeThreadDraftPost}
-                draftEditorSerializedContent={draftEditorSerializedContent}
-                composerCharacterLimit={composerCharacterLimit}
-                selectedDraftMaxCharacterLimit={selectedDraftVersion.maxCharacterLimit}
-                editorDraftText={editorDraftText}
-                onChangeEditorDraftText={setEditorDraftText}
-                draftInspectorActionLabel={draftInspectorActionLabel}
-                isDraftInspectorLoading={isDraftInspectorLoading}
-                onRunDraftInspector={() => {
-                  void runDraftInspector();
-                }}
-                hasCopiedDraftEditorText={hasCopiedDraftEditorText}
-                onCopyDraftEditor={() => {
-                  void copyDraftEditor(draftEditorSerializedContent);
-                }}
-                onShareDraftEditor={shareDraftEditorToX}
-              />
-            </DesktopDraftEditorDock>
-
-            <MobileDraftEditorDock>
-              <DraftEditorPanel
-                layout="mobile"
-                identity={draftEditorIdentity}
-                isVerifiedAccount={isVerifiedAccount}
-                timelinePosition={selectedDraftTimelinePosition}
-                timelineLength={selectedDraftTimeline.length}
-                canNavigateDraftBack={canNavigateDraftBack}
-                canNavigateDraftForward={canNavigateDraftForward}
-                onNavigateTimeline={navigateDraftTimeline}
-                onClose={() => setActiveDraftEditor(null)}
-                primaryActionLabel={draftEditorPrimaryActionLabel}
-                isPrimaryActionDisabled={isDraftEditorPrimaryActionDisabled}
-                onPrimaryAction={() => {
-                  void (shouldShowRevertDraftCta
-                    ? revertToSelectedDraftVersion()
-                    : saveDraftEditor());
-                }}
-                isSelectedDraftThread={isSelectedDraftThread}
-                selectedDraftArtifact={selectedDraftArtifact}
-                selectedDraftThreadFramingStyle={selectedDraftThreadFramingStyle}
-                onChangeThreadFraming={(style) => {
-                  void requestSelectedThreadFramingChange(style);
-                }}
-                isMainChatLocked={isMainChatLocked}
-                isViewingHistoricalDraftVersion={isViewingHistoricalDraftVersion}
-                editorDraftPosts={editorDraftPosts}
-                selectedDraftThreadPostIndex={selectedDraftThreadPostIndex}
-                selectedDraftMessageId={selectedDraftMessageId}
-                onSelectThreadPost={(index) =>
-                  setSelectedThreadPostByMessageId((current) => ({
-                    ...current,
-                    [selectedDraftMessageId!]: index,
-                  }))
-                }
-                onUpdateThreadDraftPost={updateThreadDraftPost}
-                onMoveThreadDraftPost={moveThreadDraftPost}
-                onSplitThreadDraftPost={splitThreadDraftPost}
-                onMergeThreadDraftPostDown={mergeThreadDraftPostDown}
-                onAddThreadDraftPost={addThreadDraftPost}
-                onRemoveThreadDraftPost={removeThreadDraftPost}
-                draftEditorSerializedContent={draftEditorSerializedContent}
-                composerCharacterLimit={composerCharacterLimit}
-                selectedDraftMaxCharacterLimit={selectedDraftVersion.maxCharacterLimit}
-                editorDraftText={editorDraftText}
-                onChangeEditorDraftText={setEditorDraftText}
-                draftInspectorActionLabel={draftInspectorActionLabel}
-                isDraftInspectorLoading={isDraftInspectorLoading}
-                onRunDraftInspector={() => {
-                  void runDraftInspector();
-                }}
-                hasCopiedDraftEditorText={hasCopiedDraftEditorText}
-                onCopyDraftEditor={() => {
-                  void copyDraftEditor(draftEditorSerializedContent);
-                }}
-                onShareDraftEditor={shareDraftEditorToX}
-              />
-            </MobileDraftEditorDock>
-          </>
-        ) : null
-      }
+      <DraftEditorSurface
+        open={Boolean(selectedDraftVersion && selectedDraftBundle)}
+        identity={draftEditorIdentity}
+        isVerifiedAccount={isVerifiedAccount}
+        timelinePosition={selectedDraftTimelinePosition}
+        timelineLength={selectedDraftTimeline.length}
+        canNavigateDraftBack={canNavigateDraftBack}
+        canNavigateDraftForward={canNavigateDraftForward}
+        onNavigateTimeline={navigateDraftTimeline}
+        onClose={() => setActiveDraftEditor(null)}
+        primaryActionLabel={draftEditorPrimaryActionLabel}
+        isPrimaryActionDisabled={isDraftEditorPrimaryActionDisabled}
+        onPrimaryAction={() => {
+          void (shouldShowRevertDraftCta
+            ? revertToSelectedDraftVersion()
+            : saveDraftEditor());
+        }}
+        isSelectedDraftThread={isSelectedDraftThread}
+        selectedDraftArtifact={selectedDraftArtifact}
+        selectedDraftThreadFramingStyle={selectedDraftThreadFramingStyle}
+        onChangeThreadFraming={(style) => {
+          void requestSelectedThreadFramingChange(style);
+        }}
+        isMainChatLocked={isMainChatLocked}
+        isViewingHistoricalDraftVersion={isViewingHistoricalDraftVersion}
+        editorDraftPosts={editorDraftPosts}
+        selectedDraftThreadPostIndex={selectedDraftThreadPostIndex}
+        selectedDraftMessageId={selectedDraftMessageId}
+        onSelectThreadPost={(index) =>
+          setSelectedThreadPostByMessageId((current) => ({
+            ...current,
+            [selectedDraftMessageId!]: index,
+          }))
+        }
+        onUpdateThreadDraftPost={updateThreadDraftPost}
+        onMoveThreadDraftPost={moveThreadDraftPost}
+        onSplitThreadDraftPost={splitThreadDraftPost}
+        onMergeThreadDraftPostDown={mergeThreadDraftPostDown}
+        onAddThreadDraftPost={addThreadDraftPost}
+        onRemoveThreadDraftPost={removeThreadDraftPost}
+        draftEditorSerializedContent={draftEditorSerializedContent}
+        composerCharacterLimit={composerCharacterLimit}
+        selectedDraftMaxCharacterLimit={selectedDraftVersion?.maxCharacterLimit ?? composerCharacterLimit}
+        editorDraftText={editorDraftText}
+        onChangeEditorDraftText={setEditorDraftText}
+        draftInspectorActionLabel={draftInspectorActionLabel}
+        isDraftInspectorLoading={isDraftInspectorLoading}
+        onRunDraftInspector={() => {
+          void runDraftInspector();
+        }}
+        hasCopiedDraftEditorText={hasCopiedDraftEditorText}
+        onCopyDraftEditor={() => {
+          void copyDraftEditor(draftEditorSerializedContent);
+        }}
+        onShareDraftEditor={shareDraftEditorToX}
+      />
 
       <DraftQueueModals
         draftQueueDialogProps={{

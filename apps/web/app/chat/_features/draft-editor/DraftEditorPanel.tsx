@@ -20,7 +20,7 @@ import {
   resolveDisplayedDraftCharacterLimit,
 } from "./chatDraftPreviewState";
 
-interface DraftEditorPanelProps {
+export interface DraftEditorPanelProps {
   layout: "desktop" | "mobile";
   identity: {
     avatarUrl: string | null;
