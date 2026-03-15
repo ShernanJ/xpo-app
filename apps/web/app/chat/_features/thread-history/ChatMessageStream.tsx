@@ -104,9 +104,9 @@ function PendingDraftShell(props: {
 }
 
 type ArtifactSectionsProps = ComponentProps<typeof MessageArtifactSections>;
-type MessageLike = ArtifactSectionsProps["message"];
+export type ChatMessageStreamMessage = ArtifactSectionsProps["message"];
 
-interface ChatMessageStreamProps<TMessage extends MessageLike> {
+export interface ChatMessageStreamProps<TMessage extends ChatMessageStreamMessage> {
   messages: TMessage[];
   latestAssistantMessageId: string | null;
   typedAssistantLengths: Record<string, number>;
@@ -129,7 +129,7 @@ interface ChatMessageStreamProps<TMessage extends MessageLike> {
   >;
 }
 
-export function ChatMessageStream<TMessage extends MessageLike>(
+export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
   props: ChatMessageStreamProps<TMessage>,
 ) {
   const {
