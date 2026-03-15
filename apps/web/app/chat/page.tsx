@@ -92,7 +92,6 @@ import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
 import { useFeedbackState } from "./_features/feedback/useFeedbackState";
-import { resolveThreadHistoryHydration } from "./_features/thread-history/chatThreadHistoryState";
 import {
   buildDraftRevealClassName,
   shouldAnimateDraftRevealLines,
@@ -123,6 +122,7 @@ import { MessageContent } from "./_features/thread-history/MessageContent";
 import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
+import { useThreadHistoryHydration } from "./_features/thread-history/useThreadHistoryHydration";
 import { useThreadMessageEffects } from "./_features/thread-history/useThreadMessageEffects";
 import { useThreadViewState } from "./_features/thread-history/useThreadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
@@ -955,6 +955,7 @@ export default function ChatPage() {
 function ChatPageContent() {
   const { data: session, status, update: refreshSession } = useSession();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const params = useParams();
   const threadIdRaw = params?.threadId as string | string[] | undefined;
 
@@ -2831,63 +2832,9 @@ function ChatPageContent() {
     ],
   );
 
-  useEffect(() => {
-    if (
-      !context ||
-      !contract ||
-      isSending ||
-      !activeStrategyInputs ||
-      !activeToneInputs
-    ) {
-      return;
-    }
-
-    async function initializeThread() {
-      // If we have an active thread, try loading its history
-      if (activeThreadId) {
-        // Skip re-fetch if this thread was just created in the current session
-        if (threadCreatedInSessionRef.current) {
-          setIsThreadHydrating(false);
-          return;
-        }
-        try {
-          const res = await fetchWorkspace(`/api/creator/v2/threads/${activeThreadId}`);
-          const data = await res.json();
-          if (data.ok && data.data?.messages?.length > 0) {
-            const hydration = resolveThreadHistoryHydration<ChatMessage>({
-              rawMessages: data.data.messages,
-              activeThreadId,
-              shouldJumpToBottomAfterSwitch:
-                shouldJumpToBottomAfterThreadSwitchRef.current,
-            });
-            setMessages(hydration.messages);
-
-            if (hydration.shouldJumpToBottom) {
-              shouldJumpToBottomAfterThreadSwitchRef.current = false;
-              window.requestAnimationFrame(() => {
-                window.requestAnimationFrame(() => {
-                  jumpThreadToBottomImmediately();
-                });
-              });
-            }
-
-            setIsThreadHydrating(false);
-            return;
-          }
-        } catch (e) {
-          console.error("Failed to fetch historical messages", e);
-        }
-      }
-
-      shouldJumpToBottomAfterThreadSwitchRef.current = false;
-      setIsThreadHydrating(false);
-    }
-
-    void initializeThread();
-  }, [
+  useThreadHistoryHydration<ChatMessage>({
     accountName,
     activeThreadId,
-    searchParams,
     activeContentFocus,
     activeStrategyInputs,
     activeToneInputs,
@@ -2896,11 +2843,13 @@ function ChatPageContent() {
     fetchWorkspace,
     isSending,
     jumpThreadToBottomImmediately,
-    messages.length,
+    messagesLength: messages.length,
+    searchParamsKey,
     setIsThreadHydrating,
+    setMessages,
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
-  ]);
+  });
 
   const handleAngleSelect = useCallback(
     async (angle: string, formatHint: SelectedAngleFormatHint) => {
