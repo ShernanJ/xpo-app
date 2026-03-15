@@ -253,7 +253,9 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `vercel-composition-patterns`
   - `web-design-guidelines`
 - Residual client debt in `page.tsx` is now mostly async orchestration and large presentation surfaces rather than duplicated state math; that is accepted migration debt after the Phase 2 boundary cleanup.
-- `apps/web/app/chat/page.tsx` has now been reduced to roughly 5.7k lines by pushing thread-history, source-materials, preferences, growth-guide, and analysis seams into route-private features; follow-on frontend work should extend those feature seams instead of re-growing the route root.
+- `apps/web/app/chat/page.tsx` has now been reduced to roughly 1.5k lines by pushing billing, draft queue, feedback, workspace bootstrap/reset, thread history, reply orchestration, draft editor state, message stream composition, and chat-page types into route-private features; follow-on frontend work should extend those feature seams instead of re-growing the route root.
+- The next frontend follow-on after seam extraction is focused route-local context for sibling surfaces, starting with `workspace-chrome`, so the page stops assembling large prop contracts for `ChatHeader` and `ChatSidebar`.
+- Good-practice rule for this slice: prefer focused route-local context with `state`, `actions`, and `meta` over one mega `ChatPageContext`, Redux, or MobX when the state is still route-local.
 - Current frontend verification note: chat-page-specific extraction regressions are fixed, and remaining full TypeScript failures sit outside `apps/web/app/chat/page.tsx`.
 - Guardrail: keep semantic interaction, accessibility, and extracted UI primitives moving outward from `page.tsx`; do not re-inline them during visual tweaks.
 - Composer guardrail: keep `/chat` composer interactivity and submit gating separate. Empty input may disable send, but it must not disable the textarea or hero quick-action chips, and the dock composer must stay hidden until the hero exit transition completes.

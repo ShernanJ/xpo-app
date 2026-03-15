@@ -1,25 +1,11 @@
 "use client";
 
-import type { RefObject } from "react";
 import Image from "next/image";
 import { ArrowUpRight, Wrench } from "lucide-react";
 
-interface ChatHeaderTool {
-  key: string;
-  label: string;
-  onSelect: () => void;
-}
+import { useChatHeaderChrome } from "./ChatWorkspaceChromeContext";
 
-interface ChatHeaderProps {
-  toolsMenuRef: RefObject<HTMLDivElement | null>;
-  toolsMenuOpen: boolean;
-  onToggleToolsMenu: () => void;
-  onToggleSidebar: () => void;
-  onOpenCompanionApp: () => void;
-  tools: ChatHeaderTool[];
-}
-
-export function ChatHeader(props: ChatHeaderProps) {
+export function ChatHeader() {
   const {
     toolsMenuRef,
     toolsMenuOpen,
@@ -27,7 +13,7 @@ export function ChatHeader(props: ChatHeaderProps) {
     onToggleSidebar,
     onOpenCompanionApp,
     tools,
-  } = props;
+  } = useChatHeaderChrome();
 
   return (
     <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">

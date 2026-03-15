@@ -56,7 +56,6 @@ import { useThreadViewState } from "./_features/thread-history/useThreadViewStat
 import { ChatOverlays } from "./_features/workspace-chrome/ChatOverlays";
 import { useChatOverlayProps } from "./_features/workspace-chrome/useChatOverlayProps";
 import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorkspaceAccountState";
-import { useWorkspaceChromeProps } from "./_features/workspace-chrome/useWorkspaceChromeProps";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
   type ChatContentFocus,
@@ -1013,63 +1012,6 @@ function ChatPageContent() {
     heroIdentityLabel,
     heroInitials,
   });
-  const { chatHeaderProps, chatSidebarProps } = useWorkspaceChromeProps({
-    toolsMenuRef,
-    toolsMenuOpen,
-    setToolsMenuOpen,
-    setSidebarOpen,
-    setExtensionModalOpen,
-    resetSourceMaterialDraft,
-    openSourceMaterials,
-    openDraftQueue,
-    openAnalysis,
-    openGrowthGuide,
-    sidebarOpen,
-    sidebarSearchQuery,
-    setSidebarSearchQuery,
-    closeSidebar,
-    openSidebar,
-    handleNewChat,
-    chatThreads,
-    hasWorkspace: Boolean(context && contract),
-    activeThreadId,
-    hoveredThreadId,
-    setHoveredThreadId,
-    menuOpenThreadId,
-    setMenuOpenThreadId,
-    editingThreadId,
-    editingTitle,
-    setEditingTitle,
-    setEditingThreadId,
-    handleRenameSubmit,
-    switchToThreadWithTransition,
-    requestDeleteThread,
-    openPreferences,
-    openFeedbackDialog,
-    threadMenuRef,
-    accountMenuRef,
-    accountMenuOpen,
-    toggleAccountMenu,
-    accountMenuVisible,
-    monetizationEnabled,
-    availableHandles,
-    accountName,
-    switchActiveHandle,
-    openAddAccountModal,
-    closeAccountMenu,
-    setSettingsModalOpen,
-    rateLimitsMenuOpen,
-    setRateLimitsMenuOpen,
-    rateLimitWindowLabel,
-    rateLimitsRemainingPercent,
-    rateLimitResetLabel,
-    showRateLimitUpgradeCta,
-    rateLimitUpgradeLabel,
-    setPricingModalOpen,
-    avatarUrl: context?.avatarUrl ?? null,
-    isVerifiedAccount,
-    sessionEmail: session?.user?.email ?? null,
-  });
   const chatOverlayProps = useChatOverlayProps({
     draftQueueOpen,
     isDraftQueueLoading,
@@ -1299,28 +1241,6 @@ function ChatPageContent() {
     !activeStrategyInputs ||
     !activeToneInputs;
   const isSubmitDisabled = isComposerDisabled || !draftInput.trim();
-  const heroProps =
-    isNewChatHero || isLeavingHero
-      ? {
-          avatarUrl: context?.avatarUrl ?? null,
-          heroIdentityLabel,
-          heroInitials,
-          heroGreeting,
-          isVerifiedAccount,
-          isLeavingHero,
-          draftInput,
-          onDraftInputChange: setDraftInput,
-          onComposerKeyDown: handleComposerKeyDown,
-          onSubmit: handleComposerSubmit,
-          isComposerDisabled,
-          isSubmitDisabled,
-          isSending,
-          heroQuickActions,
-          onQuickAction: (prompt: string) => {
-            void submitQuickStarter(prompt);
-          },
-        }
-      : null;
   const canRunReplyActions =
     !isMainChatLocked && Boolean(activeStrategyInputs && activeToneInputs);
   const contextIdentity = {
@@ -1403,37 +1323,6 @@ function ChatPageContent() {
     },
     onShareDraftEditor: shareDraftEditorToX,
   });
-  const chatThreadViewProps = {
-    threadScrollRef,
-    chatCanvasClassName,
-    threadCanvasTransitionClassName,
-    threadContentTransitionClassName,
-    isLoading,
-    isWorkspaceInitializing,
-    hasContext: Boolean(context),
-    hasContract: Boolean(contract),
-    errorMessage,
-    showBillingWarningBanner: showBillingWarningBanner && Boolean(activeBillingSnapshot),
-    billingWarningLevel: billingWarningLevel === "none" ? null : billingWarningLevel,
-    billingCreditsLabel,
-    onOpenPricing: () => setPricingModalOpen(true),
-    onDismissBillingWarning: () =>
-      setDismissedBillingWarningLevel(billingWarningLevel as "low" | "critical"),
-  };
-  const composerDockProps = {
-    isNewChatHero,
-    isLeavingHero,
-    showScrollToLatest,
-    shouldCenterHero,
-    onScrollToBottom: scrollThreadToBottom,
-    draftInput,
-    onDraftInputChange: setDraftInput,
-    onComposerKeyDown: handleComposerKeyDown,
-    onSubmit: handleComposerSubmit,
-    isComposerDisabled,
-    isSubmitDisabled,
-    isSending,
-  };
   const draftEditorSurfaceProps = useDraftEditorSurfaceProps({
     open: Boolean(selectedDraftVersion && selectedDraftBundle),
     identity: draftEditorIdentity,
@@ -1482,12 +1371,105 @@ function ChatPageContent() {
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <ChatWorkspaceCanvas<ChatMessage>
-        chatSidebarProps={chatSidebarProps}
-        chatHeaderProps={chatHeaderProps}
-        chatThreadViewProps={chatThreadViewProps}
-        heroProps={heroProps}
+        workspaceChromeProps={{
+          toolsMenuRef,
+          toolsMenuOpen,
+          setToolsMenuOpen,
+          setSidebarOpen,
+          setExtensionModalOpen,
+          resetSourceMaterialDraft,
+          openSourceMaterials,
+          openDraftQueue,
+          openAnalysis,
+          openGrowthGuide,
+          sidebarOpen,
+          sidebarSearchQuery,
+          setSidebarSearchQuery,
+          closeSidebar,
+          openSidebar,
+          handleNewChat,
+          chatThreads,
+          hasWorkspace: Boolean(context && contract),
+          activeThreadId,
+          hoveredThreadId,
+          setHoveredThreadId,
+          menuOpenThreadId,
+          setMenuOpenThreadId,
+          editingThreadId,
+          editingTitle,
+          setEditingTitle,
+          setEditingThreadId,
+          handleRenameSubmit,
+          switchToThreadWithTransition,
+          requestDeleteThread,
+          openPreferences,
+          openFeedbackDialog,
+          threadMenuRef,
+          accountMenuRef,
+          accountMenuOpen,
+          toggleAccountMenu,
+          accountMenuVisible,
+          monetizationEnabled,
+          availableHandles,
+          accountName,
+          switchActiveHandle,
+          openAddAccountModal,
+          closeAccountMenu,
+          setSettingsModalOpen,
+          rateLimitsMenuOpen,
+          setRateLimitsMenuOpen,
+          rateLimitWindowLabel,
+          rateLimitsRemainingPercent,
+          rateLimitResetLabel,
+          showRateLimitUpgradeCta,
+          rateLimitUpgradeLabel,
+          setPricingModalOpen,
+          avatarUrl: context?.avatarUrl ?? null,
+          isVerifiedAccount,
+          sessionEmail: session?.user?.email ?? null,
+        }}
+        canvasProps={{
+          threadScrollRef,
+          threadCanvasClassName: chatCanvasClassName,
+          threadCanvasTransitionClassName,
+          threadContentTransitionClassName,
+          isLoading,
+          isWorkspaceInitializing,
+          hasContext: Boolean(context),
+          hasContract: Boolean(contract),
+          errorMessage,
+          showBillingWarningBanner:
+            showBillingWarningBanner && Boolean(activeBillingSnapshot),
+          billingWarningLevel:
+            billingWarningLevel === "none" ? null : billingWarningLevel,
+          billingCreditsLabel,
+          onOpenPricing: () => setPricingModalOpen(true),
+          onDismissBillingWarning: () =>
+            setDismissedBillingWarningLevel(billingWarningLevel as "low" | "critical"),
+          isHeroVisible: isNewChatHero || isLeavingHero,
+          avatarUrl: context?.avatarUrl ?? null,
+          heroIdentityLabel,
+          heroInitials,
+          heroGreeting,
+          isVerifiedAccount,
+          isLeavingHero,
+          draftInput,
+          onDraftInputChange: setDraftInput,
+          onComposerKeyDown: handleComposerKeyDown,
+          onComposerSubmit: handleComposerSubmit,
+          isComposerDisabled,
+          isSubmitDisabled,
+          isSending,
+          heroQuickActions,
+          onQuickAction: (prompt: string) => {
+            void submitQuickStarter(prompt);
+          },
+          isNewChatHero,
+          showScrollToLatest,
+          shouldCenterHero,
+          onScrollToBottom: scrollThreadToBottom,
+        }}
         messageStreamProps={messageStreamProps}
-        composerDockProps={composerDockProps}
       />
 
       <DraftEditorSurface {...draftEditorSurfaceProps} />

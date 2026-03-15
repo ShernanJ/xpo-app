@@ -1,24 +1,10 @@
 "use client";
 
-import type { FormEvent, KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 
-interface ChatComposerDockProps {
-  isNewChatHero: boolean;
-  isLeavingHero: boolean;
-  showScrollToLatest: boolean;
-  shouldCenterHero: boolean;
-  onScrollToBottom: () => void;
-  draftInput: string;
-  onDraftInputChange: (value: string) => void;
-  onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  isComposerDisabled: boolean;
-  isSubmitDisabled: boolean;
-  isSending: boolean;
-}
+import { useChatComposerDockCanvas } from "../chat-page/ChatCanvasContext";
 
-export function ChatComposerDock(props: ChatComposerDockProps) {
+export function ChatComposerDock() {
   const {
     isNewChatHero,
     isLeavingHero,
@@ -32,7 +18,7 @@ export function ChatComposerDock(props: ChatComposerDockProps) {
     isComposerDisabled,
     isSubmitDisabled,
     isSending,
-  } = props;
+  } = useChatComposerDockCanvas();
   const composerChromeClassName =
     "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
   const dockComposerSurfaceClassName = `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;

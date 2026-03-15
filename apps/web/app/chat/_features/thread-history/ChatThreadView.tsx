@@ -1,23 +1,11 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 
+import { useChatThreadViewCanvas } from "../chat-page/ChatCanvasContext";
+
 interface ChatThreadViewProps {
-  threadScrollRef: RefObject<HTMLElement | null>;
-  chatCanvasClassName: string;
-  threadCanvasTransitionClassName: string;
-  threadContentTransitionClassName: string;
-  isLoading: boolean;
-  isWorkspaceInitializing: boolean;
-  hasContext: boolean;
-  hasContract: boolean;
-  errorMessage: string | null;
-  showBillingWarningBanner: boolean;
-  billingWarningLevel: "low" | "critical" | null;
-  billingCreditsLabel: string;
-  onOpenPricing: () => void;
-  onDismissBillingWarning: () => void;
   hero: ReactNode;
   threadContent: ReactNode;
 }
@@ -38,6 +26,8 @@ export function ChatThreadView(props: ChatThreadViewProps) {
     billingCreditsLabel,
     onOpenPricing,
     onDismissBillingWarning,
+  } = useChatThreadViewCanvas();
+  const {
     hero,
     threadContent,
   } = props;

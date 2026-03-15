@@ -1,30 +1,12 @@
 "use client";
 
-import type { FormEvent, KeyboardEvent } from "react";
 import Image from "next/image";
 
-import type { HeroQuickAction } from "./composerViewState";
+import { useChatHeroCanvas } from "../chat-page/ChatCanvasContext";
 
-interface ChatHeroProps {
-  avatarUrl: string | null;
-  heroIdentityLabel: string;
-  heroInitials: string;
-  heroGreeting: string;
-  isVerifiedAccount: boolean;
-  isLeavingHero: boolean;
-  draftInput: string;
-  onDraftInputChange: (value: string) => void;
-  onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  isComposerDisabled: boolean;
-  isSubmitDisabled: boolean;
-  isSending: boolean;
-  heroQuickActions: HeroQuickAction[];
-  onQuickAction: (prompt: string) => void;
-}
-
-export function ChatHero(props: ChatHeroProps) {
+export function ChatHero() {
   const {
+    isVisible,
     avatarUrl,
     heroIdentityLabel,
     heroInitials,
@@ -40,7 +22,12 @@ export function ChatHero(props: ChatHeroProps) {
     isSending,
     heroQuickActions,
     onQuickAction,
-  } = props;
+  } = useChatHeroCanvas();
+
+  if (!isVisible) {
+    return null;
+  }
+
   const composerChromeClassName =
     "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
   const heroInlineComposerSurfaceClassName = `${composerChromeClassName} rounded-[1.4rem] p-1.5 sm:p-2`;

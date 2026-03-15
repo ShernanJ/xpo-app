@@ -4,7 +4,7 @@
 - Program: `Agent Runtime vNext`
 - Design pattern: `Sequential Control Plane, Parallel Worker Plane`
 - Migration style: staged strangler
-- Last updated: 2026-03-14
+- Last updated: 2026-03-15
 - Current slice: backend/lib and API folder-structure cleanup is landed for the active migration surface, and backend-only validation/retry is now landed across draft, revision, reply, and analysis
 - Current architecture tracks now focus on keeping new runtime work inside the landed domain folders so flat backend monoliths do not regrow
 
@@ -17,7 +17,7 @@
 The app is now bottlenecked by infrastructure, not prompt tweaks.
 
 Current hotspots:
-- `apps/web/app/chat/page.tsx` is still a large client monolith that mixes transport, local workflow state, and presentation.
+- `apps/web/app/chat/page.tsx` is now a thinner route orchestrator, but it still carries too much cross-feature prop plumbing and route-level async coordination.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still too heavy as a route boundary.
 - `apps/web/lib/agent-v2/runtime/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
 
@@ -32,6 +32,9 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - `_hooks`
   - `_lib`
 - Shared interactive primitives belong in `apps/web/components/ui`.
+- After high-ROI seam extraction, prefer focused route-local context providers over growing prop bags between sibling surfaces.
+- Route-local context should follow a narrow `state`, `actions`, and `meta` contract.
+- Do not introduce one mega page context or app-global state for route-local chat behavior.
 - Frontend testing now has an explicit long-term split:
   - `node:test` for pure state modules
   - Vitest + React Testing Library for synchronous client components
@@ -170,8 +173,9 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
   - feature code lives under `apps/web/app/chat/_features/*`
   - route-scoped dialogs live under `apps/web/app/chat/_dialogs/*`
   - route-scoped presentational components live under `apps/web/app/chat/_components/*`
-- `apps/web/app/chat/page.tsx` is now materially thinner, down to roughly 5.7k lines after moving thread-history, source-materials, preferences, growth-guide, and analysis state/presentation behind route-private feature seams.
+- `apps/web/app/chat/page.tsx` is now materially thinner, down to roughly 1.5k lines after moving billing, draft queue, feedback, workspace bootstrap/reset, thread history, reply orchestration, draft editor state, message stream composition, and page-local types behind route-private seams.
 - `apps/web/app/chat/page.tsx` still owns too much async orchestration to be the long-term ideal client boundary, but the highest-ROI duplicated state/decision seams from this pass are now extracted and covered by focused client tests.
+- The next frontend thinning seam is route-local context for shared sibling surfaces, starting with `workspace-chrome` so `ChatHeader` and `ChatSidebar` stop depending on page-built prop bags.
 - As of 2026-03-14, chat-page-specific TypeScript regressions from the extraction pass are resolved; remaining full `pnpm exec tsc --noEmit` failures are outside `apps/web/app/chat/page.tsx` and currently sit in unrelated tests and onboarding/shared modules.
 - Follow-up composer regressions from the route thinning pass are also fixed now:
   - the hero textarea and quick-action chips stay interactive when the draft is empty

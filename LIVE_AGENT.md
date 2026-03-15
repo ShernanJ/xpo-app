@@ -57,8 +57,8 @@ User turn
   - draft, revision, reply, and analysis now all use deterministic delivery validation plus one constrained retry before safe fallback
   - shared conversational delivery validators live in `apps/web/lib/agent-v2/validators/shared/`
   - shared reply/analyze validation worker adapters live in `apps/web/lib/agent-v2/workers/validation/`
-- As of 2026-03-14, the latest chat-client thinning pass focused on `apps/web/app/chat/page.tsx` and extracted the highest-ROI page-local state seams plus the inline draft preview card surface. The remaining follow-on from that pass is optional reassessment, not a required migration blocker.
-- That same pass has now extracted route-private thread-history, source-materials, preferences, growth-guide, and analysis state/presentation seams, and `apps/web/app/chat/page.tsx` is down to roughly 5.7k lines instead of acting as a single giant mixed client surface.
+- As of 2026-03-15, the chat-client thinning pass has extracted the highest-ROI page-local state seams plus the major composition surfaces, and `apps/web/app/chat/page.tsx` is down to roughly 1.5k lines instead of acting as a single giant mixed client surface.
+- The next frontend follow-on is focused route-local context, starting with `workspace-chrome`, so sibling surfaces can share view contracts without re-growing page-level prop assembly.
 - Chat-page-specific TypeScript regressions from that extraction are fixed; any remaining `pnpm exec tsc --noEmit` failures are currently outside `apps/web/app/chat/page.tsx`.
 - As of 2026-03-14, the chat/pricing/login UI is also in an active frontend hygiene pass to follow better React composition, accessibility, and Vercel-style rendering practices without changing transport or backend behavior.
 - The latest UI pass landed:
@@ -79,6 +79,10 @@ User turn
 ## Frontend operating model
 - Keep route roots thin. In complex routes, only keep route entry files like `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, and route handlers at the route root.
 - For `apps/web/app/chat`, do not add new feature-local state machines, modal bodies, or view-state selectors back into `page.tsx`; extend the existing route-private `_features/*` seams instead.
+- For `apps/web/app/chat`, prefer focused route-local context when multiple sibling surfaces need the same state/actions and the page is mostly assembling prop bags that mirror child contracts.
+- Keep route-local context composition-only: providers may assemble view state and event wiring, but feature hooks remain the source of truth for async logic, mutations, and workflow behavior.
+- Context contracts in this slice should follow `state`, `actions`, and `meta`, with narrow consumer hooks for each surface.
+- Do not introduce a single `ChatPageContext`, Redux, or MobX for route-local chat state unless the state becomes truly cross-route or app-global.
 - For `apps/web/app/chat/_features/composer/*`, do not couple “can submit” to “can interact”: empty draft state may disable the send button, but it must not disable the textarea or quick-action chips.
 - Route-local implementation belongs in private folders:
   - `_features`
@@ -92,6 +96,10 @@ User turn
   - `pnpm run test:ui`
   - `pnpm run test:e2e`
   - keep `node:test` for pure state modules
+- Do not regress:
+  - do not reintroduce giant `ChatHeader` / `ChatSidebar` prop bags when a focused route-local provider is the better seam
+  - do not let `workspace-chrome` providers absorb overlay, billing, or draft-editor ownership
+  - do not centralize all chat route state into one provider
 
 ## Backend/lib and API operating model
 - Keep `apps/web/lib` domain-first and avoid adding broad catch-all helpers at the root of a domain.

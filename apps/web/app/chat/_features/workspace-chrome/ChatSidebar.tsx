@@ -1,62 +1,13 @@
 "use client";
 
-import type { KeyboardEvent, RefObject } from "react";
+import type { KeyboardEvent } from "react";
 import Image from "next/image";
 import { Edit3, MessageSquareText, MoreVertical, Settings2, Trash2 } from "lucide-react";
 
 import { AccountMenuPanel } from "./AccountMenuPanel";
-import type { SidebarThreadSection } from "./workspaceChromeViewState";
+import { useChatSidebarChrome } from "./ChatWorkspaceChromeContext";
 
-interface ChatSidebarProps {
-  sidebarOpen: boolean;
-  sidebarSearchQuery: string;
-  onSidebarSearchQueryChange: (value: string) => void;
-  onCloseSidebar: () => void;
-  onOpenSidebar: () => void;
-  onNewChat: () => void;
-  sections: SidebarThreadSection[];
-  activeThreadId: string | null;
-  hoveredThreadId: string | null;
-  onHoveredThreadIdChange: (threadId: string | null) => void;
-  menuOpenThreadId: string | null;
-  onMenuOpenThreadIdChange: (threadId: string | null) => void;
-  editingThreadId: string | null;
-  editingTitle: string;
-  onEditingTitleChange: (value: string) => void;
-  onEditingThreadIdChange: (threadId: string | null) => void;
-  onRenameSubmit: (threadId: string) => void;
-  onSwitchToThread: (threadId: string) => void;
-  onRequestDeleteThread: (id: string, title: string) => void;
-  onOpenPreferences: () => void;
-  onOpenFeedback: () => void;
-  threadMenuRef: RefObject<HTMLDivElement | null>;
-  accountMenuRef: RefObject<HTMLDivElement | null>;
-  accountMenuOpen: boolean;
-  onToggleAccountMenu: () => void;
-  accountMenuVisible: boolean;
-  monetizationEnabled: boolean;
-  availableHandles: string[];
-  accountName: string | null;
-  canAddAccount: boolean;
-  onSwitchActiveHandle: (handle: string) => void;
-  onOpenAddAccount: () => void;
-  onOpenSettings: () => void;
-  rateLimitsMenuOpen: boolean;
-  onToggleRateLimitsMenu: () => void;
-  rateLimitWindowLabel: string;
-  rateLimitsRemainingPercent: number | null;
-  rateLimitResetLabel: string;
-  showRateLimitUpgradeCta: boolean;
-  rateLimitUpgradeLabel: string;
-  onOpenPricing: () => void;
-  avatarUrl: string | null;
-  accountAvatarFallback: string;
-  accountProfileAriaLabel: string;
-  isVerifiedAccount: boolean;
-  sessionEmail: string | null;
-}
-
-export function ChatSidebar(props: ChatSidebarProps) {
+export function ChatSidebar() {
   const {
     sidebarOpen,
     sidebarSearchQuery,
@@ -104,7 +55,7 @@ export function ChatSidebar(props: ChatSidebarProps) {
     accountProfileAriaLabel,
     isVerifiedAccount,
     sessionEmail,
-  } = props;
+  } = useChatSidebarChrome();
 
   const handleThreadKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
