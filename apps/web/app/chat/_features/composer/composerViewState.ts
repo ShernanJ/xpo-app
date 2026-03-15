@@ -8,8 +8,8 @@ const BASE_HERO_QUICK_ACTIONS = [
     prompt: "write a post",
   },
   {
-    label: "Give me feedback",
-    prompt: "give me feedback",
+    label: "Analyze my profile",
+    prompt: "analyze my profile",
   },
   {
     label: "Write a thread",
