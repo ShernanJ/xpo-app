@@ -10,9 +10,6 @@ import {
 import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
-import {
-  type DraftArtifactDetails,
-} from "@/lib/onboarding/draftArtifacts";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
 import {
   type BillingSnapshotPayload,
@@ -62,6 +59,19 @@ import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorksp
 import { useWorkspaceChromeProps } from "./_features/workspace-chrome/useWorkspaceChromeProps";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
+  type ChatContentFocus,
+  type ChatMessage,
+  type ChatQuickReply,
+  type CreatorChatSuccess,
+  type DraftArtifact,
+  type DraftBundlePayload,
+  type DraftDrawerSelection,
+  type DraftVersionEntry,
+  type DraftVersionSnapshot,
+  type ReplyArtifacts,
+  type ReplyParseEnvelope,
+} from "./_features/chat-page/chatPageTypes";
+import {
   DEFAULT_CHAT_STRATEGY_INPUTS,
   DEFAULT_CHAT_TONE_INPUTS,
   buildTemplateWhyItWorksPoints,
@@ -89,266 +99,6 @@ import { usePreferencesState } from "./_features/preferences/usePreferencesState
 import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideState";
 import { useAnalysisState } from "./_features/analysis/useAnalysisState";
 import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
-import {
-  type SourceMaterialAsset,
-} from "./_features/source-materials/sourceMaterialsState";
-
-interface CreatorChatSuccess {
-  ok: true;
-  data: {
-    reply: string;
-    angles: unknown[];
-    quickReplies?: ChatQuickReply[];
-    plan?: {
-      objective: string;
-      angle: string;
-      targetLane: "original" | "reply" | "quote";
-      mustInclude: string[];
-      mustAvoid: string[];
-      hookType: string;
-      pitchResponse: string;
-      formatPreference?: "shortform" | "longform" | "thread";
-    } | null;
-    draft?: string | null;
-    drafts: string[];
-    draftArtifacts: DraftArtifact[];
-    draftVersions?: DraftVersionEntry[];
-    activeDraftVersionId?: string;
-    draftBundle?: DraftBundlePayload | null;
-    previousVersionSnapshot?: DraftVersionSnapshot | null;
-    revisionChainId?: string;
-    supportAsset: string | null;
-    groundingSources?: DraftArtifact["groundingSources"];
-    autoSavedSourceMaterials?: {
-      count: number;
-      assets: Array<{
-        id: string;
-        title: string;
-        deletable: boolean;
-      }>;
-    } | null;
-    outputShape:
-    | "coach_question"
-    | "ideation_angles"
-    | "planning_outline"
-    | "short_form_post"
-    | "long_form_post"
-    | "thread_seed"
-    | "reply_candidate"
-    | "quote_candidate";
-    surfaceMode?:
-      | "answer_directly"
-      | "ask_one_question"
-      | "revise_and_return"
-      | "offer_options"
-      | "generate_full_output";
-    replyArtifacts?: ReplyArtifacts | null;
-    replyParse?: ReplyParseEnvelope | null;
-    contextPacket?: {
-      version: string;
-      summary: string;
-    } | null;
-    newThreadId?: string;
-    messageId?: string;
-    threadTitle?: string;
-    billing?: BillingStatePayload;
-    memory?: {
-      conversationState: string;
-      activeConstraints: string[];
-      topicSummary: string | null;
-      concreteAnswerCount: number;
-      currentDraftArtifactId: string | null;
-      activeDraftRef?: {
-        messageId: string;
-        versionId: string;
-        revisionChainId?: string | null;
-      } | null;
-      rollingSummary?: string | null;
-      pendingPlan?: {
-        objective: string;
-        angle: string;
-        targetLane: "original" | "reply" | "quote";
-        mustInclude: string[];
-        mustAvoid: string[];
-        hookType: string;
-        pitchResponse: string;
-        formatPreference?: "shortform" | "longform" | "thread";
-      } | null;
-      clarificationState?: {
-        branchKey: string;
-        stepKey: string;
-        seedTopic: string | null;
-      } | null;
-      assistantTurnCount?: number;
-      latestRefinementInstruction?: string | null;
-      unresolvedQuestion?: string | null;
-      clarificationQuestionsAsked?: number;
-      preferredSurfaceMode?: "natural" | "structured" | null;
-      formatPreference?: "shortform" | "longform" | "thread" | null;
-      activeReplyContext?: {
-        sourceText: string;
-        sourceUrl: string | null;
-        authorHandle: string | null;
-        selectedReplyOptionId: string | null;
-      } | null;
-      voiceFidelity?: "balanced";
-    };
-  };
-}
-
-type DraftArtifact = DraftArtifactDetails;
-type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
-
-interface DraftVersionEntry {
-  id: string;
-  content: string;
-  source: DraftVersionSource;
-  createdAt: string;
-  basedOnVersionId: string | null;
-  weightedCharacterCount: number;
-  maxCharacterLimit: number;
-  supportAsset: string | null;
-  artifact?: DraftArtifact;
-}
-
-interface DraftVersionSnapshot {
-  messageId: string;
-  versionId: string;
-  content: string;
-  source: DraftVersionSource;
-  createdAt: string;
-  maxCharacterLimit?: number;
-  revisionChainId?: string;
-}
-
-interface DraftBundleOption {
-  id: string;
-  label: string;
-  framing?: string;
-  versionId: string;
-  content: string;
-  artifact: DraftArtifact;
-}
-
-interface DraftBundlePayload {
-  kind: "sibling_options";
-  selectedOptionId: string;
-  options: DraftBundleOption[];
-}
-
-interface ReplyIntentMetadata {
-  label: string;
-  strategyPillar: string;
-  anchor: string;
-  rationale: string;
-}
-
-interface ReplyArtifactOption {
-  id: string;
-  label: string;
-  text: string;
-  intent?: ReplyIntentMetadata;
-}
-
-type ReplyArtifacts =
-  | {
-      kind: "reply_options";
-      sourceText: string;
-      sourceUrl: string | null;
-      authorHandle: string | null;
-      options: ReplyArtifactOption[];
-      groundingNotes: string[];
-      warnings: string[];
-      selectedOptionId: string | null;
-    }
-  | {
-      kind: "reply_draft";
-      sourceText: string;
-      sourceUrl: string | null;
-      authorHandle: string | null;
-      options: ReplyArtifactOption[];
-      notes: string[];
-      selectedOptionId: string | null;
-    };
-
-interface ReplyParseEnvelope {
-  detected: boolean;
-  confidence: "low" | "medium" | "high";
-  needsConfirmation: boolean;
-  parseReason: string;
-}
-
-interface DraftDrawerSelection {
-  messageId: string;
-  versionId: string;
-  revisionChainId?: string;
-}
-
-type MessageFeedbackValue = "up" | "down";
-
-interface ChatMessage {
-  id: string;
-  threadId?: string;
-  role: "assistant" | "user";
-  content: string;
-  createdAt?: string;
-  excludeFromHistory?: boolean;
-  quickReplies?: ChatQuickReply[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  angles?: any[];
-  plan?: CreatorChatSuccess["data"]["plan"];
-  draft?: string | null;
-  drafts?: string[];
-  draftArtifacts?: DraftArtifact[];
-  draftVersions?: DraftVersionEntry[];
-  activeDraftVersionId?: string;
-  draftBundle?: DraftBundlePayload | null;
-  previousVersionSnapshot?: DraftVersionSnapshot | null;
-  revisionChainId?: string;
-  supportAsset?: string | null;
-  groundingSources?: DraftArtifact["groundingSources"];
-  autoSavedSourceMaterials?: {
-    count: number;
-    assets: Array<{
-      id: string;
-      title: string;
-      deletable: boolean;
-    }>;
-  } | null;
-  promotedSourceMaterials?: {
-    count: number;
-    assets: SourceMaterialAsset[];
-  } | null;
-  whyThisWorks?: string[];
-  watchOutFor?: string[];
-  outputShape?: CreatorChatSuccess["data"]["outputShape"];
-  surfaceMode?: CreatorChatSuccess["data"]["surfaceMode"];
-  replyArtifacts?: ReplyArtifacts | null;
-  replyParse?: ReplyParseEnvelope | null;
-  contextPacket?: {
-    version: string;
-    summary: string;
-  } | null;
-  feedbackValue?: MessageFeedbackValue | null;
-  isStreaming?: boolean;
-}
-
-type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
-type ChatContentFocus =
-  | "project_showcase"
-  | "technical_insight"
-  | "build_in_public"
-  | "operator_lessons"
-  | "social_observation";
-
-interface ChatQuickReply {
-  kind: "content_focus" | "example_reply" | "planner_action" | "clarification_choice";
-  value: string;
-  label: string;
-  suggestedFocus?: ChatContentFocus;
-  explicitIntent?: ChatIntent;
-  formatPreference?: "shortform" | "longform" | "thread";
-}
 
 const monetizationEnabled = isMonetizationEnabled();
 
