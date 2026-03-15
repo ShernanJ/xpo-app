@@ -13,7 +13,7 @@ import { AddAccountDialog } from "./AddAccountDialog";
 import { ExtensionDialog } from "./ExtensionDialog";
 import { ThreadDeleteDialog } from "./ThreadDeleteDialog";
 
-interface ChatOverlaysProps {
+export interface ChatOverlaysProps {
   draftQueueModalsProps: ComponentProps<typeof DraftQueueModals>;
   billingDialogsProps: ComponentProps<typeof BillingDialogs>;
   feedbackDialogProps: ComponentProps<typeof FeedbackDialog>;

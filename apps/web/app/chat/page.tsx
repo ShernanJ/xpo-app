@@ -86,6 +86,7 @@ import { useThreadViewState } from "./_features/thread-history/useThreadViewStat
 import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
 import { ChatOverlays } from "./_features/workspace-chrome/ChatOverlays";
 import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
+import { useChatOverlayProps } from "./_features/workspace-chrome/useChatOverlayProps";
 import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorkspaceAccountState";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
@@ -1743,6 +1744,228 @@ function ChatPageContent() {
       openGrowthGuide();
     },
   }));
+  const chatOverlayProps = useChatOverlayProps({
+    draftQueueOpen,
+    isDraftQueueLoading,
+    draftQueueError,
+    draftQueueItems,
+    editingDraftCandidateId,
+    editingDraftCandidateText,
+    draftQueueActionById,
+    copiedPreviewDraftMessageId,
+    context,
+    isVerifiedAccount,
+    handleDraftQueueOpenChange,
+    submitQuickStarter,
+    startEditingDraftCandidate,
+    cancelEditingDraftCandidate,
+    setEditingDraftCandidateText,
+    mutateDraftQueueCandidate,
+    openObservedMetricsModal,
+    openSourceMaterialEditor,
+    copyPreviewDraft,
+    shareDraftEditorToX,
+    observedMetricsCandidate,
+    observedMetricsCandidateId,
+    observedMetricsForm,
+    updateObservedMetricsField,
+    closeObservedMetricsModal,
+    submitObservedMetrics,
+    monetizationEnabled,
+    supportEmail,
+    setPricingModalOpen,
+    acknowledgePricingModal,
+    onSignOut: () => {
+      void signOut({ callbackUrl: "/" });
+    },
+    settingsModalOpen,
+    setSettingsModalOpen,
+    planStatusLabel,
+    settingsPlanLabel,
+    rateLimitResetLabel,
+    isOpeningBillingPortal,
+    openBillingPortal,
+    showRateLimitUpgradeCta,
+    rateLimitUpgradeLabel,
+    settingsCreditsRemaining,
+    settingsCreditsUsed,
+    settingsCreditLimit,
+    settingsCreditsRemainingPercent,
+    pricingModalOpen,
+    handlePricingModalOpenChange,
+    pricingModalDismissLabel,
+    selectedModalProIsAnnual,
+    selectedModalProCents,
+    selectedModalProPriceSuffix,
+    setSelectedModalProCadence,
+    isProActive,
+    isFounderCurrent,
+    selectedModalProIsCurrent,
+    selectedModalProNeedsPortalSwitch,
+    selectedModalProOfferEnabled,
+    selectedModalProButtonLabel,
+    isSelectedModalProCheckoutLoading,
+    openCheckoutForOffer,
+    selectedModalProOffer,
+    lifetimeAmountCents: lifetimeOffer?.amountCents ?? 0,
+    lifetimeSlotSummary,
+    lifetimeOfferEnabled: lifetimeOffer?.enabled !== false,
+    feedbackModalOpen,
+    setFeedbackModalOpen,
+    submitFeedback,
+    feedbackCategory,
+    setFeedbackCategory,
+    activeFeedbackTitle,
+    updateActiveFeedbackTitle,
+    activeFeedbackDraft,
+    updateActiveFeedbackDraft,
+    feedbackEditorRef,
+    handleFeedbackEditorKeyDown,
+    applyFeedbackMarkdownToken,
+    feedbackImages,
+    feedbackFileInputRef,
+    isFeedbackDropActive,
+    handleFeedbackImageSelection,
+    handleFeedbackDropZoneDragOver,
+    handleFeedbackDropZoneDragLeave,
+    handleFeedbackDropZoneDrop,
+    removeFeedbackImage,
+    accountName,
+    activeThreadId,
+    feedbackHistory,
+    feedbackHistoryFilter,
+    setFeedbackHistoryFilter,
+    feedbackHistoryQuery,
+    setFeedbackHistoryQuery,
+    isFeedbackHistoryLoading,
+    feedbackStatusUpdatingIds,
+    updateFeedbackSubmissionStatus,
+    sessionUserId: session?.user?.id ?? null,
+    sessionEmail: session?.user?.email ?? null,
+    feedbackSubmitNotice,
+    isFeedbackSubmitting,
+    extensionModalOpen,
+    setExtensionModalOpen,
+    sourceMaterialsOpen,
+    setSourceMaterialsOpen,
+    seedSourceMaterials,
+    isSourceMaterialsLoading,
+    isSourceMaterialsSaving,
+    sourceMaterialsNotice,
+    sourceMaterialDraft,
+    resetSourceMaterialDraft,
+    clearSourceMaterialsNotice,
+    applyClaimExample,
+    updateSourceMaterialTitle,
+    updateSourceMaterialType,
+    toggleSourceMaterialVerified,
+    updateSourceMaterialClaims,
+    sourceMaterialAdvancedOpen,
+    toggleSourceMaterialAdvancedOpen,
+    updateSourceMaterialTags,
+    updateSourceMaterialSnippets,
+    updateSourceMaterialDoNotClaim,
+    deleteSourceMaterial,
+    saveSourceMaterial,
+    sourceMaterialsLibraryOpen,
+    toggleSourceMaterialsLibraryOpen,
+    sourceMaterials,
+    selectSourceMaterial,
+    preferencesOpen,
+    setPreferencesOpen,
+    savePreferences,
+    isPreferencesLoading,
+    isPreferencesSaving,
+    preferenceCasing,
+    setPreferenceCasing,
+    preferenceBulletStyle,
+    setPreferenceBulletStyle,
+    preferenceWritingMode,
+    setPreferenceWritingMode,
+    preferenceUseEmojis,
+    togglePreferenceUseEmojis,
+    preferenceAllowProfanity,
+    togglePreferenceAllowProfanity,
+    preferenceBlacklistInput,
+    handlePreferenceBlacklistInputChange,
+    handlePreferenceBlacklistInputKeyDown,
+    preferenceBlacklistedTerms,
+    removePreferenceBlacklistedTerm,
+    effectivePreferenceMaxCharacters,
+    setPreferenceMaxCharacters: setPreferenceMaxCharacters,
+    previewDisplayName,
+    previewUsername,
+    previewAvatarUrl,
+    preferencesPreviewDraft,
+    preferencesPreviewCounter,
+    playbookModalOpen,
+    handleGrowthGuideOpenChange,
+    playbookStage,
+    setPlaybookStage,
+    filteredStagePlaybooks,
+    selectedPlaybook,
+    handleApplyPlaybook,
+    growthGuideSelectedPlaybookRef,
+    playbookTemplateTab,
+    setPlaybookTemplateTab,
+    personalizedPlaybookTemplates,
+    activePlaybookTemplateId: activePlaybookTemplate?.id ?? null,
+    setActivePlaybookTemplateId,
+    activePlaybookTemplateText: activePlaybookTemplate?.text ?? null,
+    playbookTemplatePreviewCounter,
+    copiedPlaybookTemplateId,
+    handleCopyPlaybookTemplate,
+    buildTemplateWhyItWorksPoints,
+    growthGuidePreviewDisplayName,
+    growthGuidePreviewUsername,
+    growthGuidePreviewAvatarUrl,
+    openFeedbackDialog,
+    openAnalysis,
+    analysisOpen,
+    setAnalysisOpen,
+    currentPlaybookStage,
+    analysisFollowerProgress,
+    analysisDiagnosisSummary,
+    analysisSnapshotCards,
+    analysisPositioningIsTentative,
+    analysisPriorityItems,
+    analysisRecommendedPlaybooks,
+    analysisLearningStrengths,
+    analysisLearningCautions,
+    analysisLearningExperiments,
+    analysisReplyConversionHighlights,
+    analysisVoiceSignalChips,
+    analysisKeepList,
+    analysisAvoidList,
+    analysisEvidencePosts,
+    analysisScrapeNotice,
+    analysisScrapeNoticeTone,
+    isAnalysisScrapeCoolingDown,
+    analysisScrapeCooldownLabel,
+    isAnalysisScrapeRefreshing,
+    handleManualProfileScrapeRefresh,
+    closeAnalysis,
+    openGrowthGuide,
+    openGrowthGuideForRecommendation,
+    isAddAccountModalOpen,
+    requiresXAccountGate,
+    isAddAccountSubmitting,
+    addAccountPreview,
+    normalizedAddAccount,
+    addAccountLoadingStepIndex,
+    addAccountLoadingSteps,
+    closeAddAccountModal,
+    handleAddAccountSubmit,
+    addAccountInput,
+    updateAddAccountInput,
+    readyAccountHandle,
+    hasValidAddAccountPreview,
+    isAddAccountPreviewLoading,
+    addAccountError,
+    threadToDelete,
+    clearThreadToDelete,
+    confirmDeleteThread,
+  });
 
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
@@ -2064,352 +2287,7 @@ function ChatPageContent() {
         onShareDraftEditor={shareDraftEditorToX}
       />
 
-      <ChatOverlays
-        draftQueueModalsProps={{
-          draftQueueDialogProps: {
-            open: draftQueueOpen,
-            isLoading: isDraftQueueLoading,
-            errorMessage: draftQueueError,
-            items: draftQueueItems,
-            editingCandidateId: editingDraftCandidateId,
-            editingCandidateText: editingDraftCandidateText,
-            actionById: draftQueueActionById,
-            copiedPreviewDraftMessageId,
-            canGenerateInChat: Boolean(context?.runId),
-            isVerifiedAccount,
-            onOpenChange: handleDraftQueueOpenChange,
-            onGenerateInChat: () => {
-              handleDraftQueueOpenChange(false);
-              void submitQuickStarter("draft 4 posts from what you know about me");
-            },
-            onStartEditingCandidate: startEditingDraftCandidate,
-            onCancelEditingCandidate: cancelEditingDraftCandidate,
-            onEditCandidateTextChange: setEditingDraftCandidateText,
-            onMutateCandidate: (candidateId, payload) => {
-              void mutateDraftQueueCandidate(candidateId, payload);
-            },
-            onOpenObservedMetrics: openObservedMetricsModal,
-            onOpenSourceMaterial: (params) => {
-              void openSourceMaterialEditor(params);
-            },
-            onCopyCandidateDraft: (candidateId, content) => {
-              void copyPreviewDraft(candidateId, content);
-            },
-            onOpenX: shareDraftEditorToX,
-          },
-          observedMetricsOpen: Boolean(observedMetricsCandidate),
-          observedMetricsCandidateTitle: observedMetricsCandidate?.title ?? null,
-          observedMetricsValue: observedMetricsForm,
-          observedMetricsSubmitting:
-            draftQueueActionById[observedMetricsCandidateId || ""] === "observed",
-          observedMetricsErrorMessage: draftQueueError,
-          onObservedMetricsChange: updateObservedMetricsField,
-          onObservedMetricsOpenChange: (open) => {
-            if (!open) {
-              closeObservedMetricsModal();
-            }
-          },
-          onSubmitObservedMetrics: () => {
-            void submitObservedMetrics();
-          },
-        }}
-        billingDialogsProps={{
-          monetizationEnabled,
-          supportEmail,
-          onOpenPricingPage: () => {
-            setPricingModalOpen(false);
-            void acknowledgePricingModal();
-            window.location.href = "/pricing";
-          },
-          onSignOut: () => {
-            void signOut({ callbackUrl: "/" });
-          },
-          settingsDialogProps: {
-            open: settingsModalOpen,
-            onOpenChange: setSettingsModalOpen,
-            planStatusLabel,
-            settingsPlanLabel,
-            rateLimitResetLabel,
-            isOpeningBillingPortal,
-            onOpenBillingPortal: () => {
-              void openBillingPortal();
-            },
-            showRateLimitUpgradeCta,
-            rateLimitUpgradeLabel,
-            onOpenPricing: () => {
-              setSettingsModalOpen(false);
-              if (monetizationEnabled) {
-                setPricingModalOpen(true);
-              }
-            },
-            settingsCreditsRemaining,
-            settingsCreditsUsed,
-            settingsCreditLimit,
-            settingsCreditsRemainingPercent,
-          },
-          pricingDialogProps: {
-            open: pricingModalOpen,
-            onOpenChange: handlePricingModalOpenChange,
-            dismissLabel: pricingModalDismissLabel,
-            selectedModalProIsAnnual,
-            selectedModalProCents,
-            selectedModalProPriceSuffix,
-            setSelectedModalProCadence,
-            isProActive,
-            isFounderCurrent,
-            selectedModalProIsCurrent,
-            selectedModalProNeedsPortalSwitch,
-            selectedModalProOfferEnabled,
-            selectedModalProButtonLabel,
-            isSelectedModalProCheckoutLoading,
-            isOpeningBillingPortal,
-            onOpenBillingPortal: () => {
-              void openBillingPortal();
-            },
-            onOpenCheckout: (offer) => {
-              void openCheckoutForOffer(offer);
-            },
-            selectedModalProOffer,
-            lifetimeAmountCents: lifetimeOffer?.amountCents ?? 0,
-            lifetimeSlotSummary,
-            lifetimeOfferEnabled: lifetimeOffer?.enabled !== false,
-          },
-        }}
-        feedbackDialogProps={{
-          open: feedbackModalOpen,
-          onOpenChange: setFeedbackModalOpen,
-          onSubmit: submitFeedback,
-          feedbackCategory,
-          onFeedbackCategoryChange: setFeedbackCategory,
-          activeFeedbackTitle,
-          onActiveFeedbackTitleChange: updateActiveFeedbackTitle,
-          activeFeedbackDraft,
-          onActiveFeedbackDraftChange: updateActiveFeedbackDraft,
-          feedbackEditorRef,
-          onFeedbackEditorKeyDown: handleFeedbackEditorKeyDown,
-          onInsertMarkdownToken: applyFeedbackMarkdownToken,
-          feedbackImages,
-          feedbackFileInputRef,
-          isFeedbackDropActive,
-          onFeedbackImageSelection: handleFeedbackImageSelection,
-          onFeedbackDropZoneDragOver: handleFeedbackDropZoneDragOver,
-          onFeedbackDropZoneDragLeave: handleFeedbackDropZoneDragLeave,
-          onFeedbackDropZoneDrop: handleFeedbackDropZoneDrop,
-          onRemoveFeedbackImage: removeFeedbackImage,
-          profileHandle: context?.account ?? accountName ?? "unknown",
-          avatarUrl: context?.avatarUrl ?? null,
-          submittingEmail: session?.user?.email ?? "email unavailable",
-          activeThreadId,
-          feedbackHistory,
-          feedbackHistoryFilter,
-          onFeedbackHistoryFilterChange: setFeedbackHistoryFilter,
-          feedbackHistoryQuery,
-          onFeedbackHistoryQueryChange: setFeedbackHistoryQuery,
-          isFeedbackHistoryLoading,
-          feedbackStatusUpdatingIds,
-          onUpdateFeedbackSubmissionStatus: (submissionId, status) => {
-            void updateFeedbackSubmissionStatus(submissionId, status);
-          },
-          currentUserId: session?.user?.id ?? null,
-          feedbackSubmitNotice,
-          isFeedbackSubmitting,
-        }}
-        extensionDialogProps={{
-          open: extensionModalOpen,
-          onOpenChange: setExtensionModalOpen,
-        }}
-        sourceMaterialsDialogProps={{
-          open: sourceMaterialsOpen,
-          onOpenChange: setSourceMaterialsOpen,
-          onSeedSourceMaterials: () => {
-            void seedSourceMaterials();
-          },
-          isSourceMaterialsLoading,
-          isSourceMaterialsSaving,
-          sourceMaterialsNotice,
-          sourceMaterialDraft,
-          onClearDraft: () => {
-            resetSourceMaterialDraft();
-            clearSourceMaterialsNotice();
-          },
-          onApplyClaimExample: applyClaimExample,
-          onDraftTitleChange: updateSourceMaterialTitle,
-          onDraftTypeChange: updateSourceMaterialType,
-          onToggleDraftVerified: toggleSourceMaterialVerified,
-          onDraftClaimsChange: updateSourceMaterialClaims,
-          sourceMaterialAdvancedOpen,
-          onToggleSourceMaterialAdvancedOpen: toggleSourceMaterialAdvancedOpen,
-          onDraftTagsChange: updateSourceMaterialTags,
-          onDraftSnippetsChange: updateSourceMaterialSnippets,
-          onDraftDoNotClaimChange: updateSourceMaterialDoNotClaim,
-          onDeleteSourceMaterial: () => {
-            void deleteSourceMaterial();
-          },
-          onSaveSourceMaterial: () => {
-            void saveSourceMaterial();
-          },
-          sourceMaterialsLibraryOpen,
-          onToggleSourceMaterialsLibraryOpen: toggleSourceMaterialsLibraryOpen,
-          sourceMaterials,
-          onSelectSourceMaterial: selectSourceMaterial,
-        }}
-        preferencesDialogProps={
-          context
-            ? {
-                open: preferencesOpen,
-                onOpenChange: setPreferencesOpen,
-                onSave: () => {
-                  void savePreferences();
-                },
-                isPreferencesLoading,
-                isPreferencesSaving,
-                preferenceCasing,
-                onPreferenceCasingChange: setPreferenceCasing,
-                preferenceBulletStyle,
-                onPreferenceBulletStyleChange: setPreferenceBulletStyle,
-                preferenceWritingMode,
-                onPreferenceWritingModeChange: setPreferenceWritingMode,
-                preferenceUseEmojis,
-                onTogglePreferenceUseEmojis: togglePreferenceUseEmojis,
-                preferenceAllowProfanity,
-                onTogglePreferenceAllowProfanity: togglePreferenceAllowProfanity,
-                preferenceBlacklistInput,
-                onPreferenceBlacklistInputChange: handlePreferenceBlacklistInputChange,
-                onPreferenceBlacklistInputKeyDown: handlePreferenceBlacklistInputKeyDown,
-                preferenceBlacklistedTerms,
-                onRemovePreferenceBlacklistedTerm: removePreferenceBlacklistedTerm,
-                isVerifiedAccount,
-                effectivePreferenceMaxCharacters,
-                onPreferenceMaxCharactersChange: setPreferenceMaxCharacters,
-                previewDisplayName,
-                previewUsername,
-                previewAvatarUrl,
-                preferencesPreviewDraft,
-                preferencesPreviewCounter,
-              }
-            : null
-        }
-        growthGuideDialogProps={
-          context
-            ? {
-                open: playbookModalOpen,
-                onOpenChange: handleGrowthGuideOpenChange,
-                playbookStage,
-                onPlaybookStageChange: setPlaybookStage,
-                filteredStagePlaybooks,
-                selectedPlaybook,
-                onSelectPlaybook: handleApplyPlaybook,
-                selectedPlaybookRef: growthGuideSelectedPlaybookRef,
-                playbookTemplateTab,
-                onPlaybookTemplateTabChange: setPlaybookTemplateTab,
-                personalizedPlaybookTemplates,
-                activePlaybookTemplateId: activePlaybookTemplate?.id ?? null,
-                onActivePlaybookTemplateChange: setActivePlaybookTemplateId,
-                activePlaybookTemplateText: activePlaybookTemplate?.text ?? null,
-                playbookTemplatePreviewCounter,
-                copiedPlaybookTemplateId,
-                onCopyPlaybookTemplate: (template) => {
-                  void handleCopyPlaybookTemplate(template);
-                },
-                templateWhyItWorksPoints: buildTemplateWhyItWorksPoints(playbookTemplateTab),
-                previewDisplayName: growthGuidePreviewDisplayName,
-                previewUsername: growthGuidePreviewUsername,
-                previewAvatarUrl: growthGuidePreviewAvatarUrl,
-                isVerifiedAccount,
-                onOpenFeedback: () => {
-                  handleGrowthGuideOpenChange(false);
-                  openFeedbackDialog();
-                },
-                onOpenProfileAnalysis: () => {
-                  handleGrowthGuideOpenChange(false);
-                  openAnalysis();
-                },
-              }
-            : null
-        }
-        profileAnalysisDialogProps={
-          context
-            ? {
-                open: analysisOpen,
-                onOpenChange: setAnalysisOpen,
-                context,
-                accountName,
-                isVerifiedAccount,
-                currentPlaybookStage,
-                analysisFollowerProgress,
-                analysisDiagnosisSummary,
-                analysisSnapshotCards,
-                analysisPositioningIsTentative,
-                analysisPriorityItems,
-                analysisRecommendedPlaybooks,
-                analysisLearningStrengths,
-                analysisLearningCautions,
-                analysisLearningExperiments,
-                analysisReplyConversionHighlights,
-                analysisVoiceSignalChips,
-                analysisKeepList,
-                analysisAvoidList,
-                analysisEvidencePosts,
-                analysisScrapeNotice,
-                analysisScrapeNoticeTone,
-                isAnalysisScrapeCoolingDown,
-                analysisScrapeCooldownLabel,
-                isAnalysisScrapeRefreshing,
-                onRefreshScrape: () => {
-                  void handleManualProfileScrapeRefresh();
-                },
-                onOpenFeedback: () => {
-                  closeAnalysis();
-                  openFeedbackDialog();
-                },
-                onOpenGrowthGuide: () => {
-                  closeAnalysis();
-                  openGrowthGuide();
-                },
-                onOpenGrowthGuideForRecommendation: (stage, playbookId) => {
-                  closeAnalysis();
-                  openGrowthGuideForRecommendation(stage, playbookId);
-                },
-              }
-            : null
-        }
-        profileAnalysisDialogKey={
-          context ? `${context.account}-${analysisOpen ? "open" : "closed"}` : undefined
-        }
-        addAccountDialogProps={{
-          open: isAddAccountModalOpen,
-          requiresXAccountGate,
-          isSubmitting: isAddAccountSubmitting,
-          preview: addAccountPreview,
-          normalizedHandle: normalizedAddAccount,
-          loadingStepIndex: addAccountLoadingStepIndex,
-          loadingSteps: addAccountLoadingSteps,
-          onOpenChange: (open) => {
-            if (!open) {
-              closeAddAccountModal();
-            }
-          },
-          onSubmit: handleAddAccountSubmit,
-          inputValue: addAccountInput,
-          onInputValueChange: updateAddAccountInput,
-          readyAccountHandle,
-          hasValidPreview: hasValidAddAccountPreview,
-          isPreviewLoading: isAddAccountPreviewLoading,
-          errorMessage: addAccountError,
-        }}
-        threadDeleteDialogProps={{
-          open: Boolean(threadToDelete),
-          threadTitle: threadToDelete?.title ?? null,
-          onOpenChange: (open) => {
-            if (!open) {
-              clearThreadToDelete();
-            }
-          },
-          onConfirmDelete: () => {
-            void confirmDeleteThread();
-          },
-        }}
-      />
+      <ChatOverlays {...chatOverlayProps} />
     </main >
   );
 }
