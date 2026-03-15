@@ -89,6 +89,7 @@ export function buildMockAccountData(account: string): MockAccountData {
       name: normalized,
       bio: "Building systems for consistent growth.",
       avatarUrl: null,
+      headerImageUrl: null,
       isVerified: false,
       followersCount,
       followingCount,

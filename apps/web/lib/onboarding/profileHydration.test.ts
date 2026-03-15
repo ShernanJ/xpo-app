@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { OnboardingResult } from "./contracts/types.ts";
 import {
   hydrateOnboardingProfile,
   mergeFreshProfileIntoOnboarding,
 } from "./profile/profileHydration.ts";
 
-function createOnboarding(avatarUrl: string | null) {
+function createOnboarding(avatarUrl: string | null): OnboardingResult {
   return {
     account: "stan",
     source: "scrape",
@@ -16,11 +17,13 @@ function createOnboarding(avatarUrl: string | null) {
       name: "Stan",
       bio: "builder",
       avatarUrl,
+      headerImageUrl: null,
       isVerified: false,
       followersCount: 1200,
       followingCount: 200,
       createdAt: "2020-01-01T00:00:00.000Z",
     },
+    pinnedPost: null,
     recentPosts: [],
     recentReplyPosts: [],
     recentQuotePosts: [],
@@ -77,6 +80,8 @@ test("mergeFreshProfileIntoOnboarding replaces the avatar when X returns a newer
 
   const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
     avatarUrl: "https://pbs.twimg.com/profile_images/new_400x400.jpg",
+    bio: onboarding.profile.bio,
+    headerImageUrl: onboarding.profile.headerImageUrl,
     isVerified: false,
   });
 
@@ -91,6 +96,8 @@ test("mergeFreshProfileIntoOnboarding does not blank an existing avatar when the
 
   const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
     avatarUrl: null,
+    bio: onboarding.profile.bio,
+    headerImageUrl: onboarding.profile.headerImageUrl,
     isVerified: false,
   });
 

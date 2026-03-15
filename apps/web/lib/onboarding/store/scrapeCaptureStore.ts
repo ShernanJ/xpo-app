@@ -2,13 +2,18 @@ import { randomUUID } from "crypto";
 
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
-import type { XPublicPost, XPublicProfile } from "../types";
+import type { XPinnedPost, XPublicPost, XPublicProfile } from "../types";
+
+interface StoredScrapeProfilePayload extends XPublicProfile {
+  pinnedPost?: XPinnedPost | null;
+}
 
 export interface StoredScrapeCapture {
   captureId: string;
   capturedAt: string;
   account: string;
   profile: XPublicProfile;
+  pinnedPost: XPinnedPost | null;
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
   quotePosts?: XPublicPost[];
@@ -39,10 +44,12 @@ export function isScrapeCaptureExpired(
 function normalizeProfile(
   profile: XPublicProfile,
   account: string,
-): XPublicProfile {
+  pinnedPost?: XPinnedPost | null,
+): StoredScrapeProfilePayload {
   return {
     ...profile,
     username: account,
+    pinnedPost: pinnedPost ?? null,
   };
 }
 
@@ -78,9 +85,11 @@ function mapRowToStoredCapture(row: {
     capturedAt: row.capturedAt.toISOString(),
     account: row.account,
     profile: normalizeProfile(
-      row.profile as XPublicProfile,
+      row.profile as StoredScrapeProfilePayload,
       row.account.toLowerCase(),
+      (row.profile as StoredScrapeProfilePayload)?.pinnedPost ?? null,
     ),
+    pinnedPost: (row.profile as StoredScrapeProfilePayload)?.pinnedPost ?? null,
     posts: asPostArray(row.posts),
     replyPosts: asPostArray(row.replyPosts),
     quotePosts: asPostArray(row.quotePosts),
@@ -105,6 +114,7 @@ async function pruneExpiredCaptures(account?: string): Promise<void> {
 export async function persistScrapeCapture(params: {
   account: string;
   profile: XPublicProfile;
+  pinnedPost?: XPinnedPost | null;
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
   quotePosts?: XPublicPost[];
@@ -125,7 +135,9 @@ export async function persistScrapeCapture(params: {
       account: normalizedAccount,
       capturedAt,
       expiresAt: ttlExpiryFor(capturedAt),
-      profile: toInputJson(normalizeProfile(params.profile, normalizedAccount)),
+      profile: toInputJson(
+        normalizeProfile(params.profile, normalizedAccount, params.pinnedPost ?? null),
+      ),
       posts: toInputJson(params.posts),
       replyPosts: toInputJson(params.replyPosts ?? []),
       quotePosts: toInputJson(params.quotePosts ?? []),
@@ -136,7 +148,9 @@ export async function persistScrapeCapture(params: {
       captureId,
       capturedAt,
       expiresAt: ttlExpiryFor(capturedAt),
-      profile: toInputJson(normalizeProfile(params.profile, normalizedAccount)),
+      profile: toInputJson(
+        normalizeProfile(params.profile, normalizedAccount, params.pinnedPost ?? null),
+      ),
       posts: toInputJson(params.posts),
       replyPosts: toInputJson(params.replyPosts ?? []),
       quotePosts: toInputJson(params.quotePosts ?? []),

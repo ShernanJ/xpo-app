@@ -560,12 +560,22 @@ function ChatPageContent() {
     analysisLearningCautions,
     analysisLearningExperiments,
     analysisReplyConversionHighlights,
+    handleHeaderClaritySelection,
+    handleBioAlternativeCopied,
+    handleBioAlternativeRefine,
+    handlePinnedPromptStart,
+    handleBannerGeneratorOpened,
+    handleBannerDownloaded,
   } = useAnalysisState({
     accountName,
+    activeThreadId,
     context,
     currentPlaybookStage,
     fetchWorkspace,
     loadWorkspace,
+    submitQuickStarter: async (prompt: string) => {
+      await submitQuickStarter(prompt);
+    },
     dedupePreserveOrder,
     formatEnumLabel,
     formatNicheSummary,
@@ -1464,6 +1474,12 @@ function ChatPageContent() {
         isAnalysisScrapeRefreshing={isAnalysisScrapeRefreshing}
         handleManualProfileScrapeRefresh={handleManualProfileScrapeRefresh}
         closeAnalysis={closeAnalysis}
+        handleHeaderClaritySelection={handleHeaderClaritySelection}
+        handleBioAlternativeCopied={handleBioAlternativeCopied}
+        handleBioAlternativeRefine={handleBioAlternativeRefine}
+        handlePinnedPromptStart={handlePinnedPromptStart}
+        handleBannerGeneratorOpened={handleBannerGeneratorOpened}
+        handleBannerDownloaded={handleBannerDownloaded}
         openGrowthGuide={openGrowthGuide}
         openGrowthGuideForRecommendation={openGrowthGuideForRecommendation}
         isAddAccountModalOpen={isAddAccountModalOpen}

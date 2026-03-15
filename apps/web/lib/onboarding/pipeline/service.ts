@@ -215,6 +215,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
   const {
     source,
     profile,
+    pinnedPost,
     posts,
     replyPosts,
     quotePosts,
@@ -258,6 +259,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     source,
     generatedAt: new Date().toISOString(),
     profile,
+    pinnedPost: pinnedPost ?? null,
     recentPosts: posts,
     recentReplyPosts: replyPosts,
     recentQuotePosts: quotePosts,

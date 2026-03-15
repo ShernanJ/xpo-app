@@ -48,6 +48,7 @@ export interface XPublicProfile {
   name: string;
   bio: string;
   avatarUrl?: string | null;
+  headerImageUrl?: string | null;
   isVerified?: boolean;
   followersCount: number;
   followingCount: number;
@@ -66,6 +67,10 @@ export interface XPublicPost {
   text: string;
   createdAt: string;
   metrics: XPostMetrics;
+}
+
+export interface XPinnedPost extends XPublicPost {
+  url?: string | null;
 }
 
 export interface EngagementBaseline {
@@ -130,6 +135,7 @@ export interface OnboardingResult {
   source: "mock" | "x_api" | "scrape";
   generatedAt: string;
   profile: XPublicProfile;
+  pinnedPost: XPinnedPost | null;
   recentPosts: XPublicPost[];
   recentReplyPosts: XPublicPost[];
   recentQuotePosts: XPublicPost[];

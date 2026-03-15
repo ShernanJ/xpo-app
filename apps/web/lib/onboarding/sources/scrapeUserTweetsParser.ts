@@ -1,9 +1,10 @@
-import { normalizeXAvatarUrl } from "../profile/avatarUrl";
+import { normalizeXAvatarUrl, normalizeXHeaderUrl } from "../profile/avatarUrl.ts";
 import { normalizeAccountInput } from "../contracts/validation.ts";
-import type { XPublicPost, XPublicProfile } from "../types";
+import type { XPinnedPost, XPublicPost, XPublicProfile } from "../types";
 
 interface ParsedScrapeTimeline {
   profile: XPublicProfile;
+  pinnedPost: XPinnedPost | null;
   posts: XPublicPost[];
   replyPosts: XPublicPost[];
   quotePosts: XPublicPost[];
@@ -83,6 +84,12 @@ function unwrapTweetResultNode(value: unknown): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+function extractUserNodeFromTweetNode(tweetNode: Record<string, unknown>): Record<string, unknown> | null {
+  const core = asRecord(tweetNode.core);
+  const userResults = asRecord(core?.user_results);
+  return asRecord(userResults?.result);
 }
 
 function extractTimelineTweetNode(value: unknown): Record<string, unknown> | null {
@@ -193,9 +200,7 @@ function collectTweetResultNodesFromTimeline(payload: unknown): Record<string, u
 function extractProfileFromTweetNode(
   tweetNode: Record<string, unknown>,
 ): XPublicProfile | null {
-  const core = asRecord(tweetNode.core);
-  const userResults = asRecord(core?.user_results);
-  const userNode = asRecord(userResults?.result);
+  const userNode = extractUserNodeFromTweetNode(tweetNode);
   if (!userNode) {
     return null;
   }
@@ -224,6 +229,12 @@ function extractProfileFromTweetNode(
         asString(userLegacy?.profile_image_url) ??
         null,
     ),
+    headerImageUrl: normalizeXHeaderUrl(
+      asString(userLegacy?.profile_banner_url) ??
+        asString(userNode.profile_banner_url) ??
+        asString(asRecord(userNode.banner)?.image_url) ??
+        null,
+    ),
     isVerified:
       asBoolean(verification?.verified) ??
       asBoolean(userNode.is_blue_verified) ??
@@ -235,6 +246,36 @@ function extractProfileFromTweetNode(
     followingCount: asNumber(userLegacy?.friends_count),
     createdAt: toIsoDate(userCore?.created_at ?? userLegacy?.created_at),
   };
+}
+
+function extractPinnedTweetIdsFromTweetNode(tweetNode: Record<string, unknown>): string[] {
+  const userNode = extractUserNodeFromTweetNode(tweetNode);
+  if (!userNode) {
+    return [];
+  }
+
+  const userLegacy = asRecord(userNode.legacy);
+  const candidates = [
+    userLegacy?.pinned_tweet_ids_str,
+    userNode.pinned_tweet_ids_str,
+    userLegacy?.pinned_tweet_ids,
+    userNode.pinned_tweet_ids,
+  ];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) {
+      continue;
+    }
+
+    const ids = candidate
+      .map((value) => asString(value))
+      .filter((value): value is string => Boolean(value));
+    if (ids.length > 0) {
+      return ids;
+    }
+  }
+
+  return [];
 }
 
 function extractPostFromTweetNode(
@@ -339,6 +380,16 @@ function sortAndLimitPosts(postsById: Map<string, XPublicPost>): XPublicPost[] {
     .slice(0, MAX_PARSED_SCRAPE_POSTS);
 }
 
+function buildPinnedPost(
+  post: XPublicPost,
+  username: string,
+): XPinnedPost {
+  return {
+    ...post,
+    url: `https://x.com/${username}/status/${post.id}`,
+  };
+}
+
 export function parseUserTweetsGraphqlPayload(params: {
   payload: unknown;
   account?: string;
@@ -358,10 +409,16 @@ export function parseUserTweetsGraphqlPayload(params: {
   const fallbackPostsById = new Map<string, XPublicPost>();
   const replyPostsById = new Map<string, XPublicPost>();
   const quotePostsById = new Map<string, XPublicPost>();
+  const pinnedPostCandidates = new Map<string, XPublicPost>();
+  const pinnedTweetIds = new Set<string>();
   let profileCandidate: XPublicProfile | null = null;
 
   for (const node of nodes) {
     const nodeProfile = extractProfileFromTweetNode(node);
+    const nodePinnedTweetIds = extractPinnedTweetIdsFromTweetNode(node);
+    for (const pinnedTweetId of nodePinnedTweetIds) {
+      pinnedTweetIds.add(pinnedTweetId);
+    }
     if (nodeProfile) {
       if (!profileCandidate) {
         profileCandidate = nodeProfile;
@@ -382,6 +439,9 @@ export function parseUserTweetsGraphqlPayload(params: {
     });
     if (fallbackPost && !fallbackPostsById.has(fallbackPost.id)) {
       fallbackPostsById.set(fallbackPost.id, fallbackPost);
+    }
+    if (fallbackPost && pinnedTweetIds.has(fallbackPost.id) && !pinnedPostCandidates.has(fallbackPost.id)) {
+      pinnedPostCandidates.set(fallbackPost.id, fallbackPost);
     }
 
     if (isReplyPost(node)) {
@@ -441,17 +501,24 @@ export function parseUserTweetsGraphqlPayload(params: {
       name: inferredUsername,
       bio: "",
       avatarUrl: null,
+      headerImageUrl: null,
       isVerified: false,
       followersCount: 0,
       followingCount: 0,
       createdAt: new Date(0).toISOString(),
     } satisfies XPublicProfile);
+  const pinnedPostCandidate = Array.from(pinnedTweetIds)
+    .map((id) => pinnedPostCandidates.get(id) ?? fallbackPostsById.get(id) ?? postsById.get(id))
+    .find((value): value is XPublicPost => Boolean(value));
 
   return {
     profile: {
       ...profile,
       username: accountNormalized ?? profile.username,
     },
+    pinnedPost: pinnedPostCandidate
+      ? buildPinnedPost(pinnedPostCandidate, accountNormalized ?? profile.username)
+      : null,
     posts,
     replyPosts: sortAndLimitPosts(replyPostsById),
     quotePosts: sortAndLimitPosts(quotePostsById),

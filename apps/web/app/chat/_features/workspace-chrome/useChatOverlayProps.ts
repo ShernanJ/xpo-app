@@ -262,6 +262,12 @@ export interface UseChatOverlayPropsOptions {
   isAnalysisScrapeRefreshing: boolean;
   handleManualProfileScrapeRefresh: () => Promise<void>;
   closeAnalysis: () => void;
+  handleHeaderClaritySelection: (value: "clear" | "unclear" | "unsure") => Promise<boolean>;
+  handleBioAlternativeCopied: (text: string) => Promise<void>;
+  handleBioAlternativeRefine: (text: string) => Promise<void>;
+  handlePinnedPromptStart: (kind: "origin_story" | "core_thesis") => Promise<void>;
+  handleBannerGeneratorOpened: () => Promise<void>;
+  handleBannerDownloaded: (presetId: string) => Promise<void>;
   openGrowthGuide: () => void;
   openGrowthGuideForRecommendation: ProfileAnalysisDialogProps["onOpenGrowthGuideForRecommendation"];
   isAddAccountModalOpen: boolean;
@@ -553,7 +559,14 @@ export function useChatOverlayProps(
       profileAnalysisDialogProps: options.context
         ? {
             open: options.analysisOpen,
-            onOpenChange: options.setAnalysisOpen,
+            onOpenChange: (open) => {
+              if (open) {
+                options.setAnalysisOpen(true);
+                return;
+              }
+
+              options.closeAnalysis();
+            },
             context: options.context,
             accountName: options.accountName,
             isVerifiedAccount: options.isVerifiedAccount,
@@ -579,6 +592,23 @@ export function useChatOverlayProps(
             isAnalysisScrapeRefreshing: options.isAnalysisScrapeRefreshing,
             onRefreshScrape: () => {
               void options.handleManualProfileScrapeRefresh();
+            },
+            onHeaderClaritySelect: options.handleHeaderClaritySelection,
+            onBioAlternativeCopied: (text) => {
+              void options.handleBioAlternativeCopied(text);
+            },
+            onBioAlternativeRefine: (text) => {
+              void options.handleBioAlternativeRefine(text);
+            },
+            onPinnedPromptStart: (kind) => {
+              options.closeAnalysis();
+              void options.handlePinnedPromptStart(kind);
+            },
+            onBannerGeneratorOpened: () => {
+              void options.handleBannerGeneratorOpened();
+            },
+            onBannerDownloaded: (presetId) => {
+              void options.handleBannerDownloaded(presetId);
             },
             onOpenFeedback: () => {
               options.closeAnalysis();

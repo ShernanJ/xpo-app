@@ -83,6 +83,7 @@ export async function importUserTweetsPayload(params: {
   const persisted = await persistScrapeCapture({
     account: resolvedAccount,
     profile: parsed.profile,
+    pinnedPost: parsed.pinnedPost,
     posts: parsed.posts,
     replyPosts: parsed.replyPosts,
     quotePosts: parsed.quotePosts,
@@ -95,6 +96,7 @@ export async function importUserTweetsPayload(params: {
     capturedAt: persisted.capturedAt,
     account: resolvedAccount,
     profile: parsed.profile,
+    pinnedPost: parsed.pinnedPost,
     postsImported: parsed.posts.length,
     replyPostsImported: parsed.replyPosts.length,
     quotePostsImported: parsed.quotePosts.length,

@@ -87,12 +87,35 @@ interface AnalysisReplyConversionHighlight {
   value: string;
 }
 
+interface ProfileAuditMutationSuccess {
+  ok: true;
+  data: {
+    profileAuditState: {
+      lastDismissedFingerprint: string | null;
+      headerClarity: "clear" | "unclear" | "unsure" | null;
+      headerClarityAnsweredAt: string | null;
+      headerClarityBannerUrl: string | null;
+    };
+  };
+}
+
+interface ProfileAuditMutationFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+type ProfileAuditMutationResponse =
+  | ProfileAuditMutationSuccess
+  | ProfileAuditMutationFailure;
+
 interface UseAnalysisStateOptions {
   accountName: string | null;
+  activeThreadId: string | null;
   context: CreatorAgentContext | null;
   currentPlaybookStage: PlaybookStageKey;
   fetchWorkspace: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   loadWorkspace: () => Promise<unknown>;
+  submitQuickStarter: (prompt: string) => Promise<void>;
   dedupePreserveOrder: (values: string[]) => string[];
   formatEnumLabel: (value: string) => string;
   formatNicheSummary: (context: CreatorAgentContext) => string;
@@ -125,10 +148,12 @@ function formatDurationCompact(milliseconds: number): string {
 export function useAnalysisState(options: UseAnalysisStateOptions) {
   const {
     accountName,
+    activeThreadId,
     context,
     currentPlaybookStage,
     fetchWorkspace,
     loadWorkspace,
+    submitQuickStarter,
     dedupePreserveOrder,
     formatEnumLabel,
     formatNicheSummary,
@@ -145,6 +170,8 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
   const [analysisScrapeClockMs, setAnalysisScrapeClockMs] = useState<number>(() => Date.now());
 
   const dailyScrapeTriggerRef = useRef<string | null>(null);
+  const autoOpenedFingerprintRef = useRef<string | null>(null);
+  const dismissedFingerprintRef = useRef<string | null>(null);
 
   const analysisScrapeCooldownRemainingMs = useMemo(() => {
     if (!analysisScrapeCooldownUntil) {
@@ -163,6 +190,54 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
   const analysisScrapeCooldownLabel = useMemo(
     () => formatDurationCompact(analysisScrapeCooldownRemainingMs),
     [analysisScrapeCooldownRemainingMs],
+  );
+
+  const trackProductEvent = useCallback(
+    async (params: {
+      eventType: string;
+      properties?: Record<string, unknown>;
+    }) => {
+      try {
+        await fetchWorkspace("/api/creator/v2/product-events", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          keepalive: true,
+          body: JSON.stringify({
+            eventType: params.eventType,
+            threadId: activeThreadId ?? null,
+            properties: params.properties || {},
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to record profile audit product event:", error);
+      }
+    },
+    [activeThreadId, fetchWorkspace],
+  );
+
+  const persistProfileAuditState = useCallback(
+    async (payload: {
+      lastDismissedFingerprint?: string | null;
+      headerClarity?: "clear" | "unclear" | "unsure" | null;
+      headerClarityBannerUrl?: string | null;
+    }): Promise<boolean> => {
+      try {
+        const response = await fetchWorkspace("/api/creator/v2/profile-audit", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = (await response.json().catch(() => null)) as ProfileAuditMutationResponse | null;
+        return Boolean(response.ok && data?.ok);
+      } catch {
+        return false;
+      }
+    },
+    [fetchWorkspace],
   );
 
   const runProfileScrapeRefresh = useCallback(
@@ -319,6 +394,31 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
       }
     })();
   }, [accountName, runProfileScrapeRefresh]);
+
+  useEffect(() => {
+    const audit = context?.profileConversionAudit;
+    if (!audit?.shouldAutoOpen || !audit.fingerprint) {
+      return;
+    }
+
+    if (dismissedFingerprintRef.current === audit.fingerprint) {
+      return;
+    }
+
+    if (autoOpenedFingerprintRef.current === audit.fingerprint) {
+      return;
+    }
+
+    autoOpenedFingerprintRef.current = audit.fingerprint;
+    setAnalysisOpen(true);
+    void trackProductEvent({
+      eventType: "profile_audit_auto_opened",
+      properties: {
+        fingerprint: audit.fingerprint,
+        score: audit.score,
+      },
+    });
+  }, [context?.profileConversionAudit, trackProductEvent]);
 
   const analysisPriorityItems = useMemo<AnalysisPriorityItem[]>(
     () => context?.strategyDelta.adjustments.slice(0, 3) ?? [],
@@ -647,7 +747,117 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
 
   const closeAnalysis = useCallback(() => {
     setAnalysisOpen(false);
-  }, []);
+    const fingerprint = context?.profileConversionAudit?.fingerprint?.trim();
+    if (!fingerprint) {
+      return;
+    }
+
+    dismissedFingerprintRef.current = fingerprint;
+    void trackProductEvent({
+      eventType: "profile_audit_dismissed",
+      properties: {
+        fingerprint,
+        score: context?.profileConversionAudit?.score ?? null,
+      },
+    });
+    void persistProfileAuditState({
+      lastDismissedFingerprint: fingerprint,
+    });
+  }, [context, persistProfileAuditState, trackProductEvent]);
+
+  const handleHeaderClaritySelection = useCallback(
+    async (value: "clear" | "unclear" | "unsure") => {
+      const bannerUrl = context?.profileConversionAudit?.visualRealEstateCheck.headerImageUrl ?? null;
+      const fingerprint = context?.profileConversionAudit?.fingerprint ?? null;
+      const ok = await persistProfileAuditState({
+        lastDismissedFingerprint: fingerprint,
+        headerClarity: value,
+        headerClarityBannerUrl: bannerUrl,
+      });
+      if (!ok) {
+        return false;
+      }
+
+      dismissedFingerprintRef.current = fingerprint;
+      await loadWorkspace();
+      void trackProductEvent({
+        eventType: "profile_audit_header_answered",
+        properties: {
+          headerClarity: value,
+          bannerUrl,
+        },
+      });
+      return true;
+    },
+    [context, loadWorkspace, persistProfileAuditState, trackProductEvent],
+  );
+
+  const handleBioAlternativeCopied = useCallback(
+    async (text: string) => {
+      await trackProductEvent({
+        eventType: "profile_audit_bio_copied",
+        properties: {
+          length: text.length,
+        },
+      });
+    },
+    [trackProductEvent],
+  );
+
+  const handleBioAlternativeRefine = useCallback(
+    async (text: string) => {
+      await trackProductEvent({
+        eventType: "profile_audit_bio_refine_started",
+        properties: {
+          length: text.length,
+        },
+      });
+      await submitQuickStarter(
+        `tighten this x bio if needed, but stay close to it and keep the same grounded claim: "${text}"`,
+      );
+    },
+    [submitQuickStarter, trackProductEvent],
+  );
+
+  const handlePinnedPromptStart = useCallback(
+    async (kind: "origin_story" | "core_thesis") => {
+      const prompts = context?.profileConversionAudit?.pinnedTweetCheck.promptSuggestions;
+      const prompt = kind === "origin_story" ? prompts?.originStory : prompts?.coreThesis;
+      if (!prompt) {
+        return;
+      }
+
+      await trackProductEvent({
+        eventType: "profile_audit_pinned_prompt_started",
+        properties: {
+          promptType: kind,
+        },
+      });
+      await submitQuickStarter(prompt);
+    },
+    [context, submitQuickStarter, trackProductEvent],
+  );
+
+  const handleBannerGeneratorOpened = useCallback(
+    async () => {
+      await trackProductEvent({
+        eventType: "profile_audit_banner_generator_opened",
+      });
+    },
+    [trackProductEvent],
+  );
+
+  const handleBannerDownloaded = useCallback(
+    async (presetId: string) => {
+      await trackProductEvent({
+        eventType: "profile_audit_banner_downloaded",
+        properties: {
+          presetId,
+        },
+      });
+    },
+    [trackProductEvent],
+  );
 
   return {
     analysisOpen,
@@ -678,5 +888,11 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
     analysisLearningCautions,
     analysisLearningExperiments,
     analysisReplyConversionHighlights,
+    handleHeaderClaritySelection,
+    handleBioAlternativeCopied,
+    handleBioAlternativeRefine,
+    handlePinnedPromptStart,
+    handleBannerGeneratorOpened,
+    handleBannerDownloaded,
   };
 }

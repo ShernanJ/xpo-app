@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
   ArrowUpRight,
   BookOpen,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  CircleHelp,
+  Copy,
   Edit3,
+  ImageIcon,
   MessageSquareText,
+  Pin,
   RotateCw,
   Settings2,
   Sparkles,
@@ -24,6 +29,7 @@ import {
   type PlaybookDefinition,
   type PlaybookStageKey,
 } from "@/lib/creator/playbooks";
+import { ProfileAuditBannerGenerator } from "./ProfileAuditBannerGenerator";
 
 interface AnalysisFollowerProgress {
   currentFollowersLabel: string;
@@ -98,6 +104,12 @@ interface ProfileAnalysisDialogProps {
   analysisScrapeCooldownLabel: string;
   isAnalysisScrapeRefreshing: boolean;
   onRefreshScrape: () => void;
+  onHeaderClaritySelect: (value: "clear" | "unclear" | "unsure") => Promise<boolean>;
+  onBioAlternativeCopied: (text: string) => void;
+  onBioAlternativeRefine: (text: string) => void;
+  onPinnedPromptStart: (kind: "origin_story" | "core_thesis") => void;
+  onBannerGeneratorOpened: () => void;
+  onBannerDownloaded: (presetId: string) => void;
   onOpenFeedback: () => void;
   onOpenGrowthGuide: () => void;
   onOpenGrowthGuideForRecommendation: (stage: PlaybookStageKey, playbookId: string) => void;
@@ -112,6 +124,39 @@ function formatEnumLabel(value: string): string {
 
 function formatAreaLabel(value: string): string {
   return formatEnumLabel(value);
+}
+
+function getAuditStatusTone(status: "pass" | "warn" | "fail" | "unknown"): string {
+  switch (status) {
+    case "pass":
+      return "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300";
+    case "warn":
+      return "border-amber-500/30 bg-amber-500/[0.08] text-amber-300";
+    case "fail":
+      return "border-rose-500/30 bg-rose-500/[0.08] text-rose-300";
+    default:
+      return "border-white/15 bg-white/[0.04] text-zinc-300";
+  }
+}
+
+function formatAuditStatusLabel(status: "pass" | "warn" | "fail" | "unknown"): string {
+  return status === "unknown" ? "Unknown" : formatEnumLabel(status);
+}
+
+function formatPinnedAgeLabel(ageDays: number | null): string | null {
+  if (ageDays === null) {
+    return null;
+  }
+
+  if (ageDays < 30) {
+    return `${ageDays}d old`;
+  }
+
+  if (ageDays < 365) {
+    return `${Math.max(1, Math.round(ageDays / 30))}mo old`;
+  }
+
+  return `${Math.max(1, Math.round(ageDays / 365))}y old`;
 }
 
 export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
@@ -142,11 +187,37 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     analysisScrapeCooldownLabel,
     isAnalysisScrapeRefreshing,
     onRefreshScrape,
+    onHeaderClaritySelect,
+    onBioAlternativeCopied,
+    onBioAlternativeRefine,
+    onPinnedPromptStart,
+    onBannerGeneratorOpened,
+    onBannerDownloaded,
     onOpenFeedback,
     onOpenGrowthGuide,
     onOpenGrowthGuideForRecommendation,
   } = props;
   const [expandedPriorityIndex, setExpandedPriorityIndex] = useState<number | null>(null);
+  const [selectedBioAlternativeId, setSelectedBioAlternativeId] = useState<string | null>(
+    context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null,
+  );
+  const [copiedBioAlternativeId, setCopiedBioAlternativeId] = useState<string | null>(null);
+  const [pendingHeaderClarity, setPendingHeaderClarity] = useState<
+    "clear" | "unclear" | "unsure" | null
+  >(null);
+  const audit = context.profileConversionAudit ?? null;
+  const selectedBioAlternative =
+    audit?.bioFormulaCheck.alternatives.find(
+      (alternative) => alternative.id === selectedBioAlternativeId,
+    ) ??
+    audit?.bioFormulaCheck.alternatives[0] ??
+    null;
+
+  useEffect(() => {
+    setSelectedBioAlternativeId(context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null);
+    setCopiedBioAlternativeId(null);
+    setPendingHeaderClarity(null);
+  }, [context.profileConversionAudit?.fingerprint]);
 
   if (!open) {
     return null;
@@ -256,7 +327,501 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
               ))}
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
+            {audit ? (
+              <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                  <div className="max-w-3xl">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      Profile Conversion Audit
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-white/15 bg-white/[0.05] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+                        {audit.score}/100 score
+                      </span>
+                      {audit.unknowns.length > 0 ? (
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                          {audit.unknowns.length} unknown signal
+                          {audit.unknowns.length === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 text-lg font-semibold text-white">{audit.headline}</p>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                      Fix the bio, banner, and pinned post here first so the traffic the app
+                      generates lands on a profile that converts.
+                    </p>
+                  </div>
+
+                  <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center justify-between text-xs text-zinc-500">
+                      <span>Overall conversion readiness</span>
+                      <span>{audit.score}/100</span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                      <div
+                        className="h-full rounded-full bg-white/80"
+                        style={{ width: `${Math.max(0, Math.min(100, audit.score))}%` }}
+                      />
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-zinc-400">
+                      Fingerprint tracks your current bio, banner, and pinned post so the audit
+                      only auto-opens when those signals change.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                  {audit.steps.map((step) => (
+                    <article
+                      key={step.key}
+                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white">{step.title}</p>
+                          <p className="mt-2 text-sm leading-6 text-zinc-300">{step.summary}</p>
+                        </div>
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(step.status)}`}
+                        >
+                          {formatAuditStatusLabel(step.status)}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-3">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                          <div
+                            className="h-full rounded-full bg-white/80"
+                            style={{ width: `${Math.max(0, Math.min(100, step.score))}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-semibold text-zinc-200">
+                          {step.score}
+                        </span>
+                      </div>
+
+                      <ul className="mt-4 space-y-2 text-sm text-zinc-300">
+                        {(step.findings.length > 0 ? step.findings : [step.summary])
+                          .slice(0, 2)
+                          .map((finding) => (
+                            <li key={finding} className="leading-6">
+                              • {finding}
+                            </li>
+                          ))}
+                      </ul>
+
+                      <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        {step.actionLabel}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-3">
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-3">
+                      <Edit3 className="h-4 w-4 text-zinc-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">Bio Formula Check</p>
+                        <p className="text-xs text-zinc-500">
+                          [what you do] + [who you help] + [proof or CTA]
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {[
+                        {
+                          label: "What you do",
+                          matched: audit.bioFormulaCheck.matchesFormula.what,
+                        },
+                        {
+                          label: "Who you help",
+                          matched: audit.bioFormulaCheck.matchesFormula.who,
+                        },
+                        {
+                          label: "Proof or CTA",
+                          matched: audit.bioFormulaCheck.matchesFormula.proofOrCta,
+                        },
+                      ].map((item) => (
+                        <span
+                          key={item.label}
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                            item.matched
+                              ? "border-emerald-500/30 text-emerald-300"
+                              : "border-rose-500/30 text-rose-300"
+                          }`}
+                        >
+                          {item.label}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
+                        <span>Current bio</span>
+                        <span>{audit.bioFormulaCheck.charCount}/160 chars</span>
+                      </div>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                        {audit.bioFormulaCheck.bio || "No bio is currently set on the profile."}
+                      </p>
+                    </div>
+
+                    {selectedBioAlternative ? (
+                      <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                            Selected rewrite
+                          </p>
+                          <span className="text-xs text-emerald-100">
+                            {selectedBioAlternative.text.length}/160 chars
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-zinc-100">
+                          {selectedBioAlternative.text}
+                        </p>
+                        <p className="mt-3 text-xs text-emerald-100/80">
+                          Ready to paste into X. Use refine in chat if you want a tighter variant.
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 space-y-3">
+                      {audit.bioFormulaCheck.alternatives.map((alternative) => {
+                        const isSelected = selectedBioAlternative?.id === alternative.id;
+                        const isCopied = copiedBioAlternativeId === alternative.id;
+
+                        return (
+                          <div
+                            key={alternative.id}
+                            className={`rounded-2xl border p-4 ${
+                              isSelected
+                                ? "border-white/25 bg-white/[0.06]"
+                                : "border-white/10 bg-white/[0.02]"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                                {alternative.proofMode === "proof"
+                                  ? "Grounded proof"
+                                  : "CTA ending"}
+                              </span>
+                              <span className="text-xs text-zinc-500">
+                                {alternative.text.length}/160 chars
+                              </span>
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-zinc-200">
+                              {alternative.text}
+                            </p>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBioAlternativeId(alternative.id)}
+                                className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                                  isSelected
+                                    ? "border-white/25 bg-white/[0.08] text-white"
+                                    : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                                }`}
+                              >
+                                {isSelected ? "Applied to preview" : "Apply"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void (async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(alternative.text);
+                                    } catch {}
+
+                                    setCopiedBioAlternativeId(alternative.id);
+                                    onBioAlternativeCopied(alternative.text);
+                                  })();
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>{isCopied ? "Copied" : "Copy"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onBioAlternativeRefine(alternative.text)}
+                                className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                              >
+                                Refine in chat
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </article>
+
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-3">
+                      <ImageIcon className="h-4 w-4 text-zinc-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">Visual Real Estate</p>
+                        <p className="text-xs text-zinc-500">
+                          The header is the biggest conversion surface on the profile.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
+                          audit.visualRealEstateCheck.status,
+                        )}`}
+                      >
+                        {formatAuditStatusLabel(audit.visualRealEstateCheck.status)}
+                      </span>
+                      {audit.visualRealEstateCheck.headerClarity ? (
+                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                          {formatEnumLabel(audit.visualRealEstateCheck.headerClarity)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          {audit.visualRealEstateCheck.hasHeaderImage
+                            ? "Current header"
+                            : "Header status"}
+                        </p>
+                        <span className="text-xs text-zinc-500">
+                          {audit.visualRealEstateCheck.hasHeaderImage
+                            ? "Banner found"
+                            : "No banner found"}
+                        </span>
+                      </div>
+
+                      {audit.visualRealEstateCheck.headerImageUrl ? (
+                        <div className="mt-3 overflow-hidden rounded-2xl border border-white/10">
+                          <div
+                            className="aspect-[3/1] w-full bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${audit.visualRealEstateCheck.headerImageUrl})`,
+                            }}
+                            role="img"
+                            aria-label="Current X header image"
+                          />
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-zinc-400">
+                          No header image was detected in the latest profile data.
+                        </p>
+                      )}
+                    </div>
+
+                    {audit.visualRealEstateCheck.hasHeaderImage ? (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <p className="text-sm font-medium text-white">
+                          Does this header clearly communicate a value proposition or proof?
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-zinc-500">
+                          v1 scores this with presence detection plus your self-check for the
+                          current banner.
+                        </p>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {(["clear", "unclear", "unsure"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              disabled={pendingHeaderClarity !== null}
+                              onClick={() => {
+                                void (async () => {
+                                  setPendingHeaderClarity(value);
+                                  try {
+                                    await onHeaderClaritySelect(value);
+                                  } finally {
+                                    setPendingHeaderClarity(null);
+                                  }
+                                })();
+                              }}
+                              className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                                audit.visualRealEstateCheck.headerClarity === value
+                                  ? "border-white/25 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                            >
+                              {pendingHeaderClarity === value
+                                ? "Saving..."
+                                : formatEnumLabel(value)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4">
+                      <ProfileAuditBannerGenerator
+                        presets={audit.visualRealEstateCheck.bannerPresets}
+                        onOpen={onBannerGeneratorOpened}
+                        onDownload={onBannerDownloaded}
+                      />
+                    </div>
+                  </article>
+
+                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-3">
+                      <Pin className="h-4 w-4 text-zinc-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">Pinned Tweet Validator</p>
+                        <p className="text-xs text-zinc-500">
+                          Treat the pinned post like the featured authority story.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
+                          audit.pinnedTweetCheck.status,
+                        )}`}
+                      >
+                        {formatAuditStatusLabel(audit.pinnedTweetCheck.status)}
+                      </span>
+                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                        {formatEnumLabel(audit.pinnedTweetCheck.category)}
+                      </span>
+                      {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays) ? (
+                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                          {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          {audit.pinnedTweetCheck.pinnedPost
+                            ? "Current pinned post"
+                            : "Pinned post"}
+                        </p>
+                        {audit.pinnedTweetCheck.pinnedPost?.url ? (
+                          <a
+                            href={audit.pinnedTweetCheck.pinnedPost.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-xs text-zinc-400 transition hover:text-white"
+                          >
+                            <span>Open on X</span>
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </a>
+                        ) : null}
+                      </div>
+
+                      {audit.pinnedTweetCheck.pinnedPost ? (
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                          {audit.pinnedTweetCheck.pinnedPost.text}
+                        </p>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-zinc-400">
+                          No pinned post was found in the latest profile capture.
+                        </p>
+                      )}
+                    </div>
+
+                    <ul className="mt-4 space-y-2 text-sm text-zinc-300">
+                      {(audit.pinnedTweetCheck.findings.length > 0
+                        ? audit.pinnedTweetCheck.findings
+                        : [audit.pinnedTweetCheck.summary]
+                      )
+                        .slice(0, 3)
+                        .map((finding) => (
+                          <li key={finding} className="leading-6">
+                            • {finding}
+                          </li>
+                        ))}
+                    </ul>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => onPinnedPromptStart("origin_story")}
+                        className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Write origin story
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onPinnedPromptStart("core_thesis")}
+                        className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                      >
+                        Write core thesis
+                      </button>
+                    </div>
+                  </article>
+                </div>
+
+                <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                  <div className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                      Strengths
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {audit.strengths.length > 0 ? (
+                        audit.strengths.slice(0, 3).map((item) => (
+                          <li key={item} className="leading-6">
+                            • {item}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-zinc-500">No strong conversion signals yet.</li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                      Gaps
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {audit.gaps.length > 0 ? (
+                        audit.gaps.slice(0, 3).map((item) => (
+                          <li key={item} className="leading-6">
+                            • {item}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-zinc-500">No major conversion gaps flagged.</li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2">
+                      {audit.unknowns.length > 0 ? (
+                        <CircleHelp className="h-4 w-4 text-zinc-500" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 text-zinc-500" />
+                      )}
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        Coherence and unknowns
+                      </p>
+                    </div>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {(audit.recentPostCoherenceNotes.length > 0
+                        ? audit.recentPostCoherenceNotes
+                        : audit.unknowns.length > 0
+                          ? audit.unknowns
+                          : ["Recent posts are not showing a new coherence note yet."]
+                      )
+                        .slice(0, 3)
+                        .map((item) => (
+                          <li key={item} className="leading-6">
+                            • {item}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            <section>
               <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -356,96 +921,6 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
                       </ul>
                     </div>
                   ) : null}
-                </div>
-              </article>
-
-              <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Profile Conversion Audit
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-300">
-                    {context.profileConversionAudit?.headline || "profile conversion signals are loading."}
-                  </p>
-                </div>
-
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full border border-white/10 bg-black/30">
-                    <div
-                      className="h-full rounded-full bg-white/80"
-                      style={{
-                        width: `${Math.max(0, Math.min(100, context.profileConversionAudit?.score || 0))}%`,
-                      }}
-                    />
-                  </div>
-                  <span className="text-sm font-semibold text-white">
-                    {context.profileConversionAudit?.score ?? 0}/100
-                  </span>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                      Strengths
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {(context.profileConversionAudit?.strengths || []).length > 0 ? (
-                        context.profileConversionAudit?.strengths.slice(0, 3).map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">insufficient data</li>
-                      )}
-                    </ul>
-                  </div>
-                  <div className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                      Gaps
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {(context.profileConversionAudit?.gaps || []).length > 0 ? (
-                        context.profileConversionAudit?.gaps.slice(0, 3).map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">no major gaps flagged</li>
-                      )}
-                    </ul>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                    Recommended bio edits
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {(context.profileConversionAudit?.recommendedBioEdits || []).map((item) => (
-                      <li key={item} className="leading-6">
-                        • {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                    Recent-post coherence
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {(context.profileConversionAudit?.recentPostCoherenceNotes || []).length > 0 ? (
-                      context.profileConversionAudit?.recentPostCoherenceNotes.map((item) => (
-                        <li key={item} className="leading-6">
-                          • {item}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-zinc-500">no coherence notes yet</li>
-                    )}
-                  </ul>
                 </div>
               </article>
             </section>

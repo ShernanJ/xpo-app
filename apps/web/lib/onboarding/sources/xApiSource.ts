@@ -23,6 +23,7 @@ export async function resolveXApiDataSource(
   return {
     source: "x_api",
     profile,
+    pinnedPost: null,
     posts,
     replyPosts: [],
     quotePosts: [],

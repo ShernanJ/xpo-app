@@ -239,6 +239,12 @@ export async function resolveRouteProfileContext(args: {
   let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
   let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
   let diagnosticContext: ConversationalDiagnosticContext | null = null;
+  const persistedVoiceProfilePromise = prisma.voiceProfile.findFirst({
+    where: {
+      userId: args.userId,
+      xHandle: args.activeHandle,
+    },
+  });
 
   const creatorProfileHintsPromise =
     args.storedRun?.id && args.storedRun?.result
@@ -251,15 +257,24 @@ export async function resolveRouteProfileContext(args: {
               runId: args.storedRun!.id,
               onboarding,
             });
+            const persistedVoiceProfile = await persistedVoiceProfilePromise;
+            const parsedStyleCard = persistedVoiceProfile?.styleCard
+              ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
+              : null;
+            const profileAuditState = parsedStyleCard?.success
+              ? parsedStyleCard.data.profileAuditState ?? null
+              : null;
             creatorAgentContext = buildCreatorAgentContext({
               runId: args.storedRun!.id,
               onboarding,
             });
+            creatorAgentContext.profileAuditState = profileAuditState;
             growthOsPayload = await buildGrowthOperatingSystemPayload({
               userId: args.userId,
               xHandle: args.activeHandle,
               onboarding,
               context: creatorAgentContext,
+              profileAuditState,
             });
             diagnosticContext = buildConversationalDiagnosticContext({
               agentContext: creatorAgentContext,
@@ -286,13 +301,6 @@ export async function resolveRouteProfileContext(args: {
           }
         })()
       : Promise.resolve(null);
-
-  const persistedVoiceProfilePromise = prisma.voiceProfile.findFirst({
-    where: {
-      userId: args.userId,
-      xHandle: args.activeHandle,
-    },
-  });
 
   const [creatorProfileHints, persistedVoiceProfile] = await Promise.all([
     creatorProfileHintsPromise,

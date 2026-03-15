@@ -20,6 +20,7 @@ import {
 } from "../profile/profileConversionAudit.ts";
 import type { CreatorAgentContext } from "./agentContext.ts";
 import type { OnboardingResult } from "../types.ts";
+import type { ProfileAuditState } from "../../agent-v2/core/styleProfile";
 
 export interface GrowthOperatingSystemPayload {
   replyInsights: ReplyInsights;
@@ -36,6 +37,7 @@ export async function buildGrowthOperatingSystemPayload(args: {
   xHandle?: string | null;
   onboarding: OnboardingResult;
   context: CreatorAgentContext;
+  profileAuditState?: ProfileAuditState | null;
 }): Promise<GrowthOperatingSystemPayload> {
   const replyInsights = await getReplyInsightsForUser({
     userId: args.userId,
@@ -56,6 +58,7 @@ export async function buildGrowthOperatingSystemPayload(args: {
   const profileConversionAudit = buildProfileConversionAudit({
     onboarding: args.onboarding,
     context: args.context,
+    profileAuditState: args.profileAuditState ?? null,
   });
   const operatingQueue = buildOperatingQueue({
     context: args.context,

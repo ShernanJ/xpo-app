@@ -30,6 +30,19 @@ export const UserPreferencesSchema = z.object({
   verifiedMaxChars: z.number().int().min(250).max(25000).nullable().optional(),
 });
 
+export const ProfileAuditHeaderClaritySchema = z.enum([
+  "clear",
+  "unclear",
+  "unsure",
+]);
+
+export const ProfileAuditStateSchema = z.object({
+  lastDismissedFingerprint: z.string().nullable().default(null),
+  headerClarity: ProfileAuditHeaderClaritySchema.nullable().default(null),
+  headerClarityAnsweredAt: z.string().nullable().default(null),
+  headerClarityBannerUrl: z.string().nullable().default(null),
+});
+
 export const FeedbackCategorySchema = z.enum([
   "feature_request",
   "feedback",
@@ -113,6 +126,7 @@ export const StyleCardSchema = z.object({
     .default([])
     .describe("Recent rejected style patterns to avoid repeating"),
   userPreferences: UserPreferencesSchema.optional().describe("Durable profile-level writing preferences set by the user"),
+  profileAuditState: ProfileAuditStateSchema.optional().describe("Durable per-handle state for the X profile conversion audit"),
   feedbackSubmissions: z
     .array(FeedbackSubmissionSchema)
     .optional()
@@ -123,6 +137,8 @@ export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;
 export type FactLedger = z.infer<typeof FactLedgerSchema>;
 export type FactLedgerSourceMaterial = z.infer<typeof FactLedgerSourceMaterialSchema>;
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+export type ProfileAuditHeaderClarity = z.infer<typeof ProfileAuditHeaderClaritySchema>;
+export type ProfileAuditState = z.infer<typeof ProfileAuditStateSchema>;
 export type FeedbackCategory = z.infer<typeof FeedbackCategorySchema>;
 export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
 export type FeedbackSubmissionStatus = z.infer<typeof FeedbackSubmissionStatusSchema>;
@@ -466,6 +482,7 @@ Respond ONLY with a valid JSON object matching this schema:
           factLedger: mergedFactLedger,
           antiExamples: (existingParsed.antiExamples || []).slice(-5),
           userPreferences: existingParsed.userPreferences,
+          profileAuditState: existingParsed.profileAuditState,
           feedbackSubmissions: existingParsed.feedbackSubmissions,
         }
       : {

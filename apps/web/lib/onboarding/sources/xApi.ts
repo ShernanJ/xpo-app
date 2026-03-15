@@ -87,6 +87,7 @@ export async function fetchXPublicProfile(
       name: result.data.name,
       bio: result.data.description ?? "",
       avatarUrl: normalizeXAvatarUrl(result.data.profile_image_url ?? null),
+      headerImageUrl: null,
       isVerified: result.data.verified ?? false,
       followersCount: result.data.public_metrics?.followers_count ?? 0,
       followingCount: result.data.public_metrics?.following_count ?? 0,

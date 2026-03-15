@@ -11,6 +11,7 @@ export function buildMockDataSource(
   return {
     source: "mock",
     profile: fallback.profile,
+    pinnedPost: null,
     posts: fallback.posts,
     replyPosts: [],
     quotePosts: [],

@@ -14,6 +14,7 @@ import type {
   ReplyInsights,
   StrategyAdjustments,
 } from "../../extension/replyOpportunities";
+import type { ProfileAuditState } from "../../agent-v2/core/styleProfile";
 import type {
   ContentAdjustments,
   ContentInsights,
@@ -88,6 +89,7 @@ export interface CreatorAgentContext {
   replyInsights?: ReplyInsights;
   strategyAdjustments?: StrategyAdjustments;
   profileConversionAudit?: ProfileConversionAudit;
+  profileAuditState?: ProfileAuditState | null;
   contentInsights?: ContentInsights;
   contentAdjustments?: ContentAdjustments;
   operatingQueue?: OperatingQueueItem[];

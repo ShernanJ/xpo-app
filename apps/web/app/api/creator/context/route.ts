@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
+import { StyleCardSchema } from "@/lib/agent-v2/core/styleProfile";
 import { hydrateOnboardingProfile } from "@/lib/onboarding/profile/profileHydration";
 import {
   applyCreatorStrategyOverrides,
@@ -10,6 +11,7 @@ import {
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import { prisma } from "@/lib/db";
 
 interface CreatorAgentContextRequest extends Record<string, unknown> {
   runId?: unknown;
@@ -87,15 +89,29 @@ export async function POST(request: Request) {
       overrides: extractCreatorStrategyOverrides(body),
     }),
   );
+  const persistedVoiceProfile = await prisma.voiceProfile.findFirst({
+    where: {
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+    },
+  });
+  const parsedStyleCard = persistedVoiceProfile?.styleCard
+    ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
+    : null;
+  const profileAuditState = parsedStyleCard?.success
+    ? parsedStyleCard.data.profileAuditState ?? null
+    : null;
   const context = buildCreatorAgentContext({
     runId: storedRun.runId,
     onboarding,
   });
+  context.profileAuditState = profileAuditState;
   const growthOs = await buildGrowthOperatingSystemPayload({
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
     onboarding,
     context,
+    profileAuditState,
   });
 
   return NextResponse.json(

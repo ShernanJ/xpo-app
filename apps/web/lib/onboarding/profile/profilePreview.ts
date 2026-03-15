@@ -1,4 +1,4 @@
-import { normalizeXAvatarUrl } from "./avatarUrl";
+import { normalizeXAvatarUrl, normalizeXHeaderUrl } from "./avatarUrl";
 import { readLatestScrapeCaptureByAccount } from "../store/scrapeCaptureStore";
 import type { XPublicProfile } from "../types";
 import { normalizeAccountInput } from "../contracts/validation.ts";
@@ -82,6 +82,7 @@ function buildFallbackProfile(account: string): XPublicProfile {
     name: account,
     bio: "",
     avatarUrl: null,
+    headerImageUrl: null,
     isVerified: false,
     followersCount: 0,
     followingCount: 0,
@@ -527,6 +528,7 @@ interface SyndicationProfileResponseItem {
   name?: string;
   profile_image_url_https?: string;
   profile_image_url?: string;
+  profile_banner_url?: string;
   verified?: boolean;
   followers_count?: number | string;
   friends_count?: number | string;
@@ -564,6 +566,7 @@ interface UserByScreenNameGraphqlResponse {
           followers_count?: number;
           friends_count?: number;
           created_at?: string;
+          profile_banner_url?: string;
         };
         profile_bio?: {
           description?: string;
@@ -672,6 +675,7 @@ async function fetchProfilePreviewFromUserByScreenName(
         name: result.core?.name?.trim() || username,
         bio: result.profile_bio?.description ?? result.legacy?.description ?? "",
         avatarUrl: normalizeXAvatarUrl(result.avatar?.image_url ?? null),
+        headerImageUrl: normalizeXHeaderUrl(result.legacy?.profile_banner_url ?? null),
         isVerified: Boolean(result.verification?.verified || result.is_blue_verified),
         followersCount:
           typeof result.legacy?.followers_count === "number"
@@ -762,6 +766,7 @@ async function fetchProfilePreviewFromSyndication(
         avatarUrl: normalizeXAvatarUrl(
           item.profile_image_url_https ?? item.profile_image_url ?? null,
         ),
+        headerImageUrl: normalizeXHeaderUrl(item.profile_banner_url ?? null),
         isVerified: Boolean(item.verified),
         followersCount: coerceCount(item.followers_count),
         followingCount: coerceCount(item.friends_count),
@@ -812,6 +817,10 @@ function parseProfileFromHtml(account: string, html: string): XPublicProfile | n
     new RegExp(`"screen_name":"${escapedAccount}"[^]{0,1600}?"profile_image_url_https":"([^"]+)"`),
     new RegExp(`"screen_name":"${escapedAccount}"[^]{0,1600}?"profile_image_url":"([^"]+)"`),
   ]);
+  const headerImageUrl = parseStringMatch(userContext, [
+    /"profile_banner_url":"([^"]+)"/,
+    new RegExp(`"screen_name":"${escapedAccount}"[^]{0,2200}?"profile_banner_url":"([^"]+)"`),
+  ]);
   const isVerified = parseBooleanMatch(userContext, [
     /"is_blue_verified":(true|false)/,
     /"verified":(true|false)/,
@@ -843,6 +852,9 @@ function parseProfileFromHtml(account: string, html: string): XPublicProfile | n
     name: displayName,
     bio: bio ?? fallback.bio,
     avatarUrl: normalizeXAvatarUrl(avatarUrl ? decodeHtmlEntities(avatarUrl) : null),
+    headerImageUrl: normalizeXHeaderUrl(
+      headerImageUrl ? decodeJsonEscapes(headerImageUrl) : fallback.headerImageUrl,
+    ),
     isVerified: isVerified ?? fallback.isVerified,
     followersCount: followersCount ?? fallback.followersCount,
     followingCount: followingCount ?? fallback.followingCount,
@@ -938,6 +950,7 @@ interface UsersShowResponse {
   description?: string;
   profile_image_url_https?: string;
   profile_image_url?: string;
+  profile_banner_url?: string;
   verified?: boolean;
   followers_count?: number;
   friends_count?: number;
@@ -1001,6 +1014,7 @@ async function fetchProfilePreviewFromUsersShow(
         avatarUrl: normalizeXAvatarUrl(
           json.profile_image_url_https ?? json.profile_image_url ?? null,
         ),
+        headerImageUrl: normalizeXHeaderUrl(json.profile_banner_url ?? null),
         isVerified: Boolean(json.verified),
         followersCount:
           typeof json.followers_count === "number" && Number.isFinite(json.followers_count)
@@ -1148,9 +1162,18 @@ export async function resolveOnboardingProfilePreview(
     const liveProfile = livePreviewResult.profile;
     const profile = {
       ...latestCapture.profile,
+      ...(typeof liveProfile?.bio === "string" &&
+      liveProfile.bio.trim() &&
+      liveProfile.bio !== latestCapture.profile.bio
+        ? { bio: liveProfile.bio }
+        : {}),
       ...(liveProfile?.avatarUrl &&
       liveProfile.avatarUrl !== latestCapture.profile.avatarUrl
         ? { avatarUrl: liveProfile.avatarUrl }
+        : {}),
+      ...(liveProfile?.headerImageUrl &&
+      liveProfile.headerImageUrl !== latestCapture.profile.headerImageUrl
+        ? { headerImageUrl: liveProfile.headerImageUrl }
         : {}),
       isVerified:
         latestCapture.profile.isVerified || liveProfile?.isVerified || false,

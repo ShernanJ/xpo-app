@@ -3,6 +3,7 @@ import type { OnboardingResult } from "../types";
 export interface OnboardingDataSource {
   source: OnboardingResult["source"];
   profile: OnboardingResult["profile"];
+  pinnedPost: OnboardingResult["pinnedPost"];
   posts: OnboardingResult["recentPosts"];
   replyPosts: OnboardingResult["recentReplyPosts"];
   quotePosts: OnboardingResult["recentQuotePosts"];

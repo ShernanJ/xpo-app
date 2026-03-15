@@ -82,9 +82,18 @@ export async function resolveScrapeDataSource(
   const freshPreview = await resolveFreshOnboardingProfilePreview(input.account);
   const profile = {
     ...latestCapture.profile,
+    ...(typeof freshPreview?.bio === "string" &&
+    freshPreview.bio.trim() &&
+    freshPreview.bio !== latestCapture.profile.bio
+      ? { bio: freshPreview.bio }
+      : {}),
     ...(freshPreview?.avatarUrl &&
     freshPreview.avatarUrl !== latestCapture.profile.avatarUrl
       ? { avatarUrl: freshPreview.avatarUrl }
+      : {}),
+    ...(freshPreview?.headerImageUrl &&
+    freshPreview.headerImageUrl !== latestCapture.profile.headerImageUrl
+      ? { headerImageUrl: freshPreview.headerImageUrl }
       : {}),
     isVerified: latestCapture.profile.isVerified || freshPreview?.isVerified || false,
   };
@@ -92,6 +101,7 @@ export async function resolveScrapeDataSource(
   return {
     source: "scrape",
     profile,
+    pinnedPost: latestCapture.pinnedPost ?? null,
     posts: latestCapture.posts.slice(0, MAX_ONBOARDING_ANALYSIS_POSTS),
     replyPosts: (latestCapture.replyPosts ?? []).slice(
       0,
