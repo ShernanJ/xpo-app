@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { selectResponseShapePlan } from "../orchestrator/surfaceModeSelector.ts";
+import { selectResponseShapePlan } from "./surfaceModeSelector.ts";
 import { shapeAssistantResponse } from "./responseShaper.ts";
 
 test("response shaper strips memory notices and follow-up prompts for direct answers", () => {
