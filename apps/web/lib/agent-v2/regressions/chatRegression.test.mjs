@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   isBareIdeationRequest,
   resolveConversationMode,
-} from "../orchestrator/conversationManagerLogic.ts";
+} from "../core/conversationHeuristics.ts";
 import { buildIdeationReply } from "../responses/ideationReply.ts";
 import { dedupeAngleTitlesForRetry } from "../core/angleNovelty.ts";
 import {

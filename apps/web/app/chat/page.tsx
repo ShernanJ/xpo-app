@@ -64,15 +64,15 @@ import {
   resolveComposerQuickReplyUpdate,
 } from "./_features/composer/chatComposerState";
 import {
-  clampThreadPostIndex,
-} from "./_features/draft-editor/chatDraftEditorState";
-import {
   resolveDraftCardRevisionAction,
   resolveSelectedThreadFramingChangeAction,
 } from "./_features/draft-editor/chatDraftActionState";
 import { useDraftEditorState } from "./_features/draft-editor/useDraftEditorState";
 import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
-import { getThreadFramingStyle } from "./_features/draft-editor/chatDraftPreviewState";
+import {
+  useSelectedDraftState,
+  useSelectedDraftTimelineState,
+} from "./_features/draft-editor/useSelectedDraftState";
 import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
@@ -81,12 +81,6 @@ import {
   buildDraftRevealClassName,
   shouldAnimateDraftRevealLines,
 } from "./_features/thread-history/draftRevealState";
-import {
-  buildDraftRevisionTimeline,
-  normalizeDraftVersionBundle,
-  resolveDraftTimelineNavigation,
-  resolveDraftTimelineState,
-} from "./_features/draft-editor/chatDraftSessionState";
 import { useAssistantReplyOrchestrator } from "./_features/reply/useAssistantReplyOrchestrator";
 import {
   buildChatWorkspaceReset,
@@ -469,7 +463,6 @@ function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
 }
 
 const HERO_EXIT_TRANSITION_MS = 720;
-const DRAFT_TIMELINE_FOCUS_DELAY_MS = 0;
 function formatEnumLabel(value: string): string {
   return value
     .split("_")
@@ -1410,53 +1403,18 @@ function ChatPageContent() {
     toneInputs,
   ]);
 
-  const selectedDraftMessage = useMemo(
-    () =>
-      activeDraftEditor
-        ? messages.find((item) => item.id === activeDraftEditor.messageId) ?? null
-        : null,
-    [activeDraftEditor, messages],
-  );
-  const selectedDraftBundle = useMemo(
-    () =>
-      selectedDraftMessage
-        ? normalizeDraftVersionBundle(selectedDraftMessage, composerCharacterLimit)
-        : null,
-    [composerCharacterLimit, selectedDraftMessage],
-  );
-  const selectedDraftVersion = useMemo(() => {
-    if (!activeDraftEditor || !selectedDraftBundle) {
-      return null;
-    }
-
-    return (
-      selectedDraftBundle.versions.find(
-        (version) => version.id === activeDraftEditor.versionId,
-      ) ?? selectedDraftBundle.activeVersion
-    );
-  }, [activeDraftEditor, selectedDraftBundle]);
-  const selectedDraftArtifact = useMemo(
-    () => selectedDraftVersion?.artifact ?? selectedDraftMessage?.draftArtifacts?.[0] ?? null,
-    [selectedDraftMessage?.draftArtifacts, selectedDraftVersion?.artifact],
-  );
-  const isSelectedDraftThread =
-    selectedDraftArtifact?.kind === "thread_seed" ||
-    selectedDraftMessage?.outputShape === "thread_seed";
-  const selectedDraftThreadFramingStyle = useMemo(
-    () =>
-      isSelectedDraftThread
-        ? getThreadFramingStyle(
-            selectedDraftArtifact,
-            selectedDraftVersion?.content ?? selectedDraftMessage?.draft ?? undefined,
-          )
-        : null,
-    [
-      isSelectedDraftThread,
-      selectedDraftArtifact,
-      selectedDraftMessage?.draft,
-      selectedDraftVersion?.content,
-    ],
-  );
+  const {
+    selectedDraftMessage,
+    selectedDraftBundle,
+    selectedDraftVersion,
+    selectedDraftArtifact,
+    isSelectedDraftThread,
+    selectedDraftThreadFramingStyle,
+  } = useSelectedDraftState<ChatMessage>({
+    activeDraftEditor,
+    messages,
+    composerCharacterLimit,
+  });
   const {
     editorDraftText,
     setEditorDraftText,

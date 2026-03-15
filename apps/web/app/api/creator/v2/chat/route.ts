@@ -31,7 +31,7 @@ import {
   refundRouteTurnCharge,
 } from "./_lib/control/routeControlPlane";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
-import { isMultiDraftRequest } from "@/lib/agent-v2/orchestrator/conversationManagerLogic";
+import { isMultiDraftRequest } from "@/lib/agent-v2/core/conversationHeuristics";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";

@@ -10,7 +10,7 @@ import { buildIdeationQuickReplies } from "../../responses/ideationQuickReplies.
 import {
   isBareDraftRequest,
   isBareIdeationRequest,
-} from "../../orchestrator/conversationManagerLogic.ts";
+} from "../../core/conversationHeuristics.ts";
 import { isOpenEndedWildcardDraftRequest } from "../planning/draftFastStart.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import {

@@ -4,7 +4,7 @@ import {
 import { withPlanPreferences } from "../../grounding/preferences.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
-import { buildPlanFailureResponse } from "../../orchestrator/conversationManagerLogic.ts";
+import { buildPlanFailureResponse } from "../../core/conversationHeuristics.ts";
 import { withNoFabricationPlanGuardrail } from "../../grounding/draftGrounding.ts";
 import {
   buildPlannerQuickReplies,

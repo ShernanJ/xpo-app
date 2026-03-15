@@ -11,7 +11,7 @@ import {
   isBareDraftRequest,
   isBareIdeationRequest,
   hasStrongDraftCommand,
-} from "../../orchestrator/conversationManagerLogic";
+} from "../../core/conversationHeuristics";
 import {
   inferBroadTopicDraftRequest,
 } from "./draftFastStart.ts";

@@ -27,7 +27,7 @@ import type {
 } from "../../runtime/runtimeContracts.ts";
 import {
   resolveDraftOutputShape,
-} from "../../orchestrator/conversationManagerLogic.ts";
+} from "../../core/conversationHeuristics.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type {
   OrchestratorResponse,

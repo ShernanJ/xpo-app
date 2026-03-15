@@ -1,6 +1,6 @@
 import {
   shouldUseRevisionDraftPath,
-} from "../../orchestrator/conversationManagerLogic.ts";
+} from "../../core/conversationHeuristics.ts";
 import { isConstraintDeclaration } from "../../responses/chatResponder.ts";
 import { normalizeDraftRevisionInstruction } from "./draftRevision.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";

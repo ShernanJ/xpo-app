@@ -9,7 +9,7 @@ import type {
 } from "../../onboarding/shared/draftArtifacts.ts";
 import {
   inferExplicitDraftFormatPreference,
-} from "../orchestrator/conversationManagerLogic";
+} from "../core/conversationHeuristics";
 import {
   inferThreadFramingStyleFromPosts,
   inferThreadFramingStyleFromPrompt,

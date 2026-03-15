@@ -2,7 +2,7 @@ import {
   isBareDraftRequest,
   isMultiDraftRequest,
   shouldRouteCareerClarification,
-} from "../../orchestrator/conversationManagerLogic.ts";
+} from "../../core/conversationHeuristics.ts";
 import {
   inferBroadTopicDraftRequest,
   isOpenEndedWildcardDraftRequest,

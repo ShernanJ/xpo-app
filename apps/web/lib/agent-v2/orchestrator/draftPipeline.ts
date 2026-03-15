@@ -14,7 +14,7 @@ import {
   isBareDraftRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
-} from "./conversationManagerLogic";
+} from "../core/conversationHeuristics";
 import {
   buildEffectiveContext,
   buildFactSafeReferenceHints,
