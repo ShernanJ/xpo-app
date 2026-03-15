@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 
 import {
   resolveThreadHistoryHydration,
@@ -10,7 +10,6 @@ import {
 interface UseThreadHistoryHydrationOptions<TMessage extends ThreadHistoryMessageLike> {
   accountName: string | null;
   activeThreadId: string | null;
-  activeContentFocus: unknown;
   activeStrategyInputs: unknown;
   activeToneInputs: unknown;
   context: unknown;
@@ -18,7 +17,6 @@ interface UseThreadHistoryHydrationOptions<TMessage extends ThreadHistoryMessage
   fetchWorkspace: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   isSending: boolean;
   jumpThreadToBottomImmediately: () => void;
-  messagesLength: number;
   searchParamsKey: string;
   setIsThreadHydrating: (value: boolean) => void;
   setMessages: (messages: TMessage[]) => void;
@@ -32,7 +30,6 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
   const {
     accountName,
     activeThreadId,
-    activeContentFocus,
     activeStrategyInputs,
     activeToneInputs,
     context,
@@ -40,35 +37,80 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
     fetchWorkspace,
     isSending,
     jumpThreadToBottomImmediately,
-    messagesLength,
     searchParamsKey,
     setIsThreadHydrating,
     setMessages,
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
   } = options;
+  const fetchWorkspaceRef = useRef(fetchWorkspace);
+  const jumpThreadToBottomImmediatelyRef = useRef(jumpThreadToBottomImmediately);
+  const latestHydrationRequestIdRef = useRef(0);
+  const activeHydrationControllerRef = useRef<AbortController | null>(null);
+  const hasHydrationPrerequisites = useMemo(
+    () =>
+      Boolean(
+        context &&
+          contract &&
+          !isSending &&
+          activeStrategyInputs &&
+          activeToneInputs,
+      ),
+    [activeStrategyInputs, activeToneInputs, context, contract, isSending],
+  );
 
   useEffect(() => {
-    if (
-      !context ||
-      !contract ||
-      isSending ||
-      !activeStrategyInputs ||
-      !activeToneInputs
-    ) {
+    fetchWorkspaceRef.current = fetchWorkspace;
+  }, [fetchWorkspace]);
+
+  useEffect(() => {
+    jumpThreadToBottomImmediatelyRef.current = jumpThreadToBottomImmediately;
+  }, [jumpThreadToBottomImmediately]);
+
+  useEffect(() => {
+    return () => {
+      activeHydrationControllerRef.current?.abort();
+      activeHydrationControllerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydrationPrerequisites) {
       return;
     }
+
+    const requestId = latestHydrationRequestIdRef.current + 1;
+    latestHydrationRequestIdRef.current = requestId;
+    activeHydrationControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeHydrationControllerRef.current = controller;
+    let cancelled = false;
+    const isLatestRequest = () =>
+      !cancelled &&
+      !controller.signal.aborted &&
+      latestHydrationRequestIdRef.current === requestId;
 
     async function initializeThread() {
       if (activeThreadId) {
         if (threadCreatedInSessionRef.current) {
-          setIsThreadHydrating(false);
+          if (isLatestRequest()) {
+            setIsThreadHydrating(false);
+          }
           return;
         }
 
         try {
-          const response = await fetchWorkspace(`/api/creator/v2/threads/${activeThreadId}`);
+          const response = await fetchWorkspaceRef.current(
+            `/api/creator/v2/threads/${activeThreadId}`,
+            {
+              signal: controller.signal,
+            },
+          );
           const data = await response.json();
+          if (!isLatestRequest()) {
+            return;
+          }
+
           if (data.ok && data.data?.messages?.length > 0) {
             const hydration = resolveThreadHistoryHydration<TMessage>({
               rawMessages: data.data.messages,
@@ -82,7 +124,11 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
               shouldJumpToBottomAfterThreadSwitchRef.current = false;
               window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(() => {
-                  jumpThreadToBottomImmediately();
+                  if (!isLatestRequest()) {
+                    return;
+                  }
+
+                  jumpThreadToBottomImmediatelyRef.current();
                 });
               });
             }
@@ -91,8 +137,14 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
             return;
           }
         } catch (error) {
-          console.error("Failed to fetch historical messages", error);
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            console.error("Failed to fetch historical messages", error);
+          }
         }
+      }
+
+      if (!isLatestRequest()) {
+        return;
       }
 
       shouldJumpToBottomAfterThreadSwitchRef.current = false;
@@ -100,18 +152,18 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
     }
 
     void initializeThread();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (latestHydrationRequestIdRef.current === requestId) {
+        activeHydrationControllerRef.current = null;
+      }
+    };
   }, [
     accountName,
-    activeContentFocus,
-    activeStrategyInputs,
     activeThreadId,
-    activeToneInputs,
-    context,
-    contract,
-    fetchWorkspace,
-    isSending,
-    jumpThreadToBottomImmediately,
-    messagesLength,
+    hasHydrationPrerequisites,
     searchParamsKey,
     setIsThreadHydrating,
     setMessages,

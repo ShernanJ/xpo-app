@@ -87,6 +87,14 @@ export function useChatWorkspaceBootstrap<
   const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
   const activeStrategyInputsRef = useRef<TStrategyInputs | null>(activeStrategyInputs);
   const activeToneInputsRef = useRef<TToneInputs | null>(activeToneInputs);
+  const activeWorkspaceLoadControllerRef = useRef<AbortController | null>(null);
+  const workspaceLoadRequestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+  const workspaceBootstrapCallbacksRef = useRef({
+    applyBillingSnapshot,
+    onPlanRequired,
+    normalizeAccountHandle,
+  });
 
   useEffect(() => {
     activeStrategyInputsRef.current = activeStrategyInputs;
@@ -96,23 +104,53 @@ export function useChatWorkspaceBootstrap<
     activeToneInputsRef.current = activeToneInputs;
   }, [activeToneInputs]);
 
-  const runMissingOnboardingSetup = useCallback(async (): Promise<boolean> => {
-    const normalizedHandle = normalizeAccountHandle(accountName ?? "");
+  useEffect(() => {
+    workspaceBootstrapCallbacksRef.current = {
+      applyBillingSnapshot,
+      onPlanRequired,
+      normalizeAccountHandle,
+    };
+  }, [applyBillingSnapshot, normalizeAccountHandle, onPlanRequired]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      activeWorkspaceLoadControllerRef.current?.abort();
+      activeWorkspaceLoadControllerRef.current = null;
+    };
+  }, []);
+
+  const runMissingOnboardingSetup = useCallback(async (
+    requestId: number,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    const isLatestRequest = () =>
+      isMountedRef.current &&
+      workspaceLoadRequestIdRef.current === requestId &&
+      !signal.aborted;
+    const normalizedHandle =
+      workspaceBootstrapCallbacksRef.current.normalizeAccountHandle(accountName ?? "");
     if (!normalizedHandle) {
-      setErrorMessage("This account is not ready yet. Select a valid X handle first.");
+      if (isLatestRequest()) {
+        setErrorMessage("This account is not ready yet. Select a valid X handle first.");
+      }
       return false;
     }
 
     if (missingOnboardingSetupAttemptedRef.current.has(normalizedHandle)) {
-      setErrorMessage(
-        "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
-      );
+      if (isLatestRequest()) {
+        setErrorMessage(
+          "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
+        );
+      }
       return false;
     }
     missingOnboardingSetupAttemptedRef.current.add(normalizedHandle);
 
-    setIsWorkspaceInitializing(true);
-    setErrorMessage(null);
+    if (isLatestRequest()) {
+      setIsWorkspaceInitializing(true);
+      setErrorMessage(null);
+    }
 
     try {
       const response = await fetch("/api/onboarding/run", {
@@ -120,6 +158,7 @@ export function useChatWorkspaceBootstrap<
         headers: {
           "Content-Type": "application/json",
         },
+        signal,
         body: JSON.stringify({
           account: normalizedHandle,
           goal: "followers",
@@ -128,38 +167,45 @@ export function useChatWorkspaceBootstrap<
         }),
       });
 
+      if (!isLatestRequest()) {
+        return false;
+      }
+
       const data = (await response.json().catch(() => null)) as OnboardingRunResponse | null;
       if (!response.ok || !data || !data.ok) {
         if (data && !data.ok && data.data?.billing) {
-          applyBillingSnapshot(data.data.billing);
+          workspaceBootstrapCallbacksRef.current.applyBillingSnapshot(data.data.billing);
         }
         if (response.status === 403) {
-          onPlanRequired();
+          workspaceBootstrapCallbacksRef.current.onPlanRequired();
         }
         const errorText =
           data && !data.ok
             ? (data.errors[0]?.message ?? "Could not finish setup for this account.")
             : "Could not finish setup for this account.";
-        missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
         setErrorMessage(errorText);
         return false;
       }
 
       return true;
-    } catch {
-      missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
-      setErrorMessage(
-        "Could not finish setting up this account automatically. Run onboarding once, then reopen chat.",
-      );
+    } catch (error) {
+      if (!isLatestRequest()) {
+        return false;
+      }
+
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setErrorMessage(
+          "Could not finish setting up this account automatically. Run onboarding once, then reopen chat.",
+        );
+      }
       return false;
     } finally {
-      setIsWorkspaceInitializing(false);
+      if (isLatestRequest()) {
+        setIsWorkspaceInitializing(false);
+      }
     }
   }, [
     accountName,
-    applyBillingSnapshot,
-    normalizeAccountHandle,
-    onPlanRequired,
     setErrorMessage,
     setIsWorkspaceInitializing,
   ]);
@@ -169,9 +215,25 @@ export function useChatWorkspaceBootstrap<
       overrides: TStrategyInputs | null = activeStrategyInputsRef.current,
       toneOverrides: TToneInputs | null = activeToneInputsRef.current,
     ): Promise<WorkspaceLoadResult<TContextData, TContractData>> => {
+      const requestId = workspaceLoadRequestIdRef.current + 1;
+      workspaceLoadRequestIdRef.current = requestId;
+      activeWorkspaceLoadControllerRef.current?.abort();
+
+      const isLatestRequest = (signal?: AbortSignal) =>
+        isMountedRef.current &&
+        workspaceLoadRequestIdRef.current === requestId &&
+        !signal?.aborted;
+      const assignActiveController = () => {
+        const controller = new AbortController();
+        activeWorkspaceLoadControllerRef.current = controller;
+        return controller;
+      };
+
       if (requiresXAccountGate) {
-        setErrorMessage(null);
-        setIsLoading(false);
+        if (isLatestRequest()) {
+          setErrorMessage(null);
+          setIsLoading(false);
+        }
         return { ok: false };
       }
 
@@ -183,68 +245,111 @@ export function useChatWorkspaceBootstrap<
           ...(overrides ?? {}),
           ...(toneOverrides ?? {}),
         };
+        const runWorkspaceFetch = async (
+          controller: AbortController,
+        ): Promise<WorkspaceLoadResult<TContextData, TContractData>> => {
+          const [contextResponse, contractResponse] = await Promise.all([
+            fetchWorkspace("/api/creator/context", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              signal: controller.signal,
+              body: JSON.stringify(requestBody),
+            }),
+            fetchWorkspace("/api/creator/generation-contract", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              signal: controller.signal,
+              body: JSON.stringify(requestBody),
+            }),
+          ]);
 
-        const [contextResponse, contractResponse] = await Promise.all([
-          fetchWorkspace("/api/creator/context", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-          }),
-          fetchWorkspace("/api/creator/generation-contract", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-          }),
-        ]);
-
-        const contextData = (await contextResponse.json()) as WorkspaceLoadResponseLike<
-          TContextData
-        >;
-        const contractData = (await contractResponse.json()) as WorkspaceLoadResponseLike<
-          TContractData
-        >;
-
-        const workspaceLoadState = resolveWorkspaceLoadState({
-          contextResponseOk: contextResponse.ok,
-          contextStatus: contextResponse.status,
-          contextData,
-          contractResponseOk: contractResponse.ok,
-          contractStatus: contractResponse.status,
-          contractData,
-        });
-
-        if (workspaceLoadState.status === "retry_after_onboarding") {
-          const didSetup = await runMissingOnboardingSetup();
-          if (didSetup) {
-            return await loadWorkspace(overrides, toneOverrides);
+          if (!isLatestRequest(controller.signal)) {
+            return { ok: false };
           }
-          return { ok: false };
-        }
 
-        if (workspaceLoadState.status === "error") {
-          setErrorMessage(workspaceLoadState.errorMessage);
-          return { ok: false };
-        }
+          const contextData = (await contextResponse.json()) as WorkspaceLoadResponseLike<
+            TContextData
+          >;
+          const contractData = (await contractResponse.json()) as WorkspaceLoadResponseLike<
+            TContractData
+          >;
 
-        setContext(workspaceLoadState.contextData);
-        setContract(workspaceLoadState.contractData);
-        return {
-          ok: true,
-          contextData: workspaceLoadState.contextData,
-          contractData: workspaceLoadState.contractData,
+          if (!isLatestRequest(controller.signal)) {
+            return { ok: false };
+          }
+
+          const workspaceLoadState = resolveWorkspaceLoadState({
+            contextResponseOk: contextResponse.ok,
+            contextStatus: contextResponse.status,
+            contextData,
+            contractResponseOk: contractResponse.ok,
+            contractStatus: contractResponse.status,
+            contractData,
+          });
+
+          if (workspaceLoadState.status === "retry_after_onboarding") {
+            const didSetup = await runMissingOnboardingSetup(requestId, controller.signal);
+            if (!didSetup || !isLatestRequest(controller.signal)) {
+              return { ok: false };
+            }
+
+            return runWorkspaceFetch(assignActiveController());
+          }
+
+          if (workspaceLoadState.status === "error") {
+            if (isLatestRequest(controller.signal)) {
+              setErrorMessage(workspaceLoadState.errorMessage);
+            }
+            return { ok: false };
+          }
+
+          if (!isLatestRequest(controller.signal)) {
+            return { ok: false };
+          }
+
+          const normalizedHandle =
+            workspaceBootstrapCallbacksRef.current.normalizeAccountHandle(accountName ?? "");
+          if (normalizedHandle) {
+            missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
+          }
+
+          setContext(workspaceLoadState.contextData);
+          setContract(workspaceLoadState.contractData);
+          return {
+            ok: true,
+            contextData: workspaceLoadState.contextData,
+            contractData: workspaceLoadState.contractData,
+          };
         };
-      } catch {
-        setErrorMessage("Network error while loading the chat workspace.");
+
+        return await runWorkspaceFetch(assignActiveController());
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return { ok: false };
+        }
+
+        if (isLatestRequest()) {
+          setErrorMessage("Network error while loading the chat workspace.");
+        }
         return { ok: false };
       } finally {
-        setIsLoading(false);
+        if (workspaceLoadRequestIdRef.current === requestId) {
+          activeWorkspaceLoadControllerRef.current = null;
+          if (isMountedRef.current) {
+            setIsLoading(false);
+          }
+        }
       }
     },
     [
+      accountName,
       fetchWorkspace,
       requiresXAccountGate,
       runMissingOnboardingSetup,

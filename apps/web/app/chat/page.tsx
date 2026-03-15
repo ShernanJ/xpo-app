@@ -2,6 +2,7 @@
 
 import {
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -370,6 +371,12 @@ function ChatPageContent() {
   const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
     null,
   );
+  const applyWorkspaceBillingSnapshot = useCallback((billing: unknown) => {
+    applyBillingSnapshot(billing as BillingSnapshotPayload | null | undefined);
+  }, [applyBillingSnapshot]);
+  const handleWorkspacePlanRequired = useCallback(() => {
+    setPricingModalOpen(true);
+  }, [setPricingModalOpen]);
   const { loadWorkspace, clearMissingOnboardingAttempts } = useChatWorkspaceBootstrap<
     CreatorAgentContext,
     CreatorGenerationContract,
@@ -386,14 +393,14 @@ function ChatPageContent() {
     setErrorMessage,
     setContext,
     setContract,
-    applyBillingSnapshot: (billing) => {
-      applyBillingSnapshot(billing as BillingSnapshotPayload | null | undefined);
-    },
-    onPlanRequired: () => {
-      setPricingModalOpen(true);
-    },
+    applyBillingSnapshot: applyWorkspaceBillingSnapshot,
+    onPlanRequired: handleWorkspacePlanRequired,
     normalizeAccountHandle,
   });
+  const loadWorkspaceEffectRef = useRef(loadWorkspace);
+  useEffect(() => {
+    loadWorkspaceEffectRef.current = loadWorkspace;
+  }, [loadWorkspace]);
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
@@ -583,7 +590,10 @@ function ChatPageContent() {
 
       setToneInputs(inferredToneInputs);
       setActiveToneInputs(inferredToneInputs);
-      void loadWorkspace(activeStrategyInputs ?? strategyInputs, inferredToneInputs);
+      void loadWorkspaceEffectRef.current(
+        activeStrategyInputs ?? strategyInputs,
+        inferredToneInputs,
+      );
     }, 0);
 
     return () => {
@@ -594,7 +604,6 @@ function ChatPageContent() {
     activeToneInputs,
     context,
     contract,
-    loadWorkspace,
     strategyInputs,
     toneInputs,
   ]);
@@ -931,7 +940,6 @@ function ChatPageContent() {
   useThreadHistoryHydration<ChatMessage>({
     accountName,
     activeThreadId,
-    activeContentFocus,
     activeStrategyInputs,
     activeToneInputs,
     context,
@@ -939,7 +947,6 @@ function ChatPageContent() {
     fetchWorkspace,
     isSending,
     jumpThreadToBottomImmediately,
-    messagesLength: messages.length,
     searchParamsKey,
     setIsThreadHydrating,
     setMessages,

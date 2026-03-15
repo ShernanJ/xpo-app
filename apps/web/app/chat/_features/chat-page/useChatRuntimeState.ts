@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   HERO_EXIT_TRANSITION_MS,
@@ -28,6 +28,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
   const { backfillJobId, messagesLength, loadWorkspace } = options;
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
+  const loadWorkspaceRef = useRef(loadWorkspace);
   const [providerPreference] = useState<ChatProviderPreference>(() => {
     if (typeof window === "undefined" || !showDevTools) {
       return "groq";
@@ -36,6 +37,10 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
     const storedValue = window.localStorage.getItem(chatProviderStorageKey);
     return storedValue === "openai" || storedValue === "groq" ? storedValue : "groq";
   });
+
+  useEffect(() => {
+    loadWorkspaceRef.current = loadWorkspace;
+  }, [loadWorkspace]);
 
   useEffect(() => {
     if (!isLeavingHero || messagesLength === 0) {
@@ -101,8 +106,8 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
         }
 
         setBackfillNotice("Background backfill completed. Context refreshed.");
-        await loadWorkspace();
         finished = true;
+        await loadWorkspaceRef.current();
       } catch {
         // Keep polling on transient failures.
       }
@@ -117,7 +122,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [backfillJobId, loadWorkspace]);
+  }, [backfillJobId]);
 
   useEffect(() => {
     if (!showDevTools) {

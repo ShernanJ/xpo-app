@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -125,6 +126,13 @@ export function useChatWorkspaceReset<
     setRevealedDraftMessageIds,
     setIsLeavingHero,
   } = options;
+  const loadWorkspaceRef = useRef(loadWorkspace);
+  const bootstrappedWorkspaceKeyRef = useRef<string | null>(null);
+  const resetWorkspaceKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    loadWorkspaceRef.current = loadWorkspace;
+  }, [loadWorkspace]);
 
   const applyChatWorkspaceReset = useCallback((
     reset: ChatWorkspaceReset<TToneInputs, TStrategyInputs>,
@@ -257,14 +265,26 @@ export function useChatWorkspaceReset<
   }, [applyChatWorkspaceReset, threadStateResetVersion]);
 
   useEffect(() => {
-    void loadWorkspace();
-  }, [loadWorkspace]);
+    const workspaceBootstrapKey = accountName ?? "__default__";
+    if (bootstrappedWorkspaceKeyRef.current === workspaceBootstrapKey) {
+      return;
+    }
+
+    bootstrappedWorkspaceKeyRef.current = workspaceBootstrapKey;
+    void loadWorkspaceRef.current();
+  }, [accountName]);
 
   useEffect(() => {
     if (!accountName) {
       return;
     }
 
+    const workspaceResetKey = accountName;
+    if (resetWorkspaceKeyRef.current === workspaceResetKey) {
+      return;
+    }
+
+    resetWorkspaceKeyRef.current = workspaceResetKey;
     clearMissingOnboardingAttempts();
     const timeoutId = window.setTimeout(() => {
       applyChatWorkspaceReset(

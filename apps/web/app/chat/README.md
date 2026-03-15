@@ -151,3 +151,14 @@ This route should keep moving toward:
 - runtime logic in `apps/web/lib/agent-v2/*`
 
 That separation is the main thing both humans and agents should preserve when editing this area.
+
+## Effect Guardrails
+
+When an effect in this folder owns async work, polling, or reset behavior:
+
+- use primitive driver keys or real identity keys in the dependency list
+- move callback props and helper functions behind refs when they are only read at execution time
+- add stale-response protection for fetches, preferably with `AbortController`
+- avoid letting callback identity churn restart workspace bootstrap, thread hydration, or polling loops
+
+If a change makes an effect easier to read but less stable under rerenders, choose stability.
