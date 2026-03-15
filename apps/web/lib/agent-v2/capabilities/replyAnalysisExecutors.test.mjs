@@ -176,7 +176,7 @@ test("executeReplyingCapability retries malformed delivery once and keeps valida
   );
 });
 
-test("executeAnalysisCapability falls back safely when delivery validation fails twice", async () => {
+test("executeAnalysisCapability delivers the repaired reply when truncation remains auto-correctable", async () => {
   let calls = 0;
 
   const execution = await executeAnalysisCapability({
@@ -216,10 +216,13 @@ test("executeAnalysisCapability falls back safely when delivery validation fails
   });
 
   assert.equal(calls, 2);
-  assert.equal(execution.output.responseSeed.outputShape, "coach_question");
   assert.equal(
-    execution.output.responseSeed.response.includes("came back malformed twice"),
-    true,
+    execution.output.responseSeed.response,
+    "the post works because it frames the tension",
+  );
+  assert.equal(
+    execution.output.memoryPatch.unresolvedQuestion,
+    null,
   );
   assert.equal(
     execution.workers.some(
@@ -228,9 +231,58 @@ test("executeAnalysisCapability falls back safely when delivery validation fails
     true,
   );
   assert.equal(
+    execution.validations.filter(
+      (validation) =>
+        validation.validator === "truncation_guard" && validation.corrected,
+    ).length >= 2,
+    true,
+  );
+});
+
+test("executeReplyingCapability treats a full prompt echo as a blocking delivery failure", async () => {
+  let calls = 0;
+
+  const execution = await executeReplyingCapability({
+    workflow: "reply_to_post",
+    capability: "replying",
+    activeContextRefs: [],
+    context: {
+      userMessage: "what do you think about the update?",
+      effectiveContext: "recent context",
+      topicSummary: "x replies",
+      styleCard: null,
+      relevantTopicAnchors: [],
+      userContextString: "builder account",
+      goal: "followers",
+      memory: baseMemory,
+      antiPatterns: [],
+      feedbackMemoryNotice: null,
+      nextAssistantTurnCount: 2,
+      turnFormatPreference: "shortform",
+      refreshRollingSummary: false,
+    },
+    services: {
+      generateReplyGuidance: async () => {
+        calls += 1;
+        return {
+          response: "what do you think about the update?",
+          probingQuestion: null,
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(
+    execution.output.responseSeed.response.includes("came back malformed twice"),
+    true,
+  );
+  assert.equal(
     execution.validations.some(
       (validation) =>
-        validation.validator === "truncation_guard" && validation.status === "failed",
+        validation.validator === "prompt_echo_guard" &&
+        validation.status === "failed" &&
+        validation.corrected === false,
     ),
     true,
   );

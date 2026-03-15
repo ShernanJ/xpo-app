@@ -24,6 +24,7 @@ export interface ConversationValidationWorkerRequest {
 export interface ConversationValidationWorkerResult {
   validationStatus: RuntimeValidationStatus;
   hasFailures: boolean;
+  hasBlockingFailures: boolean;
   correctedResponse: string;
   issues: ConversationDeliveryValidationIssue[];
   retryConstraints: string[];
@@ -59,6 +60,7 @@ export function runConversationValidationWorkers(
     response: args.response,
     sourceUserMessage: args.sourceUserMessage,
   });
+  const blockingIssues = result.issues.filter((issue) => !issue.corrected);
   const issueByCode = new Map(result.issues.map((issue) => [issue.code, issue]));
 
   const workerExecutions = WORKER_CONFIG.map((config) => {
@@ -92,6 +94,7 @@ export function runConversationValidationWorkers(
   return {
     validationStatus: result.issues.length > 0 ? "failed" : "passed",
     hasFailures: result.issues.length > 0,
+    hasBlockingFailures: blockingIssues.length > 0,
     correctedResponse: result.correctedResponse,
     issues: result.issues,
     retryConstraints: result.retryConstraints,

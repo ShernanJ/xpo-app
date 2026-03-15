@@ -171,7 +171,7 @@ export async function executeAnalysisCapability(
       })
     : context.memory.rollingSummary;
 
-  const chosenAttempt = finalAttempt.validation.hasFailures ? null : finalAttempt;
+  const chosenAttempt = finalAttempt.validation.hasBlockingFailures ? null : finalAttempt;
   const finalResponse = chosenAttempt
     ? chosenAttempt.finalResponse
     : buildFallbackResponse();

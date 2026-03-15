@@ -172,6 +172,19 @@ test("normalizeDraftPayload moves actual draft text out of reply", () => {
   assert.equal(looksLikeDraftHandoff(result.reply), true);
 });
 
+test("normalizeDraftPayload rescues short draft replies when the draft field is missing", () => {
+  const result = normalizeDraftPayload({
+    reply: "ship quietly. win loudly.",
+    draft: null,
+    drafts: [],
+    outputShape: "short_form_post",
+  });
+
+  assert.equal(result.draft, "ship quietly. win loudly.");
+  assert.equal(result.drafts[0], "ship quietly. win loudly.");
+  assert.equal(looksLikeDraftHandoff(result.reply), true);
+});
+
 test("normalizeDraftPayload preserves conversational handoff replies", () => {
   const handoffReply =
     "ran with that idea and drafted this. want any tweaks before you post?";
@@ -2102,6 +2115,52 @@ test("initial draft version payload preserves revision linkage and stored max li
   assert.equal(payload.draftVersions?.[0]?.basedOnVersionId, "ver_5");
   assert.equal(payload.previousVersionSnapshot?.versionId, "ver_5");
   assert.equal(payload.revisionChainId, "revision-chain-msg_5");
+});
+
+test("initial draft version payload resets the stored max limit when converting back to shortform", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_6",
+    versionId: "ver_6",
+    content: "old long draft",
+    source: "assistant_generated",
+    maxCharacterLimit: 25_000,
+    revisionChainId: "revision-chain-msg_6",
+  });
+
+  const payload = buildInitialDraftVersionPayload({
+    draft: "tight short draft",
+    outputShape: "short_form_post",
+    supportAsset: null,
+    selectedDraftContext,
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 280);
+  assert.equal(payload.draftVersions?.[0]?.maxCharacterLimit, 280);
+  assert.equal(payload.previousVersionSnapshot?.maxCharacterLimit, 25_000);
+});
+
+test("initial draft version payload does not carry a shortform max limit into a thread conversion", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_7",
+    versionId: "ver_7",
+    content: "old short draft",
+    source: "assistant_generated",
+    maxCharacterLimit: 280,
+    revisionChainId: "revision-chain-msg_7",
+  });
+
+  const payload = buildInitialDraftVersionPayload({
+    draft: "hook\n\n---\n\nproof\n\n---\n\ncta",
+    outputShape: "thread_seed",
+    supportAsset: null,
+    selectedDraftContext,
+    threadPostMaxCharacterLimit: 280,
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 1680);
+  assert.equal(payload.draftVersions?.[0]?.maxCharacterLimit, 1680);
 });
 
 test("thread payloads build structured thread artifacts with posts", () => {

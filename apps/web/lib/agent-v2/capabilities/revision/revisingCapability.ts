@@ -433,10 +433,9 @@ export async function executeRevisingCapability(
 
   const revisionWasRejectedByCritic = !finalAttempt.criticOutput.approved;
   const finalizedRevisionDraft =
-    finalAttempt.validation!.claimCheck.draft ||
     (revisionWasRejectedByCritic
       ? context.activeDraft
-      : finalAttempt.criticOutput.finalDraft) ||
+      : finalAttempt.validation!.correctedDraft) ||
     finalAttempt.reviserOutput.revisedDraft;
   const revisionVoiceTarget = resolveVoiceTarget({
     styleCard: context.styleCard,

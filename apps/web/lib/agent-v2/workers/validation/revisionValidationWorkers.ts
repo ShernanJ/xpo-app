@@ -27,6 +27,7 @@ export interface RevisionValidationWorkerResult {
   claimCheck: ReturnType<typeof checkDraftClaimsAgainstGrounding>;
   validationStatus: RuntimeValidationStatus;
   hasDeliveryFailures: boolean;
+  correctedDraft: string;
   retryConstraints: string[];
   workerExecutions: RuntimeWorkerExecution[];
   validations: RuntimeValidationResult[];
@@ -71,6 +72,7 @@ export function runRevisionValidationWorkers(
       claimCheck,
       validationStatus: claimValidationStatus,
       hasDeliveryFailures: false,
+      correctedDraft: claimCheck.draft || args.draft,
       retryConstraints: [],
       workerExecutions: [claimWorker],
       validations: [claimValidation],
@@ -102,7 +104,8 @@ export function runRevisionValidationWorkers(
   return {
     claimCheck,
     validationStatus,
-    hasDeliveryFailures: deliveryValidation.hasFailures,
+    hasDeliveryFailures: deliveryValidation.hasBlockingFailures,
+    correctedDraft: deliveryValidation.correctedDraft,
     retryConstraints: deliveryValidation.retryConstraints,
     workerExecutions: mergedMeta.workerExecutions,
     validations: mergedMeta.validations,

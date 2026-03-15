@@ -26,6 +26,7 @@ export interface DeliveryValidationWorkerRequest {
 export interface DeliveryValidationWorkerResult {
   validationStatus: RuntimeValidationStatus;
   hasFailures: boolean;
+  hasBlockingFailures: boolean;
   correctedDraft: string;
   issues: DeliveryValidationIssue[];
   retryConstraints: string[];
@@ -77,6 +78,7 @@ export function runDeliveryValidationWorkers(
     formatPreference: args.formatPreference,
     sourceUserMessage: args.sourceUserMessage,
   });
+  const blockingIssues = result.issues.filter((issue) => !issue.corrected);
   const issueByCode = new Map(result.issues.map((issue) => [issue.code, issue]));
 
   const workerExecutions = WORKER_CONFIG.map((config) => {
@@ -118,6 +120,7 @@ export function runDeliveryValidationWorkers(
   return {
     validationStatus: result.issues.length > 0 ? "failed" : "passed",
     hasFailures: result.issues.length > 0,
+    hasBlockingFailures: blockingIssues.length > 0,
     correctedDraft: result.correctedDraft,
     issues: result.issues,
     retryConstraints: result.retryConstraints,

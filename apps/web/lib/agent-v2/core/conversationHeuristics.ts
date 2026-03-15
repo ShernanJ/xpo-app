@@ -56,6 +56,7 @@ export function inferExplicitDraftFormatPreference(
   const longformPatterns = [
     /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?long(?:\s|-)?form\b/,
     /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?long(?:\s|-)?form\b/,
+    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?long(?:\s|-)?form\s+(?:x\s+post|tweet|post)\b/,
     /\bwrite\s+longer\b/,
     /\bgo\s+deeper\b/,
     /\bexpand\s+this\b/,
@@ -67,8 +68,11 @@ export function inferExplicitDraftFormatPreference(
   const shortformPatterns = [
     /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?(?:(?:x\s+post|tweet|post))\b/,
     /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?(?:(?:x\s+post|tweet|post))\b/,
+    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?short(?:\s|-)?form(?:\s+(?:x\s+post|tweet|post))?\b/,
     /\bmake\s+it\s+a\s+(?:x\s+post|tweet|post)\b/,
     /\bturn\s+it\s+into\s+short(?:\s|-)?form\b/,
+    /\bshort(?:\s|-)?form\s+(?:x\s+post|tweet|post)\b/,
+    /\bunder\s+280\s+characters\b/,
     /\bkeep\s+it\s+short\b/,
     /\bkeep\s+it\s+tight\b/,
   ];

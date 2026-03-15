@@ -1,4 +1,5 @@
 import {
+  isFullPromptEcho,
   repairAbruptEnding,
   stripTrailingPromptEcho,
 } from "../../agents/draftCompletion.ts";
@@ -61,6 +62,13 @@ export function validateConversationalDelivery(
       message: "Reply ends by echoing the user's prompt instead of finishing the delivery.",
       retryConstraint: buildPromptEchoRetryConstraint(),
       corrected: true,
+    });
+  } else if (isFullPromptEcho(correctedResponse, args.sourceUserMessage)) {
+    issues.push({
+      code: "prompt_echo",
+      message: "Reply only restates the user's prompt instead of answering.",
+      retryConstraint: buildPromptEchoRetryConstraint(),
+      corrected: false,
     });
   }
 

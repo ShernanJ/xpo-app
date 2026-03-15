@@ -61,6 +61,46 @@ export function stripThreadishLeadLabel(value: string): string {
   return trimmed.replace(THREADISH_LEAD_LABEL, "").trimStart();
 }
 
+function buildPromptEchoFingerprint(value: string): string {
+  return stripSelectedAnglePromptPrefix(value)
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function isFullPromptEcho(
+  value: string,
+  sourcePrompt?: string | null,
+): boolean {
+  const trimmed = value.trim();
+  const normalizedSourcePrompt = sourcePrompt
+    ? stripSelectedAnglePromptPrefix(sourcePrompt)
+    : null;
+
+  if (!trimmed || !normalizedSourcePrompt || !QUESTION_START.test(trimmed)) {
+    return false;
+  }
+
+  const candidateTokens = normalizeOverlapTokens(trimmed);
+  const sourceTokens = normalizeOverlapTokens(normalizedSourcePrompt);
+  if (candidateTokens.length < 2 || candidateTokens.length > 12 || sourceTokens.length < 3) {
+    return false;
+  }
+
+  const sharedTokens = candidateTokens.filter((token) => sourceTokens.includes(token));
+  const overlapRatio = sharedTokens.length / candidateTokens.length;
+  const fingerprintMatches =
+    buildPromptEchoFingerprint(trimmed) ===
+    buildPromptEchoFingerprint(normalizedSourcePrompt);
+
+  return fingerprintMatches || (
+    sharedTokens.length >= 3 &&
+    overlapRatio >= 0.85 &&
+    Math.abs(candidateTokens.length - sourceTokens.length) <= 2
+  );
+}
+
 export function stripTrailingPromptEcho(
   value: string,
   sourcePrompt?: string | null,

@@ -214,7 +214,64 @@ function trimSegmentToWeightedLimit(segment: string, limit: number): {
     weightUsed += characterWeight;
   }
 
-  return { value: result, weightUsed };
+  const cleaned =
+    result.length < segment.length
+      ? retreatToCleanBoundary(result)
+      : result;
+
+  return { value: cleaned, weightUsed: countWeightedSegment(cleaned) };
+}
+
+function retreatToCleanBoundary(value: string): string {
+  const trimmed = value.trimEnd();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const sentenceBoundary = findSentenceBoundary(trimmed);
+  if (
+    sentenceBoundary !== null &&
+    sentenceBoundary >= Math.max(24, Math.floor(trimmed.length * 0.6))
+  ) {
+    return trimmed.slice(0, sentenceBoundary).trimEnd();
+  }
+
+  const wordBoundary = findWordBoundary(trimmed);
+  if (
+    wordBoundary !== null &&
+    wordBoundary >= Math.max(12, Math.floor(trimmed.length * 0.8))
+  ) {
+    return trimmed.slice(0, wordBoundary).trimEnd();
+  }
+
+  return trimmed;
+}
+
+function findSentenceBoundary(value: string): number | null {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (!/[.!?…]/.test(value[index] || "")) {
+      continue;
+    }
+
+    let boundary = index + 1;
+    while (/["'”’)\]]/.test(value[boundary] || "")) {
+      boundary += 1;
+    }
+
+    return boundary;
+  }
+
+  return null;
+}
+
+function findWordBoundary(value: string): number | null {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (/\s/.test(value[index] || "")) {
+      return index;
+    }
+  }
+
+  return null;
 }
 
 function computeXWeightedCharacterCount(text: string): number {
@@ -474,6 +531,127 @@ function normalizeWeakEngagementBaitCta(value: string): string {
       return isWeakWordReplyCta ? "if you try it, let me know how it goes." : line;
     })
     .join("\n");
+}
+
+function inferResourceCtaKeyword(context: string): string {
+  const normalized = context.toLowerCase();
+
+  if (/\bhir(?:e|ing|es|ed)|recruit/i.test(normalized)) {
+    return "HIRING";
+  }
+
+  if (/\bdelegat/i.test(normalized)) {
+    return "DELEGATION";
+  }
+
+  if (/\bgrowth|scale|scaling|arr\b/i.test(normalized)) {
+    return "GROWTH";
+  }
+
+  if (/\bteam\b/i.test(normalized)) {
+    return "TEAM";
+  }
+
+  if (/\bplaybook\b/i.test(normalized)) {
+    return "PLAYBOOK";
+  }
+
+  if (/\bchecklist\b/i.test(normalized)) {
+    return "CHECKLIST";
+  }
+
+  if (/\btemplate\b/i.test(normalized)) {
+    return "TEMPLATE";
+  }
+
+  return "ACCESS";
+}
+
+function inferResourceCtaObject(context: string): string {
+  const normalized = context.toLowerCase();
+
+  if (/\bhiring\b.*\bplaybook\b|\bplaybook\b.*\bhiring\b/i.test(normalized)) {
+    return "my hiring playbook";
+  }
+
+  if (/\bdelegation\b.*\bplaybook\b|\bplaybook\b.*\bdelegation\b/i.test(normalized)) {
+    return "my delegation playbook";
+  }
+
+  if (/\bplaybook\b/i.test(normalized)) {
+    return "the playbook";
+  }
+
+  if (/\bchecklist\b/i.test(normalized)) {
+    return "the checklist";
+  }
+
+  if (/\btemplate\b/i.test(normalized)) {
+    return "the template";
+  }
+
+  if (/\bguide\b/i.test(normalized)) {
+    return "the guide";
+  }
+
+  if (/\bpdf\b/i.test(normalized)) {
+    return "the PDF";
+  }
+
+  return "the resource";
+}
+
+function buildResourceAccessCta(context: string): string {
+  const keyword = inferResourceCtaKeyword(context);
+  const object = inferResourceCtaObject(context);
+  return `Comment "${keyword}" to get access to ${object}.`;
+}
+
+function normalizeGeneratedLinks(value: string): string {
+  const lines = value.split("\n");
+  const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
+  const urlPattern = /https?:\/\/[^\s)]+/gi;
+
+  const normalizedLines = lines
+    .map((line, index) => {
+      const urlMatches = [
+        ...Array.from(line.matchAll(markdownLinkPattern), (match) => match[2] || ""),
+        ...Array.from(line.matchAll(urlPattern), (match) => match[0] || ""),
+      ].filter(Boolean);
+
+      if (urlMatches.length === 0) {
+        return line;
+      }
+
+      const previousLine = lines[index - 1]?.trim() || "";
+      const nextLine = lines[index + 1]?.trim() || "";
+      const linkContext = `${previousLine} ${line} ${nextLine} ${urlMatches.join(" ")}`.trim();
+      const isResourceLink =
+        /\.(?:pdf|docx?|pptx?|xlsx?)(?:[?#].*)?$/i.test(linkContext) ||
+        /\b(playbook|guide|checklist|template|worksheet|resource|download|access|pdf)\b/i.test(
+          linkContext,
+        );
+
+      if (isResourceLink) {
+        return buildResourceAccessCta(linkContext);
+      }
+
+      const withoutMarkdownLinks = line.replace(markdownLinkPattern, "$1");
+      const withoutUrls = withoutMarkdownLinks.replace(urlPattern, "");
+
+      return withoutUrls.replace(/[ \t]{2,}/g, " ").trimEnd();
+    })
+    .filter((line, index, array) => {
+      if (line.trim()) {
+        return true;
+      }
+
+      const previous = array[index - 1]?.trim() || "";
+      const next = array[index + 1]?.trim() || "";
+      return previous && next;
+    });
+
+  return normalizedLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function applyBlacklist(value: string, blacklist: string[]): string {
@@ -777,10 +955,11 @@ export function applyFinalDraftPolicyWithReport(args: {
 
   const withNoScaffolding = stripLeakedDraftScaffolding(args.draft);
   const withNoMarkdown = stripUnsupportedMarkdown(withNoScaffolding);
+  const withNoGeneratedLinks = normalizeGeneratedLinks(withNoMarkdown);
   const withResolvedFormat =
     formatPreference === "thread"
-      ? withNoMarkdown
-      : normalizeNonThreadSerializedDraft(withNoMarkdown, formatPreference);
+      ? withNoGeneratedLinks
+      : normalizeNonThreadSerializedDraft(withNoGeneratedLinks, formatPreference);
   const withBetterCta = normalizeWeakEngagementBaitCta(withResolvedFormat);
   const withBlacklistsApplied = applyBlacklist(withBetterCta, normalizedPreferences.blacklist);
   const withBullets = normalizeBulletStyle(withBlacklistsApplied, normalizedPreferences.bulletStyle);
@@ -799,7 +978,8 @@ export function applyFinalDraftPolicyWithReport(args: {
   return {
     draft: finalDraft,
     adjustments: {
-      markdownAdjusted: withNoMarkdown !== args.draft.trim(),
+      markdownAdjusted:
+        withNoMarkdown !== args.draft.trim() || withNoGeneratedLinks !== withNoMarkdown,
       engagementAdjusted: withBetterCta !== withResolvedFormat,
       styleAdjusted:
         withResolvedFormat !== withNoMarkdown || withThreadFormatting !== withCasing,

@@ -15,10 +15,8 @@ const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
 
 const INLINE_DRAFT_REVISION_ACTIONS = [
   { label: "Shorter", prompt: "make it shorter" },
-  { label: "Longer", prompt: "make it longer and more detailed" },
   { label: "Softer", prompt: "make it softer" },
   { label: "Punchier", prompt: "make it punchier" },
-  { label: "Less Negative", prompt: "make it less negative" },
   { label: "More Specific", prompt: "make it more specific" },
 ] as const;
 

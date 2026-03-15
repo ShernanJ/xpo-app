@@ -26,6 +26,21 @@ test("preserves incentivized CTAs", () => {
   assert.equal(result.includes("checklist"), true);
 });
 
+test("replaces leaked pdf links with a plain access CTA", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "The biggest hiring mistake that still drags growth? Choosing seniority over fit.",
+      "We eventually stripped the org back to a core of 10 engineers serving 60k creators.",
+      "https://example.com/hiring-playbook.pdf",
+    ].join("\n"),
+    formatPreference: "shortform",
+    isVerifiedAccount: true,
+  });
+
+  assert.equal(result.includes("https://"), false);
+  assert.equal(result.includes('Comment "HIRING" to get access to my hiring playbook.'), true);
+});
+
 test("applies casing, bullet style, and blacklist preferences", () => {
   const result = applyFinalDraftPolicy({
     draft: "here we go\n- first item\n- second item\nthis grind gets real",
@@ -58,6 +73,18 @@ test("keeps verified accounts shortform by default unless longform is explicit",
 
   assert.equal(shortformResult.length < sourceDraft.length, true);
   assert.equal(longformResult.length, sourceDraft.length);
+});
+
+test("shortform trimming backs up to a clean boundary instead of cutting mid-word", () => {
+  const result = applyFinalDraftPolicy({
+    draft:
+      "$30M ARR, 10 engineers, 60k creators. Scaling that kind of platform taught me that hiring isn’t about adding headcount, it’s about adding the right context. I stopped asking “Can we do this?” and started looking for people who have already solved the problems I need solved. Two simple rules guide the new hiring playbook:",
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.endsWith("Two s"), false);
+  assert.equal(/[.!?…”’)\]]$/.test(result), true);
 });
 
 test("applies style-card lowercase normalization inside the final policy layer", () => {
@@ -122,10 +149,8 @@ test("strips leaked transcript and composer chrome from draft content", () => {
       "·",
       "210 / 280 chars",
       "Shorter",
-      "Longer",
       "Softer",
       "Punchier",
-      "Less Negative",
       "More Specific",
       "Turn into Thread",
       "Post",

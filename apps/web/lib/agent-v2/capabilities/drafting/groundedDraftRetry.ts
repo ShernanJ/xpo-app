@@ -230,6 +230,7 @@ export async function runGroundedDraftRetry(
   });
   localWorkers.push(...firstDeliveryValidation.workerExecutions);
   localValidations.push(...firstDeliveryValidation.validations);
+  const firstDraftAfterDeliveryValidation = firstDeliveryValidation.correctedDraft;
 
   let firstAssessment = { hasDrift: false, reason: null as string | null };
   let firstProductAssessment = { hasDrift: false, reason: null as string | null };
@@ -240,7 +241,7 @@ export async function runGroundedDraftRetry(
       groupId: "draft_guard_validation_initial",
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage,
-      draft: firstAttemptWithClaimCheck.draftToDeliver,
+      draft: firstDraftAfterDeliveryValidation,
     });
     localWorkers.push(...firstValidation.workerExecutions);
     localValidations.push(...firstValidation.validations);
@@ -258,7 +259,7 @@ export async function runGroundedDraftRetry(
       kind: "success",
       writerOutput: firstAttemptWithClaimCheck.writerOutput,
       criticOutput: firstAttemptWithClaimCheck.criticOutput,
-      draftToDeliver: firstAttemptWithClaimCheck.draftToDeliver,
+      draftToDeliver: firstDraftAfterDeliveryValidation,
       voiceTarget: firstAttemptWithClaimCheck.voiceTarget,
       retrievalReasons: firstAttemptWithClaimCheck.retrievalReasons,
       threadFramingStyle: firstAttemptWithClaimCheck.threadFramingStyle,
@@ -332,8 +333,9 @@ export async function runGroundedDraftRetry(
   });
   localWorkers.push(...secondDeliveryValidation.workerExecutions);
   localValidations.push(...secondDeliveryValidation.validations);
+  const secondDraftAfterDeliveryValidation = secondDeliveryValidation.correctedDraft;
 
-  if (secondDeliveryValidation.hasFailures) {
+  if (secondDeliveryValidation.hasBlockingFailures) {
     const issues = secondDeliveryValidation.issues.map((issue) => issue.message);
     routingTracePatch = {
       ...routingTracePatch,
@@ -358,7 +360,7 @@ export async function runGroundedDraftRetry(
       : "draft_guard_validation_initial",
     activeConstraints: args.activeConstraints,
     sourceUserMessage: args.sourceUserMessage,
-    draft: secondAttemptWithClaimCheck.draftToDeliver,
+    draft: secondDraftAfterDeliveryValidation,
   });
   localWorkers.push(...secondValidation.workerExecutions);
   localValidations.push(...secondValidation.validations);
@@ -405,7 +407,7 @@ export async function runGroundedDraftRetry(
     kind: "success",
     writerOutput: secondAttemptWithClaimCheck.writerOutput,
     criticOutput: secondAttemptWithClaimCheck.criticOutput,
-    draftToDeliver: secondAttemptWithClaimCheck.draftToDeliver,
+    draftToDeliver: secondDraftAfterDeliveryValidation,
     voiceTarget: secondAttemptWithClaimCheck.voiceTarget,
     retrievalReasons: secondAttemptWithClaimCheck.retrievalReasons,
     threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,

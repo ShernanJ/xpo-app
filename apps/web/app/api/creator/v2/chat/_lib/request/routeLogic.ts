@@ -26,6 +26,7 @@ import {
   buildDraftArtifactTitle,
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
+  SHORT_FORM_X_LIMIT,
   resolveThreadFramingStyle,
   type DraftArtifactDetails,
 } from "../../../../../../../lib/onboarding/draftArtifacts.ts";
@@ -279,7 +280,7 @@ export function normalizeDraftPayload(args: {
   ) {
     const trimmedReply = reply.trim();
     const replyLooksLikeDraft =
-      trimmedReply.length > 40 && !looksLikeDraftHandoff(trimmedReply);
+      trimmedReply.length > 0 && !looksLikeDraftHandoff(trimmedReply);
 
     if (!draft && replyLooksLikeDraft) {
       draft = trimmedReply;
@@ -793,6 +794,27 @@ function buildRevisionChainId(seed?: string): string {
   return `revision-chain-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function resolveVersionCharacterLimit(args: {
+  outputShape: string;
+  primaryArtifact: DraftArtifactDetails;
+  selectedDraftContext: SelectedDraftContext | null;
+}): number {
+  const selectedLimit = args.selectedDraftContext?.maxCharacterLimit;
+  if (typeof selectedLimit !== "number" || selectedLimit <= 0) {
+    return args.primaryArtifact.maxCharacterLimit;
+  }
+
+  if (args.outputShape === "short_form_post") {
+    return args.primaryArtifact.maxCharacterLimit;
+  }
+
+  if (selectedLimit <= SHORT_FORM_X_LIMIT) {
+    return args.primaryArtifact.maxCharacterLimit;
+  }
+
+  return selectedLimit;
+}
+
 export function buildInitialDraftVersionPayload(args: {
   draft: string | null;
   outputShape: string;
@@ -853,8 +875,11 @@ export function buildInitialDraftVersionPayload(args: {
       ? { threadFramingStyle: args.threadFramingStyle }
       : {}),
   });
-  const maxCharacterLimit =
-    args.selectedDraftContext?.maxCharacterLimit ?? primaryArtifact.maxCharacterLimit;
+  const maxCharacterLimit = resolveVersionCharacterLimit({
+    outputShape: args.outputShape,
+    primaryArtifact,
+    selectedDraftContext: args.selectedDraftContext,
+  });
   const adjustedPrimaryArtifact =
     maxCharacterLimit === primaryArtifact.maxCharacterLimit
       ? primaryArtifact

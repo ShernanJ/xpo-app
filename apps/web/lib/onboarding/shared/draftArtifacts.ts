@@ -400,12 +400,68 @@ function trimSegmentToWeightedLimit(value: string, limit: number): {
   }
 
   const sliced = value.slice(0, endIndex);
+  const cleaned =
+    endIndex < value.length
+      ? retreatToCleanBoundary(sliced)
+      : sliced;
 
   return {
-    value: sliced,
-    weightUsed: total,
+    value: cleaned,
+    weightUsed: countWeightedSegment(cleaned),
     wasTrimmed: endIndex < value.length,
   };
+}
+
+function retreatToCleanBoundary(value: string): string {
+  const trimmed = value.trimEnd();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const sentenceBoundary = findSentenceBoundary(trimmed);
+  if (
+    sentenceBoundary !== null &&
+    sentenceBoundary >= Math.max(24, Math.floor(trimmed.length * 0.6))
+  ) {
+    return trimmed.slice(0, sentenceBoundary).trimEnd();
+  }
+
+  const wordBoundary = findWordBoundary(trimmed);
+  if (
+    wordBoundary !== null &&
+    wordBoundary >= Math.max(12, Math.floor(trimmed.length * 0.8))
+  ) {
+    return trimmed.slice(0, wordBoundary).trimEnd();
+  }
+
+  return trimmed;
+}
+
+function findSentenceBoundary(value: string): number | null {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (!/[.!?…]/.test(value[index] || "")) {
+      continue;
+    }
+
+    let boundary = index + 1;
+    while (/["'”’)\]]/.test(value[boundary] || "")) {
+      boundary += 1;
+    }
+
+    return boundary;
+  }
+
+  return null;
+}
+
+function findWordBoundary(value: string): number | null {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (/\s/.test(value[index] || "")) {
+      return index;
+    }
+  }
+
+  return null;
 }
 
 function isWideCharacter(char: string): boolean {

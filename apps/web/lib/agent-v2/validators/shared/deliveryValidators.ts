@@ -1,4 +1,5 @@
 import {
+  isFullPromptEcho,
   repairAbruptEnding,
   stripThreadishLeadLabel,
   stripTrailingPromptEcho,
@@ -86,6 +87,13 @@ export function validateDelivery(
       message: "Draft ends by echoing the user's prompt instead of finishing the delivery.",
       retryConstraint: buildPromptEchoRetryConstraint(),
       corrected: true,
+    });
+  } else if (isFullPromptEcho(correctedDraft, args.sourceUserMessage)) {
+    issues.push({
+      code: "prompt_echo",
+      message: "Draft only restates the user's prompt instead of delivering content.",
+      retryConstraint: buildPromptEchoRetryConstraint(),
+      corrected: false,
     });
   }
 

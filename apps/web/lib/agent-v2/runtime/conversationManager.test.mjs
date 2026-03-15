@@ -11,6 +11,7 @@ import { runDraftGuardValidationWorkers } from "../workers/draftGuardValidationW
 import { loadHistoricalTextWorkers } from "../workers/historicalTextWorkers.ts";
 import { hydrateTurnContextWorkers } from "../workers/turnContextHydrationWorkers.ts";
 import { executeRevisingCapability } from "../capabilities/revision/revisingCapability.ts";
+import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
@@ -41,6 +42,7 @@ import {
   buildSafeFrameworkConstraint,
   hasAutobiographicalGrounding,
 } from "../grounding/groundingPacket.ts";
+import { trimToXCharacterLimit } from "../../onboarding/draftArtifacts.ts";
 import {
   buildDirectionChoiceReply,
   buildLooseDirectionReply,
@@ -1676,6 +1678,15 @@ test("delivery validators catch truncation, prompt echo, artifact mismatch, and 
 
   assert.deepEqual(
     validateDelivery({
+      draft: "what do you think about the update?",
+      formatPreference: "shortform",
+      sourceUserMessage: "what do you think about the update?",
+    }).issues.map((issue) => issue.code),
+    ["prompt_echo"],
+  );
+
+  assert.deepEqual(
+    validateDelivery({
       draft: "Thread: first thought\n---\nsecond thought",
       formatPreference: "shortform",
       sourceUserMessage: "write one post",
@@ -1731,11 +1742,99 @@ test("delivery validation workers expose standardized worker names and retry met
       },
     ],
   );
+  assert.equal(result.hasFailures, true);
+  assert.equal(result.hasBlockingFailures, false);
   assert.equal(result.retryConstraints.length >= 2, true);
+  assert.equal(result.correctedDraft, "shipped the update");
   assert.deepEqual(
     result.validations.map((validation) => validation.validator),
     ["truncation_guard", "prompt_echo_guard", "artifact_shape_guard"],
   );
+});
+
+test("runGroundedDraftRetry returns the repaired draft after a second auto-correctable delivery failure", async () => {
+  let calls = 0;
+  let fallbackCalls = 0;
+
+  const result = await runGroundedDraftRetry({
+    memory: {
+      conversationState: "draft_ready",
+    },
+    plan: {
+      objective: "share the launch update",
+      angle: "plain update",
+      targetLane: "original",
+      mustInclude: [],
+      mustAvoid: [],
+      hookType: "statement",
+      pitchResponse: "ship it",
+      formatPreference: "shortform",
+    },
+    activeConstraints: [],
+    sourceUserMessage: "write a launch update",
+    formatPreference: "shortform",
+    draftGroundingPacket: {
+      durableFacts: ["the launch is live now"],
+      turnGrounding: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      unknowns: [],
+      sourceMaterials: [],
+    },
+    attemptDraft: async () => {
+      calls += 1;
+      return {
+        writerOutput: {
+          angle: "plain update",
+          draft: "the launch is live now and",
+          supportAsset: null,
+          whyThisWorks: "",
+          watchOutFor: "",
+        },
+        criticOutput: {
+          approved: true,
+          finalAngle: "plain update",
+          finalDraft: "the launch is live now and",
+          issues: [],
+        },
+        draftToDeliver: "the launch is live now and",
+        voiceTarget: {
+          casing: "normal",
+          compression: "tight",
+          formality: "neutral",
+          hookStyle: "blunt",
+          emojiPolicy: "none",
+          ctaPolicy: "none",
+          risk: "safe",
+          lane: "original",
+          summary: "plain update",
+          rationale: [],
+        },
+        retrievalReasons: [],
+        threadFramingStyle: null,
+      };
+    },
+    buildConcreteSceneClarificationQuestion: () => "clarify concrete scene",
+    buildGroundedProductClarificationQuestion: () => "clarify grounded product",
+    returnClarificationQuestion: async () => {
+      throw new Error("clarification should not be requested");
+    },
+    returnDeliveryValidationFallback: async () => {
+      fallbackCalls += 1;
+      return {
+        mode: "coach",
+        outputShape: "coach_question",
+        response: "fallback",
+        memory: {},
+      };
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(fallbackCalls, 0);
+  assert.equal(result.kind, "success");
+  assert.equal(result.draftToDeliver, "the launch is live now");
 });
 
 test("worker plane helpers preserve merge order and shared validation status rules", () => {
@@ -1846,7 +1945,25 @@ test("multi-draft prompts are detected deterministically", () => {
 test("explicit draft format cues prefer post or thread wording over profile bias", () => {
   assert.equal(inferExplicitDraftFormatPreference("write me a post"), "shortform");
   assert.equal(inferExplicitDraftFormatPreference("turn this into a post"), "shortform");
+  assert.equal(
+    inferExplicitDraftFormatPreference("turn this into a shortform post under 280 characters"),
+    "shortform",
+  );
+  assert.equal(
+    inferExplicitDraftFormatPreference("turn this into a longform post with more detail"),
+    "longform",
+  );
   assert.equal(inferExplicitDraftFormatPreference("write me a thread"), "thread");
+});
+
+test("shared character-limit trimming avoids shipping a visibly cut-off final fragment", () => {
+  const result = trimToXCharacterLimit(
+    "$30M ARR, 10 engineers, 60k creators. Scaling that kind of platform taught me that hiring isn’t about adding headcount, it’s about adding the right context. I stopped asking “Can we do this?” and started looking for people who have already solved the problems I need solved. Two simple rules guide the new hiring playbook:",
+    280,
+  );
+
+  assert.equal(result.endsWith("Two s"), false);
+  assert.equal(/[.!?…”’)\]]$/.test(result), true);
 });
 
 test("generic draft asks still fall back to creator-profile format hints", () => {
@@ -3272,7 +3389,7 @@ test("revising capability retries delivery failures once and succeeds on a clean
   );
 });
 
-test("revising capability falls back safely when delivery validation fails twice", async () => {
+test("revising capability returns the repaired draft when delivery issues remain auto-correctable", async () => {
   const execution = await executeRevisingCapability({
     workflow: "revise_draft",
     capability: "revising",
@@ -3335,12 +3452,10 @@ test("revising capability falls back safely when delivery validation fails twice
     },
   });
 
-  assert.equal(execution.output.kind, "response");
-  assert.equal(execution.output.response.mode, "coach");
-  assert.equal(execution.output.response.outputShape, "coach_question");
+  assert.equal(execution.output.kind, "revision_ready");
   assert.equal(
-    execution.output.response.response.includes("malformed twice"),
-    true,
+    execution.output.responseSeed.data.draft,
+    "the launch is live now",
   );
   assert.equal(
     execution.workers.some(
