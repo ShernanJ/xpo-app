@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { manageConversationTurnRaw } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { manageConversationTurnRaw } from "@/lib/agent-v2/runtime/conversationManager";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
 import {
   resolveThreadFramingStyle,

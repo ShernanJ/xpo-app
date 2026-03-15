@@ -1,15 +1,15 @@
 import { isConstraintDeclaration, respondConversationally } from "../responses/chatResponder.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
-import { buildFastReplyRawResponse } from "../runtime/responseEnvelope.ts";
+import { buildFastReplyRawResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
 import type {
   RawOrchestratorResponse,
   RoutingTrace,
-} from "../runtime/types.ts";
-import type { ConversationServices } from "../runtime/services.ts";
+} from "./types.ts";
+import type { ConversationServices } from "./services.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
-import { resolveRuntimeAction } from "../runtime/resolveRuntimeAction.ts";
-import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
+import { resolveRuntimeAction } from "./resolveRuntimeAction.ts";
+import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
 
 export interface RoutingPolicyResult {
   isFastReply: boolean;

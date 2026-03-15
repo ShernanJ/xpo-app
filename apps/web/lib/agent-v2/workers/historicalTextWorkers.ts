@@ -2,7 +2,7 @@ import type {
   CapabilityName,
   RuntimeWorkerExecution,
 } from "../runtime/runtimeContracts.ts";
-import { buildRuntimeWorkerExecution } from "../orchestrator/workerPlane.ts";
+import { buildRuntimeWorkerExecution } from "../runtime/workerPlane.ts";
 
 const HISTORICAL_TEXT_LOAD_GROUP_ID = "historical_text_load";
 

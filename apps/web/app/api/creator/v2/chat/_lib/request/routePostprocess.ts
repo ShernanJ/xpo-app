@@ -9,7 +9,7 @@ import type {
 import type {
   NormalizedChatTurnDiagnostics,
 } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
-import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
+import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
 import {
   prepareChatRouteTurn,
   type PreparedChatRouteTurn,

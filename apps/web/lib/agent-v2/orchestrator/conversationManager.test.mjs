@@ -16,7 +16,7 @@ import {
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,
   resolveRuntimeValidationStatus,
-} from "./workerPlane.ts";
+} from "../runtime/workerPlane.ts";
 import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
 import { runRevisionValidationWorkers } from "../workers/validation/revisionValidationWorkers.ts";
 import { validateDelivery } from "../validators/shared/deliveryValidators.ts";
@@ -415,7 +415,7 @@ test("draft pipeline delegates revise and replan mode routing to the revision ca
 
 test("conversation manager no longer acts as a helper or service barrel", () => {
   const conversationManagerSource = readFileSync(
-    new URL("./conversationManager.ts", import.meta.url),
+    new URL("../runtime/conversationManager.ts", import.meta.url),
     "utf8",
   );
 
@@ -423,6 +423,40 @@ test("conversation manager no longer acts as a helper or service barrel", () => 
   assert.equal(/export \{ buildPlanPitch \}/.test(conversationManagerSource), false);
   assert.equal(/export \{\s*isLazyDraftRequest/.test(conversationManagerSource), false);
   assert.equal(/export \{\s*looksGenericTopicSummary/.test(conversationManagerSource), false);
+});
+
+test("runtime conversation manager and worker plane stay out of orchestrator once ownership moves", () => {
+  assert.equal(existsSync(new URL("./conversationManager.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./workerPlane.ts", import.meta.url)), false);
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/conversationManager(?:\.ts)?["']/,
+    /agent-v2\/orchestrator\/workerPlane(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/conversationManager(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/workerPlane(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("../workers/", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("../../../scripts/lib/", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
 });
 
 test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
@@ -1018,6 +1052,47 @@ test("runtime turn planner stays out of orchestrator once ownership moves", () =
   const sourceRoots = [
     new URL("../runtime/", import.meta.url),
     new URL("../regressions/", import.meta.url),
+    new URL("./", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("runtime context-routing-memory helpers stay out of orchestrator once ownership moves", () => {
+  const deletedModulePaths = [
+    "./turnContextBuilder.ts",
+    "./routingPolicy.ts",
+    "./memoryPolicy.ts",
+  ];
+
+  for (const modulePath of deletedModulePaths) {
+    assert.equal(existsSync(new URL(modulePath, import.meta.url)), false, modulePath);
+  }
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/turnContextBuilder(?:\.ts)?/,
+    /agent-v2\/orchestrator\/routingPolicy(?:\.ts)?/,
+    /agent-v2\/orchestrator\/memoryPolicy(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/turnContextBuilder(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/routingPolicy(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/memoryPolicy(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
     new URL("./", import.meta.url),
   ];
 

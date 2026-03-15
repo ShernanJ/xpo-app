@@ -35,7 +35,7 @@ import type {
   DraftGroundingMode,
   ThreadFramingStyle,
 } from "../../../onboarding/draftArtifacts.ts";
-import { mergeRuntimeExecutionMeta } from "../../orchestrator/workerPlane.ts";
+import { mergeRuntimeExecutionMeta } from "../../runtime/workerPlane.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

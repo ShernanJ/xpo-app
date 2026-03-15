@@ -24,7 +24,7 @@ import type {
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
 import type { DraftContextSlots } from "./draftContextSlots.ts";
-import type { RoutingPolicyResult } from "../../orchestrator/routingPolicy.ts";
+import type { RoutingPolicyResult } from "../../runtime/routingPolicy.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,

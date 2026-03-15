@@ -5,7 +5,7 @@ import {
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,
   resolveRuntimeValidationStatus,
-} from "../../orchestrator/workerPlane.ts";
+} from "../../runtime/workerPlane.ts";
 import type { DraftFormatPreference } from "../../contracts/chat.ts";
 import type {
   RuntimeValidationResult,

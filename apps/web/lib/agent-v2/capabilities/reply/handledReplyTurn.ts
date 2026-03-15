@@ -8,7 +8,7 @@ import type {
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import { resolveRuntimeAction } from "../../runtime/resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../runtime/runtimeTrace.ts";
-import type { RoutingTrace } from "../../orchestrator/conversationManager.ts";
+import type { RoutingTrace } from "../../runtime/conversationManager.ts";
 import {
   planReplyTurn,
   resolveReplyTurnState,

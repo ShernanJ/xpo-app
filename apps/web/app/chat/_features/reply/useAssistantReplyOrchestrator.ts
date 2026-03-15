@@ -224,7 +224,7 @@ export function useAssistantReplyOrchestrator<
 
         setMessages((current) => [
           ...current,
-          replyPlan.buildAssistantMessage(current.length) as TMessage,
+          replyPlan.buildAssistantMessage(current.length) as unknown as TMessage,
         ]);
 
         if (replyPlan.nextDraftEditor) {

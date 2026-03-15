@@ -6,8 +6,8 @@ import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
 import {
   normalizeHandleForContext,
   type ConversationServices,
-} from "../runtime/services.ts";
-import type { OrchestratorInput } from "../runtime/types.ts";
+} from "./services.ts";
+import type { OrchestratorInput } from "./types.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
 import type { VoiceStyleCard } from "../core/styleProfile";

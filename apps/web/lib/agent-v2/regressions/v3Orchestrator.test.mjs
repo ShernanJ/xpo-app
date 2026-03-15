@@ -93,7 +93,7 @@ test("v3: broad routing now falls through to the controller instead of determini
 
 test("v3: ideation retry shortcuts no longer bypass the controller in conversation manager", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("../orchestrator/conversationManager.ts", import.meta.url)),
+    fileURLToPath(new URL("../runtime/conversationManager.ts", import.meta.url)),
     "utf8",
   );
 

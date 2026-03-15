@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
-import { manageConversationTurn } from "@/lib/agent-v2/orchestrator/conversationManager";
+import { manageConversationTurn } from "@/lib/agent-v2/runtime/conversationManager";
 import { recordProductEvent } from "@/lib/productEvents";
 import {
   buildDraftArtifact,

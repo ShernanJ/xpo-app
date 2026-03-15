@@ -7,7 +7,7 @@ import {
 } from "./draftBundles.ts";
 import { runDraftBundleCandidateWorkers } from "../../workers/draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
-import { buildRuntimeWorkerExecution } from "../../orchestrator/workerPlane.ts";
+import { buildRuntimeWorkerExecution } from "../../runtime/workerPlane.ts";
 import type {
   OrchestratorResponse,
   RoutingTracePatch,

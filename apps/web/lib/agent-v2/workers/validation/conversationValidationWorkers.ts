@@ -7,7 +7,7 @@ import type {
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
-} from "../../orchestrator/workerPlane.ts";
+} from "../../runtime/workerPlane.ts";
 import {
   validateConversationalDelivery,
   type ConversationDeliveryValidationIssue,

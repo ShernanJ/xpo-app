@@ -36,7 +36,7 @@ import type {
   ChatReplyArtifacts,
   ChatReplyParseEnvelope,
 } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
-import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
+import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 

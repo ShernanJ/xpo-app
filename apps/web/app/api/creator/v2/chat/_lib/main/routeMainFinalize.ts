@@ -1,5 +1,5 @@
 import { applyRuntimePersistenceTracePatch } from "../../../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
-import type { RoutingTrace } from "../../../../../../../lib/agent-v2/orchestrator/conversationManager.ts";
+import type { RoutingTrace } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
 import type { PreparedChatRouteTurn } from "../request/routeLogic.ts";
 import { persistAssistantTurn } from "../persistence/routePersistence.ts";
 import {

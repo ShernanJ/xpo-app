@@ -1,7 +1,7 @@
 
 import { buildTurnContext } from "./turnContextBuilder";
 import { resolveRoutingPolicy } from "./routingPolicy";
-import { executeDraftPipeline } from "./draftPipeline";
+import { executeDraftPipeline } from "../orchestrator/draftPipeline";
 import { syncStyleProfileMemory, syncAutoSourceMaterials } from "./memoryPolicy";
 import {
   isLazyDraftRequest,
@@ -26,7 +26,7 @@ import {
 import {
   createDefaultConversationServices,
   type ConversationServices,
-} from "../runtime/services.ts";
+} from "./services.ts";
 import {
   getDurableFactsFromStyleCard,
   type VoiceStyleCard,
@@ -53,10 +53,10 @@ import {
 import {
   countNewMemoryEntries,
 } from "../responses/feedbackMemoryNotice";
-import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
+import type { ConversationalDiagnosticContext } from "./diagnostics.ts";
 import {
   type ConversationRouterState,
-} from "../runtime/conversationRouterMachine";
+} from "./conversationRouterMachine";
 import {
   type CreatorProfileHints,
   type GroundingPacketSourceMaterial,
@@ -64,7 +64,7 @@ import {
 import {
   type DraftBundleResult,
 } from "../capabilities/drafting/draftBundles";
-import { finalizeResponseEnvelope } from "../runtime/responseEnvelope";
+import { finalizeResponseEnvelope } from "./responseEnvelope";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -88,8 +88,8 @@ import type {
   RuntimeValidationResult,
   RuntimeWorkerExecution,
   RuntimeWorkerExecutionSummary,
-} from "../runtime/runtimeContracts.ts";
-import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
+} from "./runtimeContracts.ts";
+import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
 
 export interface OrchestratorInput {
   userId: string;

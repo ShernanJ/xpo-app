@@ -14,7 +14,7 @@ import type { GroundingPacket } from "../grounding/groundingPacket.ts";
 import {
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,
-} from "../orchestrator/workerPlane.ts";
+} from "../runtime/workerPlane.ts";
 
 export interface DraftBundleCandidateWorkerRequest {
   capability: CapabilityName;

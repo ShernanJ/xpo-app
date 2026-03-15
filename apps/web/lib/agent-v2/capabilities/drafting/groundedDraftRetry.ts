@@ -23,7 +23,7 @@ import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
   resolveRuntimeValidationStatus,
-} from "../../orchestrator/workerPlane.ts";
+} from "../../runtime/workerPlane.ts";
 import { runDeliveryValidationWorkers } from "../../workers/validation/deliveryValidationWorkers.ts";
 import type {
   RuntimeValidationResult,

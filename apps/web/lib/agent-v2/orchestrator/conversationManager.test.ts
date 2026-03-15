@@ -1,4 +1,4 @@
-import { manageConversationTurn } from "./conversationManager";
+import { manageConversationTurn } from "../runtime/conversationManager";
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { randomUUID } from "crypto";

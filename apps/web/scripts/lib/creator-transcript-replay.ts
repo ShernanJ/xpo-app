@@ -10,7 +10,7 @@ import {
 import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
   OrchestratorResponse,
-} from "../../lib/agent-v2/orchestrator/conversationManager";
+} from "../../lib/agent-v2/runtime/conversationManager";
 import type { ConversationServices } from "../../lib/agent-v2/runtime/services";
 import type {
   SourceMaterialAssetInput,
@@ -922,7 +922,7 @@ export async function replayTranscriptFixture(
     | null = null;
   try {
     // @ts-ignore TS5097 - replay uses node strip-types at runtime.
-    const module = await import("../../lib/agent-v2/orchestrator/conversationManager.ts");
+    const module = await import("../../lib/agent-v2/runtime/conversationManager.ts");
     manageConversationTurn = module.manageConversationTurn;
   } catch (error) {
     const message =

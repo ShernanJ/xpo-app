@@ -2,7 +2,7 @@ import type { ConversationServices } from "../runtime/services.ts";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
-import { buildRuntimeWorkerExecution } from "../orchestrator/workerPlane.ts";
+import { buildRuntimeWorkerExecution } from "../runtime/workerPlane.ts";
 
 const TURN_CONTEXT_HYDRATION_GROUP_ID = "turn_context_hydration";
 
