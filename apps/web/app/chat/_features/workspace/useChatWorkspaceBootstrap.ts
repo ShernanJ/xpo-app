@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
 
@@ -85,6 +85,16 @@ export function useChatWorkspaceBootstrap<
   } = options;
 
   const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
+  const activeStrategyInputsRef = useRef<TStrategyInputs | null>(activeStrategyInputs);
+  const activeToneInputsRef = useRef<TToneInputs | null>(activeToneInputs);
+
+  useEffect(() => {
+    activeStrategyInputsRef.current = activeStrategyInputs;
+  }, [activeStrategyInputs]);
+
+  useEffect(() => {
+    activeToneInputsRef.current = activeToneInputs;
+  }, [activeToneInputs]);
 
   const runMissingOnboardingSetup = useCallback(async (): Promise<boolean> => {
     const normalizedHandle = normalizeAccountHandle(accountName ?? "");
@@ -156,8 +166,8 @@ export function useChatWorkspaceBootstrap<
 
   const loadWorkspace = useCallback(
     async (
-      overrides: TStrategyInputs | null = activeStrategyInputs,
-      toneOverrides: TToneInputs | null = activeToneInputs,
+      overrides: TStrategyInputs | null = activeStrategyInputsRef.current,
+      toneOverrides: TToneInputs | null = activeToneInputsRef.current,
     ): Promise<WorkspaceLoadResult<TContextData, TContractData>> => {
       if (requiresXAccountGate) {
         setErrorMessage(null);
@@ -235,8 +245,6 @@ export function useChatWorkspaceBootstrap<
       }
     },
     [
-      activeStrategyInputs,
-      activeToneInputs,
       fetchWorkspace,
       requiresXAccountGate,
       runMissingOnboardingSetup,
