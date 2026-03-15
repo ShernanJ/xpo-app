@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 
 import {
   planReplyContinuation,
+} from "./replyContinuationPlanner.ts";
+import {
   planReplyTurn,
   resolveReplyTurnState,
-} from "./replyContinuationPlanner.ts";
+} from "./replyTurnPlanner.ts";
 
 const baseStrategy = {
   knownFor: "useful nuance",
