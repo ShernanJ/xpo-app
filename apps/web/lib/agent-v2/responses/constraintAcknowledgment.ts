@@ -1,4 +1,4 @@
-import { getTurnRelationContext } from "../orchestrator/turnRelation.ts";
+import { getTurnRelationContext } from "../runtime/turnRelation.ts";
 
 /** Determines whether a message is a constraint declaration (e.g. "no emojis"). */
 export function isConstraintDeclaration(message: string): boolean {

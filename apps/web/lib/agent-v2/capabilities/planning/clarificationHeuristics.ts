@@ -26,7 +26,7 @@ import { extractTopicGrounding } from "../../responses/correctionRepair";
 import {
   getTurnRelationContext,
   isContextDependentFollowUp,
-} from "../../orchestrator/turnRelation.ts";
+} from "../../runtime/turnRelation.ts";
 
 export function isLazyDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase();
