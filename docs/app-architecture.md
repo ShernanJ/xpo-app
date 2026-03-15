@@ -489,6 +489,25 @@ These types are the quickest way to understand the runtime shape:
 - `RoutingTrace`: the turn-by-turn diagnostic story
 - `AgentRuntimeWorkflow`: the single selected workflow owner
 - `CapabilityExecutionRequest` and `CapabilityExecutionResult`: execution contracts for specialized workflows
+
+### Current structural watchlist
+
+The top-level folder cleanup is landed, but a few files are still the main places where complexity can re-accumulate:
+
+- `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
+  - still the shared execution spine after workflow resolution
+  - keep new workflow-local behavior in `capabilities/*`, `responses/*`, `grounding/*`, or `workers/*` unless it is truly cross-workflow runtime logic
+- `apps/web/lib/agent-v2/grounding/sourceMaterials.ts`
+  - currently the heaviest grounding file
+  - likely future split point if source-material selection and shaping continue to expand
+- `apps/web/lib/agent-v2/capabilities/reply/replyContinuationPlanner.ts`
+  - large but correctly placed reply continuity surface
+  - likely future split point inside `capabilities/reply/` if reply state handling grows again
+- `apps/web/lib/agent-v2/responses/correctionRepair.ts`
+  - large deterministic response helper
+  - should stay in `responses/`, but should not become a generic post-processing catch-all
+
+Large test files such as `runtime/conversationManager.test.mjs` and `responseQuality.test.mjs` are broad on purpose and are not the same kind of structural risk.
 - `RuntimeWorkerExecution`: metadata for worker-plane activity
 - `RuntimeValidationResult`: metadata for validation and retry behavior
 

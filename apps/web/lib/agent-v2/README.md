@@ -249,6 +249,42 @@ If reply flows are confusing:
 - `capabilities/reply/*`
 - route-side reply helpers in `app/api/creator/v2/chat/_lib/reply/*`
 
+## Current Hotspot Watchlist
+
+The folder split is landed, but a few files still carry enough breadth that they should be watched before they become the next migration problem.
+
+- `runtime/draftPipeline.ts`
+  - still the biggest shared execution spine in the control plane
+  - acceptable as the runtime dispatch hub, but it should not absorb new workflow-local heuristics or response copy
+- `grounding/sourceMaterials.ts`
+  - owns a lot of source-material selection, filtering, shaping, and persistence-adjacent logic
+  - good candidate for a future split if source-material behavior keeps growing
+- `capabilities/reply/replyContinuationPlanner.ts`
+  - large reply-specific state and continuity logic
+  - should stay reply-local, but may eventually deserve smaller reply-state and prompt-planning helpers
+- `responses/correctionRepair.ts`, `responses/draftReply.ts`, and `responses/clarificationDraftChips.ts`
+  - these are now in the correct domain, but they are large enough to drift into catch-all response logic if left unchecked
+- `welcomeMessage.ts`
+  - still sits at the top level instead of in a clearer product-facing home
+  - worth relocating if that surface changes again
+
+Test files can also look large without being ownership problems. In particular:
+
+- `runtime/conversationManager.test.mjs`
+- `responseQuality.test.mjs`
+
+These are intentionally broad guard suites and are not architectural hotspots in the same way as the runtime source files above.
+
+## Recommended Next Cleanup Order
+
+If we keep refining `agent-v2`, the highest-signal follow-on order is:
+
+1. keep `runtime/draftPipeline.ts` narrow and split only when a new shared control-plane seam becomes obvious
+2. split `grounding/sourceMaterials.ts` if source-material policies or serialization rules grow further
+3. split large reply or response helpers only inside their current domains, not by creating new top-level buckets
+4. keep `workers/` read-only and resist moving workflow policy back into runtime helpers
+5. treat any new top-level `agent-v2/*.ts` file as suspicious unless it is clearly a stable entrypoint
+
 ## Important Types
 
 These types explain the architecture faster than reading prompts:
