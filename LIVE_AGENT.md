@@ -42,7 +42,7 @@ User turn
 - Response envelope
 
 ## Transitional notes
-- Current code still shapes the orchestrator response before route persistence and thread updates.
+- Current code still shapes the runtime response before route persistence and thread updates.
 - `pipeline_continuation` in runtime traces is migration debt, not a steady-state owner.
 - Runtime trace now carries persisted-state changes for route-boundary persistence on the main chat path, and reply finalization can reuse that same persistence trace patch when an upstream runtime trace already exists.
 - Direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace; that is intentional migration debt until reply entry shares the common runtime path.
@@ -237,7 +237,7 @@ User turn
 - Anything beyond that is migration debt.
 
 ### Capability execution
-- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 - Still transitional.
 - Landed so far:
   - ideation now has a real capability home under `apps/web/lib/agent-v2/capabilities/ideation/`
@@ -248,8 +248,8 @@ User turn
   - the `analyze_post` workflow now has a real capability home under `apps/web/lib/agent-v2/capabilities/analysis/`
 - Remaining target executors:
   - none; named executor extraction is complete
-- Adjacent migration debt outside `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`:
-  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns reply finalization
+- Adjacent migration debt outside `apps/web/lib/agent-v2/runtime/draftPipeline.ts`:
+  - reply continuation generation, reply parsing/artifact shaping, and reply turn planning now live in `apps/web/lib/agent-v2/capabilities/reply/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/capabilities/reply/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/capabilities/reply/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns reply finalization
   - reply and analysis still use coach-style generation behavior behind explicit executor seams
 
 ### Next backend slice
@@ -262,7 +262,7 @@ User turn
   - `apps/web/lib/agent-v2/validators/shared/`
   - route-private helpers only when the work is truly API-boundary wiring
 - Do not put new feature logic back into:
-  - `apps/web/lib/agent-v2/orchestrator/`
+  - `apps/web/lib/agent-v2/runtime/`
   - `apps/web/app/api/creator/v2/chat/route.ts`
   - the flat onboarding root
 
@@ -298,20 +298,20 @@ User turn
 - cleanup regexes standing in for validator + retry
 
 ## Folder-structure guardrails
-- Do not grow `apps/web/lib/agent-v2/orchestrator/` as a permanent catch-all.
+- Do not grow `apps/web/lib/agent-v2/runtime/` as a permanent catch-all.
 - Do not grow `apps/web/app/api/.../route.ts` as a permanent catch-all.
 - New validator work should prefer validator-specific modules.
 - New worker fan-out should prefer worker-specific modules.
 - New capability-local helpers should live with the capability they support.
 - Route-only persistence and response wiring should stay at the route boundary and not drift into shared runtime folders.
-- When touching existing `orchestrator/*` or route-boundary helpers, move the touched seam toward the target folder map instead of creating another transitional bucket.
+- When touching existing broad runtime files or route-boundary helpers, move the touched seam toward the target folder map instead of creating another transitional bucket.
 
 ## Workflow invariants
 - `recentHistory` is transcript-only.
 - Structured UI actions must use `turnSource + artifactContext`.
 - Reply parsing only runs on literal `free_text` turns.
 - Explicit handle scope is authoritative.
-- `planSeedMessage` lives in route/orchestrator context after normalization, not in transcript history.
+- `planSeedMessage` lives in route/runtime context after normalization, not in transcript history.
 - `contextPacket` remains machine-readable assistant state, not transcript content.
 - Planner, writer, critic, reviser, and reply generation are workers, not routers.
 - Voice grounding and factual grounding stay separate.
@@ -329,9 +329,9 @@ User turn
 - Critique:
   - `apps/web/lib/agent-v2/agents/critic.ts`
 - Reply / analysis helpers:
-  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`
-  - `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`
-  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - `apps/web/lib/agent-v2/capabilities/reply/replyTurnLogic.ts`
+  - `apps/web/lib/agent-v2/capabilities/reply/replyTurnPlanner.ts`
+  - `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 
 ## Debugging guide
 ### Routing and runtime traces
@@ -346,8 +346,8 @@ User turn
   - `apps/web/app/api/creator/v2/chat/route.ts`
   - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts`
 - Only then inspect legacy routing paths in:
-  - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
-  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
+  - `apps/web/lib/agent-v2/runtime/routingPolicy.ts`
+  - `apps/web/lib/agent-v2/runtime/conversationManager.ts`
 - Treat those legacy routing paths as migration debt paths, not equal peers to the target runtime owner.
 
 ### Persistence workers that should appear
@@ -375,39 +375,39 @@ User turn
 
 ### Validation failures
 - Check deterministic validation hooks in:
-  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
-  - `apps/web/lib/agent-v2/orchestrator/claimChecker.ts`
+  - `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
+  - `apps/web/lib/agent-v2/grounding/claimChecker.ts`
   - `apps/web/lib/agent-v2/agents/critic.ts`
 
 ### Where worker fan-out already exists
 - Initial context hydration fan-out now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/contextLoadWorkers.ts`
 - The sequential merge/write owner remains:
-  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts`
+  - `apps/web/lib/agent-v2/runtime/conversationManager.ts`
 - Pre-routing style/profile + anchor hydration now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/turnContextHydrationWorkers.ts`
 - The pre-routing merge/trace handoff remains:
-  - `apps/web/lib/agent-v2/orchestrator/turnContextBuilder.ts`
-  - `apps/web/lib/agent-v2/orchestrator/routingPolicy.ts`
+  - `apps/web/lib/agent-v2/runtime/turnContextBuilder.ts`
+  - `apps/web/lib/agent-v2/runtime/routingPolicy.ts`
 - Novelty-input retrieval fan-out now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/historicalTextWorkers.ts`
 - The in-workflow merge/trace handoff remains:
-  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 - Deterministic draft-guard validation fan-out now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/draftGuardValidationWorkers.ts`
 - The retry/clarification merge owner remains:
-  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 - Initial draft-bundle candidate fan-out now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/draftBundleCandidateWorkers.ts`
 - The sibling novelty retry/write owner remains:
-  - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`
-  - `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+  - `apps/web/lib/agent-v2/capabilities/drafting/draftBundleExecutor.ts`
+  - `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 - Revision validation now flows through:
-  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts`
+  - `apps/web/lib/agent-v2/workers/validation/revisionValidationWorkers.ts`
 - The revision merge/write owner remains:
-  - `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`
+  - `apps/web/lib/agent-v2/capabilities/revision/revisingCapability.ts`
 - Worker-plane metadata rules are now standardized by:
-  - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts`
+  - `apps/web/lib/agent-v2/runtime/workerPlane.ts`
 - Worker summaries are standardized by:
   - `apps/web/lib/agent-v2/runtime/runtimeTrace.ts`
 
@@ -418,7 +418,7 @@ User turn
 - Do not route vague fresh asks through stale topic summaries.
 - Do not add more patch cleanup when the upstream issue belongs in workflow ownership or validator logic.
 - Do not move extracted page-local state seams back into `apps/web/app/chat/page.tsx`.
-- Do not change chat transport payload shape or route/orchestrator behavior as part of client-only page-thinning work.
+- Do not change chat transport payload shape or route/runtime behavior as part of client-only page-thinning work.
 - Do not collapse extracted UI primitives or semantic interaction fixes back into `apps/web/app/chat/page.tsx` just to move faster on visuals.
 - Do use `vercel-react-best-practices`, `vercel-composition-patterns`, and `web-design-guidelines` when making frontend changes in `apps/web/app/chat`, `apps/web/app/pricing`, `apps/web/app/login`, or shared UI primitives.
 
@@ -500,5 +500,5 @@ User turn
 
 ## Next structural targets
 - Phase 4 worker-plane cleanup is complete; use the explicit sibling-novelty retry trace, the route no-double-write regression, the reply seam-audit regression, and the new persistence-trace regressions as guardrails against ownership drift
-- Do not reintroduce route-local reply shims or let reply capability logic drift back out of `apps/web/lib/agent-v2/orchestrator/`
+- Do not reintroduce route-local reply shims or let reply capability logic drift back out of `apps/web/lib/agent-v2/runtime/`
 - Revisit residual route/client migration debt only when it blocks later runtime rollout, reply-path trace unification, Phase 5 validation work, or broader Phase 6 deletion work

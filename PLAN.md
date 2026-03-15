@@ -14,7 +14,7 @@ Target control-plane order:
 - Response envelope
 
 Transitional note:
-- Current code still finalizes/shapes the orchestrator response before route persistence and thread updates. That ordering is migration debt, not the desired steady state.
+- Current code still finalizes/shapes the runtime response before route persistence and thread updates. That ordering is migration debt, not the desired steady state.
 
 Current active slice:
 - Phase 5 validation and retry is now landed across draft, revision, reply, and analysis on top of the landed backend/lib and API folder cleanup
@@ -197,7 +197,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - worker execution summary
   - validation results
 - Persisted-state tracing now lands through route-boundary helpers:
-  - `apps/web/lib/agent-v2/orchestrator/conversationManager.ts` now returns raw response payloads plus the in-memory `routingTrace`, and only `manageConversationTurn()` re-serializes that trace when diagnostics explicitly request it
+  - `apps/web/lib/agent-v2/runtime/conversationManager.ts` now returns raw response payloads plus the in-memory `routingTrace`, and only `manageConversationTurn()` re-serializes that trace when diagnostics explicitly request it
   - `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts` now returns a `RuntimePersistenceTracePatch` containing persistence-phase worker executions plus `persistedStateChanges`
   - persistence workers are standardized as:
     - `persist_assistant_message`
@@ -208,12 +208,12 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now reuses the same persistence patch merge when an upstream runtime trace already exists
 - Remaining follow-on:
   - direct reply-preflight turns still do not synthesize a fake end-to-end runtime trace, so reply-path trace unification remains migration debt
-  - current code still shapes the orchestrator response before persistence/thread updates, so response-before-persistence ordering remains migration debt even though trace coverage now spans those writes
+  - current code still shapes the runtime response before persistence/thread updates, so response-before-persistence ordering remains migration debt even though trace coverage now spans those writes
 
 ### Phase 2: Thin the client and route
 - Landed during migration:
   - `apps/web/app/api/creator/v2/chat/route.ts` now owns final response-envelope finalization for the main chat path.
-  - post-orchestrator response mapping and persistence prep live in route-boundary helpers instead of being fully hand-assembled inline in the route.
+  - post-runtime response mapping and persistence prep live in route-boundary helpers instead of being fully hand-assembled inline in the route.
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through a dedicated route-boundary helper in `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`.
   - reply-turn response assembly, product-event planning, and final success-response packaging now flow through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts` instead of being assembled inline in `route.ts`.
   - `apps/web/app/chat/page.tsx` now delegates turn-resolution and transport payload construction to `apps/web/app/chat/_features/transport/chatTransport.ts` instead of building the chat request inline.
@@ -272,18 +272,18 @@ Rewrite it as the **operator handoff** for engineers/agents:
 ### Phase 3: Split capability execution
 - Shared executor contract is partially landed already in `apps/web/lib/agent-v2/runtime/runtimeContracts.ts`; the remaining work is moving capability execution onto it cleanly.
 - Landed during migration:
-  - ideation now runs through `apps/web/lib/agent-v2/orchestrator/ideationExecutor.ts` using `CapabilityExecutionRequest` / `CapabilityExecutionResult`, with `draftPipeline.ts` applying the returned memory patch and worker trace metadata.
-  - initial plan generation and plan-presentation seeding now run through `apps/web/lib/agent-v2/orchestrator/planningExecutor.ts`, with `draftPipeline.ts` consuming the returned plan payload, memory patch, and worker trace metadata before any draft handoff.
-  - initial single-draft delivery now runs through `apps/web/lib/agent-v2/orchestrator/draftingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, and worker trace metadata for plan approval, rough auto-draft, and plan-to-draft fallback paths.
-  - multi-draft bundle generation now runs through `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts`, with `draftPipeline.ts` preserving the current plan-presentation fallback on hard bundle-generation failure while consuming returned response seeds, memory patches, and worker trace metadata.
-  - targeted draft revision now runs through `apps/web/lib/agent-v2/orchestrator/revisingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, validation metadata, and worker trace metadata for edit/review turns.
-  - edit/review replan-then-draft continuation now runs through `apps/web/lib/agent-v2/orchestrator/replanningExecutor.ts`, with `draftPipeline.ts` consuming the returned plan-failure responses, draft response seeds, memory patches, and worker trace metadata instead of keeping that fallback inline.
-  - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/replyingExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing reply workflow turns straight through the generic coach handler.
-  - the `analyze_post` workflow now runs through `apps/web/lib/agent-v2/orchestrator/analysisExecutor.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing analysis workflow turns straight through the generic coach handler.
+  - ideation now runs through `apps/web/lib/agent-v2/capabilities/ideation/ideationCapability.ts` using `CapabilityExecutionRequest` / `CapabilityExecutionResult`, with `draftPipeline.ts` applying the returned memory patch and worker trace metadata.
+  - initial plan generation and plan-presentation seeding now run through `apps/web/lib/agent-v2/capabilities/planning/planningCapability.ts`, with `draftPipeline.ts` consuming the returned plan payload, memory patch, and worker trace metadata before any draft handoff.
+  - initial single-draft delivery now runs through `apps/web/lib/agent-v2/capabilities/drafting/draftingCapability.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, and worker trace metadata for plan approval, rough auto-draft, and plan-to-draft fallback paths.
+  - multi-draft bundle generation now runs through `apps/web/lib/agent-v2/capabilities/drafting/draftBundleExecutor.ts`, with `draftPipeline.ts` preserving the current plan-presentation fallback on hard bundle-generation failure while consuming returned response seeds, memory patches, and worker trace metadata.
+  - targeted draft revision now runs through `apps/web/lib/agent-v2/capabilities/revision/revisingCapability.ts`, with `draftPipeline.ts` consuming the returned response seed, memory patch, validation metadata, and worker trace metadata for edit/review turns.
+  - edit/review replan-then-draft continuation now runs through `apps/web/lib/agent-v2/capabilities/revision/replanningExecutor.ts`, with `draftPipeline.ts` consuming the returned plan-failure responses, draft response seeds, memory patches, and worker trace metadata instead of keeping that fallback inline.
+  - the `reply_to_post` workflow now runs through `apps/web/lib/agent-v2/capabilities/reply/replyingCapability.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing reply workflow turns straight through the generic coach handler.
+  - the `analyze_post` workflow now runs through `apps/web/lib/agent-v2/capabilities/analysis/analysisCapability.ts`, with `draftPipeline.ts` consuming the returned response seed and memory patch instead of routing analysis workflow turns straight through the generic coach handler.
 - Break `draftPipeline.ts` into capability executors:
   - named executor extraction is complete for ideation, planning, drafting, revising, replying, and analysis
 - Migration debt inside Phase 3:
-  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/orchestrator/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns the remaining route-boundary persistence/response work
+  - route-level reply continuation generation, reply parsing/artifact shaping, and reply turn planning now flow through `apps/web/lib/agent-v2/capabilities/reply/replyContinuationPlanner.ts`, `apps/web/lib/agent-v2/capabilities/reply/replyTurnLogic.ts`, and `apps/web/lib/agent-v2/capabilities/reply/replyTurnPlanner.ts`, while `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` owns the remaining route-boundary persistence/response work
   - reply and analysis currently use coach-style generation behind explicit executor seams rather than bespoke capability-specific generation logic
 - Ban workflow reclassification inside executors.
 - Keep and complete a shared executor contract:
@@ -304,31 +304,31 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - candidate generation
   - validation/scoring
 - Landed first seam:
-  - `apps/web/lib/agent-v2/orchestrator/contextLoadWorkers.ts` now owns the `initial_context_load` worker fan-out for style-rule extraction, core-fact extraction, and source-material asset loading
+  - `apps/web/lib/agent-v2/workers/contextLoadWorkers.ts` now owns the `initial_context_load` worker fan-out for style-rule extraction, core-fact extraction, and source-material asset loading
   - the helper returns merge-only worker outputs plus runtime worker-trace metadata, while `conversationManager.ts` remains the sequential owner for memory/style/artifact/thread writes
 - Landed second seam:
-  - `apps/web/lib/agent-v2/orchestrator/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
+  - `apps/web/lib/agent-v2/workers/turnContextHydrationWorkers.ts` now owns the pre-routing `turn_context_hydration` fan-out for style-profile loading and anchor retrieval
   - `turnContextBuilder.ts` now returns those worker executions into the runtime path, and `routingPolicy.ts` becomes the first trace owner that records them before workflow resolution
 - Landed third seam:
-  - `apps/web/lib/agent-v2/orchestrator/historicalTextWorkers.ts` now owns the novelty-input `historical_text_load` fan-out for shipped posts and queued draft candidates
+  - `apps/web/lib/agent-v2/workers/historicalTextWorkers.ts` now owns the novelty-input `historical_text_load` fan-out for shipped posts and queued draft candidates
   - `draftPipeline.ts` now records that read-only retrieval seam inside the chosen workflow before drafting, draft-bundle generation, and replanning novelty checks
 - Landed fourth seam:
-  - `apps/web/lib/agent-v2/orchestrator/draftGuardValidationWorkers.ts` now owns the deterministic `draft_guard_validation_*` fan-out for concrete-scene drift and grounded-product drift checks
+  - `apps/web/lib/agent-v2/workers/draftGuardValidationWorkers.ts` now owns the deterministic `draft_guard_validation_*` fan-out for concrete-scene drift and grounded-product drift checks
   - `draftPipeline.ts` now merges those validation-worker results into runtime trace before retry/clarification decisions, without changing the existing retry flow or sequential writes
 - Landed fifth seam:
-  - `apps/web/lib/agent-v2/orchestrator/draftBundleCandidateWorkers.ts` now owns the `draft_bundle_initial_candidates` fan-out for first-pass sibling option generation inside draft bundles
+  - `apps/web/lib/agent-v2/workers/draftBundleCandidateWorkers.ts` now owns the `draft_bundle_initial_candidates` fan-out for first-pass sibling option generation inside draft bundles
   - `generateDraftWithGroundingRetry()` now returns merge-only worker, validation, and trace-patch metadata so `draftBundleExecutor.ts` can parallelize only the safe initial candidate pass while keeping sibling novelty retries and all writes sequential
 - Landed sixth seam:
-  - `apps/web/lib/agent-v2/orchestrator/revisionValidationWorkers.ts` now owns the deterministic `revision_validation` merge seam for revision claim checking
+  - `apps/web/lib/agent-v2/workers/validation/revisionValidationWorkers.ts` now owns the deterministic `revision_validation` merge seam for revision claim checking
   - `revisingExecutor.ts` now consumes that helper as the sequential merge owner; revision validation stays sequential for now because claim checking is the only shipped deterministic revision validator today
 - Merge/failure rules standardized:
-  - `apps/web/lib/agent-v2/orchestrator/workerPlane.ts` now centralizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging for the landed worker seams
+  - `apps/web/lib/agent-v2/runtime/workerPlane.ts` now centralizes worker execution building, validation status resolution, validation result building, and ordered execution-meta merging for the landed worker seams
   - landed worker helpers now emit trace metadata through that shared utility so Phase 4 merge behavior stays consistent without changing runtime ownership or client payloads
 - Explicit no-double-write regression coverage landed:
   - `apps/web/app/api/creator/v2/chat/route.test.mjs` now pins the sequential persistence contract so conversation memory is written exactly once even when draft-candidate writes resolve out of order
   - this keeps Phase 4 worker-plane cleanup honest at the route boundary while safe parallel candidate writes remain isolated from memory/thread ownership
 - Bundle sibling novelty retry boundary made explicit:
-  - `apps/web/lib/agent-v2/orchestrator/draftBundleExecutor.ts` now records `retry_bundle_candidate_for_sibling_novelty` as a sequential execution step when a later bundle option must be regenerated against earlier accepted sibling drafts
+  - `apps/web/lib/agent-v2/capabilities/drafting/draftBundleExecutor.ts` now records `retry_bundle_candidate_for_sibling_novelty` as a sequential execution step when a later bundle option must be regenerated against earlier accepted sibling drafts
   - this formalizes why the remaining novelty retry path stays outside the worker plane today: it depends on already-selected sibling outputs, so it remains sequential while initial candidate generation stays parallel
 - Executor response contracts standardized:
   - `apps/web/lib/agent-v2/runtime/runtimeContracts.ts` now owns shared `RuntimeResponseSeed`, `CapabilityResponseOutput`, and `CapabilityPatchedResponseOutput` types for executor boundaries
@@ -337,7 +337,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `apps/web/app/api/creator/v2/chat/_lib/reply/routeReplyFinalize.ts` now owns reply persistence, reply event dispatch, and final success-response assembly for handled reply turns
   - `apps/web/app/api/creator/v2/chat/route.ts` now imports reply turn state resolution and planning directly from the runtime-owned planner, which keeps route-only side effects out of reply planning without changing reply behavior or payloads
 - Reply parse/planning moved under runtime ownership:
-  - `apps/web/lib/agent-v2/orchestrator/replyTurnLogic.ts` now owns the pure reply parse/artifact helper logic, and `apps/web/lib/agent-v2/orchestrator/replyTurnPlanner.ts` now owns reply turn state resolution, planning, and memory snapshot shaping
+  - `apps/web/lib/agent-v2/capabilities/reply/replyTurnLogic.ts` now owns the pure reply parse/artifact helper logic, and `apps/web/lib/agent-v2/capabilities/reply/replyTurnPlanner.ts` now owns reply turn state resolution, planning, and memory snapshot shaping
   - `route.ts`, `routeReplyFinalize.ts`, `routeLogic.ts`, and `routeResponse.ts` now import reply planning and reply artifact types directly from the runtime-owned modules, so reply capability logic lives fully in the runtime layer
 - Reply shim deletion completed:
   - `apps/web/app/api/creator/v2/chat/route.reply.ts` and `apps/web/app/api/creator/v2/chat/reply.logic.ts` have been removed now that route-internal consumers and focused tests import the runtime-owned reply modules directly
@@ -375,11 +375,11 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - move order for this structure track:
     1. land new validators and validation workers directly in `validators/*` and `workers/validation/*`
     2. land new route-boundary helpers directly in `apps/web/app/api/creator/v2/chat/_lib/*`
-    3. extract touched capability-local helpers out of `orchestrator/` into `capabilities/*`
+    3. extract touched capability-local helpers out of broad control-plane files into `capabilities/*`
     4. leave compatibility imports in place only as short-lived migration seams while tests are updated
     5. shrink `draftPipeline.ts` and `route.ts` only after their adjacent helpers have stable homes
 - Acceptance gates:
-  - new backend runtime work lands in predictable domain/slice folders instead of expanding `orchestrator/` as a catch-all
+  - new backend runtime work lands in predictable domain/slice folders instead of expanding `runtime/` as a catch-all
   - new route-boundary work lands in dedicated route helpers or route-private folders instead of expanding `route.ts` files as catch-alls
   - at least one Phase 5 validator slice lands without touching the chat UI
   - folder moves, when done, are incremental and test-backed rather than broad churn
@@ -426,7 +426,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - `planSeedSource`
   - `replyHandlingBypassedReason`
   - `shouldAllowReplyHandling`
-- `planSeedMessage` belongs to route/orchestrator context after normalization; it is not a normalized-turn field.
+- `planSeedMessage` belongs to route/runtime context after normalization; it is not a normalized-turn field.
 - Shared capability execution contract is partially landed already:
   - `CapabilityExecutionRequest`
   - `CapabilityExecutionResult`
