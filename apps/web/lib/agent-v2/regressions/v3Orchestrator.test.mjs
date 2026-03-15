@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { planTurn } from "../orchestrator/turnPlanner.ts";
+import { planTurn } from "../runtime/turnPlanner.ts";
 
 test("v3: edit instruction with active draft still routes to edit override", () => {
   const result = planTurn({

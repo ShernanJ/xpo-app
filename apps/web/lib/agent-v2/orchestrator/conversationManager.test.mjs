@@ -73,7 +73,7 @@ import {
   withNoFabricationPlanGuardrail,
 } from "../grounding/draftGrounding.ts";
 import { isMissingDraftCandidateTableError } from "../persistence/prismaGuards.ts";
-import { planTurn } from "./turnPlanner.ts";
+import { planTurn } from "../runtime/turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "../grounding/claimChecker.ts";
 import { getDeterministicChatReply } from "../responses/chatResponderDeterministic.ts";
 
@@ -989,6 +989,35 @@ test("runtime turn relation helper stays out of orchestrator once ownership move
     new URL("../capabilities/", import.meta.url),
     new URL("../responses/", import.meta.url),
     new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("runtime turn planner stays out of orchestrator once ownership moves", () => {
+  assert.equal(existsSync(new URL("./turnPlanner.ts", import.meta.url)), false);
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/turnPlanner(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/turnPlanner(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../runtime/", import.meta.url),
+    new URL("../regressions/", import.meta.url),
     new URL("./", import.meta.url),
   ];
 

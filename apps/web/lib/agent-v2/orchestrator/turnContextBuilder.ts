@@ -1,5 +1,5 @@
 import { buildCreatorProfileHintsFromOnboarding } from "../grounding/creatorProfileHints";
-import { planTurn } from "./turnPlanner";
+import { planTurn } from "../runtime/turnPlanner";
 import { hydrateTurnContextWorkers } from "../workers/turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
 import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
