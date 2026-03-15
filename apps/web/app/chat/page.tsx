@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  Fragment,
   Suspense,
-  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -37,7 +35,6 @@ import {
   type BillingStatePayload,
 } from "./_features/billing/billingViewState";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
-import { BillingDialogs } from "./_features/billing/BillingDialogs";
 import { useBillingState } from "./_features/billing/useBillingState";
 import { DraftEditorSurface } from "./_features/draft-editor/DraftEditorSurface";
 import {
@@ -65,10 +62,8 @@ import {
   useSelectedDraftState,
   useSelectedDraftTimelineState,
 } from "./_features/draft-editor/useSelectedDraftState";
-import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { type DraftQueueCandidate } from "./_features/draft-queue/draftQueueViewState";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
-import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
 import { useFeedbackState } from "./_features/feedback/useFeedbackState";
 import {
   useAssistantReplyOrchestrator,
@@ -1878,154 +1873,106 @@ function ChatPageContent() {
             }
             threadContent={
               !isNewChatHero && !isLeavingHero ? (
-                    <>
-                      {messages.map((message, index) => {
-                        const buildDraftRevealClasses = (draftKey: string) =>
-                          buildDraftRevealClassName(
-                            activeDraftRevealByMessageId,
-                            message.id,
-                            draftKey,
-                          );
-                        const shouldAnimateDraftLines = (draftKey: string) =>
-                          shouldAnimateDraftRevealLines(
-                            activeDraftRevealByMessageId,
-                            message.id,
-                            draftKey,
-                          );
+                <ChatMessageStream<ChatMessage>
+                  messages={messages}
+                  latestAssistantMessageId={latestAssistantMessageId}
+                  typedAssistantLengths={typedAssistantLengths}
+                  registerMessageRef={registerMessageRef}
+                  activeDraftRevealByMessageId={activeDraftRevealByMessageId}
+                  shouldShowPendingDraftShell={shouldShowPendingDraftShell}
+                  pendingDraftWorkflow={pendingDraftWorkflow}
+                  pendingStatusLabel={pendingStatusLabel}
+                  isSending={isSending}
+                  resolveArtifactSectionProps={(message) => ({
+                    composerCharacterLimit,
+                    isVerifiedAccount,
+                    isMainChatLocked,
+                    showDevTools,
+                    selectedDraftMessageId,
+                    selectedDraftVersionId,
+                    selectedThreadPreviewPostIndex:
+                      selectedThreadPostByMessageId[message.id],
+                    expandedInlineThreadPreviewId,
+                    copiedPreviewDraftMessageId,
+                    dismissedAutoSavedSource: Boolean(
+                      dismissedAutoSavedSourceByMessageId[message.id],
+                    ),
+                    autoSavedSourceUndoPending: Boolean(
+                      autoSavedSourceUndoPendingByMessageId[message.id],
+                    ),
+                    messageFeedbackPending: Boolean(
+                      messageFeedbackPendingById[message.id],
+                    ),
+                    canRunReplyActions:
+                      !isMainChatLocked &&
+                      Boolean(activeStrategyInputs && activeToneInputs),
+                    contextIdentity: {
+                      username:
+                        context?.creatorProfile?.identity?.username || "user",
+                      displayName:
+                        context?.creatorProfile?.identity?.displayName ||
+                        context?.creatorProfile?.identity?.username ||
+                        "user",
+                      avatarUrl: context?.avatarUrl || null,
+                    },
+                    shouldShowQuickReplies: (candidate) =>
+                      shouldShowQuickRepliesForMessage(candidate as ChatMessage),
+                    shouldShowOptionArtifacts: (candidate) =>
+                      shouldShowOptionArtifactsForMessage(candidate as ChatMessage),
+                    shouldShowDraftOutput: (candidate) =>
+                      shouldShowDraftOutputForMessage(candidate as ChatMessage),
+                    onOpenSourceMaterialEditor: (params) => {
+                      void openSourceMaterialEditor(params);
+                    },
+                    onUndoAutoSavedSourceMaterials: () => {
+                      if (!message.autoSavedSourceMaterials) {
+                        return;
+                      }
 
-                        return (
-                          <ChatMessageRow
-                            key={message.id}
-                            messageId={message.id}
-                            role={message.role}
-                            previousRole={messages[index - 1]?.role}
-                            index={index}
-                            onRegisterRef={registerMessageRef}
-                          >
-                            <MessageContent
-                              role={message.role}
-                              content={message.content}
-                              isStreaming={Boolean(message.isStreaming)}
-                              isLatestAssistantMessage={message.id === latestAssistantMessageId}
-                              typedLength={typedAssistantLengths[message.id] ?? 0}
-                              assistantTypingBubble={
-                                <AssistantTypingBubble label={message.content || null} />
-                              }
-                            />
-
-                            <MessageArtifactSections
-                              message={message}
-                              index={index}
-                              messagesLength={messages.length}
-                              composerCharacterLimit={composerCharacterLimit}
-                              isVerifiedAccount={isVerifiedAccount}
-                              isMainChatLocked={isMainChatLocked}
-                              showDevTools={showDevTools}
-                              selectedDraftMessageId={selectedDraftMessageId}
-                              selectedDraftVersionId={selectedDraftVersionId}
-                              selectedThreadPreviewPostIndex={
-                                selectedThreadPostByMessageId[message.id]
-                              }
-                              expandedInlineThreadPreviewId={expandedInlineThreadPreviewId}
-                              copiedPreviewDraftMessageId={copiedPreviewDraftMessageId}
-                              dismissedAutoSavedSource={Boolean(
-                                dismissedAutoSavedSourceByMessageId[message.id],
-                              )}
-                              autoSavedSourceUndoPending={Boolean(
-                                autoSavedSourceUndoPendingByMessageId[message.id],
-                              )}
-                              messageFeedbackPending={Boolean(
-                                messageFeedbackPendingById[message.id],
-                              )}
-                              canRunReplyActions={
-                                !isMainChatLocked &&
-                                Boolean(activeStrategyInputs && activeToneInputs)
-                              }
-                              contextIdentity={{
-                                username:
-                                  context?.creatorProfile?.identity?.username || "user",
-                                displayName:
-                                  context?.creatorProfile?.identity?.displayName ||
-                                  context?.creatorProfile?.identity?.username ||
-                                  "user",
-                                avatarUrl: context?.avatarUrl || null,
-                              }}
-                              getRevealClassName={buildDraftRevealClasses}
-                              shouldAnimateRevealLines={shouldAnimateDraftLines}
-                              shouldShowQuickReplies={(candidate) =>
-                                shouldShowQuickRepliesForMessage(candidate as ChatMessage)
-                              }
-                              shouldShowOptionArtifacts={(candidate) =>
-                                shouldShowOptionArtifactsForMessage(candidate as ChatMessage)
-                              }
-                              shouldShowDraftOutput={(candidate) =>
-                                shouldShowDraftOutputForMessage(candidate as ChatMessage)
-                              }
-                              onOpenSourceMaterialEditor={(params) => {
-                                void openSourceMaterialEditor(params);
-                              }}
-                              onUndoAutoSavedSourceMaterials={() => {
-                                if (!message.autoSavedSourceMaterials) {
-                                  return;
-                                }
-
-                                void undoAutoSavedSourceMaterials(
-                                  message.id,
-                                  message.autoSavedSourceMaterials,
-                                );
-                              }}
-                              onSubmitAssistantMessageFeedback={(value) => {
-                                void submitAssistantMessageFeedback(message.id, value);
-                              }}
-                              onQuickReplySelect={(quickReply) => {
-                                void handleQuickReplySelect(quickReply as ChatQuickReply);
-                              }}
-                              onAngleSelect={(title, selectedAngleFormatHint) => {
-                                void handleAngleSelect(title, selectedAngleFormatHint);
-                              }}
-                              onReplyOptionSelect={(optionIndex) => {
-                                void handleReplyOptionSelect(optionIndex);
-                              }}
-                              onSelectDraftBundleOption={(optionId, versionId) => {
-                                selectDraftBundleOption(message.id, optionId, versionId);
-                              }}
-                              onOpenDraftEditor={(versionId, threadPostIndex) => {
-                                openDraftEditor(message.id, versionId, threadPostIndex);
-                              }}
-                              onRequestDraftCardRevision={(
-                                prompt,
-                                threadFramingStyleOverride,
-                              ) => {
-                                void requestDraftCardRevision(
-                                  message.id,
-                                  prompt,
-                                  threadFramingStyleOverride ?? undefined,
-                                );
-                              }}
-                              onToggleExpandedInlineThreadPreview={() => {
-                                setExpandedInlineThreadPreviewId((current) =>
-                                  current === message.id ? null : message.id,
-                                );
-                              }}
-                              onCopyPreviewDraft={(messageId, content) => {
-                                void copyPreviewDraft(messageId, content);
-                              }}
-                              onShareDraftEditor={shareDraftEditorToX}
-                            />
-
-                          </ChatMessageRow>
-                        );
-                      })}
-
-                      {shouldShowPendingDraftShell && pendingDraftWorkflow ? (
-                        <PendingDraftShell
-                          workflow={pendingDraftWorkflow}
-                          label={pendingStatusLabel}
-                        />
-                      ) : isSending ? (
-                        <AssistantTypingBubble label={pendingStatusLabel} />
-                      ) : null}
-                    </>
+                      void undoAutoSavedSourceMaterials(
+                        message.id,
+                        message.autoSavedSourceMaterials,
+                      );
+                    },
+                    onSubmitAssistantMessageFeedback: (value) => {
+                      void submitAssistantMessageFeedback(message.id, value);
+                    },
+                    onQuickReplySelect: (quickReply) => {
+                      void handleQuickReplySelect(quickReply as ChatQuickReply);
+                    },
+                    onAngleSelect: (title, selectedAngleFormatHint) => {
+                      void handleAngleSelect(title, selectedAngleFormatHint);
+                    },
+                    onReplyOptionSelect: (optionIndex) => {
+                      void handleReplyOptionSelect(optionIndex);
+                    },
+                    onSelectDraftBundleOption: (optionId, versionId) => {
+                      selectDraftBundleOption(message.id, optionId, versionId);
+                    },
+                    onOpenDraftEditor: (versionId, threadPostIndex) => {
+                      openDraftEditor(message.id, versionId, threadPostIndex);
+                    },
+                    onRequestDraftCardRevision: (
+                      prompt,
+                      threadFramingStyleOverride,
+                    ) => {
+                      void requestDraftCardRevision(
+                        message.id,
+                        prompt,
+                        threadFramingStyleOverride ?? undefined,
+                      );
+                    },
+                    onToggleExpandedInlineThreadPreview: () => {
+                      setExpandedInlineThreadPreviewId((current) =>
+                        current === message.id ? null : message.id,
+                      );
+                    },
+                    onCopyPreviewDraft: (messageId, content) => {
+                      void copyPreviewDraft(messageId, content);
+                    },
+                    onShareDraftEditor: shareDraftEditorToX,
+                  })}
+                />
               ) : null
             }
           />
