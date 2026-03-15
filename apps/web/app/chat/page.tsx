@@ -84,6 +84,7 @@ import {
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
+  resolveDraftTimelineNavigation,
   resolveDraftTimelineState,
 } from "./_features/draft-editor/chatDraftSessionState";
 import { useAssistantReplyOrchestrator } from "./_features/reply/useAssistantReplyOrchestrator";
@@ -101,6 +102,7 @@ import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
 import { useThreadHistoryHydration } from "./_features/thread-history/useThreadHistoryHydration";
+import { useMessageArtifactActions } from "./_features/thread-history/useMessageArtifactActions";
 import { useThreadMessageEffects } from "./_features/thread-history/useThreadMessageEffects";
 import { useThreadViewState } from "./_features/thread-history/useThreadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
@@ -128,36 +130,6 @@ import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditor
 import {
   type SourceMaterialAsset,
 } from "./_features/source-materials/sourceMaterialsState";
-
-interface ValidationError {
-  field: string;
-  message: string;
-}
-
-interface SourceMaterialsSuccess {
-  ok: true;
-  data: {
-    assets: SourceMaterialAsset[];
-  };
-}
-
-interface SourceMaterialMutationSuccess {
-  ok: true;
-  data: {
-    asset?: SourceMaterialAsset;
-    deletedId?: string;
-  };
-}
-
-interface SourceMaterialsFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-type SourceMaterialsResponse =
-  | SourceMaterialsSuccess
-  | SourceMaterialMutationSuccess
-  | SourceMaterialsFailure;
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -445,39 +417,6 @@ interface ChatToneInputs {
   toneCasing: ToneCasing;
   toneRisk: ToneRisk;
 }
-
-interface MessageFeedbackMutationSuccess {
-  ok: true;
-  data: {
-    feedback: {
-      id: string;
-      userId: string;
-      threadId: string;
-      messageId: string;
-      value: MessageFeedbackValue;
-      createdAt: string;
-      updatedAt: string;
-    };
-  };
-}
-
-interface MessageFeedbackMutationFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-interface MessageFeedbackClearSuccess {
-  ok: true;
-  data: {
-    messageId: string;
-    cleared: boolean;
-  };
-}
-
-type MessageFeedbackMutationResponse =
-  | MessageFeedbackMutationSuccess
-  | MessageFeedbackMutationFailure
-  | MessageFeedbackClearSuccess;
 
 const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 const monetizationEnabled = isMonetizationEnabled();
@@ -1022,13 +961,20 @@ function ChatPageContent() {
     fetchWorkspace,
     sourceMaterialsBootstrapKey,
   });
-  const [messageFeedbackPendingById, setMessageFeedbackPendingById] = useState<
-    Record<string, boolean>
-  >({});
-  const [autoSavedSourceUndoPendingByMessageId, setAutoSavedSourceUndoPendingByMessageId] =
-    useState<Record<string, boolean>>({});
-  const [dismissedAutoSavedSourceByMessageId, setDismissedAutoSavedSourceByMessageId] =
-    useState<Record<string, boolean>>({});
+  const {
+    messageFeedbackPendingById,
+    autoSavedSourceUndoPendingByMessageId,
+    dismissedAutoSavedSourceByMessageId,
+    undoAutoSavedSourceMaterials,
+    submitAssistantMessageFeedback,
+  } = useMessageArtifactActions<ChatMessage>({
+    activeThreadId,
+    fetchWorkspace,
+    setMessages,
+    messages,
+    removeSourceMaterialsByIds,
+    onErrorMessage: setErrorMessage,
+  });
   const [draftInput, setDraftInput] = useState("");
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -1130,8 +1076,14 @@ function ChatPageContent() {
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
-  const [providerPreference, setProviderPreference] =
-    useState<ChatProviderPreference>("groq");
+  const [providerPreference] = useState<ChatProviderPreference>(() => {
+    if (typeof window === "undefined" || !showDevTools) {
+      return "groq";
+    }
+
+    const storedValue = window.localStorage.getItem(chatProviderStorageKey);
+    return storedValue === "openai" || storedValue === "groq" ? storedValue : "groq";
+  });
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [, setBackfillNotice] = useState<string | null>(null);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
@@ -1290,97 +1242,6 @@ function ChatPageContent() {
     activeDraftMessageId: activeDraftEditor?.messageId ?? null,
     fetchWorkspace,
   });
-  const trackProductEvent = useCallback(
-    async (params: {
-      eventType: string;
-      messageId?: string;
-      candidateId?: string;
-      properties?: Record<string, unknown>;
-    }) => {
-      try {
-        await fetchWorkspace("/api/creator/v2/product-events", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          keepalive: true,
-          body: JSON.stringify({
-            eventType: params.eventType,
-            threadId: activeThreadId ?? null,
-            ...(params.messageId ? { messageId: params.messageId } : {}),
-            ...(params.candidateId ? { candidateId: params.candidateId } : {}),
-            properties: params.properties || {},
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to record product event:", error);
-      }
-    },
-    [activeThreadId, fetchWorkspace],
-  );
-  const undoAutoSavedSourceMaterials = useCallback(
-    async (
-      messageId: string,
-      autoSavedSourceMaterials: NonNullable<ChatMessage["autoSavedSourceMaterials"]>,
-    ) => {
-      const deletableAssets = autoSavedSourceMaterials.assets.filter((asset) => asset.deletable);
-      if (deletableAssets.length === 0) {
-        return;
-      }
-
-      setAutoSavedSourceUndoPendingByMessageId((current) => ({
-        ...current,
-        [messageId]: true,
-      }));
-      setErrorMessage(null);
-
-      try {
-        const deletedIds: string[] = [];
-
-        for (const asset of deletableAssets) {
-          const response = await fetchWorkspace(`/api/creator/v2/source-materials/${asset.id}`, {
-            method: "DELETE",
-          });
-          const result: SourceMaterialsResponse = await response.json();
-          if (!response.ok || !result.ok) {
-            const fallbackMessage = result.ok
-              ? "Failed to remove saved source material."
-              : result.errors[0]?.message;
-            throw new Error(fallbackMessage || "Failed to remove saved source material.");
-          }
-          if (!("deletedId" in result.data) || !result.data.deletedId) {
-            throw new Error("Failed to remove saved source material.");
-          }
-
-          deletedIds.push(result.data.deletedId);
-        }
-
-        removeSourceMaterialsByIds(deletedIds);
-        setDismissedAutoSavedSourceByMessageId((current) => ({
-          ...current,
-          [messageId]: true,
-        }));
-        await trackProductEvent({
-          eventType: "source_auto_save_undone",
-          messageId,
-          properties: {
-            deletedCount: deletedIds.length,
-            deletedTitles: deletableAssets.map((asset) => asset.title).slice(0, 3),
-          },
-        });
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Failed to remove saved source material.",
-        );
-      } finally {
-        setAutoSavedSourceUndoPendingByMessageId((current) => ({
-          ...current,
-          [messageId]: false,
-        }));
-      }
-    },
-    [fetchWorkspace, removeSourceMaterialsByIds, trackProductEvent],
-  );
   const {
     analysisOpen,
     setAnalysisOpen,
@@ -1419,130 +1280,6 @@ function ChatPageContent() {
     formatEnumLabel,
     formatNicheSummary,
   });
-  const applyChatWorkspaceReset = useCallback((
-    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
-  ) => {
-    if ("activeThreadId" in reset) {
-      setActiveThreadId(reset.activeThreadId);
-    }
-    if ("threadCreatedInSession" in reset) {
-      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
-    }
-    if ("context" in reset) {
-      setContext(reset.context);
-    }
-    if ("contract" in reset) {
-      setContract(reset.contract);
-    }
-    if ("conversationMemory" in reset) {
-      setConversationMemory(reset.conversationMemory);
-    }
-    if ("streamStatus" in reset) {
-      setStreamStatus(reset.streamStatus);
-    }
-    if ("isWorkspaceInitializing" in reset) {
-      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
-    }
-    if ("analysisOpen" in reset) {
-      setAnalysisOpen(reset.analysisOpen);
-    }
-    if ("backfillNotice" in reset) {
-      setBackfillNotice(reset.backfillNotice);
-    }
-    if ("isAnalysisScrapeRefreshing" in reset) {
-      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
-    }
-    if ("analysisScrapeNotice" in reset) {
-      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
-    }
-    if ("analysisScrapeCooldownUntil" in reset) {
-      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
-    }
-    if ("activeContentFocus" in reset) {
-      setActiveContentFocus(reset.activeContentFocus);
-    }
-    if ("toneInputs" in reset) {
-      setToneInputs(reset.toneInputs);
-    }
-    if ("activeToneInputs" in reset) {
-      setActiveToneInputs(reset.activeToneInputs);
-    }
-    if ("activeStrategyInputs" in reset) {
-      setActiveStrategyInputs(reset.activeStrategyInputs);
-    }
-    if ("draftQueueItems" in reset) {
-      setDraftQueueItems(reset.draftQueueItems);
-    }
-    if ("draftQueueError" in reset) {
-      setDraftQueueError(reset.draftQueueError);
-    }
-    if ("editingDraftCandidateId" in reset) {
-      setEditingDraftCandidateId(reset.editingDraftCandidateId);
-    }
-    if ("editingDraftCandidateText" in reset) {
-      setEditingDraftCandidateText(reset.editingDraftCandidateText);
-    }
-
-    setMessages(reset.messages);
-    setDraftInput(reset.draftInput);
-    setErrorMessage(reset.errorMessage);
-    setActiveDraftEditor(reset.activeDraftEditor);
-    setEditorDraftText(reset.editorDraftText);
-    setEditorDraftPosts(reset.editorDraftPosts);
-    setTypedAssistantLengths(reset.typedAssistantLengths);
-    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
-    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
-    setIsLeavingHero(reset.isLeavingHero);
-  }, [
-    setAnalysisOpen,
-    setAnalysisScrapeCooldownUntil,
-    setAnalysisScrapeNotice,
-    setActiveDraftRevealByMessageId,
-    setDraftQueueError,
-    setDraftQueueItems,
-    setEditingDraftCandidateId,
-    setEditingDraftCandidateText,
-    setEditorDraftPosts,
-    setEditorDraftText,
-    setIsAnalysisScrapeRefreshing,
-    setActiveThreadId,
-    setRevealedDraftMessageIds,
-    setTypedAssistantLengths,
-    threadCreatedInSessionRef,
-  ]);
-  const handleNewChat = useCallback(() => {
-    if (!accountName) return;
-
-    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-    window.history.pushState({}, "", buildWorkspaceChatHref(null));
-  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
-
-  useEffect(() => {
-    if (threadStateResetVersion === 0) {
-      return;
-    }
-
-    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-  }, [applyChatWorkspaceReset, threadStateResetVersion]);
-
-  useEffect(() => {
-    void loadWorkspace();
-  }, [loadWorkspace]);
-
-  useEffect(() => {
-    if (!accountName) {
-      return;
-    }
-
-    clearMissingOnboardingAttempts();
-    applyChatWorkspaceReset(
-      buildChatWorkspaceReset("workspace", {
-        defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
-        defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
-      }),
-    );
-  }, [accountName, applyChatWorkspaceReset, clearMissingOnboardingAttempts]);
-
   useEffect(() => {
     if (!isLeavingHero) {
       return;
@@ -1634,17 +1371,6 @@ function ChatPageContent() {
       return;
     }
 
-    const storedValue = window.localStorage.getItem(chatProviderStorageKey);
-    if (storedValue === "openai" || storedValue === "groq") {
-      setProviderPreference(storedValue);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!showDevTools) {
-      return;
-    }
-
     window.localStorage.setItem(chatProviderStorageKey, providerPreference);
   }, [providerPreference]);
 
@@ -1653,21 +1379,27 @@ function ChatPageContent() {
       return;
     }
 
-    setActiveStrategyInputs((current) => current ?? strategyInputs);
+    const timeoutId = window.setTimeout(() => {
+      setActiveStrategyInputs((current) => current ?? strategyInputs);
 
-    if (activeToneInputs) {
-      return;
-    }
+      if (activeToneInputs) {
+        return;
+      }
 
-    const inferredToneInputs =
-      toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
-        toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
-        ? inferInitialToneInputs({ context, contract })
-        : toneInputs;
+      const inferredToneInputs =
+        toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
+          toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
+          ? inferInitialToneInputs({ context, contract })
+          : toneInputs;
 
-    setToneInputs(inferredToneInputs);
-    setActiveToneInputs(inferredToneInputs);
-    void loadWorkspace(activeStrategyInputs ?? strategyInputs, inferredToneInputs);
+      setToneInputs(inferredToneInputs);
+      setActiveToneInputs(inferredToneInputs);
+      void loadWorkspace(activeStrategyInputs ?? strategyInputs, inferredToneInputs);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [
     activeStrategyInputs,
     activeToneInputs,
@@ -1811,6 +1543,141 @@ function ChatPageContent() {
       feedbackValue: null,
     }),
   });
+  const applyChatWorkspaceReset = useCallback((
+    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
+  ) => {
+    if ("activeThreadId" in reset) {
+      setActiveThreadId(reset.activeThreadId);
+    }
+    if ("threadCreatedInSession" in reset) {
+      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
+    }
+    if ("context" in reset) {
+      setContext(reset.context);
+    }
+    if ("contract" in reset) {
+      setContract(reset.contract);
+    }
+    if ("conversationMemory" in reset) {
+      setConversationMemory(reset.conversationMemory);
+    }
+    if ("streamStatus" in reset) {
+      setStreamStatus(reset.streamStatus);
+    }
+    if ("isWorkspaceInitializing" in reset) {
+      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
+    }
+    if ("analysisOpen" in reset) {
+      setAnalysisOpen(reset.analysisOpen);
+    }
+    if ("backfillNotice" in reset) {
+      setBackfillNotice(reset.backfillNotice);
+    }
+    if ("isAnalysisScrapeRefreshing" in reset) {
+      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
+    }
+    if ("analysisScrapeNotice" in reset) {
+      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
+    }
+    if ("analysisScrapeCooldownUntil" in reset) {
+      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
+    }
+    if ("activeContentFocus" in reset) {
+      setActiveContentFocus(reset.activeContentFocus);
+    }
+    if ("toneInputs" in reset) {
+      setToneInputs(reset.toneInputs);
+    }
+    if ("activeToneInputs" in reset) {
+      setActiveToneInputs(reset.activeToneInputs);
+    }
+    if ("activeStrategyInputs" in reset) {
+      setActiveStrategyInputs(reset.activeStrategyInputs);
+    }
+    if ("draftQueueItems" in reset) {
+      setDraftQueueItems(reset.draftQueueItems);
+    }
+    if ("draftQueueError" in reset) {
+      setDraftQueueError(reset.draftQueueError);
+    }
+    if ("editingDraftCandidateId" in reset) {
+      setEditingDraftCandidateId(reset.editingDraftCandidateId);
+    }
+    if ("editingDraftCandidateText" in reset) {
+      setEditingDraftCandidateText(reset.editingDraftCandidateText);
+    }
+
+    setMessages(reset.messages);
+    setDraftInput(reset.draftInput);
+    setErrorMessage(reset.errorMessage);
+    setActiveDraftEditor(reset.activeDraftEditor);
+    setEditorDraftText(reset.editorDraftText);
+    setEditorDraftPosts(reset.editorDraftPosts);
+    setTypedAssistantLengths(reset.typedAssistantLengths);
+    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
+    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
+    setIsLeavingHero(reset.isLeavingHero);
+  }, [
+    setAnalysisOpen,
+    setAnalysisScrapeCooldownUntil,
+    setAnalysisScrapeNotice,
+    setActiveDraftRevealByMessageId,
+    setDraftQueueError,
+    setDraftQueueItems,
+    setEditingDraftCandidateId,
+    setEditingDraftCandidateText,
+    setEditorDraftPosts,
+    setEditorDraftText,
+    setIsAnalysisScrapeRefreshing,
+    setActiveThreadId,
+    setRevealedDraftMessageIds,
+    setTypedAssistantLengths,
+    threadCreatedInSessionRef,
+  ]);
+  const handleNewChat = useCallback(() => {
+    if (!accountName) return;
+
+    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+    window.history.pushState({}, "", buildWorkspaceChatHref(null));
+  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
+
+  useEffect(() => {
+    if (threadStateResetVersion === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [applyChatWorkspaceReset, threadStateResetVersion]);
+
+  useEffect(() => {
+    void loadWorkspace();
+  }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (!accountName) {
+      return;
+    }
+
+    clearMissingOnboardingAttempts();
+    const timeoutId = window.setTimeout(() => {
+      applyChatWorkspaceReset(
+        buildChatWorkspaceReset("workspace", {
+          defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
+          defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
+        }),
+      );
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [accountName, applyChatWorkspaceReset, clearMissingOnboardingAttempts]);
   const pendingStatusLabel = usePendingStatusLabel({
     isActive: isSending,
     plan: pendingStatusPlan,
@@ -1978,115 +1845,6 @@ function ChatPageContent() {
       selectedDraftTimelineIndex,
     ],
   );
-
-  const submitAssistantMessageFeedback = useCallback(
-    async (messageId: string, value: MessageFeedbackValue) => {
-      if (
-        messageId.startsWith("assistant-") ||
-        messageId.startsWith("draft-inspector-assistant-")
-      ) {
-        return;
-      }
-
-      const targetMessage = messages.find((message) => message.id === messageId);
-      if (!targetMessage || targetMessage.role !== "assistant" || targetMessage.isStreaming) {
-        return;
-      }
-      const resolvedThreadId = targetMessage.threadId || activeThreadId;
-      if (!resolvedThreadId || resolvedThreadId === "current-workspace") {
-        return;
-      }
-
-      const previousValue = targetMessage.feedbackValue ?? null;
-      const nextValue = previousValue === value ? null : value;
-
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId
-            ? {
-              ...message,
-              feedbackValue: nextValue,
-            }
-            : message,
-        ),
-      );
-      setMessageFeedbackPendingById((current) => ({
-        ...current,
-        [messageId]: true,
-      }));
-
-      try {
-          const response = await fetchWorkspace(
-            `/api/creator/v2/threads/${encodeURIComponent(resolvedThreadId)}/messages/${encodeURIComponent(messageId)}/feedback`,
-          {
-            method: nextValue ? "POST" : "DELETE",
-            ...(nextValue
-              ? {
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ value: nextValue }),
-              }
-              : {}),
-          },
-        );
-        const responseBodyText = await response.text();
-        let result: MessageFeedbackMutationResponse | null = null;
-        if (responseBodyText) {
-          try {
-            result = JSON.parse(responseBodyText) as MessageFeedbackMutationResponse;
-          } catch {
-            result = null;
-          }
-        }
-
-        if (!response.ok || !result?.ok) {
-          const failureMessage =
-            result && "errors" in result ? result.errors?.[0]?.message : null;
-          throw new Error(
-            failureMessage || `Failed to save message feedback (${response.status}).`,
-          );
-        }
-
-        const savedValue =
-          result && result.ok && "feedback" in result.data
-            ? result.data.feedback?.value
-            : null;
-        if (savedValue === "up" || savedValue === "down") {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === messageId
-                ? {
-                  ...message,
-                  feedbackValue: savedValue,
-                }
-                : message,
-            ),
-          );
-        }
-      } catch (error) {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === messageId
-              ? {
-                ...message,
-                feedbackValue: previousValue,
-              }
-              : message,
-          ),
-        );
-        console.error("Failed to save assistant message feedback", error);
-      } finally {
-        setMessageFeedbackPendingById((current) => {
-          const next = { ...current };
-          delete next[messageId];
-          return next;
-        });
-      }
-    },
-    [activeThreadId, fetchWorkspace, messages],
-  );
-
 
   const { requestAssistantReply } = useAssistantReplyOrchestrator<
     ChatMessage,
