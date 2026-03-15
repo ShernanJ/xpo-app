@@ -16,7 +16,7 @@ import {
   buildRuntimeWorkerExecution,
   mergeRuntimeExecutionMeta,
   resolveRuntimeValidationStatus,
-} from "../runtime/workerPlane.ts";
+} from "./workerPlane.ts";
 import { runDeliveryValidationWorkers } from "../workers/validation/deliveryValidationWorkers.ts";
 import { runRevisionValidationWorkers } from "../workers/validation/revisionValidationWorkers.ts";
 import { validateDelivery } from "../validators/shared/deliveryValidators.ts";
@@ -28,7 +28,7 @@ import {
   shouldFastStartGroundedDraft,
   shouldForceLooseDraftIdeation,
 } from "../capabilities/planning/draftFastStart.ts";
-import { resolveConversationRouterState } from "../runtime/conversationRouterMachine.ts";
+import { resolveConversationRouterState } from "./conversationRouterMachine.ts";
 import {
   applyCreatorProfileHintsToPlan,
   mapPreferredOutputShapeToFormatPreference,
@@ -73,7 +73,7 @@ import {
   withNoFabricationPlanGuardrail,
 } from "../grounding/draftGrounding.ts";
 import { isMissingDraftCandidateTableError } from "../persistence/prismaGuards.ts";
-import { planTurn } from "../runtime/turnPlanner.ts";
+import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "../grounding/claimChecker.ts";
 import { getDeterministicChatReply } from "../responses/chatResponderDeterministic.ts";
 
@@ -245,13 +245,13 @@ test("turn context hydration workers return style profile and anchors as mergeab
 });
 
 test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.equal(/pipeline_continuation/.test(draftPipelineSource), false);
 });
 
 test("draft pipeline delegates grounded draft validation retry to the drafting capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -268,7 +268,7 @@ test("draft pipeline delegates grounded draft validation retry to the drafting c
 });
 
 test("draft pipeline delegates active-draft repair coaching to the revision capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -289,7 +289,7 @@ test("draft pipeline delegates active-draft repair coaching to the revision capa
 });
 
 test("draft pipeline delegates non-draft coach detours to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -310,7 +310,7 @@ test("draft pipeline delegates non-draft coach detours to the planning capabilit
 });
 
 test("draft pipeline delegates plan clarification routing to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -331,7 +331,7 @@ test("draft pipeline delegates plan clarification routing to the planning capabi
 });
 
 test("draft pipeline delegates pending-plan decisions to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -376,7 +376,7 @@ test("draft pipeline delegates auto-approved plan execution to the planning capa
 });
 
 test("draft pipeline delegates plan-mode orchestration to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -389,7 +389,7 @@ test("draft pipeline delegates plan-mode orchestration to the planning capabilit
 });
 
 test("draft pipeline delegates revise and replan mode routing to the revision capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -415,7 +415,7 @@ test("draft pipeline delegates revise and replan mode routing to the revision ca
 
 test("conversation manager no longer acts as a helper or service barrel", () => {
   const conversationManagerSource = readFileSync(
-    new URL("../runtime/conversationManager.ts", import.meta.url),
+    new URL("./conversationManager.ts", import.meta.url),
     "utf8",
   );
 
@@ -426,8 +426,8 @@ test("conversation manager no longer acts as a helper or service barrel", () => 
 });
 
 test("runtime conversation manager and worker plane stay out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./conversationManager.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./workerPlane.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/conversationManager.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/workerPlane.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/conversationManager(?:\.ts)?["']/,
@@ -438,7 +438,7 @@ test("runtime conversation manager and worker plane stay out of orchestrator onc
 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../workers/", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -460,15 +460,15 @@ test("runtime conversation manager and worker plane stay out of orchestrator onc
 });
 
 test("orchestrator revision validation shim stays deleted once worker ownership is direct", () => {
-  assert.equal(existsSync(new URL("./revisionValidationWorkers.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/revisionValidationWorkers.ts", import.meta.url)), false);
 });
 
 test("draft pipeline helper blob stays deleted once ownership is split", () => {
-  assert.equal(existsSync(new URL("./draftPipelineHelpers.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/draftPipelineHelpers.ts", import.meta.url)), false);
 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
   ];
@@ -492,14 +492,14 @@ test("draft pipeline helper blob stays deleted once ownership is split", () => {
 
 test("grounding leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./groundingPacket.ts",
-    "./draftGrounding.ts",
-    "./claimChecker.ts",
-    "./creatorProfileHints.ts",
-    "./creatorHintPolicy.ts",
-    "./sourceMaterials.ts",
-    "./sourceMaterialDraftPolicy.ts",
-    "./sourceMaterialPlanPolicy.ts",
+    "../orchestrator/groundingPacket.ts",
+    "../orchestrator/draftGrounding.ts",
+    "../orchestrator/claimChecker.ts",
+    "../orchestrator/creatorProfileHints.ts",
+    "../orchestrator/creatorHintPolicy.ts",
+    "../orchestrator/sourceMaterials.ts",
+    "../orchestrator/sourceMaterialDraftPolicy.ts",
+    "../orchestrator/sourceMaterialPlanPolicy.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -528,7 +528,7 @@ test("grounding leaf modules stay out of orchestrator once ownership moves", () 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
     new URL("../grounding/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -551,19 +551,19 @@ test("grounding leaf modules stay out of orchestrator once ownership moves", () 
 
 test("response helper leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./assistantReplyStyle.ts",
-    "./chatResponder.ts",
-    "./chatResponderDeterministic.ts",
-    "./chatResponder.test.mjs",
-    "./clarificationDraftChips.ts",
-    "./constraintAcknowledgment.ts",
-    "./correctionRepair.ts",
-    "./correctionRepair.test.ts",
-    "./draftReply.ts",
-    "./feedbackMemoryNotice.ts",
-    "./ideationQuickReplies.ts",
-    "./ideationReply.ts",
-    "./plannerQuickReplies.ts",
+    "../orchestrator/assistantReplyStyle.ts",
+    "../orchestrator/chatResponder.ts",
+    "../orchestrator/chatResponderDeterministic.ts",
+    "../orchestrator/chatResponder.test.mjs",
+    "../orchestrator/clarificationDraftChips.ts",
+    "../orchestrator/constraintAcknowledgment.ts",
+    "../orchestrator/correctionRepair.ts",
+    "../orchestrator/correctionRepair.test.ts",
+    "../orchestrator/draftReply.ts",
+    "../orchestrator/feedbackMemoryNotice.ts",
+    "../orchestrator/ideationQuickReplies.ts",
+    "../orchestrator/ideationReply.ts",
+    "../orchestrator/plannerQuickReplies.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -599,7 +599,7 @@ test("response helper leaf modules stay out of orchestrator once ownership moves
     new URL("../agents/", import.meta.url),
     new URL("../capabilities/", import.meta.url),
     new URL("../responses/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -622,11 +622,11 @@ test("response helper leaf modules stay out of orchestrator once ownership moves
 
 test("worker adapter leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./contextLoadWorkers.ts",
-    "./historicalTextWorkers.ts",
-    "./turnContextHydrationWorkers.ts",
-    "./draftGuardValidationWorkers.ts",
-    "./draftBundleCandidateWorkers.ts",
+    "../orchestrator/contextLoadWorkers.ts",
+    "../orchestrator/historicalTextWorkers.ts",
+    "../orchestrator/turnContextHydrationWorkers.ts",
+    "../orchestrator/draftGuardValidationWorkers.ts",
+    "../orchestrator/draftBundleCandidateWorkers.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -648,7 +648,7 @@ test("worker adapter leaf modules stay out of orchestrator once ownership moves"
 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../workers/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
@@ -672,11 +672,11 @@ test("worker adapter leaf modules stay out of orchestrator once ownership moves"
 
 test("planning helper leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./clarificationTree.ts",
-    "./draftFastStart.ts",
-    "./draftContextSlots.ts",
-    "./plannerFeedback.ts",
-    "./plannerFeedback.test.ts",
+    "../orchestrator/clarificationTree.ts",
+    "../orchestrator/draftFastStart.ts",
+    "../orchestrator/draftContextSlots.ts",
+    "../orchestrator/plannerFeedback.ts",
+    "../orchestrator/plannerFeedback.test.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -697,7 +697,7 @@ test("planning helper leaf modules stay out of orchestrator once ownership moves
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
     new URL("../grounding/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -720,14 +720,14 @@ test("planning helper leaf modules stay out of orchestrator once ownership moves
 
 test("workflow helper leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./draftBundles.ts",
-    "./draftBundleExecutor.ts",
-    "./draftRevision.ts",
-    "./replanningExecutor.ts",
-    "./replyContinuationPlanner.ts",
-    "./replyContinuationPlanner.test.mjs",
-    "./replyTurnPlanner.ts",
-    "./replyTurnLogic.ts",
+    "../orchestrator/draftBundles.ts",
+    "../orchestrator/draftBundleExecutor.ts",
+    "../orchestrator/draftRevision.ts",
+    "../orchestrator/replanningExecutor.ts",
+    "../orchestrator/replyContinuationPlanner.ts",
+    "../orchestrator/replyContinuationPlanner.test.mjs",
+    "../orchestrator/replyTurnPlanner.ts",
+    "../orchestrator/replyTurnLogic.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -755,7 +755,7 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
     new URL("../capabilities/", import.meta.url),
     new URL("../grounding/", import.meta.url),
     new URL("../responses/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../workers/", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
@@ -779,9 +779,9 @@ test("workflow helper leaf modules stay out of orchestrator once ownership moves
 
 test("core and persistence leaf modules stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./prismaGuards.ts",
-    "./angleNovelty.ts",
-    "./preferenceConstraints.ts",
+    "../orchestrator/prismaGuards.ts",
+    "../orchestrator/angleNovelty.ts",
+    "../orchestrator/preferenceConstraints.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -802,7 +802,7 @@ test("core and persistence leaf modules stay out of orchestrator once ownership 
     new URL("../capabilities/", import.meta.url),
     new URL("../core/", import.meta.url),
     new URL("../persistence/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -824,7 +824,7 @@ test("core and persistence leaf modules stay out of orchestrator once ownership 
 });
 
 test("conversation heuristics stay out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./conversationManagerLogic.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/conversationManagerLogic.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/conversationManagerLogic(?:\.ts)?["']/,
@@ -835,7 +835,7 @@ test("conversation heuristics stay out of orchestrator once ownership moves", ()
     new URL("../capabilities/", import.meta.url),
     new URL("../core/", import.meta.url),
     new URL("../grounding/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -858,8 +858,8 @@ test("conversation heuristics stay out of orchestrator once ownership moves", ()
 
 test("drafting leaf helpers stay out of orchestrator once ownership moves", () => {
   const deletedPaths = [
-    "./selectedAnglePrompt.ts",
-    "./selectedAnglePrompt.test.ts",
+    "../orchestrator/selectedAnglePrompt.ts",
+    "../orchestrator/selectedAnglePrompt.test.ts",
   ];
   for (const relativePath of deletedPaths) {
     assert.equal(
@@ -877,7 +877,7 @@ test("drafting leaf helpers stay out of orchestrator once ownership moves", () =
   const sourceRoots = [
     new URL("../agents/", import.meta.url),
     new URL("../capabilities/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("../../../scripts/lib/", import.meta.url),
@@ -899,7 +899,7 @@ test("drafting leaf helpers stay out of orchestrator once ownership moves", () =
 });
 
 test("runtime diagnostics contract stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./conversationalDiagnostics.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/conversationalDiagnostics.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/conversationalDiagnostics(?:\.ts)?/,
@@ -908,7 +908,7 @@ test("runtime diagnostics contract stays out of orchestrator once ownership move
 
   const sourceRoots = [
     new URL("../responses/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
   ];
@@ -929,7 +929,7 @@ test("runtime diagnostics contract stays out of orchestrator once ownership move
 });
 
 test("runtime router machine stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./conversationRouterMachine.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/conversationRouterMachine.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/conversationRouterMachine(?:\.ts)?/,
@@ -937,7 +937,7 @@ test("runtime router machine stays out of orchestrator once ownership moves", ()
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
   ];
 
@@ -957,8 +957,8 @@ test("runtime router machine stays out of orchestrator once ownership moves", ()
 });
 
 test("runtime response envelope stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./responseEnvelope.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./responseEnvelope.test.mjs", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/responseEnvelope.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/responseEnvelope.test.mjs", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/responseEnvelope(?:\.ts)?/,
@@ -966,7 +966,7 @@ test("runtime response envelope stays out of orchestrator once ownership moves",
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
   ];
 
@@ -986,8 +986,8 @@ test("runtime response envelope stays out of orchestrator once ownership moves",
 });
 
 test("runtime response shaper stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./responseShaper.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./responseShaper.test.mjs", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/responseShaper.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/responseShaper.test.mjs", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/responseShaper(?:\.ts)?/,
@@ -995,7 +995,7 @@ test("runtime response shaper stays out of orchestrator once ownership moves", (
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("./", import.meta.url),
   ];
@@ -1016,7 +1016,7 @@ test("runtime response shaper stays out of orchestrator once ownership moves", (
 });
 
 test("runtime surface mode selector stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./surfaceModeSelector.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/surfaceModeSelector.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/surfaceModeSelector(?:\.ts)?/,
@@ -1024,7 +1024,7 @@ test("runtime surface mode selector stays out of orchestrator once ownership mov
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../../../app/api/creator/v2/", import.meta.url),
     new URL("./", import.meta.url),
   ];
@@ -1045,7 +1045,7 @@ test("runtime surface mode selector stays out of orchestrator once ownership mov
 });
 
 test("runtime turn relation helper stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./turnRelation.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/turnRelation.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/turnRelation(?:\.ts)?/,
@@ -1055,7 +1055,7 @@ test("runtime turn relation helper stays out of orchestrator once ownership move
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
     new URL("../responses/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
   ];
 
@@ -1075,7 +1075,7 @@ test("runtime turn relation helper stays out of orchestrator once ownership move
 });
 
 test("runtime turn planner stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./turnPlanner.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/turnPlanner.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/turnPlanner(?:\.ts)?/,
@@ -1083,7 +1083,7 @@ test("runtime turn planner stays out of orchestrator once ownership moves", () =
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("../regressions/", import.meta.url),
     new URL("./", import.meta.url),
   ];
@@ -1105,9 +1105,9 @@ test("runtime turn planner stays out of orchestrator once ownership moves", () =
 
 test("runtime context-routing-memory helpers stay out of orchestrator once ownership moves", () => {
   const deletedModulePaths = [
-    "./turnContextBuilder.ts",
-    "./routingPolicy.ts",
-    "./memoryPolicy.ts",
+    "../orchestrator/turnContextBuilder.ts",
+    "../orchestrator/routingPolicy.ts",
+    "../orchestrator/memoryPolicy.ts",
   ];
 
   for (const modulePath of deletedModulePaths) {
@@ -1125,7 +1125,7 @@ test("runtime context-routing-memory helpers stay out of orchestrator once owner
 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
   ];
 
@@ -1144,8 +1144,12 @@ test("runtime context-routing-memory helpers stay out of orchestrator once owner
   }
 });
 
+test("orchestrator directory stays deleted once runtime ownership migration completes", () => {
+  assert.equal(existsSync(new URL("../orchestrator/", import.meta.url)), false);
+});
+
 test("runtime draft pipeline stays out of orchestrator once ownership moves", () => {
-  assert.equal(existsSync(new URL("./draftPipeline.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/draftPipeline.ts", import.meta.url)), false);
 
   const disallowedImportPatterns = [
     /agent-v2\/orchestrator\/draftPipeline(?:\.ts)?["']/,
@@ -1153,7 +1157,7 @@ test("runtime draft pipeline stays out of orchestrator once ownership moves", ()
   ];
 
   const sourceRoots = [
-    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
     new URL("./", import.meta.url),
   ];
 
@@ -3125,7 +3129,7 @@ test("source material draft constraints keep saved stories literal", () => {
 
 test("draft anchor selection keeps historical posts in style-only mode when truth sources exist", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("../runtime/draftPipeline.ts", import.meta.url)),
+    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
     "utf8",
   );
 

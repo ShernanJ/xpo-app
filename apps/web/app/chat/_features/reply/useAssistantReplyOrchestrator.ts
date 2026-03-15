@@ -85,6 +85,24 @@ export interface RequestAssistantReplyOptions<
   fallbackContract?: TContract;
 }
 
+export type RequestAssistantReplyFn<
+  TMessage extends ChatHistoryMessage,
+  TStrategyInputs extends ChatStrategyInputsLike,
+  TToneInputs extends ChatToneInputsLike,
+  TContext,
+  TContract,
+  TSelectedDraftContext extends DraftVersionSnapshotLike,
+> = (
+  requestOptions: RequestAssistantReplyOptions<
+    TMessage,
+    TStrategyInputs,
+    TToneInputs,
+    TContext,
+    TContract,
+    TSelectedDraftContext
+  >,
+) => Promise<void>;
+
 interface UseAssistantReplyOrchestratorOptions<
   TMessage extends ChatHistoryMessage,
   TQuickReply,
@@ -136,6 +154,24 @@ interface UseAssistantReplyOrchestratorOptions<
   }) => TMessage;
 }
 
+export interface UseAssistantReplyOrchestratorResult<
+  TMessage extends ChatHistoryMessage,
+  TStrategyInputs extends ChatStrategyInputsLike,
+  TToneInputs extends ChatToneInputsLike,
+  TContext,
+  TContract,
+  TSelectedDraftContext extends DraftVersionSnapshotLike,
+> {
+  requestAssistantReply: RequestAssistantReplyFn<
+    TMessage,
+    TStrategyInputs,
+    TToneInputs,
+    TContext,
+    TContract,
+    TSelectedDraftContext
+  >;
+}
+
 export function useAssistantReplyOrchestrator<
   TMessage extends ChatHistoryMessage,
   TQuickReply,
@@ -168,7 +204,14 @@ export function useAssistantReplyOrchestrator<
     TContract,
     TSelectedDraftContext
   >,
-) {
+): UseAssistantReplyOrchestratorResult<
+  TMessage,
+  TStrategyInputs,
+  TToneInputs,
+  TContext,
+  TContract,
+  TSelectedDraftContext
+> {
   const {
     context,
     contract,
@@ -262,7 +305,14 @@ export function useAssistantReplyOrchestrator<
     ],
   );
 
-  const requestAssistantReply = useCallback(
+  const requestAssistantReply: RequestAssistantReplyFn<
+    TMessage,
+    TStrategyInputs,
+    TToneInputs,
+    TContext,
+    TContract,
+    TSelectedDraftContext
+  > = useCallback(
     async (
       requestOptions: RequestAssistantReplyOptions<
         TMessage,

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 
-import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
-import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
+import { executeReplyingCapability } from "./reply/replyingCapability.ts";
+import { executeAnalysisCapability } from "./analysis/analysisCapability.ts";
 
 const baseMemory = {
   conversationState: "needs_more_context",
@@ -237,10 +237,10 @@ test("executeAnalysisCapability falls back safely when delivery validation fails
 });
 
 test("executor shims stay deleted once capability slices own execution directly", () => {
-  assert.equal(existsSync(new URL("./analysisExecutor.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./replyingExecutor.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./ideationExecutor.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./planningExecutor.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./draftingExecutor.ts", import.meta.url)), false);
-  assert.equal(existsSync(new URL("./revisingExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/analysisExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/replyingExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/ideationExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/planningExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/draftingExecutor.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../orchestrator/revisingExecutor.ts", import.meta.url)), false);
 });

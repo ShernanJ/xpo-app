@@ -54,7 +54,10 @@ import {
 } from "./_features/composer/pendingStatus";
 import { ChatComposerDock } from "./_features/composer/ChatComposerDock";
 import { ChatHero } from "./_features/composer/ChatHero";
-import { resolveComposerViewState } from "./_features/composer/composerViewState";
+import {
+  buildDefaultExampleQuickReplies,
+  resolveComposerViewState,
+} from "./_features/composer/composerViewState";
 import { useComposerInteractions } from "./_features/composer/useComposerInteractions";
 import {
   resolveDraftCardRevisionAction,
@@ -67,6 +70,7 @@ import {
   useSelectedDraftTimelineState,
 } from "./_features/draft-editor/useSelectedDraftState";
 import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
+import { type DraftQueueCandidate } from "./_features/draft-queue/draftQueueViewState";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
 import { useFeedbackState } from "./_features/feedback/useFeedbackState";
@@ -74,13 +78,15 @@ import {
   buildDraftRevealClassName,
   shouldAnimateDraftRevealLines,
 } from "./_features/thread-history/draftRevealState";
-import { useAssistantReplyOrchestrator } from "./_features/reply/useAssistantReplyOrchestrator";
 import {
-  buildChatWorkspaceReset,
+  useAssistantReplyOrchestrator,
+  type UseAssistantReplyOrchestratorResult,
+} from "./_features/reply/useAssistantReplyOrchestrator";
+import {
   resolveWorkspaceHandle,
-  type ChatWorkspaceReset,
 } from "./_features/workspace/chatWorkspaceState";
 import { useChatWorkspaceBootstrap } from "./_features/workspace/useChatWorkspaceBootstrap";
+import { useChatWorkspaceReset } from "./_features/workspace/useChatWorkspaceReset";
 import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
 import { ChatMessageRow } from "./_features/thread-history/ChatMessageRow";
 import { MessageArtifactSections } from "./_features/thread-history/MessageArtifactSections";
@@ -1458,141 +1464,56 @@ function ChatPageContent() {
       feedbackValue: null,
     }),
   });
-  const applyChatWorkspaceReset = useCallback((
-    reset: ChatWorkspaceReset<ChatToneInputs, ChatStrategyInputs>,
-  ) => {
-    if ("activeThreadId" in reset) {
-      setActiveThreadId(reset.activeThreadId);
-    }
-    if ("threadCreatedInSession" in reset) {
-      threadCreatedInSessionRef.current = reset.threadCreatedInSession;
-    }
-    if ("context" in reset) {
-      setContext(reset.context);
-    }
-    if ("contract" in reset) {
-      setContract(reset.contract);
-    }
-    if ("conversationMemory" in reset) {
-      setConversationMemory(reset.conversationMemory);
-    }
-    if ("streamStatus" in reset) {
-      setStreamStatus(reset.streamStatus);
-    }
-    if ("isWorkspaceInitializing" in reset) {
-      setIsWorkspaceInitializing(reset.isWorkspaceInitializing);
-    }
-    if ("analysisOpen" in reset) {
-      setAnalysisOpen(reset.analysisOpen);
-    }
-    if ("backfillNotice" in reset) {
-      setBackfillNotice(reset.backfillNotice);
-    }
-    if ("isAnalysisScrapeRefreshing" in reset) {
-      setIsAnalysisScrapeRefreshing(reset.isAnalysisScrapeRefreshing);
-    }
-    if ("analysisScrapeNotice" in reset) {
-      setAnalysisScrapeNotice(reset.analysisScrapeNotice);
-    }
-    if ("analysisScrapeCooldownUntil" in reset) {
-      setAnalysisScrapeCooldownUntil(reset.analysisScrapeCooldownUntil);
-    }
-    if ("activeContentFocus" in reset) {
-      setActiveContentFocus(reset.activeContentFocus);
-    }
-    if ("toneInputs" in reset) {
-      setToneInputs(reset.toneInputs);
-    }
-    if ("activeToneInputs" in reset) {
-      setActiveToneInputs(reset.activeToneInputs);
-    }
-    if ("activeStrategyInputs" in reset) {
-      setActiveStrategyInputs(reset.activeStrategyInputs);
-    }
-    if ("draftQueueItems" in reset) {
-      setDraftQueueItems(reset.draftQueueItems);
-    }
-    if ("draftQueueError" in reset) {
-      setDraftQueueError(reset.draftQueueError);
-    }
-    if ("editingDraftCandidateId" in reset) {
-      setEditingDraftCandidateId(reset.editingDraftCandidateId);
-    }
-    if ("editingDraftCandidateText" in reset) {
-      setEditingDraftCandidateText(reset.editingDraftCandidateText);
-    }
-
-    setMessages(reset.messages);
-    setDraftInput(reset.draftInput);
-    setErrorMessage(reset.errorMessage);
-    setActiveDraftEditor(reset.activeDraftEditor);
-    setEditorDraftText(reset.editorDraftText);
-    setEditorDraftPosts(reset.editorDraftPosts);
-    setTypedAssistantLengths(reset.typedAssistantLengths);
-    setActiveDraftRevealByMessageId(reset.activeDraftRevealByMessageId);
-    setRevealedDraftMessageIds(reset.revealedDraftMessageIds);
-    setIsLeavingHero(reset.isLeavingHero);
-  }, [
+  const { handleNewChat } = useChatWorkspaceReset<
+    CreatorAgentContext,
+    CreatorGenerationContract,
+    CreatorChatSuccess["data"]["memory"],
+    ChatToneInputs,
+    ChatStrategyInputs,
+    ChatContentFocus,
+    DraftQueueCandidate,
+    ChatMessage,
+    DraftDrawerSelection,
+    string
+  >({
+    accountName,
+    buildWorkspaceChatHref,
+    threadStateResetVersion,
+    loadWorkspace,
+    clearMissingOnboardingAttempts,
+    defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
+    defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
+    threadCreatedInSessionRef,
+    setActiveThreadId,
+    setContext,
+    setContract,
+    setConversationMemory,
+    setStreamStatus,
+    setIsWorkspaceInitializing,
     setAnalysisOpen,
-    setAnalysisScrapeCooldownUntil,
+    setBackfillNotice,
+    setIsAnalysisScrapeRefreshing,
     setAnalysisScrapeNotice,
-    setActiveDraftRevealByMessageId,
-    setDraftQueueError,
+    setAnalysisScrapeCooldownUntil,
+    setActiveContentFocus,
+    setToneInputs,
+    setActiveToneInputs,
+    setActiveStrategyInputs,
     setDraftQueueItems,
+    setDraftQueueError,
     setEditingDraftCandidateId,
     setEditingDraftCandidateText,
-    setEditorDraftPosts,
+    setMessages,
+    setDraftInput,
+    setErrorMessage,
+    setActiveDraftEditor,
     setEditorDraftText,
-    setIsAnalysisScrapeRefreshing,
-    setActiveThreadId,
-    setRevealedDraftMessageIds,
+    setEditorDraftPosts,
     setTypedAssistantLengths,
-    threadCreatedInSessionRef,
-  ]);
-  const handleNewChat = useCallback(() => {
-    if (!accountName) return;
-
-    applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-    window.history.pushState({}, "", buildWorkspaceChatHref(null));
-  }, [accountName, applyChatWorkspaceReset, buildWorkspaceChatHref]);
-
-  useEffect(() => {
-    if (threadStateResetVersion === 0) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      applyChatWorkspaceReset(buildChatWorkspaceReset("thread"));
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [applyChatWorkspaceReset, threadStateResetVersion]);
-
-  useEffect(() => {
-    void loadWorkspace();
-  }, [loadWorkspace]);
-
-  useEffect(() => {
-    if (!accountName) {
-      return;
-    }
-
-    clearMissingOnboardingAttempts();
-    const timeoutId = window.setTimeout(() => {
-      applyChatWorkspaceReset(
-        buildChatWorkspaceReset("workspace", {
-          defaultToneInputs: DEFAULT_CHAT_TONE_INPUTS,
-          defaultStrategyInputs: DEFAULT_CHAT_STRATEGY_INPUTS,
-        }),
-      );
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [accountName, applyChatWorkspaceReset, clearMissingOnboardingAttempts]);
+    setActiveDraftRevealByMessageId,
+    setRevealedDraftMessageIds,
+    setIsLeavingHero,
+  });
   const pendingStatusLabel = usePendingStatusLabel({
     isActive: isSending,
     plan: pendingStatusPlan,
@@ -1673,8 +1594,19 @@ function ChatPageContent() {
     }),
   });
   const isMainChatLocked = isSending || isDraftInspectorLoading;
+  const defaultQuickReplies = useMemo(
+    () => buildDefaultExampleQuickReplies(context) as ChatQuickReply[],
+    [context],
+  );
 
-  const { requestAssistantReply } = useAssistantReplyOrchestrator<
+  const assistantReplyOrchestrator: UseAssistantReplyOrchestratorResult<
+    ChatMessage,
+    ChatStrategyInputs,
+    ChatToneInputs,
+    CreatorAgentContext,
+    CreatorGenerationContract,
+    DraftVersionSnapshot
+  > = useAssistantReplyOrchestrator<
     ChatMessage,
     ChatQuickReply,
     CreatorChatSuccess["data"]["plan"],
@@ -1730,9 +1662,9 @@ function ChatPageContent() {
       excludeFromHistory,
     }),
   });
+  const { requestAssistantReply } = assistantReplyOrchestrator;
   const {
     latestAssistantMessageId,
-    defaultQuickReplies,
     handleAngleSelect,
     handleReplyOptionSelect,
     handleQuickReplySelect,
