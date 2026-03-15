@@ -262,7 +262,7 @@ The folder split is landed, but a few files still carry enough breadth that they
 - `capabilities/reply/replyContinuationPlanner.ts`
   - large reply-specific state and continuity logic
   - should stay reply-local, but may eventually deserve smaller reply-state and prompt-planning helpers
-- `responses/correctionRepair.ts`, `responses/draftReply.ts`, and `responses/clarificationDraftChips.ts`
+- `responses/sourceTransparency.ts`, `responses/semanticRepair.ts`, `responses/draftReply.ts`, and `responses/clarificationDraftChips.ts`
   - these are now in the correct domain, but they are large enough to drift into catch-all response logic if left unchecked
 - `welcomeMessage.ts`
   - still sits at the top level instead of in a clearer product-facing home

@@ -33,11 +33,13 @@ import {
 import { buildClarificationTree } from "../capabilities/planning/clarificationTree";
 import {
   hasConcreteCorrectionDetail,
+  looksLikeSemanticCorrection,
+} from "../responses/semanticRepair";
+import {
   looksLikeConfusionPing,
   looksLikePostReferenceRequest,
   looksLikeSourceTransparencyRequest,
-  looksLikeSemanticCorrection,
-} from "../responses/correctionRepair";
+} from "../responses/sourceTransparency";
 import {
   extractConcreteSceneAnchors,
   NO_FABRICATION_CONSTRAINT,

@@ -17,7 +17,7 @@ import {
   inferIdeationRationaleReply,
   inferPostReferenceReply,
   looksLikeConfusionPing,
-} from "../responses/correctionRepair.ts";
+} from "../responses/sourceTransparency.ts";
 
 for (const fixture of IDEATION_COMMAND_FIXTURES) {
   test(`regression: ideation command detection - "${fixture.input}"`, () => {

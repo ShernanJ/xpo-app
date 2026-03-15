@@ -2,7 +2,7 @@ import {
   buildSemanticRepairDirective,
   buildSemanticRepairState,
   inferCorrectionRepairQuestion,
-} from "./correctionRepair";
+} from "./semanticRepair.ts";
 
 function runTest() {
   console.log(

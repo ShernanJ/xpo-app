@@ -3,11 +3,13 @@ import {
   buildSemanticRepairDirective,
   hasConcreteCorrectionDetail,
   inferCorrectionRepairQuestion,
+} from "../../responses/semanticRepair.ts";
+import {
   inferIdeationRationaleReply,
   inferPostReferenceReply,
   inferSourceTransparencyReply,
   looksLikeConfusionPing,
-} from "../../responses/correctionRepair.ts";
+} from "../../responses/sourceTransparency.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {

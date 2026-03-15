@@ -41,7 +41,7 @@ import {
 } from "./_lib/response/routeResponse.ts";
 import { normalizeChatTurn } from "./_lib/normalization/turnNormalization.ts";
 import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/agents/controller.ts";
-import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/responses/correctionRepair.ts";
+import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/responses/sourceTransparency.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 import { prepareHandledReplyTurn } from "../../../../../lib/agent-v2/capabilities/reply/handledReplyTurn.ts";
 

@@ -40,7 +40,7 @@ import {
   hasConcreteCorrectionDetail,
   looksLikeSemanticCorrection,
   normalizeRepairDetail,
-} from "../responses/correctionRepair";
+} from "../responses/semanticRepair";
 import {
   filterNewSourceMaterialInputs,
 } from "../grounding/sourceMaterials";

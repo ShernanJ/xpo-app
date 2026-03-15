@@ -15,12 +15,14 @@ import {
 import { buildPlannerQuickReplies } from "./responses/plannerQuickReplies.ts";
 import {
   inferCorrectionRepairQuestion,
+  looksLikeSemanticCorrection,
+} from "./responses/semanticRepair.ts";
+import {
   inferIdeationRationaleReply,
   inferPostReferenceReply,
   inferSourceTransparencyReply,
   looksLikeConfusionPing,
-  looksLikeSemanticCorrection,
-} from "./responses/correctionRepair.ts";
+} from "./responses/sourceTransparency.ts";
 import {
   buildFeedbackMemoryNotice,
   prependFeedbackMemoryNotice,

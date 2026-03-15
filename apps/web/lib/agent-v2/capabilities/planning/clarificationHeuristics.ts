@@ -22,7 +22,7 @@ import {
   hasRelationshipDetail,
   inferComparisonReference,
 } from "./draftContextSlots";
-import { extractTopicGrounding } from "../../responses/correctionRepair";
+import { extractTopicGrounding } from "../../responses/semanticRepair";
 import {
   getTurnRelationContext,
   isContextDependentFollowUp,

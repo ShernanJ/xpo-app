@@ -2,9 +2,9 @@ import {
   buildSemanticRepairDirective,
   buildSemanticRepairState,
   inferCorrectionRepairQuestion,
-  inferSourceTransparencyReply,
   looksLikeSemanticCorrection,
-} from "../../responses/correctionRepair.ts";
+} from "../../responses/semanticRepair.ts";
+import { inferSourceTransparencyReply } from "../../responses/sourceTransparency.ts";
 import {
   buildDraftMeaningResponse,
   isDraftMeaningQuestion,
