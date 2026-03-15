@@ -365,7 +365,7 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - shared reply/analyze validation worker adapters now live under `apps/web/lib/agent-v2/workers/validation/`
   - reply/analyze now fall back to safe non-artifact `coach_question` responses when the second pass still fails delivery validation
 - Phase 5B structure follow-on:
-  - extract delivery validation, revision validation, and workflow-local retry helpers out of large orchestrator entry files
+  - extract delivery validation, revision validation, and workflow-local retry helpers out of large runtime entry files
   - introduce stable backend/lib and route-boundary folder conventions for new runtime work:
     - pure contracts do not import route code
     - validators stay pure and model-free

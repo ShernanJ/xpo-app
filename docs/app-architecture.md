@@ -179,7 +179,7 @@ The live AI runtime is centered on:
 - `apps/web/app/api/creator/v2/chat/_lib/request/routePreflight.ts`
 - `apps/web/lib/agent-v2/runtime/conversationManager.ts`
 - `apps/web/lib/agent-v2/runtime/resolveRuntimeAction.ts`
-- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts`
+- `apps/web/lib/agent-v2/runtime/draftPipeline.ts`
 - `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`
 
 The runtime currently supports these top-level workflows:
@@ -399,24 +399,25 @@ Why it exists:
 
 - this is the stable policy layer that capability modules can reuse
 
-#### `orchestrator/`
+#### `runtime/`
 
-This folder is transitional. It is no longer the only home of orchestration, but it still contains important execution code.
+This folder is the control-plane home.
 
-What is still here:
+What is here:
 
-- `draftPipeline.ts`: the main execution spine that bridges runtime decisions into capability execution
-- `conversationManagerLogic.ts`: shared logic helpers used by the route and runtime
+- `conversationManager.ts`: the runtime entrypoint that assembles turn context, routing, traces, and execution dispatch
+- `draftPipeline.ts`: the execution spine that bridges runtime decisions into capability execution
+- supporting runtime policy/helpers such as `turnContextBuilder.ts`, `routingPolicy.ts`, `workerPlane.ts`, and `responseEnvelope.ts`
 
-Why it is confusing:
+Why it is clearer now:
 
-- the codebase is mid-migration from an older `orchestrator/`-heavy layout to a cleaner `runtime/` plus `capabilities/` layout
-- so today, some "real orchestration" lives in `runtime/`, some heavy execution still lives in `orchestrator/draftPipeline.ts`
+- runtime-owned control flow lives in one place instead of being split across a transitional `orchestrator/` folder
+- capability-specific logic now lives next to the workflow that owns it
 
 Practical rule:
 
 - if you want to understand turn ownership, start in `runtime/`
-- if you want to understand execution branching after workflow selection, you still have to read `orchestrator/draftPipeline.ts`
+- if you want to understand workflow branching after selection, read `runtime/draftPipeline.ts`
 
 ### Internal execution sequence inside `lib/agent-v2`
 
@@ -429,12 +430,12 @@ The internal turn sequence is roughly:
 5. Hydrate turn context with style profile and anchor retrieval workers
 6. Resolve routing policy in `runtime/routingPolicy.ts`
 7. Resolve one runtime workflow in `runtime/resolveRuntimeAction.ts`
-8. Enter `orchestrator/draftPipeline.ts`
+8. Enter `runtime/draftPipeline.ts`
 9. Run additional workers for facts, rules, source materials, historical text, draft validation, or bundle generation
 10. Delegate to the chosen capability module
 11. Merge worker and validation metadata into the routing trace
 12. Save turn memory through runtime memory policy
-13. Return a raw orchestrator response and routing trace to the route layer
+13. Return a raw runtime response and routing trace to the route layer
 
 ### Capability ownership matrix
 
@@ -464,7 +465,7 @@ Use this as a shortcut when you are lost in the code:
 The confusion mostly comes from five overlapping ideas:
 
 - the word "agent" is used for both the whole system and the model-facing helpers
-- `runtime/` is the new control-plane home, but `orchestrator/draftPipeline.ts` still owns major execution flow
+- `runtime/` is the control-plane home, and `runtime/draftPipeline.ts` owns the remaining shared execution flow
 - `capabilities/` are the real workflow owners, but some supporting logic still lives in neighboring folders
 - `memory/`, `grounding/`, and `responses/` all influence the final answer, so it can be hard to tell which layer is responsible for what
 - routing traces, worker traces, and validation traces make the flow richer, but they add more types and more movement between modules
@@ -476,7 +477,7 @@ The simplest reading order is:
 3. `runtime/turnContextBuilder.ts`
 4. `runtime/routingPolicy.ts`
 5. `runtime/resolveRuntimeAction.ts`
-6. `orchestrator/draftPipeline.ts`
+6. `runtime/draftPipeline.ts`
 7. the relevant folder under `capabilities/`
 
 ### Important live types to know

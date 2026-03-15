@@ -242,7 +242,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
     - `apps/web/app/chat/_features/draft-editor/chatDraftActionState.ts`
     - `apps/web/app/chat/_features/thread-history/chatThreadHistoryState.ts`
   - inline draft preview presentation now flows through `apps/web/app/chat/_features/draft-editor/chatDraftPreviewCard.tsx`
-  - main chat turns now finalize the raw orchestrator envelope in `apps/web/app/api/creator/v2/chat/route.ts`
+  - main chat turns now finalize the raw runtime envelope in `apps/web/app/api/creator/v2/chat/route.ts`
   - post-runtime response mapping and persistence prep moved into route-boundary helpers
   - sequential assistant-message persistence, memory/thread updates, and draft-candidate writes now run through `apps/web/app/api/creator/v2/chat/_lib/persistence/routePersistence.ts`
   - reply-turn response assembly, product-event planning, and final success-response packaging now run through `apps/web/app/api/creator/v2/chat/_lib/response/routeResponse.ts`

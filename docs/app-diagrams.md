@@ -218,7 +218,7 @@ flowchart LR
   end
 
   subgraph execution["workflow execution"]
-    draft_pipeline["orchestrator/draftPipeline.ts\ntransitional execution spine"]
+    draft_pipeline["runtime/draftPipeline.ts\nshared execution spine"]
 
     subgraph capabilities["capabilities"]
       ideation_cap["ideation/*"]
@@ -277,7 +277,7 @@ What each section does:
 - `runtime control plane`: owns turn assembly, workflow choice, trace generation, memory write patterns, and response packaging.
 - `state and grounding`: provides durable conversation state, creator profile context, retrieval, and factual guardrails.
 - `parallel worker plane`: runs read-only support tasks after a workflow has already been selected.
-- `orchestrator/draftPipeline.ts`: still acts as the transitional execution spine that bridges runtime selection into actual capability execution.
+- `runtime/draftPipeline.ts`: acts as the shared execution spine that bridges runtime selection into actual capability execution.
 - `capabilities`: the real workflow owners for ideation, planning, drafting, revision, reply, and analysis.
 - `agents/*`: model-facing specialist workers, not peer routers competing for control.
 - `responses/*`: deterministic shaping and repair before the route sends data back to the client.
