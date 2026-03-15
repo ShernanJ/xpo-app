@@ -500,12 +500,12 @@ The top-level folder cleanup is landed, but a few files are still the main place
 - `apps/web/lib/agent-v2/grounding/sourceMaterials.ts`
   - currently the heaviest grounding file
   - likely future split point if source-material selection and shaping continue to expand
-- `apps/web/lib/agent-v2/capabilities/reply/replyContinuationPlanner.ts`
-  - large but correctly placed reply continuity surface
-  - likely future split point inside `capabilities/reply/` if reply state handling grows again
-- `apps/web/lib/agent-v2/responses/correctionRepair.ts`
-  - large deterministic response helper
-  - should stay in `responses/`, but should not become a generic post-processing catch-all
+- `apps/web/lib/agent-v2/capabilities/reply/replyTurnLogic.ts` and `apps/web/lib/agent-v2/capabilities/reply/replyContinuationPlanner.ts`
+  - reply ownership is in the correct place now, but these are still the biggest reply-specific state surfaces
+  - future cleanup should stay reply-local instead of leaking back into runtime
+- `apps/web/lib/agent-v2/responses/draftReply.ts`, `apps/web/lib/agent-v2/responses/sourceTransparency.ts`, and `apps/web/lib/agent-v2/responses/ideationReply.ts`
+  - these are now the largest deterministic response helpers
+  - they are healthy where they live, but they are the next places to watch for catch-all response logic
 
 Large test files such as `runtime/conversationManager.test.mjs` and `responseQuality.test.mjs` are broad on purpose and are not the same kind of structural risk.
 - `RuntimeWorkerExecution`: metadata for worker-plane activity

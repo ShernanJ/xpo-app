@@ -259,11 +259,12 @@ The folder split is landed, but a few files still carry enough breadth that they
 - `grounding/sourceMaterials.ts`
   - owns a lot of source-material selection, filtering, shaping, and persistence-adjacent logic
   - good candidate for a future split if source-material behavior keeps growing
-- `capabilities/reply/replyContinuationPlanner.ts`
-  - large reply-specific state and continuity logic
-  - should stay reply-local, but may eventually deserve smaller reply-state and prompt-planning helpers
-- `responses/sourceTransparency.ts`, `responses/semanticRepair.ts`, `responses/draftReply.ts`, and `responses/clarificationDraftChips.ts`
-  - these are now in the correct domain, but they are large enough to drift into catch-all response logic if left unchecked
+- `capabilities/reply/replyTurnLogic.ts` and `capabilities/reply/replyContinuationPlanner.ts`
+  - reply ownership is in the right domain now, but state handling and continuity logic are still the densest reply surfaces
+  - future cleanup should stay inside `capabilities/reply/` instead of pushing reply policy back into runtime
+- `responses/draftReply.ts`, `responses/sourceTransparency.ts`, and `responses/ideationReply.ts`
+  - these are now the main response-layer gravity wells after the recent chip and repair splits
+  - they should stay response-local, but are the most likely places for deterministic copy and fallback logic to regrow
 - `welcomeMessage.ts`
   - still sits at the top level instead of in a clearer product-facing home
   - worth relocating if that surface changes again
