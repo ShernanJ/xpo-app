@@ -63,12 +63,9 @@ import { ChatOverlays } from "./_features/workspace-chrome/ChatOverlays";
 import { ChatSidebar } from "./_features/workspace-chrome/ChatSidebar";
 import { useChatOverlayProps } from "./_features/workspace-chrome/useChatOverlayProps";
 import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorkspaceAccountState";
+import { useWorkspaceChromeProps } from "./_features/workspace-chrome/useWorkspaceChromeProps";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
-  resolveAccountAvatarFallback,
-  resolveAccountProfileAriaLabel,
-  resolveSidebarThreadSections,
-  WORKSPACE_CHROME_TOOLS,
 } from "./_features/workspace-chrome/workspaceChromeViewState";
 import {
   DEFAULT_CHAT_STRATEGY_INPUTS,
@@ -1232,14 +1229,6 @@ function ChatPageContent() {
     messagesLength: messages.length,
     isLeavingHero,
   });
-  const accountAvatarFallback = resolveAccountAvatarFallback({
-    accountName,
-    sessionEmail: session?.user?.email ?? null,
-  });
-  const accountProfileAriaLabel = resolveAccountProfileAriaLabel({
-    accountName,
-    sessionEmail: session?.user?.email ?? null,
-  });
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
   const {
     activeBillingSnapshot,
@@ -1268,7 +1257,6 @@ function ChatPageContent() {
     showBillingWarningBanner,
     showRateLimitUpgradeCta,
   } = billingViewState;
-  const canAddAccount = true;
   const isInlineDraftEditorOpen = Boolean(
     selectedDraftVersion && selectedDraftBundle,
   );
@@ -1288,34 +1276,63 @@ function ChatPageContent() {
     heroIdentityLabel,
     heroInitials,
   });
-  const sidebarThreads = resolveSidebarThreadSections({
-    hasWorkspace: Boolean(context && contract),
-    chatThreads,
-    activeThreadId,
+  const { chatHeaderProps, chatSidebarProps } = useWorkspaceChromeProps({
+    toolsMenuRef,
+    toolsMenuOpen,
+    setToolsMenuOpen,
+    setSidebarOpen,
+    setExtensionModalOpen,
+    resetSourceMaterialDraft,
+    openSourceMaterials,
+    openDraftQueue,
+    openAnalysis,
+    openGrowthGuide,
+    sidebarOpen,
     sidebarSearchQuery,
+    setSidebarSearchQuery,
+    closeSidebar,
+    openSidebar,
+    handleNewChat,
+    chatThreads,
+    hasWorkspace: Boolean(context && contract),
+    activeThreadId,
+    hoveredThreadId,
+    setHoveredThreadId,
+    menuOpenThreadId,
+    setMenuOpenThreadId,
+    editingThreadId,
+    editingTitle,
+    setEditingTitle,
+    setEditingThreadId,
+    handleRenameSubmit,
+    switchToThreadWithTransition,
+    requestDeleteThread,
+    openPreferences,
+    openFeedbackDialog,
+    threadMenuRef,
+    accountMenuRef,
+    accountMenuOpen,
+    toggleAccountMenu,
+    accountMenuVisible,
+    monetizationEnabled,
+    availableHandles,
+    accountName,
+    switchActiveHandle,
+    openAddAccountModal,
+    closeAccountMenu,
+    setSettingsModalOpen,
+    rateLimitsMenuOpen,
+    setRateLimitsMenuOpen,
+    rateLimitWindowLabel,
+    rateLimitsRemainingPercent,
+    rateLimitResetLabel,
+    showRateLimitUpgradeCta,
+    rateLimitUpgradeLabel,
+    setPricingModalOpen,
+    avatarUrl: context?.avatarUrl ?? null,
+    isVerifiedAccount,
+    sessionEmail: session?.user?.email ?? null,
   });
-  const headerTools = WORKSPACE_CHROME_TOOLS.map((tool) => ({
-    key: tool.key,
-    label: tool.label,
-    onSelect: () => {
-      setToolsMenuOpen(false);
-      if (tool.key === "source_materials") {
-        resetSourceMaterialDraft();
-        openSourceMaterials();
-        return;
-      }
-      if (tool.key === "draft_review") {
-        openDraftQueue();
-        return;
-      }
-      if (tool.key === "profile_breakdown") {
-        openAnalysis();
-        return;
-      }
-
-      openGrowthGuide();
-    },
-  }));
   const chatOverlayProps = useChatOverlayProps({
     draftQueueOpen,
     isDraftQueueLoading,
@@ -1542,74 +1559,10 @@ function ChatPageContent() {
   return (
     <main className="relative h-screen overflow-hidden bg-black text-white">
       <div className="relative flex h-full min-h-0">
-        <ChatSidebar
-          sidebarOpen={sidebarOpen}
-          sidebarSearchQuery={sidebarSearchQuery}
-          onSidebarSearchQueryChange={setSidebarSearchQuery}
-          onCloseSidebar={closeSidebar}
-          onOpenSidebar={openSidebar}
-          onNewChat={handleNewChat}
-          sections={sidebarThreads}
-          activeThreadId={activeThreadId}
-          hoveredThreadId={hoveredThreadId}
-          onHoveredThreadIdChange={setHoveredThreadId}
-          menuOpenThreadId={menuOpenThreadId}
-          onMenuOpenThreadIdChange={setMenuOpenThreadId}
-          editingThreadId={editingThreadId}
-          editingTitle={editingTitle}
-          onEditingTitleChange={setEditingTitle}
-          onEditingThreadIdChange={setEditingThreadId}
-          onRenameSubmit={(threadId) => {
-            void handleRenameSubmit(threadId);
-          }}
-          onSwitchToThread={switchToThreadWithTransition}
-          onRequestDeleteThread={requestDeleteThread}
-          onOpenPreferences={openPreferences}
-          onOpenFeedback={openFeedbackDialog}
-          threadMenuRef={threadMenuRef}
-          accountMenuRef={accountMenuRef}
-          accountMenuOpen={accountMenuOpen}
-          onToggleAccountMenu={toggleAccountMenu}
-          accountMenuVisible={accountMenuVisible}
-          monetizationEnabled={monetizationEnabled}
-          availableHandles={availableHandles}
-          accountName={accountName}
-          canAddAccount={canAddAccount}
-          onSwitchActiveHandle={switchActiveHandle}
-          onOpenAddAccount={openAddAccountModal}
-          onOpenSettings={() => {
-            closeAccountMenu();
-            setSettingsModalOpen(true);
-          }}
-          rateLimitsMenuOpen={rateLimitsMenuOpen}
-          onToggleRateLimitsMenu={() => setRateLimitsMenuOpen((current) => !current)}
-          rateLimitWindowLabel={rateLimitWindowLabel}
-          rateLimitsRemainingPercent={rateLimitsRemainingPercent}
-          rateLimitResetLabel={rateLimitResetLabel}
-          showRateLimitUpgradeCta={showRateLimitUpgradeCta}
-          rateLimitUpgradeLabel={rateLimitUpgradeLabel}
-          onOpenPricing={() => {
-            if (monetizationEnabled) {
-              setPricingModalOpen(true);
-            }
-            closeAccountMenu();
-          }}
-          avatarUrl={context?.avatarUrl ?? null}
-          accountAvatarFallback={accountAvatarFallback}
-          accountProfileAriaLabel={accountProfileAriaLabel}
-          isVerifiedAccount={isVerifiedAccount}
-          sessionEmail={session?.user?.email ?? null}
-        />
+        <ChatSidebar {...chatSidebarProps} />
 
         <div className="relative flex h-full min-h-0 flex-1 flex-col">
-          <ChatHeader
-            toolsMenuRef={toolsMenuRef}
-            toolsMenuOpen={toolsMenuOpen}
-            onToggleToolsMenu={() => setToolsMenuOpen((current) => !current)}
-            onToggleSidebar={() => setSidebarOpen((current) => !current)}
-            onOpenCompanionApp={() => setExtensionModalOpen(true)}
-            tools={headerTools}
-          />
+          <ChatHeader {...chatHeaderProps} />
 
           <ChatThreadView
             threadScrollRef={threadScrollRef}
