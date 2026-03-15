@@ -3,7 +3,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 
-import type { ChatMessageStreamProps } from "../thread-history/ChatMessageStream";
 import { ChatWorkspaceCanvas } from "./ChatWorkspaceCanvas";
 import type { ChatCanvasProviderProps } from "./ChatCanvasContext";
 import type { ChatWorkspaceChromeProviderProps } from "../workspace-chrome/ChatWorkspaceChromeContext";
@@ -118,26 +117,6 @@ function buildCanvasProps(
   };
 }
 
-function buildMessageStreamProps(): ChatMessageStreamProps<{
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-  isStreaming?: boolean;
-}> {
-  return {
-    messages: [],
-    latestAssistantMessageId: null,
-    typedAssistantLengths: {},
-    registerMessageRef: vi.fn(),
-    activeDraftRevealByMessageId: {},
-    shouldShowPendingDraftShell: false,
-    pendingDraftWorkflow: null,
-    pendingStatusLabel: null,
-    isSending: false,
-    resolveArtifactSectionProps: vi.fn(),
-  };
-}
-
 test("wires hero quick actions and billing controls through the canvas provider", async () => {
   const user = userEvent.setup();
   const canvasProps = buildCanvasProps();
@@ -146,7 +125,7 @@ test("wires hero quick actions and billing controls through the canvas provider"
     <ChatWorkspaceCanvas
       workspaceChromeProps={buildWorkspaceChromeProps()}
       canvasProps={canvasProps}
-      messageStreamProps={buildMessageStreamProps()}
+      threadContent={null}
     />,
   );
 
@@ -174,7 +153,7 @@ test("wires the dock composer and scroll action through the canvas provider", as
     <ChatWorkspaceCanvas
       workspaceChromeProps={buildWorkspaceChromeProps()}
       canvasProps={canvasProps}
-      messageStreamProps={buildMessageStreamProps()}
+      threadContent={null}
     />,
   );
 

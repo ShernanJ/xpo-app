@@ -35,7 +35,7 @@ type ProfileAnalysisDialogProps = NonNullable<
 >;
 type AddAccountDialogProps = ChatOverlaysProps["addAccountDialogProps"];
 
-interface UseChatOverlayPropsOptions {
+export interface UseChatOverlayPropsOptions {
   draftQueueOpen: boolean;
   isDraftQueueLoading: boolean;
   draftQueueError: string | null;

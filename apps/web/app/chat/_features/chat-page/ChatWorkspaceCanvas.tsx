@@ -1,12 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { ChatComposerDock } from "../composer/ChatComposerDock";
 import { ChatHero } from "../composer/ChatHero";
-import {
-  ChatMessageStream,
-  type ChatMessageStreamMessage,
-  type ChatMessageStreamProps,
-} from "../thread-history/ChatMessageStream";
 import { ChatThreadView } from "../thread-history/ChatThreadView";
 import {
   ChatCanvasProvider,
@@ -19,19 +16,17 @@ import {
 } from "../workspace-chrome/ChatWorkspaceChromeContext";
 import { ChatSidebar } from "../workspace-chrome/ChatSidebar";
 
-interface ChatWorkspaceCanvasProps<TMessage extends ChatMessageStreamMessage> {
+interface ChatWorkspaceCanvasProps {
   workspaceChromeProps: Omit<ChatWorkspaceChromeProviderProps, "children">;
   canvasProps: Omit<ChatCanvasProviderProps, "children">;
-  messageStreamProps: ChatMessageStreamProps<TMessage> | null;
+  threadContent: ReactNode;
 }
 
-export function ChatWorkspaceCanvas<TMessage extends ChatMessageStreamMessage>(
-  props: ChatWorkspaceCanvasProps<TMessage>,
-) {
+export function ChatWorkspaceCanvas(props: ChatWorkspaceCanvasProps) {
   const {
     workspaceChromeProps,
     canvasProps,
-    messageStreamProps,
+    threadContent,
   } = props;
 
   return (
@@ -45,9 +40,7 @@ export function ChatWorkspaceCanvas<TMessage extends ChatMessageStreamMessage>(
 
             <ChatThreadView
               hero={<ChatHero />}
-              threadContent={
-                messageStreamProps ? <ChatMessageStream {...messageStreamProps} /> : null
-              }
+              threadContent={threadContent}
             />
 
             <ChatComposerDock />

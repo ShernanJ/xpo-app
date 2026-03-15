@@ -14,7 +14,7 @@ import type {
 type ArtifactSectionProps = ComponentProps<typeof MessageArtifactSections>;
 type ContextIdentity = ArtifactSectionProps["contextIdentity"];
 
-interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageStreamMessage> {
+export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageStreamMessage> {
   isVisible: boolean;
   messages: TMessage[];
   latestAssistantMessageId: string | null;

@@ -153,9 +153,9 @@ test("renders header and sidebar inside the workspace chrome provider boundary",
   render(
     <ChatWorkspaceCanvas
       workspaceChromeProps={props}
-      chatThreadViewProps={{
+      canvasProps={{
         threadScrollRef: { current: null },
-        chatCanvasClassName: "",
+        threadCanvasClassName: "",
         threadCanvasTransitionClassName: "",
         threadContentTransitionClassName: "",
         isLoading: false,
@@ -168,23 +168,28 @@ test("renders header and sidebar inside the workspace chrome provider boundary",
         billingCreditsLabel: null,
         onOpenPricing: vi.fn(),
         onDismissBillingWarning: vi.fn(),
-      }}
-      heroProps={null}
-      messageStreamProps={null}
-      composerDockProps={{
-        isNewChatHero: false,
+        isHeroVisible: false,
+        avatarUrl: null,
+        heroIdentityLabel: "Stanley",
+        heroInitials: "S",
+        heroGreeting: "What are we making?",
+        isVerifiedAccount: true,
         isLeavingHero: false,
-        showScrollToLatest: false,
-        shouldCenterHero: false,
-        onScrollToBottom: vi.fn(),
         draftInput: "",
         onDraftInputChange: vi.fn(),
         onComposerKeyDown: vi.fn(),
-        onSubmit: vi.fn(),
+        onComposerSubmit: vi.fn(),
         isComposerDisabled: false,
         isSubmitDisabled: true,
         isSending: false,
+        heroQuickActions: [],
+        onQuickAction: vi.fn(),
+        isNewChatHero: false,
+        showScrollToLatest: false,
+        shouldCenterHero: false,
+        onScrollToBottom: vi.fn(),
       }}
+      threadContent={null}
     />,
   );
 

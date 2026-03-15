@@ -6,7 +6,7 @@ import { DraftEditorSurface } from "../draft-editor/DraftEditorSurface";
 
 type DraftEditorSurfaceProps = ComponentProps<typeof DraftEditorSurface>;
 
-interface UseDraftEditorSurfacePropsOptions {
+export interface UseDraftEditorSurfacePropsOptions {
   identity: DraftEditorSurfaceProps["identity"];
   isVerifiedAccount: boolean;
   timelinePosition: number;
