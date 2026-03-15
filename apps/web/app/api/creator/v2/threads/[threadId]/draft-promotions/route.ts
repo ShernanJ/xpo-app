@@ -5,10 +5,10 @@ import { prisma } from "@/lib/db";
 import { recordProductEvent } from "@/lib/productEvents";
 import { isMissingSourceMaterialAssetTableError } from "@/lib/agent-v2/persistence/prismaGuards";
 import {
-  buildPromotedDraftSourceMaterialInputs,
   buildSourceMaterialIdentityKey,
   serializeSourceMaterialAsset,
 } from "@/lib/agent-v2/grounding/sourceMaterials";
+import { buildPromotedDraftSourceMaterialInputs } from "@/lib/agent-v2/grounding/sourceMaterialSeeds";
 import {
   buildDraftArtifact,
   computeXWeightedCharacterCount,

@@ -10,11 +10,11 @@ import {
   isMissingSourceMaterialAssetTableError,
 } from "@/lib/agent-v2/persistence/prismaGuards";
 import {
-  buildSeedSourceMaterialInputs,
   normalizeSourceMaterialInput,
   serializeSourceMaterialAsset,
   type SourceMaterialAssetInput,
 } from "@/lib/agent-v2/grounding/sourceMaterials";
+import { buildSeedSourceMaterialInputs } from "@/lib/agent-v2/grounding/sourceMaterialSeeds";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 function buildSourceMaterialIdentityKey(

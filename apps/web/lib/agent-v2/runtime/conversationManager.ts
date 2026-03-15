@@ -42,9 +42,9 @@ import {
   normalizeRepairDetail,
 } from "../responses/correctionRepair";
 import {
-  extractAutoSourceMaterialInputs,
   filterNewSourceMaterialInputs,
 } from "../grounding/sourceMaterials";
+import { extractAutoSourceMaterialInputs } from "../grounding/sourceMaterialSeeds.ts";
 import { loadInitialContextWorkers } from "../workers/contextLoadWorkers.ts";
 import {
   looksLikeMechanicalEdit,
