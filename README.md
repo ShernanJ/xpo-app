@@ -1,430 +1,191 @@
-# X Growth Engine by shernan javier ✦
+# stanley-x-mvp
 
-> A growth operating system for X.
->
-> Write → Predict → Publish → Measure → Explain → Prescribe → Repeat.
+This repository currently ships a single Next.js application in `apps/web`. The app is an X creator assistant and growth workflow product with onboarding, chat-based AI orchestration, reply assistance, source-material grounding, billing, and a companion extension API.
 
----
+This README documents the live implementation in the repo today. When the code and older planning docs disagree, treat the code in `apps/web` as the source of truth.
 
-## 🧠 What This Is
+## Current State
 
-X Growth Engine is a native intelligence engine designed to:
+- Active runtime: `apps/web`
+- Primary stack: Next.js 16, React 19, TypeScript, Tailwind CSS 4
+- Persistence: Prisma 7 on PostgreSQL
+- Auth: Supabase identity plus a custom app session cookie
+- AI runtime: Groq SDK for structured chat, planning, drafting, revision, reply, and analysis flows
+- Billing: Stripe checkout, portal, webhooks, and local entitlement tracking
+- Companion surfaces: browser extension APIs, onboarding APIs, creator chat APIs
 
-* Systematically solve **0 → 1,000 followers**
-* Reduce posting variance
-* Enforce measurable learning loops
-* Scale strategy as accounts grow
+Important repo note:
 
-Phase 1 builds the **brain**.
+- The top-level `apps/api`, `packages/*`, `workers/*`, and `infra/` folders are currently empty placeholders, not the shipped runtime.
+- The old root README described a planned multi-package architecture with Neon and Upstash workers. That is not the current implementation.
 
-No extension dependency.
-Deterministic modeling first.
-Structured ingestion second.
+## What The App Does
 
----
+The live app combines several product surfaces:
 
-## 🧱 Stack (Phase 1)
+- Landing and onboarding for X account analysis and strategy bootstrapping
+- A `/chat` workspace with multi-turn AI assistance for ideation, planning, drafting, revision, replies, and post analysis
+- Source-material management for grounding outputs in user-provided facts, stories, and playbooks
+- Billing and entitlement controls for free, Pro, and lifetime plans
+- Companion extension APIs for reply opportunity ranking and reply draft workflows
 
-* **Web:** Next.js (TypeScript) + Tailwind
-* **DB:** Postgres (**Neon**)
-* **ORM:** Prisma
-* **Workers / Queue:** Upstash Redis
+## Repo Layout
 
-This keeps Phase 1 affordable, fast to iterate, and strong on structured modeling.
+The practical layout for engineers is:
 
-One ingestion platform.
-Two job types.
-Shared controls and learning loops.
-
----
-
-## 🎯 Objective (Phase 1)
-
-Validate that the engine can:
-
-* Onboard a 200-follower account
-* Provide structured daily guidance
-* Improve engagement quality within 2–3 weeks
-* Demonstrate measurable variance reduction
-
-If Phase 1 works alone, the engine is validated.
-
----
-
-# 🏗 Core Architecture
-
-## 1️⃣ Source-Agnostic Onboarding Ingestion (Scrape-First)
-
-User provides:
-
-* `@username` or `x.com/username`
-
-We enqueue an **onboarding bootstrap job** that fetches:
-
-* Profile info
-* Follower count
-* Posting cadence
-* Recent tweets (20–50)
-* Public engagement metrics
-
-From that capture we compute:
-
-* Engagement baseline
-* Content type distribution
-* Hook patterns
-* Length patterns
-* Posting frequency
-* Growth stage (0–1k focus)
-
-We only ask the user:
-
-* Primary goal (followers / leads / authority)
-* Time budget per day
-* Tone preference (lowercase / normal, safe / bold)
-
-Everything else is inferred from ingestion + models.
-
-Scrape is primary for Phase 1. API fallback remains optional and explicitly gated.
-
----
-
-# 🧠 Core Intelligence Components
-
-## A) User Performance Model
-
-Analyzes last 20–50 posts:
-
-* Engagement per format
-* Engagement vs baseline
-* Hook performance
-* Length optimization
-* Conversation triggers
-
-Produces:
-
-* Best-performing format
-* Underperforming patterns
-* Format-specific guidance
-* Baseline engagement profile
-
----
-
-## B) Niche Benchmark Model (Async)
-
-Continuously pulls from curated anchor accounts.
-
-Extracts:
-
-* Hook structures
-* Character ranges
-* CTA types
-* Format ratios
-* Engagement velocity patterns
-
-Stores:
-
-* Niche benchmark stats
-* "Winner structures"
-* Ideal structural ranges
-
-Prevents blind LLM guessing.
-
----
-
-## C) Growth Stage Detector
-
-Determines strategy phase using:
-
-* Follower count
-* Engagement rate
-* Growth velocity
-
-Stages:
-
-* **0–1k** → Distribution heavy
-* **1k–10k** → Authority heavy
-* **10k+** → Leverage heavy
-
-Phase 1 optimizes heavily for 0–1k.
-
----
-
-# ✍️ Composer (Variance Reduction Engine)
-
-While writing, the user sees:
-
-* Hook strength score
-* Length optimization guidance
-* Niche alignment score
-* Predicted engagement vs baseline
-
-Two rewrites available:
-
-* Safe (benchmark aligned)
-* Bold (higher variance)
-
-Goal:
-
-Reduce randomness before posting.
-
----
-
-# 📊 Postmortem Engine (Learning Enforcement)
-
-After publishing, the system:
-
-Compares:
-
-* Post vs user baseline
-* Post vs niche benchmarks
-* Prediction vs outcome
-
-Explains:
-
-* Why it worked
-* Why it didn’t
-* Structural gaps
-
-Prescribes:
-
-* What to post next
-* Whether to build a series
-* Whether to pivot format
-* Which loop to double down on
-
-This enforces compounding growth.
-
----
-
-# 🔄 Async Intelligence + Ingestion
-
-## 1️⃣ Onboarding Bootstrap Lane (High Priority)
-
-* Low-volume, latency-sensitive jobs
-* Pulls a target account for onboarding
-* Produces canonical profile + post capture
-
-## 2️⃣ Niche Enrichment Lane (Low Priority)
-
-* High-volume background crawling of anchor accounts
-* Extracts proven structures and benchmark ranges
-* Refreshes benchmark store continuously
-
-## 3️⃣ Account/Session Broker
-
-* Shared rate limits and cooldown policy
-* Health scoring per session/account
-* Lease-based routing so workers do not collide
-
-## 4️⃣ Shared Scraper Executor
-
-* One HTTP fetcher reused by both lanes
-* One parser/normalizer path to canonical records
-* Common retry/backoff semantics
-
-## 5️⃣ User Analyzer Worker
-
-* Classifies new posts
-* Computes deltas vs baseline
-* Updates user model snapshot
-
-## 6️⃣ Strategy Adjuster
-
-* Detects stagnation
-* Rebalances recommendation weights
-
----
-
-# 🔁 Closed Loop (Phase 1)
-
-```
-Write
-  ↓
-Predict
-  ↓
-Publish
-  ↓
-Measure
-  ↓
-Explain
-  ↓
-Prescribe
-  ↓
-Repeat
-```
-
-This loop is the product.
-
----
-
-# 📦 Proposed Project Structure
-
-```
-stanley-x/
-│
+```text
+.
+├── README.md
+├── PLAN.md
+├── Artifact.md
+├── LIVE_AGENT.md
 ├── apps/
-│   ├── web/                         # Next.js frontend (App Router)
-│   │   ├── app/
-│   │   │   ├── page.tsx              # Landing
-│   │   │   ├── onboarding/
-│   │   │   ├── dashboard/
-│   │   │   ├── composer/
-│   │   │   ├── postmortem/
-│   │   │   └── settings/
-│   │   ├── components/
-│   │   │   ├── composer/
-│   │   │   ├── analytics/
-│   │   │   └── growth/
-│   │   ├── lib/
-│   │   │   ├── api-client.ts
-│   │   │   └── hooks/
-│   │   └── styles/
-│   │
-│   └── api/                         # Thin API layer (can be Next.js routes or standalone)
-│       ├── src/
-│       │   ├── routes/
-│       │   │   ├── onboard.ts
-│       │   │   ├── compose.ts
-│       │   │   ├── predict.ts
-│       │   │   ├── postmortem.ts
-│       │   │   └── strategy.ts
-│       │   ├── services/
-│       │   │   ├── onboarding.service.ts
-│       │   │   ├── composer.service.ts
-│       │   │   └── postmortem.service.ts
-│       │   ├── middleware/
-│       │   └── server.ts
-│       └── package.json
-│
-├── packages/
-│   ├── core/                        # Deterministic intelligence engine (pure logic)
-│   │   ├── onboarding/
-│   │   ├── performance/
-│   │   ├── niche/
-│   │   ├── composer/
-│   │   ├── postmortem/
-│   │   └── strategy/
-│   │
-│   ├── scoring/                     # Modular scoring system
-│   │   ├── modules/
-│   │   │   ├── hookStrength.ts
-│   │   │   ├── nicheAlignment.ts
-│   │   │   ├── lengthOptimization.ts
-│   │   │   └── conversationTrigger.ts
-│   │   ├── blendWeights.ts
-│   │   └── types.ts
-│   │
-│   ├── models/                      # Structured intelligence snapshots
-│   │   ├── userModel.ts
-│   │   ├── nicheModel.ts
-│   │   ├── growthStage.ts
-│   │   └── strategyState.ts
-│   │
-│   ├── prompts/                     # LLM prompt templates (versioned)
-│   │   ├── composer.prompts.ts
-│   │   └── postmortem.prompts.ts
-│   │
-│   ├── types/                       # Shared TypeScript contracts
-│   └── utils/
-│
-├── workers/                         # Async intelligence layer
-│   ├── scrape-ingestion/
-│   │   ├── onboarding-bootstrap.ts
-│   │   ├── niche-enrichment.ts
-│   │   ├── account-broker.ts
-│   │   └── normalize-capture.ts
-│   │
-│   ├── niche-intel/
-│   │   ├── pullTopPosts.ts
-│   │   ├── extractStructures.ts
-│   │   └── index.ts
-│   │
-│   ├── user-analyzer/
-│   │   ├── classifyPosts.ts
-│   │   ├── computeDeltas.ts
-│   │   └── index.ts
-│   │
-│   └── strategy-adjuster/
-│       ├── detectStagnation.ts
-│       └── index.ts
-│
-├── db/
-│   ├── schema.prisma (or migrations/)
-│   └── seed/
-│
-├── scripts/
-│   ├── seed-niches.ts
-│   └── reanalyze-user.ts
-│
-├── infra/
-│   ├── redis/
-│   ├── docker/
-│   └── env/
-│
-└── README.md
+│   └── web/
+│       ├── app/              # App Router pages and API routes
+│       ├── components/       # Shared UI and providers
+│       ├── lib/              # Domain logic: agent runtime, onboarding, billing, auth, extension
+│       ├── prisma/           # Schema and migrations
+│       ├── public/
+│       ├── scripts/
+│       ├── package.json
+│       └── .env.example
+└── docs/
+    ├── app-architecture.md
+    └── app-diagrams.md
 ```
 
-Key principles:
+The root package is not the app entrypoint. Develop from `apps/web`.
 
-* `apps/web` owns UI only.
-* `apps/api` is a thin orchestration layer.
-* `packages/core` contains deterministic intelligence.
-* `workers/` enforce async learning loops.
-* Intelligence snapshots live in structured models, not raw tweet blobs.
+## Getting Started
 
-UI never owns logic.
+1. Install dependencies for the app package:
 
----
+   ```bash
+   cd apps/web
+   pnpm install
+   ```
 
-# 🗄 Data Model (High-Level)
+2. Copy the environment template:
 
-Core tables:
+   ```bash
+   cp .env.example .env
+   ```
 
-* `users`
-* `user_models`
-* `user_posts`
-* `niche_benchmarks`
-* `post_predictions`
-* `post_outcomes`
-* `strategy_states`
+3. Fill the minimum required values:
 
-Important:
+   - `DATABASE_URL`
+   - `DATABASE_MIGRATION_URL`
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SESSION_SECRET`
+   - `GROQ_API_KEY`
 
-* We store predictions **before posting**.
-* We store outcomes **after posting**.
-* The delta becomes the learning signal.
+4. Start the app:
 
-Implementation notes (Phase 1):
+   ```bash
+   pnpm dev
+   ```
 
-* Postgres lives on **Neon**
-* Prisma owns schema + migrations
-* Workers consume jobs from **Upstash Redis** and write intelligence snapshots back to Postgres
+5. Open [http://localhost:3000](http://localhost:3000).
 
----
+## Environment Groups
 
-# 🧩 Design Philosophy
+The canonical env template lives at [`apps/web/.env.example`](apps/web/.env.example).
 
-Stanley for X is not a tweet generator.
+The variables are grouped into these areas:
 
-It is:
+- Core app: database, Supabase, session secret
+- AI provider: Groq API key and optional model override
+- Public URLs and support email
+- Monetization flags and pricing display values
+- Stripe checkout and webhook configuration
+- Onboarding source mode selection
+- X scrape and X API credentials
+- Onboarding backfill tuning
+- Developer flags and script-only helpers
 
-* A structured growth reasoning engine
-* A variance reduction system
-* A compounding intelligence loop
+Operational notes:
 
----
+- `NEXTAUTH_*` variables are marked deprecated in the env template.
+- `ONBOARDING_MODE` controls whether onboarding uses scrape, X API, mock, or auto fallback.
+- In production, mock onboarding fallback is intentionally guarded by `ONBOARDING_ALLOW_MOCK_FALLBACK`.
 
-# ✅ Phase 1 Definition of Done
+## Common Commands
 
-You can:
+Run these from `apps/web`:
 
-* Onboard a small account
-* Provide daily structured guidance
-* Improve engagement quality in 2–3 weeks
-* Show measurable variance reduction
+```bash
+pnpm dev
+pnpm build
+pnpm lint
+pnpm test:ui
+pnpm test:e2e
+pnpm test:v2
+pnpm test:extension
+```
 
-If this works, the engine is validated.
+Additional useful scripts:
 
----
+```bash
+pnpm replay:creator-transcript
+pnpm capture:user-tweets
+pnpm scrape:user-tweets:http
+```
 
-Built for creators who want systematic growth, not random virality.
+## Architecture Overview
+
+At a high level, the app works like this:
+
+1. The browser UI submits structured chat or onboarding requests to Next.js route handlers in `apps/web/app/api`.
+2. Route-boundary helpers normalize input, resolve workspace and auth state, and assemble domain context.
+3. Domain logic in `apps/web/lib` handles AI orchestration, onboarding analysis, billing, extension workflows, and persistence policies.
+4. Prisma writes chat threads, messages, memories, onboarding runs, source materials, billing state, extension tokens, and product events to PostgreSQL.
+5. External services provide identity, billing, model inference, and X data access.
+
+For the detailed audit and diagrams, see:
+
+- [`docs/app-architecture.md`](docs/app-architecture.md)
+- [`docs/app-diagrams.md`](docs/app-diagrams.md)
+
+## Main Runtime Areas
+
+### Frontend
+
+- `apps/web/app/page.tsx`: landing entrypoint
+- `apps/web/app/onboarding/*`: onboarding flow
+- `apps/web/app/chat/page.tsx`: primary chat workspace
+- `apps/web/app/chat/_features/*`: extracted chat feature state and UI
+- `apps/web/app/pricing/*`, `apps/web/app/login/*`, `apps/web/app/extension/connect/*`: supporting product surfaces
+
+### API
+
+- `apps/web/app/api/auth/*`: auth login, session, logout, email code flows
+- `apps/web/app/api/onboarding/*`: preview, run, validate, scrape, backfill
+- `apps/web/app/api/creator/v2/*`: chat, threads, preferences, source materials, feedback, draft analysis/candidates
+- `apps/web/app/api/billing/*` and `apps/web/app/api/stripe/webhook/route.ts`: checkout, portal, billing state, Stripe events
+- `apps/web/app/api/extension/*`: extension token, opportunity batch, reply options, reply drafts, reply logs
+
+### Domain Logic
+
+- `apps/web/lib/agent-v2/*`: AI runtime, capabilities, validators, workers, memory, responses, grounding
+- `apps/web/lib/onboarding/*`: data-source resolution, analysis, strategy, profile hydration, persistence, backfill
+- `apps/web/lib/billing/*`: entitlements, policy, Stripe helpers, credit ledger logic
+- `apps/web/lib/auth/*`: Supabase auth integration and custom session handling
+- `apps/web/lib/extension/*`: token auth, reply opportunity logic, extension contracts
+
+## Current Implementation Notes
+
+- The shipped app is a single Next.js deployment boundary, not a live multi-service monorepo.
+- The chat runtime is mid-migration toward cleaner runtime boundaries, and the supporting migration notes live in the docs below.
+- A legacy NextAuth dependency and route exist in the repo, but the primary login/session flow is Supabase-backed with a custom cookie session.
+- The current LLM gateway is the Groq SDK. The code also supports `openai/*` model identifiers through the same client path.
+
+## Migration Reference Docs
+
+These files are still useful, but they describe migration intent and target-state architecture more than the exact shipped runtime:
+
+- [`PLAN.md`](PLAN.md)
+- [`Artifact.md`](Artifact.md)
+- [`LIVE_AGENT.md`](LIVE_AGENT.md)
+
+Use them as architecture direction, not as a replacement for the live code audit in `docs/`.
