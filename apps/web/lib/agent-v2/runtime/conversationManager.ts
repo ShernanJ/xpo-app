@@ -1,7 +1,7 @@
 
 import { buildTurnContext } from "./turnContextBuilder";
 import { resolveRoutingPolicy } from "./routingPolicy";
-import { executeDraftPipeline } from "../orchestrator/draftPipeline";
+import { executeDraftPipeline } from "./draftPipeline";
 import { syncStyleProfileMemory, syncAutoSourceMaterials } from "./memoryPolicy";
 import {
   isLazyDraftRequest,

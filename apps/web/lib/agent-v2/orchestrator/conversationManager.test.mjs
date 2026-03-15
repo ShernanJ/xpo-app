@@ -245,13 +245,13 @@ test("turn context hydration workers return style profile and anchors as mergeab
 });
 
 test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.equal(/pipeline_continuation/.test(draftPipelineSource), false);
 });
 
 test("draft pipeline delegates grounded draft validation retry to the drafting capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -268,7 +268,7 @@ test("draft pipeline delegates grounded draft validation retry to the drafting c
 });
 
 test("draft pipeline delegates active-draft repair coaching to the revision capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -289,7 +289,7 @@ test("draft pipeline delegates active-draft repair coaching to the revision capa
 });
 
 test("draft pipeline delegates non-draft coach detours to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -310,7 +310,7 @@ test("draft pipeline delegates non-draft coach detours to the planning capabilit
 });
 
 test("draft pipeline delegates plan clarification routing to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -331,7 +331,7 @@ test("draft pipeline delegates plan clarification routing to the planning capabi
 });
 
 test("draft pipeline delegates pending-plan decisions to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -376,7 +376,7 @@ test("draft pipeline delegates auto-approved plan execution to the planning capa
 });
 
 test("draft pipeline delegates plan-mode orchestration to the planning capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -389,7 +389,7 @@ test("draft pipeline delegates plan-mode orchestration to the planning capabilit
 });
 
 test("draft pipeline delegates revise and replan mode routing to the revision capability layer", () => {
-  const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
+  const draftPipelineSource = readFileSync(new URL("../runtime/draftPipeline.ts", import.meta.url), "utf8");
 
   assert.match(
     draftPipelineSource,
@@ -1125,6 +1125,34 @@ test("runtime context-routing-memory helpers stay out of orchestrator once owner
 
   const sourceRoots = [
     new URL("../capabilities/", import.meta.url),
+    new URL("../runtime/", import.meta.url),
+    new URL("./", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
+test("runtime draft pipeline stays out of orchestrator once ownership moves", () => {
+  assert.equal(existsSync(new URL("./draftPipeline.ts", import.meta.url)), false);
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/draftPipeline(?:\.ts)?["']/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/draftPipeline(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
     new URL("../runtime/", import.meta.url),
     new URL("./", import.meta.url),
   ];
@@ -3097,7 +3125,7 @@ test("source material draft constraints keep saved stories literal", () => {
 
 test("draft anchor selection keeps historical posts in style-only mode when truth sources exist", () => {
   const source = readFileSync(
-    fileURLToPath(new URL("./draftPipeline.ts", import.meta.url)),
+    fileURLToPath(new URL("../runtime/draftPipeline.ts", import.meta.url)),
     "utf8",
   );
 

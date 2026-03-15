@@ -8,8 +8,8 @@ import {
   buildGroundedTopicDraftInput,
   extractPriorUserTurn,
 } from "../capabilities/planning/clarificationHeuristics.ts";
-import type { ConversationServices } from "../runtime/services.ts";
-import type { OrchestratorResponse, RoutingTracePatch } from "../runtime/types.ts";
+import type { ConversationServices } from "./services.ts";
+import type { OrchestratorResponse, RoutingTracePatch } from "./types.ts";
 import {
   isBareDraftRequest,
   isMultiDraftRequest,
@@ -55,7 +55,7 @@ import {
   shouldFastStartGroundedDraft,
 } from "../capabilities/planning/draftFastStart.ts";
 import { stripSelectedAnglePromptPrefix } from "../capabilities/drafting/selectedAnglePrompt.ts";
-import { resolveConversationRouterState } from "../runtime/conversationRouterMachine";
+import { resolveConversationRouterState } from "./conversationRouterMachine";
 import { evaluateDraftContextSlots } from "../capabilities/planning/draftContextSlots";
 import {
   shouldForceNoFabricationPlanGuardrail,
@@ -83,11 +83,11 @@ import type {
   StrategyPlan,
   V2ConversationMemory,
 } from "../contracts/chat";
-import type { TurnContext } from "../runtime/turnContextBuilder";
-import type { RoutingPolicyResult } from "../runtime/routingPolicy";
-import { saveConversationTurnMemory } from "../runtime/memoryPolicy";
-import { summarizeRuntimeWorkerExecutions } from "../runtime/runtimeTrace.ts";
-import type { AgentRuntimeWorkflow } from "../runtime/runtimeContracts.ts";
+import type { TurnContext } from "./turnContextBuilder";
+import type { RoutingPolicyResult } from "./routingPolicy";
+import { saveConversationTurnMemory } from "./memoryPolicy";
+import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
+import type { AgentRuntimeWorkflow } from "./runtimeContracts.ts";
 import { executeIdeationCapability } from "../capabilities/ideation/ideationCapability.ts";
 import {
   handleNonDraftCoachTurn,
