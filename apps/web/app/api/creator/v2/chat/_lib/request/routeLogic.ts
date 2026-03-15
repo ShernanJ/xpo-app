@@ -30,7 +30,7 @@ import {
   type DraftArtifactDetails,
 } from "../../../../../../../lib/onboarding/draftArtifacts.ts";
 import type { DraftBundleResult } from "../../../../../../../lib/agent-v2/capabilities/drafting/draftBundles.ts";
-import { shapeAssistantResponse } from "../../../../../../../lib/agent-v2/orchestrator/responseShaper.ts";
+import { shapeAssistantResponse } from "../../../../../../../lib/agent-v2/runtime/responseShaper.ts";
 import { selectResponseShapePlan } from "../../../../../../../lib/agent-v2/orchestrator/surfaceModeSelector.ts";
 import type {
   ChatReplyArtifacts,

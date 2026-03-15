@@ -918,6 +918,36 @@ test("runtime response envelope stays out of orchestrator once ownership moves",
   }
 });
 
+test("runtime response shaper stays out of orchestrator once ownership moves", () => {
+  assert.equal(existsSync(new URL("./responseShaper.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("./responseShaper.test.mjs", import.meta.url)), false);
+
+  const disallowedImportPatterns = [
+    /agent-v2\/orchestrator\/responseShaper(?:\.ts)?/,
+    /from ["']\.\.?\/(?:\.\.\/)*orchestrator\/responseShaper(?:\.ts)?["']/,
+  ];
+
+  const sourceRoots = [
+    new URL("../runtime/", import.meta.url),
+    new URL("../../../app/api/creator/v2/", import.meta.url),
+    new URL("./", import.meta.url),
+  ];
+
+  for (const root of sourceRoots) {
+    for (const entry of readdirSync(root, { recursive: true })) {
+      const relativePath = String(entry);
+      if (!/\.(?:ts|tsx|js|mjs)$/.test(relativePath)) {
+        continue;
+      }
+
+      const source = readFileSync(new URL(relativePath, root), "utf8");
+      for (const pattern of disallowedImportPatterns) {
+        assert.equal(pattern.test(source), false, `${relativePath} -> ${pattern}`);
+      }
+    }
+  }
+});
+
 test("turn context hydration workers fall back to topic summary when the message is empty", async () => {
   let seenFocusTopic = null;
 

@@ -87,15 +87,16 @@ import {
   resolveDraftVersionRevertUpdate,
 } from "./_features/draft-editor/chatDraftPersistenceState";
 import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
-import {
-  getThreadFramingStyle,
-  resolvePrimaryDraftRevealKey,
-} from "./_features/draft-editor/chatDraftPreviewState";
+import { getThreadFramingStyle } from "./_features/draft-editor/chatDraftPreviewState";
 import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
 import { useDraftQueueState } from "./_features/draft-queue/useDraftQueueState";
 import { FeedbackDialog } from "./_features/feedback/FeedbackDialog";
 import { useFeedbackState } from "./_features/feedback/useFeedbackState";
 import { resolveThreadHistoryHydration } from "./_features/thread-history/chatThreadHistoryState";
+import {
+  buildDraftRevealClassName,
+  shouldAnimateDraftRevealLines,
+} from "./_features/thread-history/draftRevealState";
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
@@ -122,6 +123,7 @@ import { MessageContent } from "./_features/thread-history/MessageContent";
 import { ChatThreadView } from "./_features/thread-history/ChatThreadView";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
+import { useThreadMessageEffects } from "./_features/thread-history/useThreadMessageEffects";
 import { useThreadViewState } from "./_features/thread-history/useThreadViewState";
 import { AddAccountDialog } from "./_features/workspace-chrome/AddAccountDialog";
 import { ChatHeader } from "./_features/workspace-chrome/ChatHeader";
@@ -513,72 +515,12 @@ type CreatorAssistantReplyPlan = ResolvedAssistantReplyPlan<
   BillingStatePayload
 >;
 
-const DRAFT_REVEAL_DURATION_MS = 1250;
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
 
 function isDraftPendingWorkflow(
   workflow: PendingStatusWorkflow | null | undefined,
 ): workflow is "plan_then_draft" | "revise_draft" {
   return workflow === "plan_then_draft" || workflow === "revise_draft";
-}
-
-function messageHasDraftOutput(message: ChatMessage): boolean {
-  return Boolean(
-    message.draft?.trim() ||
-      message.draftArtifacts?.length ||
-      message.draftBundle?.options?.length ||
-      message.draftVersions?.length,
-  );
-}
-
-function hasActiveDraftReveal(
-  activeDraftRevealByMessageId: Record<string, string>,
-  messageId: string,
-): boolean {
-  return Object.prototype.hasOwnProperty.call(activeDraftRevealByMessageId, messageId);
-}
-
-function resolveDraftRevealPhase(
-  activeDraftRevealByMessageId: Record<string, string>,
-  messageId: string,
-  draftKey: string,
-): "none" | "primary" | "secondary" {
-  const primaryDraftRevealKey = activeDraftRevealByMessageId[messageId];
-  if (!primaryDraftRevealKey) {
-    return "none";
-  }
-
-  return primaryDraftRevealKey === draftKey ? "primary" : "secondary";
-}
-
-function buildDraftRevealClassName(
-  activeDraftRevealByMessageId: Record<string, string>,
-  messageId: string,
-  draftKey: string,
-): string {
-  const phase = resolveDraftRevealPhase(
-    activeDraftRevealByMessageId,
-    messageId,
-    draftKey,
-  );
-  if (phase === "primary") {
-    return "animate-draft-card-reveal";
-  }
-  if (phase === "secondary") {
-    return "animate-draft-option-stagger";
-  }
-  return "";
-}
-
-function shouldAnimateDraftRevealLines(
-  activeDraftRevealByMessageId: Record<string, string>,
-  messageId: string,
-  draftKey: string,
-): boolean {
-  return (
-    resolveDraftRevealPhase(activeDraftRevealByMessageId, messageId, draftKey) ===
-    "primary"
-  );
 }
 
 interface ChatStrategyInputs {
@@ -1084,6 +1026,7 @@ function ChatPageContent() {
     accountMenuRef,
     toolsMenuRef,
   } = useWorkspaceChromeState({ accountName });
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const {
     activeThreadId,
     setActiveThreadId,
@@ -1178,7 +1121,6 @@ function ChatPageContent() {
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const {
     billingState,
     setBillingState,
@@ -1323,22 +1265,13 @@ function ChatPageContent() {
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
-  const [typedAssistantLengths, setTypedAssistantLengths] = useState<
-    Record<string, number>
-  >({});
-  const [activeDraftRevealByMessageId, setActiveDraftRevealByMessageId] = useState<
-    Record<string, string>
-  >({});
-  const [revealedDraftMessageIds, setRevealedDraftMessageIds] = useState<
-    Record<string, boolean>
-  >({});
-  const draftRevealTimeoutsRef = useRef<Record<string, number>>({});
-  const typedAssistantLengthsRef = useRef<Record<string, number>>({});
-  const hasHydratedDraftRevealRef = useRef(false);
-
-  useEffect(() => {
-    typedAssistantLengthsRef.current = typedAssistantLengths;
-  }, [typedAssistantLengths]);
+  const {
+    typedAssistantLengths,
+    setTypedAssistantLengths,
+    activeDraftRevealByMessageId,
+    setActiveDraftRevealByMessageId,
+    setRevealedDraftMessageIds,
+  } = useThreadMessageEffects(messages);
 
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
@@ -1656,12 +1589,15 @@ function ChatPageContent() {
     setAnalysisOpen,
     setAnalysisScrapeCooldownUntil,
     setAnalysisScrapeNotice,
+    setActiveDraftRevealByMessageId,
     setDraftQueueError,
     setDraftQueueItems,
     setEditingDraftCandidateId,
     setEditingDraftCandidateText,
     setIsAnalysisScrapeRefreshing,
     setActiveThreadId,
+    setRevealedDraftMessageIds,
+    setTypedAssistantLengths,
     threadCreatedInSessionRef,
   ]);
   const handleNewChat = useCallback(() => {
@@ -1712,122 +1648,6 @@ function ChatPageContent() {
       };
     }
   }, [isLeavingHero, messages.length]);
-
-  useEffect(() => {
-    const latestAssistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant" && message.content.length > 0);
-
-    if (!latestAssistantMessage) {
-      return;
-    }
-
-
-
-    const targetLength = latestAssistantMessage.content.length;
-    const currentLength = typedAssistantLengthsRef.current[latestAssistantMessage.id];
-
-    if (currentLength !== undefined && currentLength >= targetLength) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setTypedAssistantLengths((current) => {
-        const latest = current[latestAssistantMessage.id] ?? 0;
-        if (latest >= targetLength) {
-          window.clearInterval(interval);
-          return current;
-        }
-
-        const remaining = targetLength - latest;
-        const step = remaining > 90 ? 8 : remaining > 40 ? 5 : 3;
-
-        return {
-          ...current,
-          [latestAssistantMessage.id]: Math.min(targetLength, latest + step),
-        };
-      });
-    }, 18);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [messages]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(draftRevealTimeoutsRef.current).forEach((timeoutId) => {
-        window.clearTimeout(timeoutId);
-      });
-      draftRevealTimeoutsRef.current = {};
-    };
-  }, []);
-
-  useEffect(() => {
-    if (messages.length === 0) {
-      Object.values(draftRevealTimeoutsRef.current).forEach((timeoutId) => {
-        window.clearTimeout(timeoutId);
-      });
-      draftRevealTimeoutsRef.current = {};
-      const hadHydratedRevealState = hasHydratedDraftRevealRef.current;
-      hasHydratedDraftRevealRef.current = false;
-      if (
-        hadHydratedRevealState ||
-        Object.keys(activeDraftRevealByMessageId).length > 0 ||
-        Object.keys(revealedDraftMessageIds).length > 0
-      ) {
-        setActiveDraftRevealByMessageId({});
-        setRevealedDraftMessageIds({});
-      }
-      return;
-    }
-
-    if (!hasHydratedDraftRevealRef.current) {
-      hasHydratedDraftRevealRef.current = true;
-      const hydratedIds = Object.fromEntries(
-        messages
-          .filter(
-            (message) => message.role === "assistant" && messageHasDraftOutput(message),
-          )
-          .map((message) => [message.id, true]),
-      );
-      setRevealedDraftMessageIds(hydratedIds);
-      return;
-    }
-
-    const nextRevealCandidate = [...messages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === "assistant" &&
-          messageHasDraftOutput(message) &&
-          !revealedDraftMessageIds[message.id] &&
-          !hasActiveDraftReveal(activeDraftRevealByMessageId, message.id) &&
-          !draftRevealTimeoutsRef.current[message.id],
-      );
-
-    if (!nextRevealCandidate) {
-      return;
-    }
-
-    const primaryKey = resolvePrimaryDraftRevealKey(nextRevealCandidate);
-    setActiveDraftRevealByMessageId((current) => ({
-      ...current,
-      [nextRevealCandidate.id]: primaryKey,
-    }));
-    draftRevealTimeoutsRef.current[nextRevealCandidate.id] = window.setTimeout(() => {
-      setActiveDraftRevealByMessageId((current) => {
-        const next = { ...current };
-        delete next[nextRevealCandidate.id];
-        return next;
-      });
-      setRevealedDraftMessageIds((current) => ({
-        ...current,
-        [nextRevealCandidate.id]: true,
-      }));
-      delete draftRevealTimeoutsRef.current[nextRevealCandidate.id];
-    }, DRAFT_REVEAL_DURATION_MS);
-  }, [messages, activeDraftRevealByMessageId, revealedDraftMessageIds]);
 
   useEffect(() => {
     if (!backfillJobId) {
