@@ -72,7 +72,7 @@ Current active slice:
   - `validators/`: deterministic validation and retry helpers
   - `memory/`: memory retrieval, salience, and summary management
   - `agents/`: model-facing prompt builders and worker implementations
-- The current `orchestrator/` folder is transitional and still too broad; the target state is for it to shrink into control-plane composition only.
+- The old `orchestrator/` folder has been dissolved; `runtime/` is now the control-plane home and should stay narrow.
 - `apps/web/lib/onboarding` now has the same domain-first target, and the active migration surface is landed into:
   - `profile/`
   - `analysis/`
@@ -118,7 +118,7 @@ Current active slice:
   - `validators/draft/`, `validators/revision/`, and `validators/shared/`
     - deterministic validators and retry-constraint builders
 - Current-file mapping rule:
-  - when touching `apps/web/lib/agent-v2/orchestrator/*`, prefer extracting into one of the target folders above instead of adding another broad orchestrator helper unless the file is still truly control-plane composition
+  - when touching `apps/web/lib/agent-v2/runtime/*`, prefer extracting into one of the target folders above instead of growing `runtime/` into a new catch-all unless the file is still truly control-plane composition
   - when touching `apps/web/lib/onboarding/*`, prefer adding code in the landed domain folders above instead of re-growing the flat onboarding root
 
 ## API Architecture Track
@@ -466,10 +466,10 @@ Rewrite it as the **operator handoff** for engineers/agents:
   - keep this visible as required coverage even if it is not yet a standalone gate family
 - Executable gates today:
   - `pnpm run test:v2-route`
-  - `pnpm run test:v2-orchestrator`
+  - `pnpm run test:v2-runtime`
   - `pnpm run test:v2-response-quality`
   - `pnpm run test:v2-regressions`
-  - `pnpm run test:v3-orchestrator`
+  - `pnpm run test:v3-runtime`
   - `pnpm run test:transcript-replay`
   - `pnpm build`
 

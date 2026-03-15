@@ -2,6 +2,10 @@
 
 import { startTransition, useEffect, useState, type ComponentProps } from "react";
 
+import {
+  buildDraftRevealClassName,
+  shouldAnimateDraftRevealLines,
+} from "./draftRevealState";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { MessageArtifactSections } from "./MessageArtifactSections";
 import { MessageContent } from "./MessageContent";
@@ -115,7 +119,14 @@ interface ChatMessageStreamProps<TMessage extends MessageLike> {
   resolveArtifactSectionProps: (
     message: TMessage,
     index: number,
-  ) => Omit<ArtifactSectionsProps, "message" | "index" | "messagesLength">;
+  ) => Omit<
+    ArtifactSectionsProps,
+    | "message"
+    | "index"
+    | "messagesLength"
+    | "getRevealClassName"
+    | "shouldAnimateRevealLines"
+  >;
 }
 
 export function ChatMessageStream<TMessage extends MessageLike>(
@@ -126,6 +137,7 @@ export function ChatMessageStream<TMessage extends MessageLike>(
     latestAssistantMessageId,
     typedAssistantLengths,
     registerMessageRef,
+    activeDraftRevealByMessageId,
     shouldShowPendingDraftShell,
     pendingDraftWorkflow,
     pendingStatusLabel,
@@ -136,6 +148,11 @@ export function ChatMessageStream<TMessage extends MessageLike>(
   return (
     <>
       {messages.map((message, index) => {
+        const buildDraftRevealClasses = (draftKey: string) =>
+          buildDraftRevealClassName(activeDraftRevealByMessageId, message.id, draftKey);
+        const shouldAnimateDraftLines = (draftKey: string) =>
+          shouldAnimateDraftRevealLines(activeDraftRevealByMessageId, message.id, draftKey);
+
         return (
           <ChatMessageRow
             key={message.id}
@@ -158,6 +175,8 @@ export function ChatMessageStream<TMessage extends MessageLike>(
               message={message}
               index={index}
               messagesLength={messages.length}
+              getRevealClassName={buildDraftRevealClasses}
+              shouldAnimateRevealLines={shouldAnimateDraftLines}
               {...resolveArtifactSectionProps(message, index)}
             />
           </ChatMessageRow>

@@ -101,7 +101,7 @@ User turn
   - `core/` for pure policy and business logic
   - capability-sliced execution folders, worker folders, and validator folders as the long-term target for new runtime seams
   - `agents/` for model-facing prompt and generation workers
-- Treat `apps/web/lib/agent-v2/orchestrator/` as transitional. It is still the migration home for many seams, but new work should not expand it casually when a more specific long-term folder is clear.
+- Treat `apps/web/lib/agent-v2/runtime/` as the control-plane home. New work should not turn it into a catch-all when a more specific long-term folder is clear.
 - Keep `apps/web/app/api` route roots thin:
   - `route.ts` is the entrypoint
   - route-boundary helpers own persistence, response assembly, and feature-local API wiring
@@ -123,7 +123,7 @@ User turn
 - `capabilities/analysis/`: analysis execution and analysis-only helpers
 - `workers/context/`, `workers/retrieval/`, `workers/candidates/`, `workers/validation/`: read-only worker-plane helpers grouped by job
 - `validators/draft/`, `validators/revision/`, `validators/shared/`: deterministic validators and retry-constraint builders
-- `orchestrator/`: transitional control-plane composition only
+- `runtime/`: control-plane composition only
 
 ### `apps/web/app/api/creator/v2/chat`
 - route root:
@@ -425,10 +425,10 @@ User turn
 ## Test commands
 ### Gate families
 - `pnpm run test:v2-route`
-- `pnpm run test:v2-orchestrator`
+- `pnpm run test:v2-runtime`
 - `pnpm run test:v2-response-quality`
 - `pnpm run test:v2-regressions`
-- `pnpm run test:v3-orchestrator`
+- `pnpm run test:v3-runtime`
 - `pnpm run test:transcript-replay`
 - `pnpm build`
 

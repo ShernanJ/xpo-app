@@ -19,7 +19,7 @@ The app is now bottlenecked by infrastructure, not prompt tweaks.
 Current hotspots:
 - `apps/web/app/chat/page.tsx` is still a large client monolith that mixes transport, local workflow state, and presentation.
 - `apps/web/app/api/creator/v2/chat/route.ts` is still too heavy as a route boundary.
-- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
+- `apps/web/lib/agent-v2/runtime/draftPipeline.ts` still owns too many capabilities and too much continuation logic.
 
 The program goal is to make the system feel like one natural ChatGPT-style assistant on the surface while being explicit, typed, and deterministic underneath.
 
@@ -39,7 +39,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ## Backend/lib and API architecture track
 - `apps/web/lib` should scale by domain and ownership boundary, not by one large shared helper layer.
-- `apps/web/lib/agent-v2/orchestrator/` is transitional and should shrink over time into control-plane composition only.
+- `apps/web/lib/agent-v2/runtime/` is now the control-plane home, and the old `orchestrator/` folder is intentionally gone behind deletion guards.
 - New runtime work should trend toward:
   - `contracts/`
   - `runtime/`
@@ -60,7 +60,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 - Migration rule:
   - extract new seams into their target home when touched
   - avoid broad move-only churn
-  - let `orchestrator/` and heavy `route.ts` files shrink incrementally behind tests
+  - let `runtime/` and heavy `route.ts` files stay thin behind tests instead of re-growing transitional folders
 
 ## Architecture principles
 - One top-level runtime owner decides the workflow before any model call.
@@ -333,10 +333,10 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 
 ## Executable gates today
 - `pnpm run test:v2-route`
-- `pnpm run test:v2-orchestrator`
+- `pnpm run test:v2-runtime`
 - `pnpm run test:v2-response-quality`
 - `pnpm run test:v2-regressions`
-- `pnpm run test:v3-orchestrator`
+- `pnpm run test:v3-runtime`
 - `pnpm run test:transcript-replay`
 - `pnpm build`
 
@@ -362,7 +362,7 @@ The program goal is to make the system feel like one natural ChatGPT-style assis
 ## Active blockers and risks
 - `apps/web/app/chat/page.tsx` still owns too much async request orchestration and some large presentational/editor surfaces.
 - `apps/web/app/api/creator/v2/chat/route.ts` still owns too much workflow and persistence assembly.
-- `apps/web/lib/agent-v2/orchestrator/draftPipeline.ts` still mixes generation, continuation, grounding, revision, and salvage logic.
+- `apps/web/lib/agent-v2/runtime/draftPipeline.ts` still mixes generation, continuation, grounding, revision, and salvage logic.
 - Reply turns can now reuse the persistence trace patch, but direct reply-preflight turns still lack unified runtime trace ownership.
 - Output cleanup helpers still exist because validator + retry is incomplete.
 
