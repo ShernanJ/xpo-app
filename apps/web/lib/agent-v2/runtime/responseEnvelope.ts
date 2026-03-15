@@ -4,8 +4,8 @@ import type {
   V2ChatOutputShape,
   V2ConversationMemory,
 } from "../contracts/chat.ts";
-import { shapeAssistantResponse } from "./responseShaper.ts";
-import { selectResponseShapePlan } from "./surfaceModeSelector.ts";
+import { shapeAssistantResponse } from "../orchestrator/responseShaper.ts";
+import { selectResponseShapePlan } from "../orchestrator/surfaceModeSelector.ts";
 
 type OrchestratorMode = "coach" | "ideate" | "plan" | "draft" | "error";
 

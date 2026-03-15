@@ -1,6 +1,6 @@
 import { isConstraintDeclaration, respondConversationally } from "../responses/chatResponder.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
-import { buildFastReplyRawResponse } from "./responseEnvelope.ts";
+import { buildFastReplyRawResponse } from "../runtime/responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
 import type {
   RawOrchestratorResponse,

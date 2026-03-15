@@ -64,7 +64,7 @@ import {
 import {
   type DraftBundleResult,
 } from "../capabilities/drafting/draftBundles";
-import { finalizeResponseEnvelope } from "./responseEnvelope";
+import { finalizeResponseEnvelope } from "../runtime/responseEnvelope";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
