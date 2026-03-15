@@ -64,25 +64,13 @@ import {
   resolveComposerQuickReplyUpdate,
 } from "./_features/composer/chatComposerState";
 import {
-  addThreadDraftPost as addThreadDraftPostState,
-  buildDraftEditorHydrationState,
-  buildDraftEditorSerializedContent,
-  buildEditableThreadPosts,
   clampThreadPostIndex,
-  ensureEditableThreadPosts,
-  mergeThreadDraftPostDown as mergeThreadDraftPostDownState,
-  moveThreadDraftPost as moveThreadDraftPostState,
-  removeThreadDraftPost as removeThreadDraftPostState,
-  splitThreadDraftPost as splitThreadDraftPostState,
 } from "./_features/draft-editor/chatDraftEditorState";
 import {
   resolveDraftCardRevisionAction,
   resolveSelectedThreadFramingChangeAction,
 } from "./_features/draft-editor/chatDraftActionState";
-import {
-  prepareDraftPromotionRequest,
-  resolveDraftVersionRevertUpdate,
-} from "./_features/draft-editor/chatDraftPersistenceState";
+import { useDraftEditorState } from "./_features/draft-editor/useDraftEditorState";
 import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
 import { getThreadFramingStyle } from "./_features/draft-editor/chatDraftPreviewState";
 import { DraftQueueModals } from "./_features/draft-queue/DraftQueueModals";
@@ -96,12 +84,8 @@ import {
 import {
   buildDraftRevisionTimeline,
   normalizeDraftVersionBundle,
-  resolveDraftTimelineNavigation,
   resolveDraftTimelineState,
-  resolveOpenDraftEditorState,
 } from "./_features/draft-editor/chatDraftSessionState";
-import {
-} from "./_features/reply/chatReplyState";
 import { useAssistantReplyOrchestrator } from "./_features/reply/useAssistantReplyOrchestrator";
 import {
   buildChatWorkspaceReset,
@@ -149,48 +133,6 @@ interface ValidationError {
   field: string;
   message: string;
 }
-
-interface DraftPromotionSuccess {
-  ok: true;
-  data: {
-    userMessage: {
-      id: string;
-      role: "user";
-      content: string;
-      createdAt: string;
-    };
-    assistantMessage: {
-      id: string;
-      role: "assistant";
-      content: string;
-      createdAt: string;
-      draft: string;
-      drafts: string[];
-      draftArtifacts: DraftArtifact[];
-      draftVersions: DraftVersionEntry[];
-      activeDraftVersionId: string;
-      previousVersionSnapshot: DraftVersionSnapshot | null;
-      revisionChainId?: string;
-      supportAsset: string | null;
-      groundingSources?: DraftArtifact["groundingSources"];
-      outputShape: CreatorChatSuccess["data"]["outputShape"];
-      replyArtifacts?: ReplyArtifacts | null;
-      source: "deterministic";
-      model: string | null;
-    };
-    promotedSourceMaterials?: {
-      count: number;
-      assets: SourceMaterialAsset[];
-    };
-  };
-}
-
-interface DraftPromotionFailure {
-  ok: false;
-  errors: ValidationError[];
-}
-
-type DraftPromotionResponse = DraftPromotionSuccess | DraftPromotionFailure;
 
 interface SourceMaterialsSuccess {
   ok: true;
@@ -1228,10 +1170,6 @@ function ChatPageContent() {
     normalizeAccountHandle,
   });
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
-  const [editorDraftText, setEditorDraftText] = useState("");
-  const [editorDraftPosts, setEditorDraftPosts] = useState<string[]>([]);
-  const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
-  const [copiedPreviewDraftMessageId, setCopiedPreviewDraftMessageId] = useState<string | null>(null);
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
@@ -1564,6 +1502,8 @@ function ChatPageContent() {
     setDraftQueueItems,
     setEditingDraftCandidateId,
     setEditingDraftCandidateText,
+    setEditorDraftPosts,
+    setEditorDraftText,
     setIsAnalysisScrapeRefreshing,
     setActiveThreadId,
     setRevealedDraftMessageIds,
@@ -1785,6 +1725,92 @@ function ChatPageContent() {
       selectedDraftVersion?.content,
     ],
   );
+  const {
+    editorDraftText,
+    setEditorDraftText,
+    editorDraftPosts,
+    setEditorDraftPosts,
+    selectedDraftThreadPostCount,
+    draftEditorSerializedContent,
+    hasCopiedDraftEditorText,
+    copiedPreviewDraftMessageId,
+    selectDraftBundleOption,
+    openDraftEditor,
+    updateThreadDraftPost,
+    moveThreadDraftPost,
+    splitThreadDraftPost,
+    mergeThreadDraftPostDown,
+    addThreadDraftPost,
+    removeThreadDraftPost,
+    saveDraftEditor,
+    revertToSelectedDraftVersion,
+    copyDraftEditor,
+    shareDraftEditorToX,
+    copyPreviewDraft,
+  } = useDraftEditorState<ChatMessage>({
+    activeDraftEditor,
+    composerCharacterLimit,
+    messages,
+    selectedDraftVersionId: selectedDraftVersion?.id ?? null,
+    selectedDraftVersionContent: selectedDraftVersion?.content ?? "",
+    selectedDraftVersion,
+    selectedDraftMessage,
+    selectedDraftArtifact,
+    selectedDraftBundle,
+    isSelectedDraftThread,
+    isVerifiedAccount,
+    activeThreadId,
+    fetchWorkspace,
+    mergeSourceMaterials,
+    scrollThreadToBottom,
+    setMessages,
+    setActiveDraftEditor,
+    setExpandedInlineThreadPreviewId,
+    setSelectedThreadPostByMessageId,
+    onErrorMessage: setErrorMessage,
+    createPromotionUserMessage: ({ id, threadId, content, createdAt }) => ({
+      id,
+      threadId,
+      role: "user",
+      content,
+      createdAt,
+    }),
+    createPromotionAssistantMessage: ({
+      id,
+      threadId,
+      content,
+      createdAt,
+      draft,
+      drafts,
+      draftArtifacts,
+      draftVersions,
+      activeDraftVersionId,
+      previousVersionSnapshot,
+      revisionChainId,
+      supportAsset,
+      promotedSourceMaterials,
+      outputShape,
+      replyArtifacts,
+    }) => ({
+      id,
+      threadId,
+      role: "assistant",
+      content,
+      createdAt,
+      draft,
+      drafts,
+      draftArtifacts,
+      draftVersions,
+      activeDraftVersionId,
+      previousVersionSnapshot,
+      revisionChainId,
+      supportAsset,
+      promotedSourceMaterials,
+      outputShape: outputShape as CreatorChatSuccess["data"]["outputShape"],
+      replyArtifacts: replyArtifacts as ReplyArtifacts | null,
+      feedbackValue: null,
+    }),
+  });
   const pendingStatusLabel = usePendingStatusLabel({
     isActive: isSending,
     plan: pendingStatusPlan,
@@ -1794,22 +1820,6 @@ function ChatPageContent() {
     ? pendingStatusPlan.workflow
     : null;
   const shouldShowPendingDraftShell = isSending && pendingDraftWorkflow !== null;
-  const selectedDraftThreadPostCount = useMemo(() => {
-    if (!isSelectedDraftThread) {
-      return 0;
-    }
-
-    return ensureEditableThreadPosts(
-      editorDraftPosts.length > 0
-        ? editorDraftPosts
-        : buildEditableThreadPosts(selectedDraftArtifact, selectedDraftVersion?.content ?? ""),
-    ).length;
-  }, [
-    editorDraftPosts,
-    isSelectedDraftThread,
-    selectedDraftArtifact,
-    selectedDraftVersion?.content,
-  ]);
   const selectedDraftThreadPostIndex = useMemo(() => {
     const activeMessageId = activeDraftEditor?.messageId;
     if (!activeMessageId || !isSelectedDraftThread || selectedDraftThreadPostCount === 0) {
@@ -1824,15 +1834,6 @@ function ChatPageContent() {
     selectedDraftThreadPostCount,
     selectedThreadPostByMessageId,
   ]);
-  const draftEditorSerializedContent = useMemo(
-    () =>
-      buildDraftEditorSerializedContent({
-        isThreadDraft: isSelectedDraftThread,
-        editorDraftPosts,
-        editorDraftText,
-      }),
-    [editorDraftPosts, editorDraftText, isSelectedDraftThread],
-  );
   const selectedDraftContext = useMemo(() => {
     if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
       return null;
@@ -1948,51 +1949,6 @@ function ChatPageContent() {
     [context],
   );
 
-  useEffect(() => {
-    const hydratedDraftEditorState = buildDraftEditorHydrationState({
-      selectedDraftVersionId,
-      isThreadDraft: isSelectedDraftThread,
-      artifact: selectedDraftArtifact,
-      content: selectedDraftVersionContent,
-    });
-
-    setEditorDraftText(hydratedDraftEditorState.editorDraftText);
-    setEditorDraftPosts(hydratedDraftEditorState.editorDraftPosts);
-    setHasCopiedDraftEditorText(false);
-  }, [
-    activeDraftEditor?.messageId,
-    activeDraftEditor?.versionId,
-    isSelectedDraftThread,
-    selectedDraftArtifact,
-    selectedDraftVersionContent,
-    selectedDraftVersionId,
-  ]);
-
-  useEffect(() => {
-    const activeMessageId = activeDraftEditor?.messageId;
-    if (!activeMessageId || !isSelectedDraftThread || selectedDraftThreadPostCount <= 0) {
-      return;
-    }
-
-    setSelectedThreadPostByMessageId((current) => {
-      const rawIndex = current[activeMessageId] ?? 0;
-      const clampedIndex = clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
-
-      if (rawIndex === clampedIndex) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [activeMessageId]: clampedIndex,
-      };
-    });
-  }, [
-    activeDraftEditor?.messageId,
-    isSelectedDraftThread,
-    selectedDraftThreadPostCount,
-  ]);
-
   const navigateDraftTimeline = useCallback(
     (direction: "back" | "forward") => {
       const navigation = resolveDraftTimelineNavigation({
@@ -2022,170 +1978,6 @@ function ChatPageContent() {
       selectedDraftTimelineIndex,
     ],
   );
-
-  const selectDraftBundleOption = useCallback(
-    (messageId: string, optionId: string, versionId: string) => {
-      setMessages((current) =>
-        current.map((message) => {
-          if (message.id !== messageId) {
-            return message;
-          }
-
-          return {
-            ...message,
-            activeDraftVersionId: versionId,
-            draftBundle: message.draftBundle
-              ? {
-                  ...message.draftBundle,
-                  selectedOptionId: optionId,
-                }
-              : message.draftBundle,
-          };
-        }),
-      );
-    },
-    [],
-  );
-
-  const openDraftEditor = useCallback((
-    messageId: string,
-    versionId?: string,
-    threadPostIndex?: number,
-  ) => {
-    const openState = resolveOpenDraftEditorState({
-      message: messages.find((item) => item.id === messageId) ?? null,
-      fallbackCharacterLimit: composerCharacterLimit,
-      versionId,
-      threadPostIndex,
-    });
-    if (!openState) {
-      return;
-    }
-
-    if (openState.shouldExpandInlineThreadPreview) {
-      setExpandedInlineThreadPreviewId(messageId);
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: openState.selectedThreadPostIndex,
-      }));
-    }
-
-    setActiveDraftEditor(openState.selection);
-  }, [composerCharacterLimit, messages]);
-
-  const updateThreadDraftPost = useCallback((index: number, content: string) => {
-    setEditorDraftPosts((current) =>
-      current.map((post, postIndex) => (postIndex === index ? content : post)),
-    );
-  }, []);
-
-  const moveThreadDraftPost = useCallback((index: number, direction: "up" | "down") => {
-    const messageId = activeDraftEditor?.messageId;
-    let nextSelectedIndex: number | null = null;
-    setEditorDraftPosts((current) => {
-      const nextState = moveThreadDraftPostState({
-        posts: current,
-        index,
-        direction,
-      });
-      if (!nextState) {
-        return current;
-      }
-
-      nextSelectedIndex = nextState.selectedIndex;
-      return nextState.posts;
-    });
-    if (messageId && nextSelectedIndex !== null) {
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: nextSelectedIndex!,
-      }));
-    }
-  }, [activeDraftEditor?.messageId]);
-
-  const splitThreadDraftPost = useCallback((index: number) => {
-    const messageId = activeDraftEditor?.messageId;
-    let nextSelectedIndex: number | null = null;
-    setEditorDraftPosts((current) => {
-      const nextState = splitThreadDraftPostState({
-        posts: current,
-        index,
-      });
-      if (!nextState) {
-        return current;
-      }
-
-      nextSelectedIndex = nextState.selectedIndex;
-      return nextState.posts;
-    });
-    if (messageId && nextSelectedIndex !== null) {
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: nextSelectedIndex!,
-      }));
-    }
-  }, [activeDraftEditor?.messageId]);
-
-  const mergeThreadDraftPostDown = useCallback((index: number) => {
-    const messageId = activeDraftEditor?.messageId;
-    let nextSelectedIndex: number | null = null;
-    setEditorDraftPosts((current) => {
-      const nextState = mergeThreadDraftPostDownState({
-        posts: current,
-        index,
-      });
-      if (!nextState) {
-        return current;
-      }
-
-      nextSelectedIndex = nextState.selectedIndex;
-      return nextState.posts;
-    });
-    if (messageId && nextSelectedIndex !== null) {
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: nextSelectedIndex!,
-      }));
-    }
-  }, [activeDraftEditor?.messageId]);
-
-  const addThreadDraftPost = useCallback((index?: number) => {
-    const messageId = activeDraftEditor?.messageId;
-    let nextSelectedIndex = 0;
-    setEditorDraftPosts((current) => {
-      const nextState = addThreadDraftPostState({
-        posts: current,
-        index,
-      });
-      nextSelectedIndex = nextState.selectedIndex;
-      return nextState.posts;
-    });
-    if (messageId) {
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: nextSelectedIndex,
-      }));
-    }
-  }, [activeDraftEditor?.messageId]);
-
-  const removeThreadDraftPost = useCallback((index: number) => {
-    const messageId = activeDraftEditor?.messageId;
-    let nextSelectedIndex = 0;
-    setEditorDraftPosts((current) => {
-      const nextState = removeThreadDraftPostState({
-        posts: current,
-        index,
-      });
-      nextSelectedIndex = nextState.selectedIndex;
-      return nextState.posts;
-    });
-    if (messageId) {
-      setSelectedThreadPostByMessageId((current) => ({
-        ...current,
-        [messageId]: nextSelectedIndex,
-      }));
-    }
-  }, [activeDraftEditor?.messageId]);
 
   const submitAssistantMessageFeedback = useCallback(
     async (messageId: string, value: MessageFeedbackValue) => {
@@ -2295,224 +2087,6 @@ function ChatPageContent() {
     [activeThreadId, fetchWorkspace, messages],
   );
 
-  const saveDraftEditor = useCallback(async () => {
-    if (
-      !activeDraftEditor ||
-      !selectedDraftMessage ||
-      !selectedDraftVersion ||
-      !activeThreadId
-    ) {
-      return;
-    }
-
-    const draftPromotion = prepareDraftPromotionRequest({
-      activeDraftEditorRevisionChainId: activeDraftEditor.revisionChainId,
-      selectedDraftMessage,
-      selectedDraftVersion,
-      selectedDraftArtifact,
-      isSelectedDraftThread,
-      editorDraftPosts,
-      editorDraftText,
-    });
-    if (draftPromotion.status !== "ready") {
-      return;
-    }
-
-    try {
-      const response = await fetchWorkspace(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/draft-promotions`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(draftPromotion.requestBody),
-        },
-      );
-      if (!response.ok) {
-        throw new Error("promotion failed");
-      }
-
-      const data = (await response.json()) as DraftPromotionResponse;
-      if (!data.ok) {
-        throw new Error(data.errors[0]?.message || "promotion failed");
-      }
-
-      setMessages((current) => [
-        ...current,
-        {
-          id: data.data.userMessage.id,
-          threadId: activeThreadId ?? undefined,
-          role: "user",
-          content: data.data.userMessage.content,
-          createdAt: data.data.userMessage.createdAt,
-        },
-        {
-          id: data.data.assistantMessage.id,
-          threadId: activeThreadId ?? undefined,
-          role: "assistant",
-          content: data.data.assistantMessage.content,
-          createdAt: data.data.assistantMessage.createdAt,
-          draft: data.data.assistantMessage.draft,
-          drafts: data.data.assistantMessage.drafts,
-          draftArtifacts: data.data.assistantMessage.draftArtifacts,
-          draftVersions: data.data.assistantMessage.draftVersions,
-          activeDraftVersionId: data.data.assistantMessage.activeDraftVersionId,
-          previousVersionSnapshot: data.data.assistantMessage.previousVersionSnapshot,
-          revisionChainId: data.data.assistantMessage.revisionChainId,
-          supportAsset: data.data.assistantMessage.supportAsset,
-          promotedSourceMaterials: data.data.promotedSourceMaterials ?? null,
-          outputShape: data.data.assistantMessage.outputShape,
-          replyArtifacts: data.data.assistantMessage.replyArtifacts ?? null,
-          feedbackValue: null,
-        },
-      ]);
-      if (data.data.promotedSourceMaterials?.assets?.length) {
-        mergeSourceMaterials(data.data.promotedSourceMaterials.assets);
-      }
-      setActiveDraftEditor({
-        messageId: data.data.assistantMessage.id,
-        versionId: data.data.assistantMessage.activeDraftVersionId,
-        revisionChainId: data.data.assistantMessage.revisionChainId,
-      });
-      scrollThreadToBottom();
-    } catch {
-      setErrorMessage("The draft could not be promoted yet.");
-    }
-  }, [
-    activeDraftEditor,
-    activeThreadId,
-    editorDraftPosts,
-    editorDraftText,
-    fetchWorkspace,
-    isSelectedDraftThread,
-    mergeSourceMaterials,
-    selectedDraftArtifact,
-    selectedDraftMessage,
-    selectedDraftVersion,
-    scrollThreadToBottom,
-  ]);
-
-  const revertToSelectedDraftVersion = useCallback(async () => {
-    if (!selectedDraftVersion || !selectedDraftMessage) {
-      return;
-    }
-
-    const revertUpdate = resolveDraftVersionRevertUpdate({
-      activeDraftEditorRevisionChainId: activeDraftEditor?.revisionChainId,
-      selectedDraftMessage,
-      selectedDraftVersion,
-      selectedDraftBundleVersions: selectedDraftBundle?.versions,
-      isSelectedDraftThread,
-      fallbackCharacterLimit: getXCharacterLimitForAccount(isVerifiedAccount),
-    });
-    if (!revertUpdate) {
-      return;
-    }
-
-    setMessages((current) =>
-      current.map((message) => {
-        if (message.id !== selectedDraftMessage.id) {
-          return message;
-        }
-
-        return {
-          ...message,
-          draft: revertUpdate.nextDraftCollections.draft,
-          drafts: revertUpdate.nextDraftCollections.drafts,
-          draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
-          draftVersions: revertUpdate.nextDraftVersions,
-          activeDraftVersionId: selectedDraftVersion.id,
-          draftBundle: revertUpdate.nextDraftBundle,
-          revisionChainId: revertUpdate.revisionChainId,
-        };
-      }),
-    );
-
-    setActiveDraftEditor({
-      messageId: selectedDraftMessage.id,
-      versionId: selectedDraftVersion.id,
-      revisionChainId: revertUpdate.revisionChainId,
-    });
-
-    if (!activeThreadId) {
-      return;
-    }
-
-    try {
-      const response = await fetchWorkspace(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            draftVersions: revertUpdate.nextDraftVersions,
-            activeDraftVersionId: selectedDraftVersion.id,
-            draft: revertUpdate.nextDraftCollections.draft,
-            drafts: revertUpdate.nextDraftCollections.drafts,
-            draftArtifacts: revertUpdate.nextDraftCollections.draftArtifacts,
-            draftBundle: revertUpdate.nextDraftBundle,
-            revisionChainId: revertUpdate.revisionChainId,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error("persist failed");
-      }
-    } catch {
-      setErrorMessage("The current version could not be updated yet.");
-    }
-  }, [
-    activeDraftEditor?.revisionChainId,
-    activeThreadId,
-    fetchWorkspace,
-    isVerifiedAccount,
-    isSelectedDraftThread,
-    selectedDraftBundle,
-    selectedDraftMessage,
-    selectedDraftVersion,
-  ]);
-
-  const copyDraftEditor = useCallback(async () => {
-    if (!draftEditorSerializedContent.trim()) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(draftEditorSerializedContent);
-      setHasCopiedDraftEditorText(true);
-      window.setTimeout(() => {
-        setHasCopiedDraftEditorText(false);
-      }, 2200);
-    } catch {
-      setErrorMessage("Copy failed. Try selecting the text manually.");
-    }
-  }, [draftEditorSerializedContent]);
-
-  const shareDraftEditorToX = useCallback(() => {
-    window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
-  }, []);
-
-  const copyPreviewDraft = useCallback(async (messageId: string, content: string) => {
-    const nextContent = content.trim();
-    if (!nextContent) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(nextContent);
-      setCopiedPreviewDraftMessageId(messageId);
-      window.setTimeout(() => {
-        setCopiedPreviewDraftMessageId((current) =>
-          current === messageId ? null : current,
-        );
-      }, 2200);
-    } catch {
-      setErrorMessage("Copy failed. Try selecting the text manually.");
-    }
-  }, []);
 
   const { requestAssistantReply } = useAssistantReplyOrchestrator<
     ChatMessage,
@@ -3257,7 +2831,7 @@ function ChatPageContent() {
                 }}
                 hasCopiedDraftEditorText={hasCopiedDraftEditorText}
                 onCopyDraftEditor={() => {
-                  void copyDraftEditor();
+                  void copyDraftEditor(draftEditorSerializedContent);
                 }}
                 onShareDraftEditor={shareDraftEditorToX}
               />
@@ -3316,7 +2890,7 @@ function ChatPageContent() {
                 }}
                 hasCopiedDraftEditorText={hasCopiedDraftEditorText}
                 onCopyDraftEditor={() => {
-                  void copyDraftEditor();
+                  void copyDraftEditor(draftEditorSerializedContent);
                 }}
                 onShareDraftEditor={shareDraftEditorToX}
               />
