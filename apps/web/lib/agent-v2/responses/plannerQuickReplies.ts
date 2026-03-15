@@ -1,23 +1,11 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { CreatorChatQuickReply, StrategyPlan } from "../contracts/chat";
-
-function compactTopicLabel(value: string): string {
-  const cleaned = value
-    .trim()
-    .replace(/^[@#]+/, "")
-    .replace(/[.?!,]+$/, "")
-    .replace(/\s+/g, " ");
-
-  if (!cleaned) {
-    return "your usual lane";
-  }
-
-  const reduced =
-    cleaned.split(/\b(?:while|because|but|so|and|with)\b/i)[0].trim() || cleaned;
-  const words = reduced.split(/\s+/);
-  const compact = words.length > 5 ? words.slice(0, 5).join(" ") : reduced;
-  return compact.length > 34 ? `${compact.slice(0, 31).trimEnd()}...` : compact;
-}
+import { compactTopicLabel } from "./draftTopicSelector.ts";
+import {
+  applyQuickReplyVoiceCase,
+  normalizeQuickReplyLabel,
+  resolveQuickReplyVoiceProfile,
+} from "./quickReplyVoice.ts";
 
 type PlannerQuickReplyContext = "approval" | "reject";
 
@@ -45,70 +33,6 @@ function pickDeterministic(options: string[], seed: string): string {
   return options[deterministicIndex(seed, options.length)];
 }
 
-function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
-  if (!styleCard) {
-    return false;
-  }
-
-  const explicitCasing = styleCard.userPreferences?.casing;
-  if (explicitCasing === "lowercase") {
-    return true;
-  }
-  if (explicitCasing === "normal" || explicitCasing === "uppercase") {
-    return false;
-  }
-
-  const signals = [
-    ...(styleCard.formattingRules || []),
-    ...(styleCard.customGuidelines || []),
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  return (
-    signals.includes("all lowercase") ||
-    signals.includes("always lowercase") ||
-    signals.includes("never uses capitalization") ||
-    signals.includes("no uppercase")
-  );
-}
-
-function inferConcisePreference(styleCard: VoiceStyleCard | null): boolean {
-  const pacing = styleCard?.pacing?.toLowerCase() || "";
-  const guidance = (styleCard?.customGuidelines || []).join(" ").toLowerCase();
-  const writingGoal = styleCard?.userPreferences?.writingGoal;
-
-  return (
-    writingGoal === "growth_first" ||
-    pacing.includes("short") ||
-    pacing.includes("punchy") ||
-    pacing.includes("bullet") ||
-    pacing.includes("scan") ||
-    guidance.includes("blunt") ||
-    guidance.includes("direct") ||
-    guidance.includes("tight")
-  );
-}
-
-function applyVoiceCase(value: string, lowercase: boolean): string {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  if (!lowercase) {
-    return normalized;
-  }
-
-  return normalized.toLowerCase();
-}
-
-function titleCaseLabel(value: string): string {
-  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
-}
-
-function normalizeLabel(value: string, lowercase: boolean): string {
-  const trimmed = value.trim().replace(/\s+/g, " ");
-  const base = lowercase ? trimmed.toLowerCase() : titleCaseLabel(trimmed);
-  return base.length > 30 ? `${base.slice(0, 27).trimEnd()}...` : base;
-}
-
 function resolveTopicLabel(args: BuildPlannerQuickRepliesArgs): string | null {
   const seed = args.plan?.objective || args.seedTopic || "";
   const compact = compactTopicLabel(seed);
@@ -123,8 +47,7 @@ export function buildPlannerQuickReplies(
   args: BuildPlannerQuickRepliesArgs,
 ): CreatorChatQuickReply[] {
   const context = args.context || "approval";
-  const lowercase = inferLowercasePreference(args.styleCard);
-  const concise = inferConcisePreference(args.styleCard);
+  const voice = resolveQuickReplyVoiceProfile(args.styleCard);
   const topicLabel = resolveTopicLabel(args);
   const seed = [
     context,
@@ -137,7 +60,7 @@ export function buildPlannerQuickReplies(
     .toLowerCase();
 
   if (context === "reject") {
-    const tightenValue = applyVoiceCase(
+    const tightenValue = applyQuickReplyVoiceCase(
       pickDeterministic(
         [
           "keep the same direction, but make the framing tighter and more concrete.",
@@ -145,9 +68,9 @@ export function buildPlannerQuickReplies(
         ],
         `${seed}|reject|tighten`,
       ),
-      lowercase,
+      voice,
     );
-    const personalValue = applyVoiceCase(
+    const personalValue = applyQuickReplyVoiceCase(
       pickDeterministic(
         [
           "keep the topic, but make it more personal and story-led using a real moment i can stand behind.",
@@ -155,47 +78,47 @@ export function buildPlannerQuickReplies(
         ],
         `${seed}|reject|personal`,
       ),
-      lowercase,
+      voice,
     );
-    const differentAngleValue = applyVoiceCase(
+    const differentAngleValue = applyQuickReplyVoiceCase(
       topicLabel
         ? `same topic (${topicLabel}), different angle. avoid repeating the last framing.`
         : "same topic, different angle. avoid repeating the last framing.",
-      lowercase,
+      voice,
     );
 
     return [
       {
         kind: "planner_action",
         value: tightenValue,
-        label: normalizeLabel(
-          concise ? "same angle, sharper hook" : "keep angle, sharper hook",
-          lowercase,
+        label: normalizeQuickReplyLabel(
+          voice.concise ? "same angle, sharper hook" : "keep angle, sharper hook",
+          voice,
         ),
         explicitIntent: "planner_feedback",
       },
       {
         kind: "planner_action",
         value: personalValue,
-        label: normalizeLabel(
-          concise ? "make it more personal" : "same topic, more personal",
-          lowercase,
+        label: normalizeQuickReplyLabel(
+          voice.concise ? "make it more personal" : "same topic, more personal",
+          voice,
         ),
         explicitIntent: "planner_feedback",
       },
       {
         kind: "planner_action",
         value: differentAngleValue,
-        label: normalizeLabel(
+        label: normalizeQuickReplyLabel(
           topicLabel ? `new angle on ${topicLabel}` : "try different angle",
-          lowercase,
+          voice,
         ),
         explicitIntent: "planner_feedback",
       },
     ];
   }
 
-  const approveValue = applyVoiceCase(
+  const approveValue = applyQuickReplyVoiceCase(
     pickDeterministic(
       [
         "looks good. write this version now.",
@@ -203,9 +126,9 @@ export function buildPlannerQuickReplies(
       ],
       `${seed}|approve|ship`,
     ),
-    lowercase,
+    voice,
   );
-  const tightenValue = applyVoiceCase(
+  const tightenValue = applyQuickReplyVoiceCase(
     pickDeterministic(
       [
         "keep this angle, but tighten the framing, sharpen the hook, and remove filler.",
@@ -213,40 +136,40 @@ export function buildPlannerQuickReplies(
       ],
       `${seed}|approve|tighten`,
     ),
-    lowercase,
+    voice,
   );
-  const newAngleValue = applyVoiceCase(
+  const newAngleValue = applyQuickReplyVoiceCase(
     topicLabel
       ? `same topic (${topicLabel}), but give me a different angle that feels fresher.`
       : "same topic, but give me a different angle that feels fresher.",
-    lowercase,
+    voice,
   );
 
   return [
     {
       kind: "planner_action",
       value: approveValue,
-      label: normalizeLabel(
-        concise ? "write this" : "write this version",
-        lowercase,
+      label: normalizeQuickReplyLabel(
+        voice.concise ? "write this" : "write this version",
+        voice,
       ),
       explicitIntent: "planner_feedback",
     },
     {
       kind: "planner_action",
       value: tightenValue,
-      label: normalizeLabel(
-        concise ? "same angle, sharper hook" : "keep angle, sharpen hook",
-        lowercase,
+      label: normalizeQuickReplyLabel(
+        voice.concise ? "same angle, sharper hook" : "keep angle, sharpen hook",
+        voice,
       ),
       explicitIntent: "planner_feedback",
     },
     {
       kind: "planner_action",
       value: newAngleValue,
-      label: normalizeLabel(
+      label: normalizeQuickReplyLabel(
         topicLabel ? `new angle on ${topicLabel}` : "different angle",
-        lowercase,
+        voice,
       ),
       explicitIntent: "planner_feedback",
     },
