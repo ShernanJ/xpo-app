@@ -84,9 +84,7 @@ import {
 import {
   DEFAULT_CHAT_STRATEGY_INPUTS,
   DEFAULT_CHAT_TONE_INPUTS,
-  HERO_EXIT_TRANSITION_MS,
   buildTemplateWhyItWorksPoints,
-  chatProviderStorageKey,
   dedupePreserveOrder,
   formatEnumLabel,
   formatNicheSummary,
@@ -102,6 +100,7 @@ import {
   type ChatStrategyInputs,
   type ChatToneInputs,
 } from "./_features/chat-page/chatPageViewState";
+import { useChatRuntimeState } from "./_features/chat-page/useChatRuntimeState";
 import { useSourceMaterialsState } from "./_features/source-materials/useSourceMaterialsState";
 import { usePreferencesState } from "./_features/preferences/usePreferencesState";
 import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideState";
@@ -110,15 +109,6 @@ import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditor
 import {
   type SourceMaterialAsset,
 } from "./_features/source-materials/sourceMaterialsState";
-
-interface BackfillJobStatusResponse {
-  ok: true;
-  job: {
-    jobId: string;
-    status: "pending" | "processing" | "completed" | "failed";
-    lastError: string | null;
-  } | null;
-}
 
 interface CreatorChatSuccess {
   ok: true;
@@ -360,7 +350,6 @@ interface ChatMessage {
   isStreaming?: boolean;
 }
 
-type ChatProviderPreference = "openai" | "groq";
 type ChatIntent = "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
 type ChatContentFocus =
   | "project_showcase"
@@ -566,7 +555,6 @@ function ChatPageContent() {
     onErrorMessage: setErrorMessage,
   });
   const [draftInput, setDraftInput] = useState("");
-  const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
   const {
@@ -666,16 +654,7 @@ function ChatPageContent() {
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
-  const [providerPreference] = useState<ChatProviderPreference>(() => {
-    if (typeof window === "undefined" || !showDevTools) {
-      return "groq";
-    }
-
-    const storedValue = window.localStorage.getItem(chatProviderStorageKey);
-    return storedValue === "openai" || storedValue === "groq" ? storedValue : "groq";
-  });
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
-  const [, setBackfillNotice] = useState<string | null>(null);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
@@ -715,6 +694,16 @@ function ChatPageContent() {
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
   >(null);
+  const {
+    isLeavingHero,
+    providerPreference,
+    setBackfillNotice,
+    setIsLeavingHero,
+  } = useChatRuntimeState({
+    backfillJobId,
+    messagesLength: messages.length,
+    loadWorkspace,
+  });
   const {
     typedAssistantLengths,
     setTypedAssistantLengths,
@@ -870,100 +859,6 @@ function ChatPageContent() {
     formatEnumLabel,
     formatNicheSummary,
   });
-  useEffect(() => {
-    if (!isLeavingHero) {
-      return;
-    }
-
-    if (messages.length > 0) {
-      const timeoutId = window.setTimeout(() => {
-        setIsLeavingHero(false);
-      }, HERO_EXIT_TRANSITION_MS);
-
-      return () => {
-        window.clearTimeout(timeoutId);
-      };
-    }
-  }, [isLeavingHero, messages.length]);
-
-  useEffect(() => {
-    if (!backfillJobId) {
-      return;
-    }
-
-    let cancelled = false;
-    let finished = false;
-
-    async function pollBackfillJob() {
-      if (finished) {
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/onboarding/backfill/jobs?jobId=${encodeURIComponent(backfillJobId)}`,
-          { method: "GET" },
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data: BackfillJobStatusResponse = await response.json();
-        const job = data.job;
-        if (!job || cancelled) {
-          return;
-        }
-
-        if (job.status === "pending") {
-          setBackfillNotice("Background backfill is queued.");
-          return;
-        }
-
-        if (job.status === "processing") {
-          setBackfillNotice("Background backfill is deepening the model.");
-          return;
-        }
-
-        if (job.status === "failed") {
-          setBackfillNotice(
-            job.lastError
-              ? `Background backfill failed: ${job.lastError}`
-              : "Background backfill failed.",
-          );
-          finished = true;
-          return;
-        }
-
-        if (job.status === "completed") {
-          setBackfillNotice("Background backfill completed. Context refreshed.");
-          await loadWorkspace();
-          finished = true;
-        }
-      } catch {
-        // Keep polling on transient failures.
-      }
-    }
-
-    void pollBackfillJob();
-    const interval = window.setInterval(() => {
-      void pollBackfillJob();
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [backfillJobId, loadWorkspace]);
-
-  useEffect(() => {
-    if (!showDevTools) {
-      return;
-    }
-
-    window.localStorage.setItem(chatProviderStorageKey, providerPreference);
-  }, [providerPreference]);
-
   useEffect(() => {
     if (!context || !contract) {
       return;

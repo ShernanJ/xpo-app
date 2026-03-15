@@ -43,6 +43,8 @@ interface ChatMessageVisibilityTarget {
     | null;
 }
 
+export type ChatProviderPreference = "openai" | "groq";
+
 export const showDevTools = process.env.NEXT_PUBLIC_SHOW_ONBOARDING_DEV_TOOLS === "1";
 export const chatProviderStorageKey = "stanley-x-chat-provider";
 export const HERO_EXIT_TRANSITION_MS = 720;
