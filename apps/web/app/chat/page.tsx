@@ -1645,55 +1645,12 @@ function ChatPageContent() {
     ? pendingStatusPlan.workflow
     : null;
   const shouldShowPendingDraftShell = isSending && pendingDraftWorkflow !== null;
-  const selectedDraftThreadPostIndex = useMemo(() => {
-    const activeMessageId = activeDraftEditor?.messageId;
-    if (!activeMessageId || !isSelectedDraftThread || selectedDraftThreadPostCount === 0) {
-      return 0;
-    }
-
-    const rawIndex = selectedThreadPostByMessageId[activeMessageId] ?? 0;
-    return clampThreadPostIndex(rawIndex, selectedDraftThreadPostCount);
-  }, [
-    activeDraftEditor?.messageId,
-    isSelectedDraftThread,
-    selectedDraftThreadPostCount,
-    selectedThreadPostByMessageId,
-  ]);
-  const selectedDraftContext = useMemo(() => {
-    if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
-      return null;
-    }
-
-    return {
-      messageId: activeDraftEditor.messageId,
-      versionId: selectedDraftVersion.id,
-      content: draftEditorSerializedContent.trim() || selectedDraftVersion.content,
-      source: selectedDraftVersion.source,
-      createdAt: selectedDraftVersion.createdAt,
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      revisionChainId:
-        activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
-    };
-  }, [
-    activeDraftEditor,
-    draftEditorSerializedContent,
-    selectedDraftMessage,
-    selectedDraftVersion,
-  ]);
-  const selectedDraftTimeline = useMemo(
-    () =>
-      buildDraftRevisionTimeline({
-        messages,
-        activeDraftSelection: activeDraftEditor,
-        fallbackCharacterLimit: composerCharacterLimit,
-      }),
-    [activeDraftEditor, composerCharacterLimit, messages],
-  );
-  const selectedDraftVersionId = selectedDraftVersion?.id ?? null;
-  const selectedDraftVersionContent = selectedDraftVersion?.content ?? "";
-  const selectedDraftMessageId = activeDraftEditor?.messageId ?? null;
   const {
-    selectedDraftTimelineIndex,
+    selectedDraftThreadPostIndex,
+    selectedDraftContext,
+    selectedDraftTimeline,
+    selectedDraftVersionId,
+    selectedDraftMessageId,
     selectedDraftTimelinePosition,
     latestDraftTimelineEntry,
     canNavigateDraftBack,
@@ -1701,21 +1658,20 @@ function ChatPageContent() {
     isViewingHistoricalDraftVersion,
     hasDraftEditorChanges,
     shouldShowRevertDraftCta,
-  } = useMemo(
-    () =>
-      resolveDraftTimelineState({
-        timeline: selectedDraftTimeline,
-        activeDraftSelection: activeDraftEditor,
-        serializedContent: draftEditorSerializedContent,
-        selectedDraftVersionContent,
-      }),
-    [
-      activeDraftEditor,
-      draftEditorSerializedContent,
-      selectedDraftTimeline,
-      selectedDraftVersionContent,
-    ],
-  );
+    navigateDraftTimeline,
+  } = useSelectedDraftTimelineState<ChatMessage>({
+    activeDraftEditor,
+    messages,
+    composerCharacterLimit,
+    selectedThreadPostByMessageId,
+    selectedDraftThreadPostCount,
+    draftEditorSerializedContent,
+    selectedDraftMessage,
+    selectedDraftVersion,
+    isSelectedDraftThread,
+    setActiveDraftEditor,
+    scrollMessageIntoView,
+  });
   const draftEditorPrimaryActionLabel = shouldShowRevertDraftCta
     ? "Revert to this Version"
     : "Save As New Version";
@@ -1772,36 +1728,6 @@ function ChatPageContent() {
   const defaultQuickReplies = useMemo(
     () => buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context)),
     [context],
-  );
-
-  const navigateDraftTimeline = useCallback(
-    (direction: "back" | "forward") => {
-      const navigation = resolveDraftTimelineNavigation({
-        direction,
-        timeline: selectedDraftTimeline,
-        selectedDraftTimelineIndex,
-        activeDraftSelection: activeDraftEditor,
-      });
-      if (!navigation) {
-        return;
-      }
-
-      if (navigation.scrollToMessageId) {
-        scrollMessageIntoView(navigation.scrollToMessageId);
-        window.setTimeout(() => {
-          setActiveDraftEditor(navigation.targetSelection);
-        }, DRAFT_TIMELINE_FOCUS_DELAY_MS);
-        return;
-      }
-
-      setActiveDraftEditor(navigation.targetSelection);
-    },
-    [
-      activeDraftEditor,
-      scrollMessageIntoView,
-      selectedDraftTimeline,
-      selectedDraftTimelineIndex,
-    ],
   );
 
   const { requestAssistantReply } = useAssistantReplyOrchestrator<
