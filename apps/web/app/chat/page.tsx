@@ -21,8 +21,6 @@ import {
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import type {
-  ChatArtifactContext,
-  ChatTurnSource,
   SelectedAngleFormatHint,
 } from "@/lib/agent-v2/contracts/turnContract";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
@@ -61,7 +59,6 @@ import {
 import { ChatComposerDock } from "./_features/composer/ChatComposerDock";
 import { ChatHero } from "./_features/composer/ChatHero";
 import { resolveComposerViewState } from "./_features/composer/composerViewState";
-import { prepareAssistantReplyTransport } from "./_features/transport/chatTransport";
 import {
   prepareComposerSubmission,
   resolveComposerQuickReplyUpdate,
@@ -104,11 +101,8 @@ import {
   resolveOpenDraftEditorState,
 } from "./_features/draft-editor/chatDraftSessionState";
 import {
-  readChatResponseStream,
-  resolveAssistantReplyJsonOutcome,
-  resolveAssistantReplyPlan,
 } from "./_features/reply/chatReplyState";
-import type { AssistantReplyPlan as ResolvedAssistantReplyPlan } from "./_features/reply/chatReplyState";
+import { useAssistantReplyOrchestrator } from "./_features/reply/useAssistantReplyOrchestrator";
 import {
   buildChatWorkspaceReset,
   resolveWorkspaceHandle,
@@ -335,17 +329,6 @@ interface CreatorChatSuccess {
   };
 }
 
-interface CreatorChatFailure {
-  ok: false;
-  code?: "INSUFFICIENT_CREDITS" | "PLAN_REQUIRED" | "RATE_LIMITED";
-  errors: ValidationError[];
-  data?: {
-    billing?: BillingSnapshotPayload;
-  };
-}
-
-type CreatorChatResponse = CreatorChatSuccess | CreatorChatFailure;
-
 type DraftArtifact = DraftArtifactDetails;
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -500,20 +483,6 @@ interface ChatQuickReply {
   explicitIntent?: ChatIntent;
   formatPreference?: "shortform" | "longform" | "thread";
 }
-
-type CreatorAssistantReplyPlan = ResolvedAssistantReplyPlan<
-  ChatQuickReply,
-  CreatorChatSuccess["data"]["plan"],
-  DraftArtifact,
-  DraftVersionEntry,
-  DraftBundlePayload,
-  DraftVersionSnapshot,
-  ReplyArtifacts,
-  ReplyParseEnvelope,
-  CreatorChatSuccess["data"]["contextPacket"],
-  CreatorChatSuccess["data"]["memory"],
-  BillingStatePayload
->;
 
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
 
@@ -1974,6 +1943,10 @@ function ChatPageContent() {
         ?.id ?? null,
     [messages],
   );
+  const defaultQuickReplies = useMemo(
+    () => buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context)),
+    [context],
+  );
 
   useEffect(() => {
     const hydratedDraftEditorState = buildDraftEditorHydrationState({
@@ -2541,250 +2514,62 @@ function ChatPageContent() {
     }
   }, []);
 
-  const applyAssistantReplyPlan = useCallback(
-    (replyPlan: CreatorAssistantReplyPlan) => {
-      startTransition(() => {
-        if (replyPlan.nextBilling) {
-          setBillingState(replyPlan.nextBilling);
-        }
-
-        setMessages((current) => [
-          ...current,
-          replyPlan.buildAssistantMessage(current.length),
-        ]);
-
-        if (replyPlan.nextDraftEditor) {
-          setActiveDraftEditor(replyPlan.nextDraftEditor);
-        }
-
-        if (replyPlan.nextConversationMemory) {
-          setConversationMemory(replyPlan.nextConversationMemory);
-        }
-
-        if (replyPlan.nextThreadTitle) {
-          syncThreadTitle(
-            replyPlan.nextThreadTitle.threadId,
-            replyPlan.nextThreadTitle.title,
-          );
-        }
-
-        if (replyPlan.createdThreadPlan) {
-          applyCreatedThreadWorkspaceUpdate(
-            replyPlan.createdThreadPlan.threadId,
-            replyPlan.createdThreadPlan.title,
-          );
-        }
-      });
-      scrollThreadToBottom();
-    },
-    [
-      applyCreatedThreadWorkspaceUpdate,
-      scrollThreadToBottom,
-      setBillingState,
-      syncThreadTitle,
-    ],
-  );
-
-  const requestAssistantReply = useCallback(
-    async (options: {
-      prompt?: string;
-      appendUserMessage: boolean;
-      displayUserMessage?: string;
-      includeUserMessageInHistory?: boolean;
-      turnSource?: ChatTurnSource;
-      artifactContext?: ChatArtifactContext | null;
-      intent?: ChatIntent;
-      formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
-      threadFramingStyleOverride?: ThreadFramingStyle | null;
-      selectedDraftContextOverride?: DraftVersionSnapshot | null;
-      historySeed?: ChatMessage[];
-      strategyInputOverride?: ChatStrategyInputs;
-      toneInputOverride?: ChatToneInputs;
-      contentFocusOverride?: ChatContentFocus | null;
-      fallbackContext?: CreatorAgentContext;
-      fallbackContract?: CreatorGenerationContract;
-    }) => {
-      const resolvedContext = options.fallbackContext ?? context;
-      const resolvedContract = options.fallbackContract ?? contract;
-      const resolvedStrategyInputs =
-        options.strategyInputOverride ?? activeStrategyInputs;
-      const resolvedToneInputs = options.toneInputOverride ?? activeToneInputs;
-      const resolvedContentFocus =
-        options.contentFocusOverride ?? activeContentFocus;
-
-      if (
-        !resolvedContext?.runId ||
-        !resolvedContract ||
-        !resolvedStrategyInputs ||
-        !resolvedToneInputs ||
-        isMainChatLocked
-      ) {
-        return;
-      }
-
-      const historySeed = (options.historySeed ?? messages)
-        .filter((message) => !message.excludeFromHistory)
-        .slice();
-      const preparedRequest = prepareAssistantReplyTransport({
-        prompt: options.prompt,
-        history: historySeed,
-        runId: resolvedContext.runId,
-        threadId: activeThreadId,
-        workspaceHandle: accountName,
-        provider: providerPreference,
-        turnSource: options.turnSource,
-        artifactContext: options.artifactContext ?? null,
-        intent: options.intent,
-        formatPreferenceOverride: options.formatPreferenceOverride ?? null,
-        threadFramingStyleOverride: options.threadFramingStyleOverride ?? null,
-        selectedDraftContext,
-        selectedDraftContextOverride:
-          options.selectedDraftContextOverride !== undefined
-            ? options.selectedDraftContextOverride
-            : undefined,
-        contentFocus: resolvedContentFocus,
-        preferenceSettings: currentPreferencePayload,
-        preferenceConstraints: preferenceConstraintRules,
-        strategyInputs: resolvedStrategyInputs,
-        toneInputs: resolvedToneInputs,
-      });
-
-      if (preparedRequest.shouldSkip || !preparedRequest.transportRequest) {
-        return;
-      }
-      const {
-        trimmedPrompt,
-        effectiveSelectedDraftContext,
-      } = preparedRequest;
-
-      let history = historySeed;
-
-      if (options.appendUserMessage) {
-        const userMessage: ChatMessage = {
-          id: `user-${Date.now()}`,
-          threadId: activeThreadId ?? undefined,
-          role: "user",
-          content: options.displayUserMessage?.trim() || trimmedPrompt,
-          excludeFromHistory: options.includeUserMessageInHistory === false,
-        };
-
-        setMessages((current) => [...current, userMessage]);
-        scrollThreadToBottom();
-        if (options.includeUserMessageInHistory !== false) {
-          history = [...history, userMessage];
-        }
-      }
-
-      setIsSending(true);
-      setStreamStatus(null);
-      setPendingStatusPlan(preparedRequest.pendingStatusPlan);
-      setErrorMessage(null);
-
-      try {
-        const response = await fetchWorkspace("/api/creator/v2/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            ...preparedRequest.transportRequest,
-            history,
-          }),
-        });
-
-        const contentType = response.headers.get("content-type") ?? "";
-        const starterQuickReplies = buildDefaultExampleQuickReplies(
-          shouldUseLowercaseChipVoice(context),
-        );
-        const replyPlanArgs = {
-          activeThreadId,
-          trimmedPrompt,
-          artifactKind: options.artifactContext?.kind ?? null,
-          defaultQuickReplies: starterQuickReplies,
-          selectedDraftContext: effectiveSelectedDraftContext,
-          accountName,
-        } as const;
-
-        if (contentType.includes("application/json")) {
-          const data: CreatorChatResponse = await response.json();
-          const outcome = resolveAssistantReplyJsonOutcome({
-            responseOk: response.ok,
-            responseStatus: response.status,
-            response: data,
-            failureMessage: "Failed to generate a reply.",
-            replyPlanArgs: {
-              ...replyPlanArgs,
-              mode: "json",
-            },
-          });
-
-          if (outcome.kind === "failure") {
-            const nextBillingSnapshot =
-              outcome.nextBillingSnapshot as BillingSnapshotPayload | null;
-
-            if (nextBillingSnapshot) {
-              applyBillingSnapshot(nextBillingSnapshot);
-            }
-            if (outcome.shouldOpenPricingModal) {
-              setPricingModalOpen(true);
-            }
-            setErrorMessage(outcome.errorMessage);
-            return;
-          }
-
-          applyAssistantReplyPlan(outcome.replyPlan as CreatorAssistantReplyPlan);
-
-          return;
-        }
-
-        if (!response.body) {
-          throw new Error("The chat stream did not return a readable body.");
-        }
-
-        const streamedResult = await readChatResponseStream<CreatorChatSuccess["data"]>({
-          body: response.body,
-          onStatus: (message) => setStreamStatus(message),
-        });
-        applyAssistantReplyPlan(
-          resolveAssistantReplyPlan({
-            ...replyPlanArgs,
-            result: streamedResult,
-            mode: "stream",
-          }) as CreatorAssistantReplyPlan,
-        );
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "The live model failed before the backend could return a response.",
-        );
-      } finally {
-        setIsSending(false);
-        setStreamStatus(null);
-        setPendingStatusPlan(null);
-      }
-    },
-    [
-      activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
-      contract,
-      context,
-      currentPreferencePayload,
-      fetchWorkspace,
-      isMainChatLocked,
-      messages,
-      providerPreference,
-      preferenceConstraintRules,
-      selectedDraftContext,
-      scrollThreadToBottom,
-      applyBillingSnapshot,
-      applyAssistantReplyPlan,
-      accountName,
-      activeThreadId,
-      setPricingModalOpen,
-    ],
-  );
+  const { requestAssistantReply } = useAssistantReplyOrchestrator<
+    ChatMessage,
+    ChatQuickReply,
+    CreatorChatSuccess["data"]["plan"],
+    DraftArtifact,
+    DraftVersionEntry,
+    DraftBundlePayload,
+    DraftVersionSnapshot,
+    ReplyArtifacts,
+    ReplyParseEnvelope,
+    CreatorChatSuccess["data"]["contextPacket"],
+    CreatorChatSuccess["data"]["memory"],
+    BillingStatePayload,
+    BillingSnapshotPayload,
+    ChatStrategyInputs,
+    ChatToneInputs,
+    CreatorAgentContext,
+    CreatorGenerationContract,
+    DraftVersionSnapshot
+  >({
+    context,
+    contract,
+    activeStrategyInputs,
+    activeToneInputs,
+    activeContentFocus,
+    isMainChatLocked,
+    messages,
+    activeThreadId,
+    accountName,
+    providerPreference,
+    selectedDraftContext,
+    currentPreferencePayload,
+    preferenceConstraintRules,
+    defaultQuickReplies,
+    fetchWorkspace,
+    applyBillingSnapshot,
+    setPricingModalOpen,
+    setIsSending,
+    setStreamStatus,
+    setPendingStatusPlan,
+    setErrorMessage,
+    setBillingState,
+    setMessages,
+    setActiveDraftEditor,
+    setConversationMemory,
+    syncThreadTitle,
+    applyCreatedThreadWorkspaceUpdate,
+    scrollThreadToBottom,
+    createUserMessage: ({ id, threadId, content, excludeFromHistory }) => ({
+      id,
+      threadId,
+      role: "user",
+      content,
+      excludeFromHistory,
+    }),
+  });
 
   const requestDraftCardRevision = useCallback(
     async (
