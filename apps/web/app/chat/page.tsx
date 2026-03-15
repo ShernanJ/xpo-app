@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  FormEvent,
   Fragment,
   Suspense,
   startTransition,
@@ -20,9 +19,6 @@ import {
   type ThreadFramingStyle,
   type DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
-import type {
-  SelectedAngleFormatHint,
-} from "@/lib/agent-v2/contracts/turnContract";
 import type { CreatorGenerationContract } from "@/lib/onboarding/contracts/generationContract";
 import type {
   PostingCadenceCapacity,
@@ -59,10 +55,7 @@ import {
 import { ChatComposerDock } from "./_features/composer/ChatComposerDock";
 import { ChatHero } from "./_features/composer/ChatHero";
 import { resolveComposerViewState } from "./_features/composer/composerViewState";
-import {
-  prepareComposerSubmission,
-  resolveComposerQuickReplyUpdate,
-} from "./_features/composer/chatComposerState";
+import { useComposerInteractions } from "./_features/composer/useComposerInteractions";
 import {
   resolveDraftCardRevisionAction,
   resolveSelectedThreadFramingChangeAction,
@@ -425,42 +418,6 @@ const DEFAULT_CHAT_TONE_INPUTS: ChatToneInputs = {
   toneCasing: "normal",
   toneRisk: "safe",
 };
-
-const BASE_HERO_QUICK_ACTIONS = [
-  {
-    label: "Write a post",
-    prompt: "write a post",
-  },
-  {
-    label: "Give me feedback",
-    prompt: "give me feedback",
-  },
-  {
-    label: "Write a thread",
-    prompt: "write a thread",
-  },
-] as const;
-
-function shouldUseLowercaseChipVoice(context: CreatorAgentContext | null): boolean {
-  const voice = context?.creatorProfile.voice;
-  return (
-    voice?.primaryCasing === "lowercase" &&
-    (voice.lowercaseSharePercent ?? 0) >= 70
-  );
-}
-
-function applyChipVoiceCase(value: string, lowercase: boolean): string {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  return lowercase ? normalized.toLowerCase() : normalized;
-}
-
-function buildDefaultExampleQuickReplies(lowercase: boolean): ChatQuickReply[] {
-  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
-    kind: "example_reply",
-    value: applyChipVoiceCase(action.prompt, lowercase),
-    label: applyChipVoiceCase(action.label, lowercase),
-  }));
-}
 
 const HERO_EXIT_TRANSITION_MS = 720;
 function formatEnumLabel(value: string): string {
@@ -1717,19 +1674,6 @@ function ChatPageContent() {
   });
   const isMainChatLocked = isSending || isDraftInspectorLoading;
 
-  const latestAssistantMessageId = useMemo(
-    () =>
-      [...messages]
-        .reverse()
-        .find((message) => message.role === "assistant" && message.content.length > 0)
-        ?.id ?? null,
-    [messages],
-  );
-  const defaultQuickReplies = useMemo(
-    () => buildDefaultExampleQuickReplies(shouldUseLowercaseChipVoice(context)),
-    [context],
-  );
-
   const { requestAssistantReply } = useAssistantReplyOrchestrator<
     ChatMessage,
     ChatQuickReply,
@@ -1785,6 +1729,37 @@ function ChatPageContent() {
       content,
       excludeFromHistory,
     }),
+  });
+  const {
+    latestAssistantMessageId,
+    defaultQuickReplies,
+    handleAngleSelect,
+    handleReplyOptionSelect,
+    handleQuickReplySelect,
+    handleComposerSubmit,
+    submitQuickStarter,
+    handleComposerKeyDown,
+  } = useComposerInteractions<
+    ChatMessage,
+    ChatQuickReply,
+    ChatStrategyInputs,
+    ChatToneInputs,
+    ChatContentFocus
+  >({
+    context,
+    contract,
+    activeThreadId,
+    draftInput,
+    messages,
+    activeStrategyInputs,
+    activeToneInputs,
+    activeContentFocus,
+    isMainChatLocked,
+    requestAssistantReply,
+    setActiveContentFocus,
+    setDraftInput,
+    setErrorMessage,
+    setIsLeavingHero,
   });
 
   const requestDraftCardRevision = useCallback(
@@ -1851,161 +1826,6 @@ function ChatPageContent() {
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
   });
-
-  const handleAngleSelect = useCallback(
-    async (angle: string, formatHint: SelectedAngleFormatHint) => {
-      if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
-        return;
-      }
-
-      await requestAssistantReply({
-        prompt: "",
-        displayUserMessage: `> ${angle}`,
-        includeUserMessageInHistory: false,
-        turnSource: "ideation_pick",
-        artifactContext: {
-          kind: "selected_angle",
-          angle,
-          formatHint,
-        },
-        appendUserMessage: true,
-        strategyInputOverride: activeStrategyInputs,
-        toneInputOverride: activeToneInputs,
-        contentFocusOverride: activeContentFocus,
-      });
-    },
-    [
-      activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
-      isMainChatLocked,
-      requestAssistantReply,
-    ],
-  );
-
-  const handleReplyOptionSelect = useCallback(
-    async (optionIndex: number) => {
-      if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
-        return;
-      }
-
-      await requestAssistantReply({
-        prompt: "",
-        displayUserMessage: `> option ${optionIndex + 1}`,
-        includeUserMessageInHistory: false,
-        turnSource: "reply_action",
-        artifactContext: {
-          kind: "reply_option_select",
-          optionIndex,
-        },
-        appendUserMessage: true,
-        strategyInputOverride: activeStrategyInputs,
-        toneInputOverride: activeToneInputs,
-        contentFocusOverride: activeContentFocus,
-      });
-    },
-    [
-      activeContentFocus,
-      activeStrategyInputs,
-      activeToneInputs,
-      isMainChatLocked,
-      requestAssistantReply,
-    ],
-  );
-
-  const handleQuickReplySelect = useCallback(
-    (quickReply: ChatQuickReply) => {
-      const quickReplyUpdate = resolveComposerQuickReplyUpdate({
-        quickReply,
-        isMainChatLocked,
-      });
-      if (!quickReplyUpdate.shouldApply) {
-        return;
-      }
-
-      if (quickReplyUpdate.nextActiveContentFocus) {
-        setActiveContentFocus(quickReplyUpdate.nextActiveContentFocus);
-      }
-
-      setDraftInput(quickReplyUpdate.nextDraftInput);
-      if (quickReplyUpdate.shouldClearError) {
-        setErrorMessage(null);
-      }
-    },
-    [isMainChatLocked],
-  );
-
-  const submitComposerPrompt = useCallback(
-    async (prompt: string) => {
-      const submission = prepareComposerSubmission({
-        prompt,
-        hasContext: Boolean(context),
-        hasContract: Boolean(contract),
-        hasStrategyInputs: Boolean(activeStrategyInputs),
-        hasToneInputs: Boolean(activeToneInputs),
-        isMainChatLocked,
-        activeThreadId,
-        messagesLength: messages.length,
-      });
-
-      if (submission.status === "skip") {
-        return;
-      }
-
-      if (submission.status === "blocked") {
-        setErrorMessage(submission.errorMessage);
-        return;
-      }
-
-      if (submission.shouldAnimateHeroExit) {
-        setIsLeavingHero(true);
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
-        });
-      }
-
-      setDraftInput("");
-
-      await requestAssistantReply({
-        prompt: submission.trimmedPrompt,
-        appendUserMessage: true,
-        turnSource: "free_text",
-        strategyInputOverride: activeStrategyInputs as ChatStrategyInputs,
-        toneInputOverride: activeToneInputs as ChatToneInputs,
-        contentFocusOverride: activeContentFocus,
-      });
-    },
-    [
-      activeContentFocus,
-      activeThreadId,
-      activeStrategyInputs,
-      activeToneInputs,
-      contract,
-      context,
-      isMainChatLocked,
-      messages.length,
-      requestAssistantReply,
-    ],
-  );
-
-  async function handleComposerSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await submitComposerPrompt(draftInput);
-  }
-
-  const submitQuickStarter = useCallback(
-    async (prompt: string) => {
-      await submitComposerPrompt(prompt);
-    },
-    [submitComposerPrompt],
-  );
-
-  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void submitComposerPrompt(draftInput);
-    }
-  };
 
   const {
     heroGreeting,

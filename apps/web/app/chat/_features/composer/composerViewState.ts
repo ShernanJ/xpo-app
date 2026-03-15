@@ -22,6 +22,12 @@ export interface HeroQuickAction {
   prompt: string;
 }
 
+export interface DefaultExampleQuickReply {
+  kind: "example_reply";
+  value: string;
+  label: string;
+}
+
 function shouldUseLowercaseChipVoice(context: CreatorAgentContext | null): boolean {
   const voice = context?.creatorProfile.voice;
   return voice?.primaryCasing === "lowercase" && (voice.lowercaseSharePercent ?? 0) >= 70;
@@ -36,6 +42,17 @@ function buildHeroQuickActions(lowercase: boolean): HeroQuickAction[] {
   return BASE_HERO_QUICK_ACTIONS.map((action) => ({
     label: applyChipVoiceCase(action.label, lowercase),
     prompt: applyChipVoiceCase(action.prompt, lowercase),
+  }));
+}
+
+export function buildDefaultExampleQuickReplies(
+  context: CreatorAgentContext | null,
+): DefaultExampleQuickReply[] {
+  const lowercase = shouldUseLowercaseChipVoice(context);
+  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
+    kind: "example_reply",
+    value: applyChipVoiceCase(action.prompt, lowercase),
+    label: applyChipVoiceCase(action.label, lowercase),
   }));
 }
 
