@@ -294,10 +294,23 @@ export function useMessageArtifactActions<TMessage extends MessageArtifactAction
     [activeThreadId, fetchWorkspace, messages, setMessages],
   );
 
+  const pruneMessageArtifactState = useCallback((retainedMessageIds: string[]) => {
+    const retainedIds = new Set(retainedMessageIds);
+    const pruneMap = (current: Record<string, boolean>) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([messageId, value]) => retainedIds.has(messageId) && value),
+      );
+
+    setMessageFeedbackPendingById(pruneMap);
+    setAutoSavedSourceUndoPendingByMessageId(pruneMap);
+    setDismissedAutoSavedSourceByMessageId(pruneMap);
+  }, []);
+
   return {
     messageFeedbackPendingById,
     autoSavedSourceUndoPendingByMessageId,
     dismissedAutoSavedSourceByMessageId,
+    pruneMessageArtifactState,
     undoAutoSavedSourceMaterials,
     submitAssistantMessageFeedback,
   };

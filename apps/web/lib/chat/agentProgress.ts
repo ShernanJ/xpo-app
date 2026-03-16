@@ -40,6 +40,11 @@ export interface PendingStatusResolvedStep extends PendingStatusStep {
   status: PendingStatusStepState;
 }
 
+export interface PendingStatusStepOverride {
+  label?: string | null;
+  explanation?: string | null;
+}
+
 export interface PendingStatusPlan {
   workflow: PendingStatusWorkflow;
   steps: PendingStatusStep[];
@@ -61,6 +66,7 @@ export interface AgentProgressRun {
   endedAtMs: number | null;
   activeStepId: PendingStatusStepId | null;
   backendStatus: string | null;
+  stepOverrides: Partial<Record<PendingStatusStepId, PendingStatusStepOverride>>;
   frozenSnapshot: PendingStatusSnapshot | null;
 }
 
@@ -451,6 +457,23 @@ function resolveBackendPendingStatusStepId(
   }
 }
 
+function resolveAppliedStep(
+  step: PendingStatusStep,
+  override?: PendingStatusStepOverride | null,
+): PendingStatusStep {
+  const nextLabel = override?.label?.trim();
+  const nextExplanation = override?.explanation?.trim();
+
+  return {
+    ...step,
+    label: nextLabel && nextLabel.length > 0 ? nextLabel : step.label,
+    explanation:
+      nextExplanation && nextExplanation.length > 0
+        ? nextExplanation
+        : step.explanation,
+  };
+}
+
 export function isPendingStatusWorkflow(
   value: unknown,
 ): value is PendingStatusWorkflow {
@@ -568,6 +591,7 @@ export function resolvePendingStatusSnapshot(args: {
   elapsedMs: number;
   backendStatus?: string | null;
   activeStepId?: PendingStatusStepId | null;
+  stepOverrides?: Partial<Record<PendingStatusStepId, PendingStatusStepOverride>>;
 }): PendingStatusSnapshot | null {
   if (!args.plan) {
     return null;
@@ -582,7 +606,7 @@ export function resolvePendingStatusSnapshot(args: {
     resolveStepIndexFromElapsed(args.plan, args.elapsedMs);
 
   const steps = args.plan.steps.map((step, index) => ({
-    ...step,
+    ...resolveAppliedStep(step, args.stepOverrides?.[step.id]),
     status:
       index < activeIndex
         ? "completed"
@@ -624,6 +648,7 @@ export function createAgentProgressRun(args: {
     endedAtMs: null,
     activeStepId: args.plan.steps[0]?.id ?? null,
     backendStatus: null,
+    stepOverrides: {},
     frozenSnapshot: null,
   };
 }
@@ -633,6 +658,8 @@ export function applyAgentProgressStep(
   args: {
     workflow: PendingStatusWorkflow;
     activeStepId: PendingStatusStepId;
+    label?: string | null;
+    explanation?: string | null;
   },
 ): AgentProgressRun | null {
   if (!run || run.plan.workflow !== args.workflow || run.phase !== "active") {
@@ -643,10 +670,28 @@ export function applyAgentProgressStep(
     return run;
   }
 
+  const nextLabel = args.label?.trim();
+  const nextExplanation = args.explanation?.trim();
+  const shouldUpdateOverride =
+    Boolean(nextLabel && nextLabel.length > 0) ||
+    Boolean(nextExplanation && nextExplanation.length > 0);
+
   return {
     ...run,
     activeStepId: args.activeStepId,
     backendStatus: null,
+    stepOverrides: shouldUpdateOverride
+      ? {
+          ...run.stepOverrides,
+          [args.activeStepId]: {
+            ...run.stepOverrides[args.activeStepId],
+            ...(nextLabel && nextLabel.length > 0 ? { label: nextLabel } : {}),
+            ...(nextExplanation && nextExplanation.length > 0
+              ? { explanation: nextExplanation }
+              : {}),
+          },
+        }
+      : run.stepOverrides,
   };
 }
 
@@ -679,6 +724,7 @@ export function resolveAgentProgressSnapshot(
       elapsedMs,
       backendStatus: run.backendStatus,
       activeStepId: run.activeStepId,
+      stepOverrides: run.stepOverrides,
     }) ?? {
       workflow: run.workflow,
       steps: [],

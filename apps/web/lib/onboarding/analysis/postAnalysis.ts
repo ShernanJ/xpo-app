@@ -79,13 +79,21 @@ const ENTITY_STOPWORDS = new Set([
 const LOW_SIGNAL_ENTITY_WORDS = new Set([
   "almost",
   "back",
+  "build",
+  "building",
+  "built",
   "come",
+  "could",
   "day",
   "days",
+  "exact",
   "friend",
   "friends",
+  "full",
   "going",
   "good",
+  "guide",
+  "guides",
   "great",
   "last",
   "life",
@@ -94,10 +102,13 @@ const LOW_SIGNAL_ENTITY_WORDS = new Set([
   "make",
   "next",
   "outside",
+  "page",
+  "pages",
   "people",
   "planning",
   "site",
   "stuff",
+  "than",
   "thing",
   "things",
   "throwback",
@@ -107,6 +118,10 @@ const LOW_SIGNAL_ENTITY_WORDS = new Set([
   "week",
   "weeks",
   "win",
+  "write",
+  "writes",
+  "writing",
+  "wrote",
   "years",
 ]);
 
@@ -135,6 +150,20 @@ const ENTITY_FAMILY_SUFFIXES = new Set([
   "venture",
   "ventures",
 ]);
+
+const LOW_SIGNAL_PHRASE_EDGE_WORDS = new Set([
+  "below",
+  "founder",
+  "founders",
+  "here",
+  "replies",
+  "reply",
+  "who",
+]);
+
+function isNumericLeadToken(token: string): boolean {
+  return /^(?:[$EURGBP])?\d[\d,.]*(?:k|m|b|bn|mm|x|%)?$/i.test(token);
+}
 
 function getPostEngagement(post: XPublicPost): number {
   const { likeCount, replyCount, repostCount, quoteCount } = post.metrics;
@@ -267,9 +296,17 @@ export function normalizeEntityCandidate(candidate: string): string | null {
     return null;
   }
 
+  if (parts.some((part) => isNumericLeadToken(part))) {
+    return null;
+  }
+
   if (parts.length === 1) {
     const [single] = parts;
-    if (single.length < 2 || ENTITY_STOPWORDS.has(single)) {
+    if (
+      single.length < 2 ||
+      ENTITY_STOPWORDS.has(single) ||
+      LOW_SIGNAL_ENTITY_WORDS.has(single)
+    ) {
       return null;
     }
   }
@@ -283,9 +320,23 @@ export function normalizeEntityCandidate(candidate: string): string | null {
     return null;
   }
 
+  if (normalizedParts.length >= 2) {
+    const first = normalizedParts[0] ?? "";
+    const last = normalizedParts[normalizedParts.length - 1] ?? "";
+
+    if (
+      LOW_SIGNAL_PHRASE_EDGE_WORDS.has(first) ||
+      LOW_SIGNAL_PHRASE_EDGE_WORDS.has(last)
+    ) {
+      return null;
+    }
+  }
+
   if (
     normalizedParts.length === 1 &&
-    (normalizedParts[0].length < 2 || ENTITY_STOPWORDS.has(normalizedParts[0]))
+    (normalizedParts[0].length < 2 ||
+      ENTITY_STOPWORDS.has(normalizedParts[0]) ||
+      LOW_SIGNAL_ENTITY_WORDS.has(normalizedParts[0]))
   ) {
     return null;
   }
@@ -333,7 +384,9 @@ export function extractEntityCandidates(text: string): string[] {
     }
 
     if (
-      LOW_SIGNAL_ENTITY_WORDS.has(first) &&
+      ENTITY_STOPWORDS.has(first) ||
+      ENTITY_STOPWORDS.has(second) ||
+      LOW_SIGNAL_ENTITY_WORDS.has(first) ||
       LOW_SIGNAL_ENTITY_WORDS.has(second)
     ) {
       continue;

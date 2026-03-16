@@ -50,6 +50,7 @@ export interface AnalysisCapabilityMemoryPatch {
   assistantTurnCount: number;
   unresolvedQuestion: string | null;
   clarificationQuestionsAsked: number;
+  preferredSurfaceMode: "structured";
 }
 
 export interface AnalysisCapabilityOutput {
@@ -202,6 +203,7 @@ export async function executeAnalysisCapability(
         clarificationQuestionsAsked: finalProbingQuestion
           ? context.memory.clarificationQuestionsAsked + 1
           : context.memory.clarificationQuestionsAsked,
+        preferredSurfaceMode: "structured",
       },
     },
     workers: accumulatedWorkers,

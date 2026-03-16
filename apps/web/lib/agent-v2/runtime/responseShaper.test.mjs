@@ -165,7 +165,7 @@ test("surface mode selector treats thread drafts as full generated output", () =
   assert.equal(response, "drafted a version. tune tone, hook, or length?");
 });
 
-test("response shaper formats long direct coach replies into skimmable bullets", () => {
+test("response shaper formats long direct coach replies into a structured thesis and bullets", () => {
   const plan = selectResponseShapePlan({
     outputShape: "coach_question",
     response:
@@ -185,7 +185,7 @@ test("response shaper formats long direct coach replies into skimmable bullets",
     plan,
   });
 
-  assert.match(response, /^- lead with a concrete hook that shows the payoff for followers\./m);
+  assert.match(response, /^\*\*Takeaway:\*\* lead with a concrete hook that shows the payoff for followers\./m);
   assert.match(response, /- example: "Built \$30M ARR with 10 engineers\."/i);
   assert.equal(/Bottom line|Note:|Best next move/i.test(response), false);
   assert.match(response, /keep it under 150 characters and avoid filler/i);
@@ -246,9 +246,33 @@ test("response shaper formats long coach replies before a follow-up question", (
   });
 
   assert.equal(plan.surfaceMode, "ask_one_question");
-  assert.match(response, /^- Your hooks hit hard because they lead with numbers and contrast\./m);
+  assert.match(response, /^\*\*Takeaway:\*\* Your hooks hit hard because they lead with numbers and contrast\./m);
   assert.match(response, /^Which post would you like to revamp first\?$/m);
   assert.equal(/Bottom line|What to fix|Next:/i.test(response), false);
+});
+
+test("response shaper structures medium replies more aggressively in structured surface mode", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response:
+      "the positioning is close, but the promise still takes too long to land. tighten the first line so the audience and payoff are visible immediately. then use one proof point instead of stacking two softer claims.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "structured",
+  });
+
+  const response = shapeAssistantResponse({
+    response:
+      "the positioning is close, but the promise still takes too long to land. tighten the first line so the audience and payoff are visible immediately. then use one proof point instead of stacking two softer claims.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.match(response, /^\*\*Takeaway:\*\* the positioning is close, but the promise still takes too long to land\./m);
+  assert.match(response, /- tighten the first line so the audience and payoff are visible immediately\./i);
 });
 
 test("response shaper leaves short direct coach replies unformatted", () => {

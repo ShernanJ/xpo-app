@@ -97,7 +97,7 @@ function prefersLowercase(params: WelcomeVoiceContextParams): boolean {
   const joined = recentUserMessages.join("");
   const alphaChars = joined.match(/[A-Za-z]/g) ?? [];
   if (alphaChars.length === 0) {
-    return true;
+    return false;
   }
 
   const lowercaseChars = joined.match(/[a-z]/g) ?? [];
@@ -129,7 +129,7 @@ function prefersLowercaseFromExamples(values: string[]): boolean {
   const joined = values.join("");
   const alphaChars = joined.match(/[A-Za-z]/g) ?? [];
   if (alphaChars.length === 0) {
-    return true;
+    return false;
   }
 
   const lowercaseChars = joined.match(/[a-z]/g) ?? [];
@@ -430,8 +430,8 @@ export function buildWelcomeVoiceContext(params: WelcomeVoiceContextParams): {
   if (!creatorProfile) {
     return {
       toneGuide: conversationExamples.length > 0
-        ? `Mirror a direct, casual peer. When they message the agent, they sound like: ${conversationExamples.map((example) => `"${example}"`).join(" | ")}`
-        : "Mirror a direct, casual peer.",
+        ? `Mirror a clear, professional collaborator. When they message the agent, they sound like: ${conversationExamples.map((example) => `"${example}"`).join(" | ")}`
+        : "Mirror a clear, professional collaborator.",
       voiceExamples: [],
       conversationExamples,
     };

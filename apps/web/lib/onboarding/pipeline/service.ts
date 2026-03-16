@@ -16,6 +16,15 @@ import type {
   TransformationModeSource,
 } from "../contracts/types";
 
+function getRecommendedTargetPostCount(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_TARGET);
+  if (!Number.isFinite(raw)) {
+    return 80;
+  }
+
+  return Math.max(40, Math.min(120, Math.floor(raw)));
+}
+
 function getPostingCapacityMaxPostsPerWeek(
   postingCadenceCapacity: PostingCadenceCapacity,
 ): number {
@@ -49,7 +58,7 @@ function inferRecommendedPostsPerWeek(
 }
 
 function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
-  const targetPostCount = 80;
+  const targetPostCount = getRecommendedTargetPostCount();
 
   if (sampleSize < 10) {
     return {

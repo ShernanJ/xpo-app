@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useState, type ComponentProps } from "react";
+import { Check, Copy, Edit3 } from "lucide-react";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 
 import {
@@ -9,11 +10,35 @@ import {
 } from "./draftRevealState";
 import { AgentProgressCard } from "./AgentProgressCard";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { MessageArtifactSections } from "./MessageArtifactSections";
+import {
+  AssistantResultFooter,
+  MessageArtifactSections,
+} from "./MessageArtifactSections";
 import { MessageContent } from "./MessageContent";
 import { isDraftPendingWorkflow } from "../chat-page/chatPageViewState";
 
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
+
+function extractSelectedIdeationAngleTitle(
+  currentMessage: ChatMessageStreamMessage,
+  nextMessage: ChatMessageStreamMessage | undefined,
+): string | null {
+  if (
+    currentMessage.role !== "assistant" ||
+    currentMessage.outputShape !== "ideation_angles" ||
+    nextMessage?.role !== "user"
+  ) {
+    return null;
+  }
+
+  const normalizedNextMessageContent = nextMessage.content.trim();
+  if (!normalizedNextMessageContent.startsWith(">")) {
+    return null;
+  }
+
+  const selectedTitle = normalizedNextMessageContent.replace(/^>\s*/, "").trim();
+  return selectedTitle || null;
+}
 
 function AssistantTypingBubble(props: { label?: string | null }) {
   const [dotCount, setDotCount] = useState(1);
@@ -113,9 +138,13 @@ export interface ChatMessageStreamProps<TMessage extends ChatMessageStreamMessag
   messages: TMessage[];
   latestAssistantMessageId: string | null;
   typedAssistantLengths: Record<string, number>;
+  copiedUserMessageId: string | null;
+  editingUserMessageId: string | null;
   registerMessageRef: (messageId: string, node: HTMLDivElement | null) => void;
   activeDraftRevealByMessageId: Record<string, string>;
   activeAgentProgress: AgentProgressRun | null;
+  onCopyUserMessage: (messageId: string, content: string) => void;
+  onEditUserMessage: (messageId: string, content: string) => void;
   resolveArtifactSectionProps: (
     message: TMessage,
     index: number,
@@ -136,9 +165,13 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
     messages,
     latestAssistantMessageId,
     typedAssistantLengths,
+    copiedUserMessageId,
+    editingUserMessageId,
     registerMessageRef,
     activeDraftRevealByMessageId,
     activeAgentProgress,
+    onCopyUserMessage,
+    onEditUserMessage,
     resolveArtifactSectionProps,
   } = props;
   const activePendingDraftWorkflow =
@@ -154,6 +187,15 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
           buildDraftRevealClassName(activeDraftRevealByMessageId, message.id, draftKey);
         const shouldAnimateDraftLines = (draftKey: string) =>
           shouldAnimateDraftRevealLines(activeDraftRevealByMessageId, message.id, draftKey);
+        const artifactSectionProps = resolveArtifactSectionProps(message, index);
+        const selectedIdeationAngleTitle = extractSelectedIdeationAngleTitle(
+          message,
+          messages[index + 1],
+        );
+        const shouldRenderArtifactsFirst =
+          message.role === "assistant" && "profileAnalysisArtifact" in message
+            ? Boolean(message.profileAnalysisArtifact)
+            : false;
 
         return (
           <ChatMessageRow
@@ -162,6 +204,36 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
             role={message.role}
             previousRole={messages[index - 1]?.role}
             index={index}
+            userActions={
+              message.role === "user" ? (
+                <div className="flex items-center gap-1 text-white">
+                  <button
+                    type="button"
+                    onClick={() => onCopyUserMessage(message.id, message.content)}
+                    className="inline-flex h-8 w-8 cursor-pointer items-center justify-center transition hover:opacity-80"
+                    aria-label="Copy message"
+                  >
+                    {copiedUserMessageId === message.id ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEditUserMessage(message.id, message.content)}
+                    className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center transition ${
+                      editingUserMessageId === message.id
+                        ? "opacity-100"
+                        : "text-white hover:opacity-80"
+                    }`}
+                    aria-label="Edit message"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : undefined
+            }
             onRegisterRef={registerMessageRef}
           >
             {(message as TMessage & { agentProgress?: AgentProgressRun | null })
@@ -179,23 +251,68 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                 />
               </div>
             ) : null}
-            <MessageContent
-              role={message.role}
-              content={message.content}
-              isStreaming={Boolean(message.isStreaming)}
-              isLatestAssistantMessage={message.id === latestAssistantMessageId}
-              typedLength={typedAssistantLengths[message.id] ?? 0}
-              assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
-            />
+            {shouldRenderArtifactsFirst ? (
+              <>
+                <MessageArtifactSections
+                  message={message}
+                  index={index}
+                  messagesLength={messages.length}
+                  selectedIdeationAngleTitle={selectedIdeationAngleTitle}
+                  getRevealClassName={buildDraftRevealClasses}
+                  shouldAnimateRevealLines={shouldAnimateDraftLines}
+                  {...artifactSectionProps}
+                />
+                <MessageContent
+                  role={message.role}
+                  content={message.content}
+                  isStreaming={Boolean(message.isStreaming)}
+                  isLatestAssistantMessage={message.id === latestAssistantMessageId}
+                  typedLength={typedAssistantLengths[message.id] ?? 0}
+                  assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
+                />
+                <AssistantResultFooter
+                  message={message}
+                  isLatestMessage={index === messages.length - 1}
+                  isMainChatLocked={artifactSectionProps.isMainChatLocked}
+                  messageFeedbackPending={artifactSectionProps.messageFeedbackPending}
+                  canRunReplyActions={artifactSectionProps.canRunReplyActions}
+                  shouldShowQuickReplies={artifactSectionProps.shouldShowQuickReplies}
+                  onSubmitAssistantMessageFeedback={artifactSectionProps.onSubmitAssistantMessageFeedback}
+                  onQuickReplySelect={artifactSectionProps.onQuickReplySelect}
+                />
+              </>
+            ) : (
+              <>
+                <MessageContent
+                  role={message.role}
+                  content={message.content}
+                  isStreaming={Boolean(message.isStreaming)}
+                  isLatestAssistantMessage={message.id === latestAssistantMessageId}
+                  typedLength={typedAssistantLengths[message.id] ?? 0}
+                  assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
+                />
 
-            <MessageArtifactSections
-              message={message}
-              index={index}
-              messagesLength={messages.length}
-              getRevealClassName={buildDraftRevealClasses}
-              shouldAnimateRevealLines={shouldAnimateDraftLines}
-              {...resolveArtifactSectionProps(message, index)}
-            />
+                <MessageArtifactSections
+                  message={message}
+                  index={index}
+                  messagesLength={messages.length}
+                  selectedIdeationAngleTitle={selectedIdeationAngleTitle}
+                  getRevealClassName={buildDraftRevealClasses}
+                  shouldAnimateRevealLines={shouldAnimateDraftLines}
+                  {...artifactSectionProps}
+                />
+                <AssistantResultFooter
+                  message={message}
+                  isLatestMessage={index === messages.length - 1}
+                  isMainChatLocked={artifactSectionProps.isMainChatLocked}
+                  messageFeedbackPending={artifactSectionProps.messageFeedbackPending}
+                  canRunReplyActions={artifactSectionProps.canRunReplyActions}
+                  shouldShowQuickReplies={artifactSectionProps.shouldShowQuickReplies}
+                  onSubmitAssistantMessageFeedback={artifactSectionProps.onSubmitAssistantMessageFeedback}
+                  onQuickReplySelect={artifactSectionProps.onQuickReplySelect}
+                />
+              </>
+            )}
           </ChatMessageRow>
         );
       })}

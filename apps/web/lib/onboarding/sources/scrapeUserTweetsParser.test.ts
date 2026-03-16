@@ -307,3 +307,28 @@ test("parseUserTweetsGraphqlPayload falls back to null banner and pinned post wh
   assert.equal(parsed.profile.headerImageUrl, null);
   assert.equal(parsed.pinnedPost, null);
 });
+
+test("parseUserTweetsGraphqlPayload dedupes duplicate timeline tweet ids across entries", () => {
+  const duplicatedNode = createTweetNode({
+    id: "444",
+    text: "same post repeated across multiple timeline entries",
+  });
+  const payload = createPayload([
+    duplicatedNode,
+    duplicatedNode,
+    createTweetNode({
+      id: "555",
+      text: "distinct second post",
+    }),
+  ]);
+
+  const parsed = parseUserTweetsGraphqlPayload({
+    payload,
+    account: "stan",
+  });
+
+  assert.deepEqual(
+    parsed.posts.map((post) => post.id),
+    ["444", "555"],
+  );
+});

@@ -92,6 +92,7 @@ import { saveConversationTurnMemory } from "./memoryPolicy";
 import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
 import type { AgentRuntimeWorkflow } from "./runtimeContracts.ts";
 import { executeIdeationCapability } from "../capabilities/ideation/ideationCapability.ts";
+import { buildDraftClarificationQuickReplies } from "../responses/draftClarificationQuickReplies.ts";
 import {
   handleNonDraftCoachTurn,
   handleNonDraftCorrectionTurn,
@@ -523,6 +524,21 @@ export async function executeDraftPipeline(args: {
     traceReason?: string | null;
     traceKind?: "question" | "tree";
   }): Promise<RawOrchestratorResponse> {
+    const synthesizedQuickReplies =
+      args.quickReplies && args.quickReplies.length > 0
+        ? args.quickReplies
+        : buildDraftClarificationQuickReplies({
+            question: args.reply || args.question,
+            userMessage,
+            styleCard,
+            topicAnchors: relevantTopicAnchors,
+            seedTopic:
+              args.clarificationState?.seedTopic ||
+              args.topicSummary ||
+              memory.topicSummary,
+            isVerifiedAccount,
+            requestedFormatPreference: turnFormatPreference,
+          });
     routingTrace.clarification = {
       kind: args.traceKind || "question",
       reason: args.traceReason || null,
@@ -545,10 +561,10 @@ export async function executeDraftPipeline(args: {
         args.reply || args.question,
         feedbackMemoryNotice,
       ),
-      ...(args.quickReplies?.length
+      ...(synthesizedQuickReplies.length
         ? {
             data: {
-              quickReplies: args.quickReplies,
+              quickReplies: synthesizedQuickReplies,
             },
           }
         : {}),
@@ -1356,6 +1372,7 @@ export async function executeDraftPipeline(args: {
       clarificationQuestionsAsked: coachReply?.probingQuestion
         ? memory.clarificationQuestionsAsked + 1
         : memory.clarificationQuestionsAsked,
+      preferredSurfaceMode: "structured",
     });
 
     const finalResponse =

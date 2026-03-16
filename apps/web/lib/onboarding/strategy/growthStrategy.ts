@@ -26,6 +26,21 @@ export interface GrowthStrategySnapshot {
   truthBoundary: GrowthStrategyTruthBoundary;
 }
 
+const GENERIC_KNOWN_FOR_PILLARS = new Set([
+  "business",
+  "businesses",
+  "companies",
+  "company",
+  "founder",
+  "founders",
+  "operator",
+  "operators",
+  "startup",
+  "startups",
+  "team",
+  "teams",
+]);
+
 function humanize(value: string | null | undefined): string {
   return (value || "")
     .replace(/_/g, " ")
@@ -63,13 +78,72 @@ function lookupScore(
   return checks.find((check) => check.key === key)?.score ?? fallback;
 }
 
-function buildKnownFor(profile: CreatorProfile): string {
+function resolveEffectiveNicheLabel(profile: CreatorProfile): string {
   const effectiveNiche =
     profile.niche.primaryNiche === "generalist" && profile.niche.targetNiche
       ? profile.niche.targetNiche
       : profile.niche.primaryNiche;
-  const nicheLabel = humanize(effectiveNiche) || "a clearer niche";
-  const pillar = profile.topics.contentPillars[0]?.trim();
+  return humanize(effectiveNiche) || "a clearer niche";
+}
+
+function normalizeStrategyLabel(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function hasNumericLead(value: string): boolean {
+  const firstToken = normalizeStrategyLabel(value).split(/\s+/)[0] ?? "";
+  return /^(?:[$EURGBP])?\d[\d,.]*(?:k|m|b|bn|mm|x|%)?$/i.test(firstToken);
+}
+
+function shouldSkipKnownForPillar(pillar: string, nicheLabel: string): boolean {
+  const normalizedPillar = normalizeStrategyLabel(pillar);
+  if (!normalizedPillar) {
+    return true;
+  }
+
+  if (hasNumericLead(normalizedPillar)) {
+    return true;
+  }
+
+  const pillarParts = normalizedPillar.split(/\s+/).filter(Boolean);
+  if (
+    pillarParts.length === 1 &&
+    GENERIC_KNOWN_FOR_PILLARS.has(pillarParts[0])
+  ) {
+    return true;
+  }
+
+  const normalizedNiche = normalizeStrategyLabel(nicheLabel);
+  if (!normalizedNiche) {
+    return false;
+  }
+
+  if (normalizedPillar === normalizedNiche) {
+    return true;
+  }
+
+  return pillarParts.length === 1 && normalizedNiche.includes(normalizedPillar);
+}
+
+function selectAnchorContentPillar(
+  profile: CreatorProfile,
+  nicheLabel: string,
+): string | null {
+  for (const candidate of profile.topics.contentPillars) {
+    const pillar = humanize(candidate);
+    if (!pillar || shouldSkipKnownForPillar(pillar, nicheLabel)) {
+      continue;
+    }
+
+    return pillar;
+  }
+
+  return null;
+}
+
+function buildKnownFor(profile: CreatorProfile): string {
+  const nicheLabel = resolveEffectiveNicheLabel(profile);
+  const pillar = selectAnchorContentPillar(profile, nicheLabel);
 
   if (pillar) {
     return `${nicheLabel} through ${pillar}`;
@@ -115,10 +189,13 @@ function buildReplyGoals(profile: CreatorProfile): string[] {
 }
 
 function buildProfileConversionCues(profile: CreatorProfile, knownFor: string): string[] {
+  const nicheLabel = resolveEffectiveNicheLabel(profile);
+  const anchorPillar = selectAnchorContentPillar(profile, nicheLabel);
+
   return compactList(
     [
       `Bio, pinned post, and recent posts should make "${knownFor}" obvious within one glance.`,
-      `Recent posts should repeatedly ladder back to ${profile.topics.contentPillars[0] || "the top niche pillar"}.`,
+      `Recent posts should repeatedly ladder back to ${anchorPillar || "the top niche pillar"}.`,
       `Replies should reinforce ${profile.niche.targetNiche ? humanize(profile.niche.targetNiche) : humanize(profile.niche.primaryNiche)} instead of adding random side quests.`,
       profile.playbook.contentContract,
       profile.playbook.conversationTactic,

@@ -10,7 +10,6 @@ import type {
   ChatTurnSource,
 } from "../../contracts/turnContract.ts";
 import {
-  buildEmbeddedPostWithoutReplyPrompt,
   buildMissingReplyPostPrompt,
   buildReplyArtifactsFromDraft,
   buildReplyArtifactsFromOptions,
@@ -327,32 +326,6 @@ export function planReplyTurn(args: {
       quickReplies: [],
       activeReplyContext: null,
       selectedReplyOptionId: null,
-      replyParse: buildReplyParseEnvelope(args.replyParseResult),
-    };
-  }
-
-  if (
-    args.replyParseResult.classification === "embedded_post_without_reply_request" &&
-    args.replyParseResult.context
-  ) {
-    const nextReplyContext = createEmptyActiveReplyContext({
-      sourceText: args.replyParseResult.context.sourceText,
-      sourceUrl: args.replyParseResult.context.sourceUrl,
-      authorHandle: args.replyParseResult.context.authorHandle,
-      quotedUserAsk: null,
-      confidence: args.replyParseResult.context.confidence,
-      parseReason: args.replyParseResult.context.parseReason,
-      awaitingConfirmation: true,
-      stage: args.defaultReplyStage,
-      tone: args.defaultReplyTone,
-      goal: args.defaultReplyGoal,
-    });
-    return {
-      reply: buildEmbeddedPostWithoutReplyPrompt(args.replyParseResult.context),
-      outputShape: "coach_question",
-      surfaceMode: "ask_one_question",
-      quickReplies: [],
-      activeReplyContext: nextReplyContext,
       replyParse: buildReplyParseEnvelope(args.replyParseResult),
     };
   }

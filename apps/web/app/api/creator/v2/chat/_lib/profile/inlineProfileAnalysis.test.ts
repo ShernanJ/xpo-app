@@ -4,6 +4,7 @@ import {
   buildInlineProfileAnalysisResponse,
   isInlineProfileAnalysisRequest,
 } from "./inlineProfileAnalysis.ts";
+import type { ProfileReplyContext } from "@/lib/agent-v2/grounding/profileReplyContext";
 import type { ProfileConversionAudit } from "@/lib/onboarding/profile/profileConversionAudit";
 import type { OnboardingResult } from "@/lib/onboarding/types";
 
@@ -148,7 +149,19 @@ function createOnboarding(): OnboardingResult {
       },
       url: "https://x.com/test/status/1",
     },
-    recentPosts: [],
+    recentPosts: [
+      {
+        id: "post-1",
+        text: "generic ai copy usually comes from weak retrieval, not weak models.",
+        createdAt: "2026-03-12T00:00:00.000Z",
+        metrics: {
+          likeCount: 27,
+          replyCount: 6,
+          repostCount: 4,
+          quoteCount: 0,
+        },
+      },
+    ],
     recentReplyPosts: [],
     recentQuotePosts: [],
     recentPostSampleCount: 0,
@@ -199,6 +212,49 @@ function createOnboarding(): OnboardingResult {
   };
 }
 
+function createProfileReplyContext(): ProfileReplyContext {
+  return {
+    accountLabel: "shernan ✦ @shernanjavier",
+    bio: "sharing my learnings as i build in public / road to gmi",
+    knownFor: "builder-focused growth systems",
+    targetAudience: "builders trying to grow on X",
+    contentPillars: ["retrieval quality", "proof-first writing", "x growth systems"],
+    stage: "0-1k",
+    goal: "followers",
+    topicBullets: [
+      "Retrieval quality and proof-first writing",
+      "Narrowing the lane before scaling output",
+    ],
+    recentPostSnippets: [
+      "generic ai copy usually comes from weak retrieval, not weak models.",
+    ],
+    pinnedPost: "old pinned tweet",
+    recentPostCount: 1,
+    strongestPost: {
+      timeframe: "recent",
+      text: "generic ai copy usually comes from weak retrieval, not weak models.",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      engagementTotal: 37,
+      metrics: {
+        likeCount: 27,
+        replyCount: 6,
+        repostCount: 4,
+        quoteCount: 0,
+      },
+      comparison: {
+        basis: "baseline_average_engagement",
+        referenceEngagementTotal: 12,
+        ratio: 3.08,
+      },
+      reasons: [
+        "The opener gets to the point fast, which makes the post easy to process.",
+      ],
+      hookPattern: "statement_open",
+      contentType: "multi_line",
+    },
+  };
+}
+
 test("matches clear profile-audit requests and ignores generic analysis prompts", () => {
   expect(isInlineProfileAnalysisRequest("analyze my profile")).toBe(true);
   expect(isInlineProfileAnalysisRequest("audit my x bio and banner")).toBe(true);
@@ -206,10 +262,11 @@ test("matches clear profile-audit requests and ignores generic analysis prompts"
   expect(isInlineProfileAnalysisRequest("analyze this post")).toBe(false);
 });
 
-test("buildInlineProfileAnalysisResponse returns a profile-analysis artifact payload", async () => {
+test("buildInlineProfileAnalysisResponse falls back to structured markdown when no narrative writer is provided", async () => {
   const response = await buildInlineProfileAnalysisResponse({
     onboarding: createOnboarding(),
     audit: createAudit(),
+    profileReplyContext: createProfileReplyContext(),
     memory: {
       conversationState: "needs_more_context",
       activeConstraints: [],
@@ -257,8 +314,55 @@ test("buildInlineProfileAnalysisResponse returns a profile-analysis artifact pay
   expect(response.data?.profileAnalysisArtifact?.profile.name).toBe("shernan ✦");
   expect(response.data?.profileAnalysisArtifact?.audit.score).toBe(62);
   expect(response.data?.profileAnalysisArtifact?.bannerAnalysis?.feedback.score).toBe(7.4);
-  expect(response.response).toContain("visual read on what the banner image is communicating");
-  expect(response.response).not.toContain("mocked up the landing view");
+  expect(response.data?.quickReplies).toHaveLength(3);
+  expect(response.data?.quickReplies?.[0]?.label).toBe("Rewrite bio");
+  expect(response.response).toContain("**Verdict:**");
+  expect(response.response).toContain("## Profile Snapshot");
+  expect(response.response).toContain("## Content Patterns");
+  expect(response.response).toContain("## Priority Order");
+  expect(response.response).toContain("**Strongest recent post:**");
   expect(response.memory.assistantTurnCount).toBe(3);
   expect(response.memory.unresolvedQuestion).toBeNull();
+  expect(response.memory.preferredSurfaceMode).toBe("structured");
+  expect(response.presentationStyle).toBe("preserve_authored_structure");
+});
+
+test("buildInlineProfileAnalysisResponse uses the injected narrative when available", async () => {
+  const response = await buildInlineProfileAnalysisResponse({
+    onboarding: createOnboarding(),
+    audit: createAudit(),
+    profileReplyContext: createProfileReplyContext(),
+    memory: {
+      conversationState: "needs_more_context",
+      activeConstraints: [],
+      topicSummary: null,
+      lastIdeationAngles: [],
+      concreteAnswerCount: 0,
+      currentDraftArtifactId: null,
+      activeDraftRef: null,
+      rollingSummary: null,
+      pendingPlan: null,
+      clarificationState: null,
+      assistantTurnCount: 2,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
+      formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
+      voiceFidelity: "balanced",
+    },
+    generateNarrative: async () =>
+      [
+        "**Verdict:** strong foundation, but the conversion surfaces are still misaligned.",
+        "",
+        "## Profile Snapshot",
+        "- Bio is too broad right now.",
+      ].join("\n"),
+  });
+
+  expect(response.response).toContain("strong foundation, but the conversion surfaces are still misaligned");
+  expect(response.response).not.toContain("## Content Patterns");
 });

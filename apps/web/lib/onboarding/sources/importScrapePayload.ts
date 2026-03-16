@@ -42,6 +42,7 @@ export async function importUserTweetsPayload(params: {
   payload: unknown;
   source?: ScrapeImportSource;
   userAgent: string | null;
+  mergeWithExisting?: boolean;
 }) {
   const payloadInput =
     params.payload !== undefined
@@ -89,6 +90,7 @@ export async function importUserTweetsPayload(params: {
     quotePosts: parsed.quotePosts,
     source: mapPersistSource(params.source ?? "manual_import"),
     userAgent: params.userAgent,
+    mergeWithExisting: params.mergeWithExisting,
   });
 
   return {

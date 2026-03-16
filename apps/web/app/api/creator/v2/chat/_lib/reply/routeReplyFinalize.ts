@@ -32,6 +32,7 @@ export interface FinalizeReplyTurnArgs {
     eventType: string;
     properties: Record<string, unknown>;
   }) => Promise<unknown>;
+  onAssistantTurnPersisted?: (assistantMessageId: string | null) => Promise<void>;
 }
 
 export interface ReplyFinalizationDeps {
@@ -105,6 +106,14 @@ export async function finalizeReplyTurnWithDeps(
       ...mappedData,
       threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
     };
+  }
+
+  if (args.onAssistantTurnPersisted) {
+    try {
+      await args.onAssistantTurnPersisted(createdAssistantMessageId ?? null);
+    } catch (error) {
+      console.error("Failed to record reply turn completion:", error);
+    }
   }
 
   deps.dispatchPlannedProductEvents({

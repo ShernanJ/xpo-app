@@ -28,6 +28,7 @@ import type {
 import {
   resolveDraftOutputShape,
 } from "../../core/conversationHeuristics.ts";
+import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type {
   OrchestratorResponse,
@@ -172,6 +173,9 @@ export async function executeDraftingCapability(
         formatPreference: context.plan.formatPreference || context.turnFormatPreference,
       })
     : context.memory.rollingSummary;
+  const outputShape = resolveDraftOutputShape(
+    context.plan.formatPreference || context.turnFormatPreference,
+  );
 
   return {
     workflow: args.workflow,
@@ -180,9 +184,7 @@ export async function executeDraftingCapability(
       kind: "draft_ready",
       responseSeed: {
         mode: "draft",
-        outputShape: resolveDraftOutputShape(
-          context.plan.formatPreference || context.turnFormatPreference,
-        ),
+        outputShape,
         response: prependFeedbackMemoryNotice(
           buildDraftReply({
             userMessage: context.userMessage,
@@ -197,6 +199,11 @@ export async function executeDraftingCapability(
           draft: draftResult.draftToDeliver,
           supportAsset: draftResult.writerOutput.supportAsset,
           issuesFixed: draftResult.criticOutput.issues,
+          quickReplies: buildDraftResultQuickReplies({
+            outputShape,
+            styleCard: context.styleCard,
+            seedTopic: context.plan.objective,
+          }),
           voiceTarget: draftResult.voiceTarget,
           noveltyNotes: services.buildNoveltyNotes({
             noveltyCheck,

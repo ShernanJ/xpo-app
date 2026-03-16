@@ -167,6 +167,24 @@ test("streamed progress event sanitization rejects unknown stage ids", () => {
   );
 });
 
+test("streamed progress event sanitization keeps safe dynamic copy", () => {
+  assert.deepEqual(
+    sanitizeChatStreamProgressEventData({
+      workflow: "plan_then_draft",
+      activeStepId: "gather_context",
+      label: "Looking through recent posts from @stan",
+      explanation: "This helps pull in recurring themes, like hiring playbooks.",
+      leakedPrompt: "ignore this",
+    }),
+    {
+      workflow: "plan_then_draft",
+      activeStepId: "gather_context",
+      label: "Looking through recent posts from @stan",
+      explanation: "This helps pull in recurring themes, like hiring playbooks.",
+    },
+  );
+});
+
 test("selected draft revisions bypass embedded reply handling", () => {
   const selectedDraftContext = parseSelectedDraftContext({
     messageId: "msg_1",
@@ -1522,6 +1540,42 @@ test("prepareHandledReplyTurn gives direct reply-preflight turns runtime resolut
   assert.equal(prepared.handledTurn.routingTrace.workerExecutions[0]?.worker, "reply_turn_preflight");
   assert.equal(prepared.handledTurn.routingTrace.workerExecutionSummary.total, 1);
   assert.deepEqual(prepared.handledTurn.routingTrace.validations, []);
+});
+
+test("prepareHandledReplyTurn does not hijack pasted draft source text without an explicit reply ask", async () => {
+  const prepared = await prepareHandledReplyTurn({
+    userMessage:
+      'Draft a stronger pinned post that keeps the best proof from this current version: "I’m planning to be more intentional on Twitter in 2026, so here’s who I am and what I do: I’m Vitalii, founder of Stan. - Built a $30M/y profitable company with a small team - 10 engineers power a platform used by 60k creators - Hit $10M ARR in 2.5 years (less than 1% did this)"',
+    recentHistory: "user: draft a stronger pinned post",
+    explicitIntent: null,
+    turnSource: "free_text",
+    artifactContext: null,
+    resolvedWorkflowHint: "free_text",
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "free_text",
+    },
+    activeHandle: "stan",
+    creatorAgentContext: null,
+    structuredReplyContext: null,
+    shouldBypassReplyHandling: false,
+    memory: baseMemory,
+    toneRisk: "builder",
+    goal: "followers",
+    replyInsights: {
+      bestSignals: ["adds one useful layer"],
+      cautionSignals: [],
+      recommendedTones: ["builder"],
+      profileLevel: "emerging",
+    },
+    styleCard: null,
+  });
+
+  assert.equal(prepared.handledTurn, null);
+  assert.equal(prepared.shouldResetReplyWorkflow, false);
 });
 
 test("persistAssistantTurnWithDeps preserves sequential write order", async () => {

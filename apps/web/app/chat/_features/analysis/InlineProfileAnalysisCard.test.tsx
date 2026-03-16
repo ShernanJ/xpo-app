@@ -134,16 +134,13 @@ test("renders the X-style profile shell and routes pinned-thread prompts back in
   render(<InlineProfileAnalysisCard artifact={artifact} />);
 
   expect(screen.getByText("shernan ✦")).toBeInTheDocument();
-  expect(
-    screen.getByText("Your profile is attracting attention but leaking conversion."),
-  ).toBeInTheDocument();
-  expect(screen.getByText("Profile Analysis")).toBeInTheDocument();
-  expect(screen.getByText("Overall:")).toBeInTheDocument();
-  expect(screen.getByText("Bio:")).toBeInTheDocument();
-  expect(screen.getByText("Banner:")).toBeInTheDocument();
-  expect(screen.getByText("Pinned Post:")).toBeInTheDocument();
-  expect(screen.getByText("Priority Order:")).toBeInTheDocument();
-  expect(screen.getByText(/banner reads as dark luxury/i)).toBeInTheDocument();
+  expect(screen.getByText("Conversion Score")).toBeInTheDocument();
+  expect(screen.getByText("62/100")).toBeInTheDocument();
+  expect(screen.queryByText("Your profile is attracting attention but leaking conversion.")).not.toBeInTheDocument();
+  expect(screen.queryByText("Profile Audit")).not.toBeInTheDocument();
+  expect(screen.getByText("Pinned Post")).toBeInTheDocument();
+  expect(screen.queryByText("Profile Analysis")).not.toBeInTheDocument();
+  expect(screen.queryByText("Overall:")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /write origin story/i })).not.toBeInTheDocument();
   await user.tab();
 });

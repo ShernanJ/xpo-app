@@ -4,6 +4,7 @@ import {
   startTransition,
   useCallback,
   useRef,
+  useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
@@ -173,6 +174,8 @@ export interface UseAssistantReplyOrchestratorResult<
   TContract,
   TSelectedDraftContext extends DraftVersionSnapshotLike,
 > {
+  activeClientTurnId: string | null;
+  interruptAssistantReply: () => Promise<void>;
   requestAssistantReply: RequestAssistantReplyFn<
     TMessage,
     TStrategyInputs,
@@ -254,6 +257,13 @@ export function useAssistantReplyOrchestrator<
     createUserMessage,
   } = options;
   const activeAgentProgressRef = useRef<AgentProgressRun | null>(null);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const activeTurnRequestRef = useRef<{
+    runId: string | null;
+    clientTurnId: string | null;
+    threadId: string | null;
+  } | null>(null);
+  const [activeClientTurnId, setActiveClientTurnId] = useState<string | null>(null);
 
   const setActiveAgentProgressState = useCallback(
     (
@@ -432,6 +442,14 @@ export function useAssistantReplyOrchestrator<
       }
 
       setIsSending(true);
+      const abortController = new AbortController();
+      activeAbortControllerRef.current = abortController;
+      activeTurnRequestRef.current = {
+        runId: resolvedContext.runId,
+        clientTurnId: preparedRequest.clientTurnId ?? null,
+        threadId: activeThreadId,
+      };
+      setActiveClientTurnId(preparedRequest.clientTurnId ?? null);
       setActiveAgentProgressState(
         preparedRequest.pendingStatusPlan
           ? createAgentProgressRun({
@@ -447,6 +465,7 @@ export function useAssistantReplyOrchestrator<
           headers: {
             "Content-Type": "application/json",
           },
+          signal: abortController.signal,
           body: JSON.stringify({
             ...preparedRequest.transportRequest,
             history,
@@ -572,6 +591,9 @@ export function useAssistantReplyOrchestrator<
         );
         setActiveAgentProgressState(null);
       } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
         setActiveAgentProgressState((current) =>
           completeAgentProgressRun(current, "failed"),
         );
@@ -581,7 +603,12 @@ export function useAssistantReplyOrchestrator<
             : "The live model failed before the backend could return a response.",
         );
       } finally {
-        setIsSending(false);
+        if (activeAbortControllerRef.current === abortController) {
+          activeAbortControllerRef.current = null;
+          activeTurnRequestRef.current = null;
+          setActiveClientTurnId(null);
+          setIsSending(false);
+        }
       }
     },
     [
@@ -612,7 +639,41 @@ export function useAssistantReplyOrchestrator<
     ],
   );
 
+  const interruptAssistantReply = useCallback(async () => {
+    const activeTurn = activeTurnRequestRef.current;
+    const abortController = activeAbortControllerRef.current;
+    if (!activeTurn?.runId || !activeTurn.clientTurnId) {
+      return;
+    }
+
+    activeAbortControllerRef.current = null;
+    activeTurnRequestRef.current = null;
+    setActiveClientTurnId(null);
+    setActiveAgentProgressState(null);
+    setIsSending(false);
+    setErrorMessage(null);
+    abortController?.abort();
+
+    try {
+      await fetchWorkspace("/api/creator/v2/chat/interrupt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          runId: activeTurn.runId,
+          clientTurnId: activeTurn.clientTurnId,
+          ...(activeTurn.threadId ? { threadId: activeTurn.threadId } : {}),
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to interrupt chat turn:", error);
+    }
+  }, [fetchWorkspace, setActiveAgentProgressState, setErrorMessage, setIsSending]);
+
   return {
+    activeClientTurnId,
+    interruptAssistantReply,
     requestAssistantReply,
   };
 }

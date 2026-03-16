@@ -508,6 +508,7 @@ test("readChatResponseStream returns the final result and emits status and progr
             data: {
               workflow: "plan_then_draft",
               activeStepId: "gather_context",
+              label: "Looking through recent posts from @stan",
             },
           }) +
             "\n" +
@@ -529,12 +530,16 @@ test("readChatResponseStream returns the final result and emits status and progr
     body,
     onStatus: (message) => statusMessages.push(message),
     onProgress: (progress) =>
-      progressSnapshots.push(`${progress.workflow}:${progress.activeStepId}`),
+      progressSnapshots.push(
+        `${progress.workflow}:${progress.activeStepId}:${progress.label ?? ""}`,
+      ),
   });
 
   assert.equal(result.reply, "done");
   assert.deepEqual(statusMessages, ["planning"]);
-  assert.deepEqual(progressSnapshots, ["plan_then_draft:gather_context"]);
+  assert.deepEqual(progressSnapshots, [
+    "plan_then_draft:gather_context:Looking through recent posts from @stan",
+  ]);
 });
 
 test("readChatResponseStream ignores malformed progress payloads", async () => {

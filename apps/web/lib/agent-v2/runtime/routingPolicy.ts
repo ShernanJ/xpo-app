@@ -1,4 +1,5 @@
 import { isConstraintDeclaration, respondConversationally } from "../responses/chatResponder.ts";
+import { buildDraftClarificationQuickReplies } from "../responses/draftClarificationQuickReplies.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore.ts";
 import { buildFastReplyRawResponse } from "./responseEnvelope.ts";
 import type { TurnContext } from "./turnContextBuilder.ts";
@@ -170,10 +171,24 @@ export async function resolveRoutingPolicy(
     });
 
     if (fastReply) {
+      const quickReplies = buildDraftClarificationQuickReplies({
+        question: fastReply.response,
+        userMessage,
+        styleCard,
+        topicAnchors: anchors.topicAnchors,
+        seedTopic: currentMemory.topicSummary,
+        isVerifiedAccount: false,
+        requestedFormatPreference: currentMemory.formatPreference,
+      });
       const isConstraint = isConstraintDeclaration(userMessage);
       const nextConstraints = isConstraint
         ? Array.from(new Set([...currentMemory.activeConstraints, userMessage.trim()]))
         : undefined;
+      const preferredSurfaceMode =
+        fastReply.presentationStyle === "preserve_authored_structure" ||
+        turnPlan?.responseStyle === "structured"
+          ? "structured"
+          : currentMemory.preferredSurfaceMode;
 
       const finalMemoryRecord = await services.updateConversationMemory({
         runId,
@@ -186,6 +201,7 @@ export async function resolveRoutingPolicy(
               : "needs_more_context",
         ...(nextConstraints ? { activeConstraints: nextConstraints } : {}),
         assistantTurnCount: currentMemory.assistantTurnCount + 1,
+        preferredSurfaceMode,
         ...clearClarificationPatch(),
       });
 
@@ -202,6 +218,7 @@ export async function resolveRoutingPolicy(
           memory: finalMemory,
           data: {
             routingTrace,
+            ...(quickReplies.length ? { quickReplies } : {}),
           },
           presentationStyle: fastReply.presentationStyle,
         }) as RawOrchestratorResponse,

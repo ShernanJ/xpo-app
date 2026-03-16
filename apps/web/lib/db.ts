@@ -7,7 +7,12 @@ const connectionString = `${process.env.DATABASE_URL}`;
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 function hasDelegate<
-  Key extends "user" | "draftCandidate" | "sourceMaterialAsset" | "productEvent",
+  Key extends
+    | "user"
+    | "draftCandidate"
+    | "sourceMaterialAsset"
+    | "productEvent"
+    | "chatTurnControl",
 >(
   client: PrismaClient | undefined,
   key: Key,
@@ -26,7 +31,8 @@ function hasRequiredDelegates(client: PrismaClient | undefined): client is Prism
     hasDelegate(client, "user") &&
     hasDelegate(client, "draftCandidate") &&
     hasDelegate(client, "sourceMaterialAsset") &&
-    hasDelegate(client, "productEvent")
+    hasDelegate(client, "productEvent") &&
+    hasDelegate(client, "chatTurnControl")
   );
 }
 

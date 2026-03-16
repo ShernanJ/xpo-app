@@ -28,6 +28,7 @@ export interface FinalizeMainAssistantTurnArgs {
     eventType: string;
     properties: Record<string, unknown>;
   }) => Promise<unknown>;
+  onAssistantTurnPersisted?: (assistantMessageId: string | null) => Promise<void>;
 }
 
 export interface MainAssistantFinalizationDeps {
@@ -107,6 +108,14 @@ export async function finalizeMainAssistantTurnWithDeps(
       ...mappedData,
       threadTitle: persistenceResult.updatedThreadTitle || mappedData.threadTitle,
     };
+  }
+
+  if (args.onAssistantTurnPersisted) {
+    try {
+      await args.onAssistantTurnPersisted(createdAssistantMessageId ?? null);
+    } catch (error) {
+      console.error("Failed to record assistant turn completion:", error);
+    }
   }
 
   deps.dispatchPlannedProductEvents({

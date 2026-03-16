@@ -14,8 +14,7 @@ export type { ActiveReplyArtifactRef, ActiveReplyContext };
 export type EmbeddedReplyClassification =
   | "plain_chat"
   | "reply_request_with_embedded_post"
-  | "reply_request_missing_post"
-  | "embedded_post_without_reply_request";
+  | "reply_request_missing_post";
 
 export type EmbeddedReplyConfidence = "low" | "medium" | "high";
 
@@ -191,17 +190,17 @@ export function parseEmbeddedReplyRequest(args: {
   if (structuredSourceText) {
     const hasReplyAsk = looksLikeReplyAsk(rawMessage);
     return {
-      classification: hasReplyAsk
-        ? "reply_request_with_embedded_post"
-        : "embedded_post_without_reply_request",
-      context: {
-        sourceText: structuredSourceText,
-        sourceUrl: structuredSourceUrl,
-        authorHandle: structuredAuthorHandle,
-        quotedUserAsk: hasReplyAsk ? rawMessage : null,
-        confidence: structuredSourceUrl || structuredAuthorHandle ? "high" : "medium",
-        parseReason: "structured_reply_context",
-      },
+      classification: hasReplyAsk ? "reply_request_with_embedded_post" : "plain_chat",
+      context: hasReplyAsk
+        ? {
+            sourceText: structuredSourceText,
+            sourceUrl: structuredSourceUrl,
+            authorHandle: structuredAuthorHandle,
+            quotedUserAsk: rawMessage,
+            confidence: structuredSourceUrl || structuredAuthorHandle ? "high" : "medium",
+            parseReason: "structured_reply_context",
+          }
+        : null,
     };
   }
 
@@ -254,20 +253,6 @@ export function parseEmbeddedReplyRequest(args: {
     };
   }
 
-  if (!hasReplyAsk && looksLikePastedPost && sourceText.length >= 80 && !looksLikeQuotedSnippet(sourceText)) {
-    return {
-      classification: "embedded_post_without_reply_request",
-      context: {
-        sourceText,
-        sourceUrl: urlMatch?.[0] || null,
-        authorHandle,
-        quotedUserAsk: null,
-        confidence: urlMatch || authorHandle ? "high" : "medium",
-        parseReason: "embedded_post_without_reply_instruction",
-      },
-    };
-  }
-
   return {
     classification: "plain_chat",
     context: null,
@@ -308,13 +293,6 @@ export function buildReplyConfirmationPrompt(context: EmbeddedReplyContext): str
 
 export function buildMissingReplyPostPrompt(): string {
   return "paste the post text or x url you want to reply to, and i'll turn it into 3 grounded reply options.";
-}
-
-export function buildEmbeddedPostWithoutReplyPrompt(context: EmbeddedReplyContext): string {
-  const opener = context.authorHandle
-    ? `that looks like a post from @${context.authorHandle}.`
-    : "that looks like a pasted post.";
-  return `${opener} do you want me to help you reply to it, analyze it, or turn it into a quote reply?`;
 }
 
 export function buildReplyConfirmationQuickReplies() {

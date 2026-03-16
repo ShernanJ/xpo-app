@@ -75,7 +75,6 @@ export function resolveAccountProfileAriaLabel(params: {
 
 export type WorkspaceChromeToolKey =
   | "source_materials"
-  | "draft_review"
   | "profile_breakdown"
   | "growth_guide";
 
@@ -84,7 +83,6 @@ export const WORKSPACE_CHROME_TOOLS: Array<{
   label: string;
 }> = [
   { key: "source_materials", label: "Saved context" },
-  { key: "draft_review", label: "Draft review" },
   { key: "profile_breakdown", label: "Profile breakdown" },
   { key: "growth_guide", label: "Growth guide" },
 ];

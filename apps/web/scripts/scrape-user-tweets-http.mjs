@@ -65,6 +65,8 @@ function printUsage() {
       "  --account <value>         X username (or @username or x.com/username).",
       "  --count <number>          Number of tweets to request (default: 40).",
       "  --pages <number>          Number of UserTweets pages to fetch (default: 3, max: 12).",
+      "  --target-originals <n>    Stop early after this many unique original posts are collected.",
+      "  --max-duration-ms <n>     Stop paginating once this wall-clock budget is reached.",
       "  --query-id <value>        UserTweets queryId (optional; auto-discovered when omitted).",
       "  --user-id <value>         X rest id (optional; resolved via users/show when omitted).",
       "  --session <value>         Force a specific session id from the session pool file.",
@@ -166,6 +168,8 @@ function parseArgs(argv) {
     account: null,
     count: 40,
     pages: 3,
+    targetOriginals: 40,
+    maxDurationMs: 10000,
     queryId: null,
     userId: null,
     sessionId: null,
@@ -244,6 +248,24 @@ function parseArgs(argv) {
         throw new Error("--pages must be an integer between 1 and 12.");
       }
       parsed.pages = Math.floor(pages);
+      continue;
+    }
+
+    if (token === "--target-originals") {
+      const targetOriginals = Number(value);
+      if (!Number.isFinite(targetOriginals) || targetOriginals < 1 || targetOriginals > 200) {
+        throw new Error("--target-originals must be an integer between 1 and 200.");
+      }
+      parsed.targetOriginals = Math.floor(targetOriginals);
+      continue;
+    }
+
+    if (token === "--max-duration-ms") {
+      const maxDurationMs = Number(value);
+      if (!Number.isFinite(maxDurationMs) || maxDurationMs < 1000) {
+        throw new Error("--max-duration-ms must be a number >= 1000.");
+      }
+      parsed.maxDurationMs = Math.floor(maxDurationMs);
       continue;
     }
 
@@ -394,6 +416,205 @@ function asString(value) {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function asBoolean(value) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function unwrapTweetResultNode(value) {
+  const node = asRecord(value);
+  if (!node) {
+    return null;
+  }
+
+  if (node.__typename === "Tweet" && asRecord(node.legacy)) {
+    return node;
+  }
+
+  const tweet = asRecord(node.tweet);
+  if (tweet) {
+    return unwrapTweetResultNode(tweet);
+  }
+
+  const result = asRecord(node.result);
+  if (result) {
+    return unwrapTweetResultNode(result);
+  }
+
+  if (asRecord(node.legacy)) {
+    return node;
+  }
+
+  return null;
+}
+
+function extractTimelineTweetNode(value) {
+  const node = asRecord(value);
+  if (!node) {
+    return null;
+  }
+
+  const itemContent = asRecord(node.itemContent);
+  const tweetResults = asRecord(node.tweet_results) ?? asRecord(itemContent?.tweet_results);
+  return unwrapTweetResultNode(tweetResults?.result);
+}
+
+function getTimelineContainer(payload) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const user = asRecord(data?.user);
+  const userResult = asRecord(user?.result);
+  if (!userResult) {
+    return null;
+  }
+
+  const timeline = asRecord(asRecord(userResult.timeline)?.timeline);
+  if (timeline) {
+    return timeline;
+  }
+
+  return asRecord(asRecord(userResult.timeline_v2)?.timeline);
+}
+
+function collectTimelineTweetNodes(payload) {
+  const timeline = getTimelineContainer(payload);
+  if (!timeline) {
+    return [];
+  }
+
+  const instructions = Array.isArray(timeline.instructions) ? timeline.instructions : [];
+  const nodes = [];
+
+  for (const instructionValue of instructions) {
+    const instruction = asRecord(instructionValue);
+    if (!instruction) {
+      continue;
+    }
+
+    const entries = [];
+    if (Array.isArray(instruction.entries)) {
+      entries.push(...instruction.entries);
+    }
+
+    const singleEntry = asRecord(instruction.entry);
+    if (singleEntry) {
+      entries.push(singleEntry);
+    }
+
+    for (const entryValue of entries) {
+      const entry = asRecord(entryValue);
+      const content = asRecord(entry?.content);
+      if (!content) {
+        continue;
+      }
+
+      const contentTweetNode = extractTimelineTweetNode(content);
+      if (contentTweetNode) {
+        nodes.push(contentTweetNode);
+      }
+
+      const contentItem = asRecord(content.item);
+      if (contentItem) {
+        const contentItemTweetNode = extractTimelineTweetNode(contentItem);
+        if (contentItemTweetNode) {
+          nodes.push(contentItemTweetNode);
+        }
+      }
+
+      const moduleItems = Array.isArray(content.items) ? content.items : [];
+      for (const moduleItemValue of moduleItems) {
+        const moduleItem = asRecord(moduleItemValue);
+        if (!moduleItem) {
+          continue;
+        }
+
+        const moduleItemTweetNode = extractTimelineTweetNode(moduleItem);
+        if (moduleItemTweetNode) {
+          nodes.push(moduleItemTweetNode);
+        }
+
+        const moduleItemItem = asRecord(moduleItem.item);
+        if (!moduleItemItem) {
+          continue;
+        }
+
+        const moduleItemItemTweetNode = extractTimelineTweetNode(moduleItemItem);
+        if (moduleItemItemTweetNode) {
+          nodes.push(moduleItemItemTweetNode);
+        }
+      }
+    }
+  }
+
+  return nodes;
+}
+
+function extractTweetId(tweetNode) {
+  const legacy = asRecord(tweetNode?.legacy);
+  return (
+    asString(legacy?.id_str) ??
+    asString(tweetNode?.rest_id) ??
+    asString(tweetNode?.id_str) ??
+    asString(tweetNode?.id)
+  );
+}
+
+function isRetweetTweetNode(tweetNode) {
+  const legacy = asRecord(tweetNode?.legacy);
+  const fullText = asString(legacy?.full_text) ?? asString(legacy?.text) ?? "";
+  return (
+    fullText.startsWith("RT @") ||
+    asRecord(legacy?.retweeted_status_result) !== null ||
+    asString(legacy?.retweeted_status_id_str) !== null ||
+    asRecord(tweetNode?.retweeted_status_result) !== null
+  );
+}
+
+function isReplyTweetNode(tweetNode) {
+  const legacy = asRecord(tweetNode?.legacy);
+  return (
+    asString(legacy?.in_reply_to_status_id_str) !== null ||
+    asString(legacy?.in_reply_to_user_id_str) !== null ||
+    asString(legacy?.in_reply_to_screen_name) !== null
+  );
+}
+
+function isQuoteTweetNode(tweetNode) {
+  const legacy = asRecord(tweetNode?.legacy);
+  return (
+    asBoolean(legacy?.is_quote_status) === true ||
+    asString(legacy?.quoted_status_id_str) !== null ||
+    asRecord(tweetNode?.quoted_status_result) !== null
+  );
+}
+
+function collectUniqueTweetIds(payload) {
+  const ids = new Set();
+  for (const node of collectTimelineTweetNodes(payload)) {
+    const id = extractTweetId(node);
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function collectUniqueOriginalTweetIds(payload) {
+  const ids = new Set();
+  for (const node of collectTimelineTweetNodes(payload)) {
+    const id = extractTweetId(node);
+    if (!id) {
+      continue;
+    }
+
+    if (isRetweetTweetNode(node) || isReplyTweetNode(node) || isQuoteTweetNode(node)) {
+      continue;
+    }
+
+    ids.add(id);
+  }
+  return ids;
+}
+
 function buildDefaultOutputPath(account) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return path.resolve(process.cwd(), "tmp", `user-tweets-http-${account}-${stamp}.json`);
@@ -401,6 +622,21 @@ function buildDefaultOutputPath(account) {
 
 function shouldCooldownSession(error) {
   return error instanceof HttpStatusError && (error.status === 403 || error.status === 429);
+}
+
+function shouldRetryWithAnotherSession(error) {
+  if (shouldCooldownSession(error)) {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("cursor") ||
+    message.includes("usertweets payload shape") ||
+    message.includes("resolved timeline belongs") ||
+    message.includes("auth") ||
+    message.includes("user id")
+  );
 }
 
 function getJitteredDelayMs(baseMs, jitterMs) {
@@ -910,28 +1146,6 @@ function looksLikeUserTweetsPayload(payload) {
   return Boolean(timeline || timelineV2);
 }
 
-function getTimelineContainer(payload) {
-  const root = asRecord(payload);
-  const data = asRecord(root?.data);
-  const user = asRecord(data?.user);
-  const userResult = asRecord(user?.result);
-  if (!userResult) {
-    return null;
-  }
-
-  const timeline = asRecord(asRecord(userResult.timeline)?.timeline);
-  if (timeline) {
-    return timeline;
-  }
-
-  const timelineV2 = asRecord(asRecord(userResult.timeline_v2)?.timeline);
-  if (timelineV2) {
-    return timelineV2;
-  }
-
-  return null;
-}
-
 function extractBottomCursor(payload) {
   const timeline = getTimelineContainer(payload);
   if (!timeline) {
@@ -978,19 +1192,43 @@ function appendTimelineInstructions(targetPayload, nextPayload) {
   targetTimeline.instructions = [...targetInstructions, ...nextInstructions];
 }
 
+function getUniqueOriginalPostCount(payload) {
+  return collectUniqueOriginalTweetIds(payload).size;
+}
+
+function getUniqueTimelinePostCount(payload) {
+  return collectUniqueTweetIds(payload).size;
+}
+
 async function fetchPaginatedUserTweetsPayload(params) {
+  const startedAtMs = Date.now();
   const mergedPayload = await fetchUserTweetsPayload({
     userId: params.userId,
     count: params.count,
     queryId: params.queryId,
     headers: params.headers,
   });
+  let uniqueOriginalPostCount = getUniqueOriginalPostCount(mergedPayload);
+
+  if (uniqueOriginalPostCount >= params.targetOriginals) {
+    console.log(
+      `[http] Reached target depth after page 1 (${uniqueOriginalPostCount}/${params.targetOriginals} original posts).`,
+    );
+    return mergedPayload;
+  }
 
   let cursor = extractBottomCursor(mergedPayload);
   const seenCursors = new Set(cursor ? [cursor] : []);
 
   for (let page = 2; page <= params.pages; page += 1) {
     if (!cursor) {
+      break;
+    }
+
+    if (Date.now() - startedAtMs >= params.maxDurationMs) {
+      console.log(
+        `[http] Stopping pagination after ${page - 1} page(s); wall-clock budget reached.`,
+      );
       break;
     }
 
@@ -1019,6 +1257,14 @@ async function fetchPaginatedUserTweetsPayload(params) {
     }
 
     appendTimelineInstructions(mergedPayload, nextPayload);
+    uniqueOriginalPostCount = getUniqueOriginalPostCount(mergedPayload);
+    if (uniqueOriginalPostCount >= params.targetOriginals) {
+      console.log(
+        `[http] Reached target depth after page ${page} (${uniqueOriginalPostCount}/${params.targetOriginals} original posts).`,
+      );
+      break;
+    }
+
     const nextCursor = extractBottomCursor(nextPayload);
     if (!nextCursor || seenCursors.has(nextCursor)) {
       break;
@@ -1061,6 +1307,142 @@ async function maybeImportCapture(params) {
   }
 
   return json;
+}
+
+function attachScrapeMeta(payload, meta) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+
+  payload.__scrapeMeta = meta;
+  return payload;
+}
+
+async function runScrapeAttempt(params) {
+  const {
+    account,
+    options,
+    broker,
+    pages,
+    requestDelayMs,
+    requestJitterMs,
+    sessionHandle,
+  } = params;
+  const sessionCookie = sessionHandle.cookie ?? null;
+  const sessionCsrfToken = sessionHandle.csrfToken ?? null;
+  const sessionUserAgent = sessionHandle.userAgent ?? null;
+  const sessionBearerToken = sessionHandle.bearerToken ?? null;
+
+  const cookieRaw = options.cookie ?? sessionCookie ?? process.env.X_WEB_COOKIE ?? null;
+  const csrfFromCookie = cookieRaw ? getCookieValue(cookieRaw, "ct0") : null;
+  const csrfToken =
+    options.csrf ??
+    sessionCsrfToken ??
+    process.env.X_WEB_CSRF_TOKEN ??
+    csrfFromCookie ??
+    null;
+  const cookie = ensureCookieContainsCt0(cookieRaw, csrfToken);
+  const userAgent =
+    sessionUserAgent ??
+    process.env.X_WEB_USER_AGENT ??
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+  const bearerFromArgsOrEnv =
+    options.bearer ??
+    sessionBearerToken ??
+    process.env.X_WEB_BEARER_TOKEN ??
+    null;
+  const cachedBearer = bearerFromArgsOrEnv
+    ? null
+    : broker.getCachedGlobal("bearerToken", GLOBAL_CACHE_TTL_MS);
+  let bearerToken = bearerFromArgsOrEnv ?? cachedBearer;
+  if (!bearerToken) {
+    bearerToken = await discoverWebBearerToken(userAgent);
+    broker.setCachedGlobal("bearerToken", bearerToken);
+  }
+
+  const queryIdFromArgsOrEnv =
+    options.queryId || process.env.X_WEB_USER_TWEETS_QUERY_ID || null;
+  const cachedQueryId = queryIdFromArgsOrEnv
+    ? null
+    : broker.getCachedGlobal("queryId", GLOBAL_CACHE_TTL_MS);
+  const resolvedQueryId =
+    queryIdFromArgsOrEnv || cachedQueryId || (await discoverUserTweetsQueryId(userAgent));
+  if (!queryIdFromArgsOrEnv && !cachedQueryId) {
+    broker.setCachedGlobal("queryId", resolvedQueryId);
+  }
+  console.log(`[http] UserTweets queryId: ${resolvedQueryId}`);
+
+  const userIdFromEnv = process.env.X_WEB_USER_ID || null;
+  const userIdInput =
+    options.userId ||
+    userIdFromEnv ||
+    broker.getCachedUserId(account, USER_ID_CACHE_TTL_MS);
+
+  const useCookieAuth = Boolean(cookie && csrfToken && !options.forceGuest);
+  let guestToken = null;
+
+  if (!useCookieAuth) {
+    console.log("[http] Using guest-token flow (no auth cookie supplied).");
+    guestToken = await resolveGuestToken(bearerToken, userAgent);
+  } else if (sessionHandle.kind === "pooled") {
+    console.log(`[http] Using authenticated cookie flow via session ${sessionHandle.label}.`);
+  } else {
+    console.log("[http] Using authenticated cookie flow.");
+  }
+
+  const headers = buildRequestHeaders({
+    bearerToken,
+    userAgent,
+    account,
+    cookie,
+    csrfToken,
+    guestToken,
+    useCookieAuth,
+  });
+
+  const userId = await resolveUserRestIdWithFallbacks({
+    account,
+    userId: userIdInput,
+    userAgent,
+    headers,
+    cookie,
+    broker,
+  });
+  broker.setCachedUserId(account, userId);
+  console.log(`[http] Resolved user id: ${userId}`);
+
+  const payload = await fetchPaginatedUserTweetsPayload({
+    userId,
+    count: options.count,
+    pages,
+    requestDelayMs,
+    requestJitterMs,
+    queryId: resolvedQueryId,
+    headers,
+    targetOriginals: options.targetOriginals,
+    maxDurationMs: options.maxDurationMs,
+  });
+
+  if (!looksLikeUserTweetsPayload(payload)) {
+    throw new Error(
+      "Response does not match UserTweets payload shape. This can happen when headers/queryId/features drift.",
+    );
+  }
+
+  const payloadAccount = extractPayloadUsername(payload);
+  if (
+    payloadAccount &&
+    payloadAccount.toLowerCase() !== account.toLowerCase()
+  ) {
+    throw new Error(
+      `Resolved timeline belongs to @${payloadAccount}, not @${account}. User id resolution is stale or incorrect.`,
+    );
+  }
+
+  return {
+    payload,
+  };
 }
 
 async function main() {
@@ -1112,7 +1494,7 @@ async function main() {
       : options.cooldownMs;
   const pages =
     Number.isFinite(envPages) && envPages >= 1
-      ? Math.min(5, Math.floor(envPages))
+      ? Math.min(12, Math.floor(envPages))
       : options.pages;
   const requestDelayMs =
     Number.isFinite(envRequestDelay) && envRequestDelay >= 0
@@ -1131,121 +1513,74 @@ async function main() {
     minIntervalMs,
   });
 
-  let sessionHandle = null;
   try {
-    sessionHandle = await broker.acquire({
-      forcedSessionId: options.sessionId,
+    let forcedSessionId = options.sessionId ?? null;
+    const attemptedSessionIds = new Set();
+    const rotatedSessionIds = [];
+    const maxSessionAttempts = forcedSessionId ? 1 : 4;
+    let attemptError = null;
+    let finalPayload = null;
+    let finalSessionId = null;
+
+    for (let attempt = 1; attempt <= maxSessionAttempts; attempt += 1) {
+      const sessionHandle = await broker.acquire({
+        forcedSessionId,
+      });
+      finalSessionId = sessionHandle.sessionId ?? finalSessionId;
+
+      try {
+        const attemptResult = await runScrapeAttempt({
+          account,
+          options,
+          broker,
+          pages,
+          requestDelayMs,
+          requestJitterMs,
+          sessionHandle,
+        });
+        await broker.markSuccess(sessionHandle);
+        finalPayload = attemptResult.payload;
+        finalSessionId = sessionHandle.sessionId ?? finalSessionId;
+        break;
+      } catch (error) {
+        attemptError = error;
+        const shouldCooldown = shouldCooldownSession(error);
+        await broker.markFailure(sessionHandle, {
+          cooldownMs,
+          shouldCooldown,
+        });
+
+        const canRetryWithAnotherSession =
+          !forcedSessionId &&
+          sessionHandle.sessionId &&
+          !attemptedSessionIds.has(sessionHandle.sessionId) &&
+          shouldRetryWithAnotherSession(error) &&
+          attempt < maxSessionAttempts;
+
+        if (!canRetryWithAnotherSession) {
+          throw error;
+        }
+
+        attemptedSessionIds.add(sessionHandle.sessionId);
+        rotatedSessionIds.push(sessionHandle.sessionId);
+        console.warn(
+          `[session] Session ${sessionHandle.label} failed; retrying the scrape from page 1 with another session.`,
+        );
+        forcedSessionId = null;
+      }
+    }
+
+    if (!finalPayload) {
+      throw attemptError ?? new Error("Scrape failed before any payload could be saved.");
+    }
+
+    const payload = attachScrapeMeta(finalPayload, {
+      sessionId: finalSessionId,
+      rotatedSessionIds,
+      didRotateSession: rotatedSessionIds.length > 0,
+      totalRawPostCount: getUniqueTimelinePostCount(finalPayload),
+      uniqueOriginalPostsCollected: getUniqueOriginalPostCount(finalPayload),
     });
-
-    const sessionCookie = sessionHandle.cookie ?? null;
-    const sessionCsrfToken = sessionHandle.csrfToken ?? null;
-    const sessionUserAgent = sessionHandle.userAgent ?? null;
-    const sessionBearerToken = sessionHandle.bearerToken ?? null;
-
-    const cookieRaw = options.cookie ?? sessionCookie ?? process.env.X_WEB_COOKIE ?? null;
-    const csrfFromCookie = cookieRaw ? getCookieValue(cookieRaw, "ct0") : null;
-    const csrfToken =
-      options.csrf ??
-      sessionCsrfToken ??
-      process.env.X_WEB_CSRF_TOKEN ??
-      csrfFromCookie ??
-      null;
-    const cookie = ensureCookieContainsCt0(cookieRaw, csrfToken);
-    const userAgent =
-      sessionUserAgent ??
-      process.env.X_WEB_USER_AGENT ??
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-    const bearerFromArgsOrEnv =
-      options.bearer ??
-      sessionBearerToken ??
-      process.env.X_WEB_BEARER_TOKEN ??
-      null;
-    const cachedBearer = bearerFromArgsOrEnv
-      ? null
-      : broker.getCachedGlobal("bearerToken", GLOBAL_CACHE_TTL_MS);
-    let bearerToken = bearerFromArgsOrEnv ?? cachedBearer;
-    if (!bearerToken) {
-      bearerToken = await discoverWebBearerToken(userAgent);
-      broker.setCachedGlobal("bearerToken", bearerToken);
-    }
-
-    const queryIdFromArgsOrEnv =
-      options.queryId || process.env.X_WEB_USER_TWEETS_QUERY_ID || null;
-    const cachedQueryId = queryIdFromArgsOrEnv
-      ? null
-      : broker.getCachedGlobal("queryId", GLOBAL_CACHE_TTL_MS);
-    const resolvedQueryId =
-      queryIdFromArgsOrEnv || cachedQueryId || (await discoverUserTweetsQueryId(userAgent));
-    if (!queryIdFromArgsOrEnv && !cachedQueryId) {
-      broker.setCachedGlobal("queryId", resolvedQueryId);
-    }
-    console.log(`[http] UserTweets queryId: ${resolvedQueryId}`);
-
-    const userIdFromEnv = process.env.X_WEB_USER_ID || null;
-    const userIdInput =
-      options.userId ||
-      userIdFromEnv ||
-      broker.getCachedUserId(account, USER_ID_CACHE_TTL_MS);
-
-    const useCookieAuth = Boolean(cookie && csrfToken && !options.forceGuest);
-    let guestToken = null;
-
-    if (!useCookieAuth) {
-      console.log("[http] Using guest-token flow (no auth cookie supplied).");
-      guestToken = await resolveGuestToken(bearerToken, userAgent);
-    } else if (sessionHandle.kind === "pooled") {
-      console.log(`[http] Using authenticated cookie flow via session ${sessionHandle.label}.`);
-    } else {
-      console.log("[http] Using authenticated cookie flow.");
-    }
-
-    const headers = buildRequestHeaders({
-      bearerToken,
-      userAgent,
-      account,
-      cookie,
-      csrfToken,
-      guestToken,
-      useCookieAuth,
-    });
-
-    const userId = await resolveUserRestIdWithFallbacks({
-      account,
-      userId: userIdInput,
-      userAgent,
-      headers,
-      cookie,
-      broker,
-    });
-    broker.setCachedUserId(account, userId);
-    console.log(`[http] Resolved user id: ${userId}`);
-
-    const payload = await fetchPaginatedUserTweetsPayload({
-      userId,
-      count: options.count,
-      pages,
-      requestDelayMs,
-      requestJitterMs,
-      queryId: resolvedQueryId,
-      headers,
-    });
-
-    if (!looksLikeUserTweetsPayload(payload)) {
-      throw new Error(
-        "Response does not match UserTweets payload shape. This can happen when headers/queryId/features drift.",
-      );
-    }
-
-    const payloadAccount = extractPayloadUsername(payload);
-    if (
-      payloadAccount &&
-      payloadAccount.toLowerCase() !== account.toLowerCase()
-    ) {
-      throw new Error(
-        `Resolved timeline belongs to @${payloadAccount}, not @${account}. User id resolution is stale or incorrect.`,
-      );
-    }
 
     const outputPath = path.resolve(options.output ?? buildDefaultOutputPath(account));
     await mkdir(path.dirname(outputPath), { recursive: true });
@@ -1262,16 +1597,8 @@ async function main() {
       });
       console.log(`[import] Success:\n${JSON.stringify(importResult, null, 2)}`);
     }
-
-    await broker.markSuccess(sessionHandle);
-  } catch (error) {
-    if (sessionHandle) {
-      await broker.markFailure(sessionHandle, {
-        cooldownMs,
-        shouldCooldown: shouldCooldownSession(error),
-      });
-    }
-    throw error;
+  } finally {
+    await broker.close();
   }
 }
 

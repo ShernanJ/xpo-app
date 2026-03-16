@@ -59,10 +59,10 @@ test("deterministic chat keeps self-knowledge answers grounded", async () => {
   });
 
   assert.equal(typeof reply, "string");
-  assert.equal(reply?.includes("Lately you've been posting about:"), true);
+  assert.equal(reply?.includes("## Recent Themes"), true);
   assert.equal(reply?.includes("- Retrieval quality and proof-first writing"), true);
   assert.equal(reply?.toLowerCase().includes("synced profile"), false);
-  assert.equal(reply?.includes("- **Bottom line:**"), false);
+  assert.equal(reply?.includes("**Current read:**"), true);
 });
 
 test("deterministic chat acknowledges synced x posts when available", async () => {
@@ -74,7 +74,7 @@ test("deterministic chat acknowledges synced x posts when available", async () =
   });
 
   assert.equal(typeof reply, "string");
-  assert.equal(reply?.includes("I can see a few recent posts in the current sample."), true);
+  assert.equal(reply?.includes("## Recent Posts"), true);
   assert.equal(reply?.includes("- \"generic ai copy usually comes from weak retrieval, not weak models.\""), true);
   assert.equal(reply?.toLowerCase().includes("attached x account"), false);
   assert.equal(reply?.toLowerCase().includes("paste"), false);
@@ -115,13 +115,10 @@ test("deterministic chat builds profile summaries from synced context", async ()
   assert.equal(typeof reply, "string");
   assert.equal(reply?.toLowerCase().includes("synced profile"), false);
   assert.equal(reply?.toLowerCase().includes("builder-focused x growth systems"), true);
-  assert.equal(reply?.includes("Lately you've been posting about:"), true);
+  assert.equal(reply?.includes("## Recent Themes"), true);
   assert.equal(reply?.toLowerCase().includes("recent posts in scope include"), false);
   assert.equal(reply?.toLowerCase().includes("paste a quick snapshot"), false);
-  assert.equal(
-    reply?.includes("I can also pull the strongest recent post I can see here and break down why it worked."),
-    true,
-  );
+  assert.equal(reply?.includes("## Strongest Recent Post"), true);
 });
 
 test("deterministic profile summaries admit when no synced profile exists", async () => {
@@ -172,7 +169,8 @@ test("deterministic chat can break down the strongest recent post from grounded 
   });
 
   assert.equal(typeof reply, "string");
-  assert.equal(reply?.includes("Your strongest recent post I can see here was about"), true);
+  assert.equal(reply?.includes("**Strongest recent post:**"), true);
+  assert.equal(reply?.includes("## Why It Stood Out"), true);
   assert.equal(reply?.includes("**40,000** likes"), true);
   assert.equal(reply?.includes("**10x**"), true);
   assert.equal(reply?.includes("- "), true);

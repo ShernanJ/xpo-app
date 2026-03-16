@@ -3,10 +3,14 @@ import { randomUUID } from "crypto";
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import type { XPinnedPost, XPublicPost, XPublicProfile } from "../types";
-
-interface StoredScrapeProfilePayload extends XPublicProfile {
-  pinnedPost?: XPinnedPost | null;
-}
+import {
+  MAX_MERGED_CAPTURE_POSTS,
+  MAX_MERGED_CAPTURE_QUOTE_POSTS,
+  MAX_MERGED_CAPTURE_REPLY_POSTS,
+  mergeProfilePayload,
+  mergeScrapeCapturePosts,
+  normalizeProfile,
+} from "./scrapeCaptureMerge";
 
 export interface StoredScrapeCapture {
   captureId: string;
@@ -41,18 +45,6 @@ export function isScrapeCaptureExpired(
   return nowMs - capturedAtMs >= SCRAPE_CAPTURE_TTL_MS;
 }
 
-function normalizeProfile(
-  profile: XPublicProfile,
-  account: string,
-  pinnedPost?: XPinnedPost | null,
-): StoredScrapeProfilePayload {
-  return {
-    ...profile,
-    username: account,
-    pinnedPost: pinnedPost ?? null,
-  };
-}
-
 function asPostArray(value: unknown): XPublicPost[] {
   if (!Array.isArray(value)) {
     return [];
@@ -85,11 +77,11 @@ function mapRowToStoredCapture(row: {
     capturedAt: row.capturedAt.toISOString(),
     account: row.account,
     profile: normalizeProfile(
-      row.profile as StoredScrapeProfilePayload,
+      row.profile as XPublicProfile,
       row.account.toLowerCase(),
-      (row.profile as StoredScrapeProfilePayload)?.pinnedPost ?? null,
+      (row.profile as { pinnedPost?: XPinnedPost | null })?.pinnedPost ?? null,
     ),
-    pinnedPost: (row.profile as StoredScrapeProfilePayload)?.pinnedPost ?? null,
+    pinnedPost: (row.profile as { pinnedPost?: XPinnedPost | null })?.pinnedPost ?? null,
     posts: asPostArray(row.posts),
     replyPosts: asPostArray(row.replyPosts),
     quotePosts: asPostArray(row.quotePosts),
@@ -120,6 +112,7 @@ export async function persistScrapeCapture(params: {
   quotePosts?: XPublicPost[];
   source?: "manual_import" | "agent";
   userAgent: string | null;
+  mergeWithExisting?: boolean;
 }): Promise<{ captureId: string; capturedAt: string }> {
   const normalizedAccount = params.account.toLowerCase();
   const capturedAt = new Date();
@@ -127,6 +120,38 @@ export async function persistScrapeCapture(params: {
   const source = params.source ?? "manual_import";
 
   await pruneExpiredCaptures(normalizedAccount);
+  const existingCapture = params.mergeWithExisting === false
+    ? null
+    : await prisma.scrapeCaptureCache.findUnique({
+        where: { account: normalizedAccount },
+        select: {
+          profile: true,
+          posts: true,
+          replyPosts: true,
+          quotePosts: true,
+        },
+      });
+  const mergedProfile = mergeProfilePayload(
+    existingCapture?.profile as (XPublicProfile & { pinnedPost?: XPinnedPost | null }) | null,
+    params.profile,
+    normalizedAccount,
+    params.pinnedPost ?? null,
+  );
+  const mergedPosts = mergeScrapeCapturePosts(
+    asPostArray(existingCapture?.posts),
+    params.posts,
+    MAX_MERGED_CAPTURE_POSTS,
+  );
+  const mergedReplyPosts = mergeScrapeCapturePosts(
+    asPostArray(existingCapture?.replyPosts),
+    params.replyPosts ?? [],
+    MAX_MERGED_CAPTURE_REPLY_POSTS,
+  );
+  const mergedQuotePosts = mergeScrapeCapturePosts(
+    asPostArray(existingCapture?.quotePosts),
+    params.quotePosts ?? [],
+    MAX_MERGED_CAPTURE_QUOTE_POSTS,
+  );
 
   await prisma.scrapeCaptureCache.upsert({
     where: { account: normalizedAccount },
@@ -135,12 +160,10 @@ export async function persistScrapeCapture(params: {
       account: normalizedAccount,
       capturedAt,
       expiresAt: ttlExpiryFor(capturedAt),
-      profile: toInputJson(
-        normalizeProfile(params.profile, normalizedAccount, params.pinnedPost ?? null),
-      ),
-      posts: toInputJson(params.posts),
-      replyPosts: toInputJson(params.replyPosts ?? []),
-      quotePosts: toInputJson(params.quotePosts ?? []),
+      profile: toInputJson(mergedProfile),
+      posts: toInputJson(mergedPosts),
+      replyPosts: toInputJson(mergedReplyPosts),
+      quotePosts: toInputJson(mergedQuotePosts),
       source,
       userAgent: params.userAgent,
     },
@@ -148,12 +171,10 @@ export async function persistScrapeCapture(params: {
       captureId,
       capturedAt,
       expiresAt: ttlExpiryFor(capturedAt),
-      profile: toInputJson(
-        normalizeProfile(params.profile, normalizedAccount, params.pinnedPost ?? null),
-      ),
-      posts: toInputJson(params.posts),
-      replyPosts: toInputJson(params.replyPosts ?? []),
-      quotePosts: toInputJson(params.quotePosts ?? []),
+      profile: toInputJson(mergedProfile),
+      posts: toInputJson(mergedPosts),
+      replyPosts: toInputJson(mergedReplyPosts),
+      quotePosts: toInputJson(mergedQuotePosts),
       source,
       userAgent: params.userAgent,
     },

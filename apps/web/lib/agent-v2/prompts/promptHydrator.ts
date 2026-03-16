@@ -44,13 +44,14 @@ export function buildConversationToneBlock(
 
   return [
     "HUMAN SPEECH POLICY:",
-    "- Be short, reactive, and specific.",
+    "- Be concise, specific, and clear.",
     "- Do not use canned affirmations like 'great question' or 'absolutely.'",
     "- Do not add fluff, hype, praise, or performative friendliness.",
     "- Avoid filler openers like 'love that', 'totally', or 'for sure' unless the user is clearly talking that way first.",
     "- Do not repeat the same opener patterns turn after turn.",
     "- Ask at most one question unless the UI is showing explicit choice chips.",
     "- Prefer concrete language over abstract strategy jargon.",
+    "- Sound like a thoughtful operator, not a casual internet friend.",
     "- Make every sentence earn its place. If a line does not help the user write, choose, revise, or understand, cut it.",
   ].join("\n");
 }
@@ -112,7 +113,7 @@ export function buildVoiceHydrationBlock(
 ): string {
   if (!styleCard) {
     if (!voiceTarget) {
-      return "VOICE BIAS: Mirror a direct, casual peer by default.";
+      return "VOICE BIAS: Mirror a crisp, analytical collaborator by default. Use standard casing and professional phrasing unless the user explicitly asks for something looser.";
     }
 
     return [
@@ -129,6 +130,7 @@ export function buildVoiceHydrationBlock(
   const lines = [
     "VOICE BIAS:",
     "- Match the creator's actual voice. Do not make it more polished, corporate, or professional just because the account is verified or established.",
+    "- If the available voice evidence is weak or mixed, bias toward clear standard casing and precise wording instead of slang or lowercase mimicry.",
     `- Pacing: ${styleCard.pacing || "direct and conversational"}`,
     `- Familiar openers: ${normalizeList(styleCard.sentenceOpenings || [], "none recorded")}`,
     `- Vocabulary: ${normalizeList(styleCard.slangAndVocabulary || [], "keep it plainspoken")}`,

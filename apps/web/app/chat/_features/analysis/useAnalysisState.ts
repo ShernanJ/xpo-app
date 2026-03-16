@@ -27,6 +27,8 @@ interface ProfileScrapeRefreshSuccess {
   persistedAt?: string;
   cooldownUntil?: string | null;
   retryAfterSeconds?: number;
+  syncedPostCount?: number;
+  queuedBackfill?: boolean;
 }
 
 interface ProfileScrapeRefreshFailure {
@@ -329,6 +331,16 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
         return;
       }
 
+      if (result.data.reason === "new_posts_detected") {
+        setAnalysisScrapeNoticeTone("success");
+        setAnalysisScrapeNotice(
+          result.data.syncedPostCount && result.data.syncedPostCount > 0
+            ? `synced ${result.data.syncedPostCount} new post${result.data.syncedPostCount === 1 ? "" : "s"}${result.data.queuedBackfill ? " and queued a deeper refresh" : ""}.`
+            : "new posts were detected and synced in the background.",
+        );
+        return;
+      }
+
       setAnalysisScrapeNoticeTone("info");
       setAnalysisScrapeNotice("scrape check completed. no profile changes detected.");
     } finally {
@@ -384,7 +396,17 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
 
       if (result.data.refreshed) {
         setAnalysisScrapeNoticeTone("success");
-        setAnalysisScrapeNotice("new posts detected and synced in the background.");
+        setAnalysisScrapeNotice("new posts detected and profile analysis refreshed.");
+        return;
+      }
+
+      if (result.data.reason === "new_posts_detected") {
+        setAnalysisScrapeNoticeTone("success");
+        setAnalysisScrapeNotice(
+          result.data.syncedPostCount && result.data.syncedPostCount > 0
+            ? `synced ${result.data.syncedPostCount} new post${result.data.syncedPostCount === 1 ? "" : "s"}${result.data.queuedBackfill ? " and queued a deeper refresh" : ""} in the background.`
+            : "new posts detected and synced in the background.",
+        );
         return;
       }
 

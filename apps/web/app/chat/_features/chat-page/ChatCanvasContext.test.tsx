@@ -100,10 +100,13 @@ function buildCanvasProps(
     heroGreeting: "What are we making?",
     isVerifiedAccount: true,
     isLeavingHero: false,
+    composerModeLabel: null,
     draftInput: "",
     onDraftInputChange: vi.fn(),
+    onCancelComposerMode: vi.fn(),
     onComposerKeyDown: vi.fn(),
     onComposerSubmit: vi.fn(),
+    onInterruptReply: vi.fn(),
     isComposerDisabled: false,
     isSubmitDisabled: true,
     isSending: false,
@@ -166,4 +169,25 @@ test("wires the dock composer and scroll action through the canvas provider", as
   expect(canvasProps.onScrollToBottom).toHaveBeenCalledTimes(1);
   expect(canvasProps.onDraftInputChange).toHaveBeenCalledWith("next draft");
   expect(canvasProps.onComposerSubmit).toHaveBeenCalledTimes(1);
+});
+
+test("shows the stop action while a reply is sending", async () => {
+  const user = userEvent.setup();
+  const canvasProps = buildCanvasProps({
+    isHeroVisible: false,
+    isNewChatHero: false,
+    isSending: true,
+  });
+
+  render(
+    <ChatWorkspaceCanvas
+      workspaceChromeProps={buildWorkspaceChromeProps()}
+      canvasProps={canvasProps}
+      threadContent={null}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Stop generating" }));
+
+  expect(canvasProps.onInterruptReply).toHaveBeenCalledTimes(1);
 });

@@ -237,20 +237,13 @@ test("planReplyTurn asks for the post when the reply request is missing source m
   assert.match(planned.reply, /paste the post text or x url/i);
 });
 
-test("planReplyTurn offers guidance instead of forcing a reply when no reply ask is present", () => {
+test("planReplyTurn returns null when no explicit reply ask is present", () => {
   const planned = planReplyTurn({
     activeReplyContext: null,
     replyContinuation: null,
     replyParseResult: {
-      classification: "embedded_post_without_reply_request",
-      context: {
-        sourceText: "Founders should write every day even if nobody reads it yet.",
-        sourceUrl: "https://x.com/example/status/1",
-        authorHandle: "example",
-        quotedUserAsk: "this should be ignored",
-        confidence: "high",
-        parseReason: "embedded_post_without_reply_instruction",
-      },
+      classification: "plain_chat",
+      context: null,
     },
     defaultReplyStage: "1k_to_10k",
     defaultReplyTone: "builder",
@@ -260,12 +253,7 @@ test("planReplyTurn offers guidance instead of forcing a reply when no reply ask
     styleCard: null,
   });
 
-  assert.ok(planned);
-  assert.equal(planned.outputShape, "coach_question");
-  assert.equal(planned.surfaceMode, "ask_one_question");
-  assert.equal(planned.activeReplyContext?.awaitingConfirmation, true);
-  assert.equal(planned.activeReplyContext?.quotedUserAsk, null);
-  assert.match(planned.reply, /help you reply to it, analyze it, or turn it into a quote reply/i);
+  assert.equal(planned, null);
 });
 
 test("resolveReplyTurnState derives reply defaults and continuation from planner-side inputs", () => {

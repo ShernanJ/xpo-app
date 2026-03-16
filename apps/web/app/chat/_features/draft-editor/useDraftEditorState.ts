@@ -659,6 +659,18 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     }
   }, [onErrorMessage]);
 
+  const clearCopiedPreviewDraftMessageId = useCallback((retainedMessageIds?: string[]) => {
+    if (!retainedMessageIds) {
+      setCopiedPreviewDraftMessageId(null);
+      return;
+    }
+
+    const retainedIds = new Set(retainedMessageIds);
+    setCopiedPreviewDraftMessageId((current) =>
+      current && retainedIds.has(current) ? current : null,
+    );
+  }, []);
+
   return {
     editorDraftText,
     setEditorDraftText,
@@ -681,5 +693,6 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     copyDraftEditor,
     shareDraftEditorToX,
     copyPreviewDraft,
+    clearCopiedPreviewDraftMessageId,
   };
 }

@@ -166,6 +166,24 @@ model ChatMessage {
   feedback ChatMessageFeedback[]
 }
 
+model ChatTurnControl {
+  id                String   @id @default(cuid())
+  userId            String
+  runId             String
+  threadId          String?
+  clientTurnId      String
+  status            String   @default("running")
+  cancelRequestedAt DateTime?
+  completedAt       DateTime?
+  assistantMessageId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, runId, clientTurnId])
+  @@index([threadId, updatedAt])
+  @@index([status, updatedAt])
+}
+
 model ChatMessageFeedback {
   id        String                   @id @default(cuid())
   userId    String

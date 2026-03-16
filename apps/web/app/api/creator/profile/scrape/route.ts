@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "@/lib/auth/serverSession";
 
+import { getServerSession } from "@/lib/auth/serverSession";
+import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
+import type { OnboardingInput } from "@/lib/onboarding/contracts/types";
+import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
+import { buildRefreshOnboardingInput } from "@/lib/onboarding/pipeline/refreshInput";
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
+import { bootstrapScrapeCaptureWithOptions } from "@/lib/onboarding/sources/scrapeBootstrap";
 import {
   persistOnboardingRun,
   readLatestOnboardingRunByHandle,
   syncOnboardingPostsToDb,
+  syncPostsToDb,
 } from "@/lib/onboarding/store/onboardingRunStore";
-import { probeLatestScrapePosts } from "@/lib/onboarding/sources/scrapeBootstrap";
-import type { OnboardingInput } from "@/lib/onboarding/contracts/types";
-import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
+import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 type RefreshTrigger = "manual" | "daily_login";
@@ -32,13 +36,76 @@ function getManualCooldownMs(): number {
   return Math.floor(rawMinutes) * 60 * 1000;
 }
 
-function getDailyRefreshIntervalMs(): number {
-  const rawHours = Number(process.env.PROFILE_SCRAPE_DAILY_INTERVAL_HOURS);
+function getFreshnessCooldownMs(): number {
+  const rawHours = Number(process.env.PROFILE_SCRAPE_FRESHNESS_COOLDOWN_HOURS);
+  if (!Number.isFinite(rawHours) || rawHours < 1) {
+    return 6 * 60 * 60 * 1000;
+  }
+
+  return Math.floor(rawHours) * 60 * 60 * 1000;
+}
+
+function getFreshnessProbeCount(): number {
+  const raw = Number(process.env.PROFILE_SCRAPE_FRESHNESS_PROBE_COUNT);
+  if (!Number.isFinite(raw) || raw < 5) {
+    return 20;
+  }
+
+  return Math.max(5, Math.min(40, Math.floor(raw)));
+}
+
+function getDeepRefreshStaleMs(): number {
+  const rawHours = Number(process.env.PROFILE_SCRAPE_DEEP_REFRESH_STALE_HOURS);
   if (!Number.isFinite(rawHours) || rawHours < 1) {
     return 24 * 60 * 60 * 1000;
   }
 
   return Math.floor(rawHours) * 60 * 60 * 1000;
+}
+
+function getDeepRefreshNewPostThreshold(): number {
+  const raw = Number(process.env.PROFILE_SCRAPE_DEEP_REFRESH_NEW_POST_THRESHOLD);
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 5;
+  }
+
+  return Math.max(1, Math.min(20, Math.floor(raw)));
+}
+
+function getSyncTargetPostCount(): number {
+  const raw = Number(process.env.ONBOARDING_SCRAPE_SYNC_TARGET);
+  if (!Number.isFinite(raw) || raw < 20) {
+    return 40;
+  }
+
+  return Math.max(20, Math.min(80, Math.floor(raw)));
+}
+
+function getSyncMaxPages(): number {
+  const raw = Number(process.env.ONBOARDING_SCRAPE_SYNC_MAX_PAGES);
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 6;
+  }
+
+  return Math.max(1, Math.min(12, Math.floor(raw)));
+}
+
+function getSyncTimeoutMs(): number {
+  const raw = Number(process.env.ONBOARDING_SCRAPE_SYNC_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw < 1_000) {
+    return 10_000;
+  }
+
+  return Math.max(4_000, Math.min(30_000, Math.floor(raw)));
+}
+
+function getBackfillTargetPostCount(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_TARGET);
+  if (!Number.isFinite(raw) || raw < 40) {
+    return 80;
+  }
+
+  return Math.max(40, Math.min(120, Math.floor(raw)));
 }
 
 function resolveTrigger(body: RefreshRequestBody | null): RefreshTrigger | null {
@@ -51,41 +118,6 @@ function resolveTrigger(body: RefreshRequestBody | null): RefreshTrigger | null 
   }
 
   return null;
-}
-
-function buildRefreshInput(baseInput: OnboardingInput, account: string): OnboardingInput {
-  const goal =
-    baseInput.goal === "followers" || baseInput.goal === "leads" || baseInput.goal === "authority"
-      ? baseInput.goal
-      : "followers";
-  const timeBudgetMinutes =
-    Number.isFinite(baseInput.timeBudgetMinutes) && baseInput.timeBudgetMinutes >= 5
-      ? Math.floor(baseInput.timeBudgetMinutes)
-      : 30;
-  const transformationMode =
-    baseInput.transformationMode === "preserve" ||
-    baseInput.transformationMode === "optimize" ||
-    baseInput.transformationMode === "pivot_soft" ||
-    baseInput.transformationMode === "pivot_hard"
-      ? baseInput.transformationMode
-      : undefined;
-
-  return {
-    account,
-    goal,
-    timeBudgetMinutes,
-    postingCadenceCapacity: baseInput.postingCadenceCapacity,
-    replyBudgetPerDay: baseInput.replyBudgetPerDay,
-    transformationMode,
-    transformationModeSource: transformationMode
-      ? baseInput.transformationModeSource ?? "default"
-      : undefined,
-    tone: {
-      casing: baseInput.tone?.casing === "normal" ? "normal" : "lowercase",
-      risk: baseInput.tone?.risk === "bold" ? "bold" : "safe",
-    },
-    scrapeFreshness: "if_stale",
-  };
 }
 
 function toCooldownIso(baseIso: string, cooldownMs: number): string | null {
@@ -101,8 +133,73 @@ function newestPostIdSet(posts: Array<{ id: string }>): Set<string> {
   return new Set(posts.map((post) => post.id));
 }
 
+function getKnownOriginalPostIds(args: {
+  latestCapturePosts?: Array<{ id: string }> | null;
+  latestRunPosts?: Array<{ id: string }> | null;
+}): Set<string> {
+  if (args.latestCapturePosts && args.latestCapturePosts.length > 0) {
+    return newestPostIdSet(args.latestCapturePosts);
+  }
+
+  return newestPostIdSet(args.latestRunPosts ?? []);
+}
+
 function parseRequestError(field: string, message: string): ScrapeRefreshError[] {
   return [{ field, message }];
+}
+
+async function runManualRefresh(params: {
+  latestRunInput: OnboardingInput;
+  normalizedHandle: string;
+  userId: string;
+  userAgent: string | null;
+}) {
+  const syncTargetPostCount = getSyncTargetPostCount();
+  await bootstrapScrapeCaptureWithOptions(params.normalizedHandle, {
+    pages: getSyncMaxPages(),
+    count: syncTargetPostCount,
+    targetOriginalPostCount: syncTargetPostCount,
+    maxDurationMs: getSyncTimeoutMs(),
+    userAgent: "profile-scrape-manual",
+    forceRefresh: true,
+    mergeWithExisting: true,
+  });
+
+  const refreshInput = buildRefreshOnboardingInput(
+    params.latestRunInput,
+    params.normalizedHandle,
+    "cache_only",
+  );
+  const result = await runOnboarding(refreshInput);
+  const persisted = await persistOnboardingRun({
+    input: refreshInput,
+    result,
+    userAgent: params.userAgent,
+    userId: params.userId,
+  });
+
+  await syncOnboardingPostsToDb(params.userId, params.normalizedHandle, result).catch((error) =>
+    console.error("Failed to sync refreshed posts to DB:", error),
+  );
+  await generateStyleProfile(
+    params.userId,
+    params.normalizedHandle,
+    getBackfillTargetPostCount(),
+    { forceRegenerate: true },
+  ).catch((error) =>
+    console.error("Failed to refresh style profile after profile scrape:", error),
+  );
+  const backfill = await maybeEnqueueOnboardingBackfillJob({
+    runId: persisted.runId,
+    input: refreshInput,
+    result,
+  });
+
+  return {
+    persisted,
+    result,
+    backfillQueued: backfill.queued,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -185,36 +282,97 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const latestCapture = await readLatestScrapeCaptureByAccount(normalizedHandle);
+
   if (trigger === "daily_login") {
-    const dailyIntervalMs = getDailyRefreshIntervalMs();
-    if (Number.isFinite(lastRunMs) && nowMs - lastRunMs < dailyIntervalMs) {
+    const freshnessBaseIso = latestCapture?.capturedAt ?? latestRun.persistedAt;
+    const freshnessCooldownMs = getFreshnessCooldownMs();
+    const freshnessCooldownUntil = toCooldownIso(freshnessBaseIso, freshnessCooldownMs);
+    const freshnessBaseMs = new Date(freshnessBaseIso).getTime();
+
+    if (Number.isFinite(freshnessBaseMs) && nowMs - freshnessBaseMs < freshnessCooldownMs) {
       return NextResponse.json(
         {
           ok: true,
           refreshed: false,
           reason: "fresh_enough",
-          cooldownUntil,
+          cooldownUntil: freshnessCooldownUntil,
         },
         { status: 200 },
       );
     }
 
     try {
-      const probe = await probeLatestScrapePosts(normalizedHandle, { count: 20 });
-      const knownIds = newestPostIdSet(latestRun.result.recentPosts ?? []);
-      const hasNewPosts = probe.posts.some((post) => !knownIds.has(post.id));
+      const knownIds = getKnownOriginalPostIds({
+        latestCapturePosts: latestCapture?.posts ?? null,
+        latestRunPosts: latestRun.result.recentPosts ?? [],
+      });
+      await bootstrapScrapeCaptureWithOptions(normalizedHandle, {
+        pages: 1,
+        count: getFreshnessProbeCount(),
+        targetOriginalPostCount: getFreshnessProbeCount(),
+        maxDurationMs: 5_000,
+        userAgent: "profile-scrape-delta",
+        forceRefresh: true,
+        mergeWithExisting: true,
+      });
 
-      if (!hasNewPosts) {
+      const refreshedCapture = await readLatestScrapeCaptureByAccount(normalizedHandle);
+      const deltaPosts = (refreshedCapture?.posts ?? []).filter((post) => !knownIds.has(post.id));
+      const nextCooldownUntil = refreshedCapture
+        ? toCooldownIso(refreshedCapture.capturedAt, freshnessCooldownMs)
+        : freshnessCooldownUntil;
+
+      if (deltaPosts.length === 0) {
         return NextResponse.json(
           {
             ok: true,
             refreshed: false,
             reason: "no_new_posts_detected",
-            cooldownUntil,
+            cooldownUntil: nextCooldownUntil,
+            syncedPostCount: 0,
+            queuedBackfill: false,
           },
           { status: 200 },
         );
       }
+
+      await syncPostsToDb({
+        userId: session.user.id,
+        xHandle: normalizedHandle,
+        posts: deltaPosts,
+      }).catch((error) =>
+        console.error("Failed to sync delta posts to DB:", error),
+      );
+
+      const latestRunAgeMs = Number.isFinite(lastRunMs)
+        ? nowMs - lastRunMs
+        : Number.MAX_SAFE_INTEGER;
+      const shouldQueueBackfill =
+        deltaPosts.length >= getDeepRefreshNewPostThreshold() ||
+        latestRunAgeMs >= getDeepRefreshStaleMs();
+
+      let queuedBackfill = false;
+      if (shouldQueueBackfill) {
+        const backfill = await maybeEnqueueOnboardingBackfillJob({
+          runId: latestRun.runId,
+          input: latestRun.input,
+          result: latestRun.result,
+        });
+        queuedBackfill = backfill.queued;
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+          refreshed: false,
+          reason: "new_posts_detected",
+          cooldownUntil: nextCooldownUntil,
+          syncedPostCount: deltaPosts.length,
+          queuedBackfill,
+        },
+        { status: 200 },
+      );
     } catch (error) {
       console.error("Daily profile scrape probe failed:", error);
       return NextResponse.json(
@@ -222,7 +380,7 @@ export async function POST(request: NextRequest) {
           ok: true,
           refreshed: false,
           reason: "probe_failed",
-          cooldownUntil,
+          cooldownUntil: freshnessCooldownUntil,
         },
         { status: 200 },
       );
@@ -230,37 +388,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const refreshInput = buildRefreshInput(latestRun.input, normalizedHandle);
-    const result = await runOnboarding(refreshInput);
-    const persisted = await persistOnboardingRun({
-      input: refreshInput,
-      result,
-      userAgent: request.headers.get("user-agent"),
-      userId: session.user.id,
-    });
-
-    await syncOnboardingPostsToDb(session.user.id, normalizedHandle, result).catch((error) =>
-      console.error("Failed to sync refreshed posts to DB:", error),
-    );
-    await generateStyleProfile(
-      session.user.id,
+    const refresh = await runManualRefresh({
+      latestRunInput: latestRun.input,
       normalizedHandle,
-      80,
-      { forceRegenerate: true },
-    ).catch((error) =>
-      console.error("Failed to refresh style profile after profile scrape:", error),
-    );
-
-    const nextCooldownUntil = toCooldownIso(persisted.persistedAt, manualCooldownMs);
+      userId: session.user.id,
+      userAgent: request.headers.get("user-agent"),
+    });
+    const nextCooldownUntil = toCooldownIso(refresh.persisted.persistedAt, manualCooldownMs);
 
     return NextResponse.json(
       {
         ok: true,
         refreshed: true,
-        reason: trigger === "manual" ? "manual_refresh" : "new_posts_detected",
-        runId: persisted.runId,
-        persistedAt: persisted.persistedAt,
+        reason: "manual_refresh",
+        runId: refresh.persisted.runId,
+        persistedAt: refresh.persisted.persistedAt,
         cooldownUntil: nextCooldownUntil,
+        syncedPostCount: refresh.result.recentPosts?.length ?? 0,
+        queuedBackfill: refresh.backfillQueued,
       },
       { status: 200 },
     );

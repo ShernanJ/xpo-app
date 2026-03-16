@@ -31,6 +31,7 @@ interface ChatCanvasState {
   heroGreeting: string;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
+  composerModeLabel: string | null;
   draftInput: string;
   isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
@@ -42,6 +43,8 @@ interface ChatCanvasState {
 }
 
 interface ChatCanvasActions {
+  cancelComposerMode: () => void;
+  interruptReply: () => void;
   openPricing: () => void;
   dismissBillingWarning: () => void;
   setDraftInput: (value: string) => void;
@@ -83,10 +86,13 @@ export interface ChatCanvasProviderProps {
   heroGreeting: string;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
+  composerModeLabel: string | null;
   draftInput: string;
   onDraftInputChange: (value: string) => void;
+  onCancelComposerMode: () => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onComposerSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onInterruptReply: () => void;
   isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
@@ -138,10 +144,13 @@ export function ChatCanvasProvider(
     heroGreeting,
     isVerifiedAccount,
     isLeavingHero,
+    composerModeLabel,
     draftInput,
     onDraftInputChange,
+    onCancelComposerMode,
     onComposerKeyDown,
     onComposerSubmit,
+    onInterruptReply,
     isComposerDisabled,
     isSubmitDisabled,
     isSending,
@@ -173,6 +182,7 @@ export function ChatCanvasProvider(
       heroGreeting,
       isVerifiedAccount,
       isLeavingHero,
+      composerModeLabel,
       draftInput,
       isComposerDisabled,
       isSubmitDisabled,
@@ -194,6 +204,7 @@ export function ChatCanvasProvider(
       heroIdentityLabel,
       heroInitials,
       heroQuickActions,
+      composerModeLabel,
       isComposerDisabled,
       isHeroVisible,
       isLeavingHero,
@@ -214,6 +225,8 @@ export function ChatCanvasProvider(
 
   const actions = useMemo<ChatCanvasActions>(
     () => ({
+      cancelComposerMode: onCancelComposerMode,
+      interruptReply: onInterruptReply,
       openPricing: onOpenPricing,
       dismissBillingWarning: onDismissBillingWarning,
       setDraftInput: onDraftInputChange,
@@ -223,10 +236,12 @@ export function ChatCanvasProvider(
       scrollToBottom: onScrollToBottom,
     }),
     [
+      onCancelComposerMode,
       onComposerKeyDown,
       onComposerSubmit,
       onDraftInputChange,
       onDismissBillingWarning,
+      onInterruptReply,
       onOpenPricing,
       onQuickAction,
       onScrollToBottom,
@@ -289,9 +304,12 @@ export function useChatHeroCanvas() {
     isVerifiedAccount: state.isVerifiedAccount,
     isLeavingHero: state.isLeavingHero,
     draftInput: state.draftInput,
+    composerModeLabel: state.composerModeLabel,
+    onCancelComposerMode: actions.cancelComposerMode,
     onDraftInputChange: actions.setDraftInput,
     onComposerKeyDown: actions.onComposerKeyDown,
     onSubmit: actions.onComposerSubmit,
+    onInterruptReply: actions.interruptReply,
     isComposerDisabled: state.isComposerDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,
@@ -310,9 +328,12 @@ export function useChatComposerDockCanvas() {
     shouldCenterHero: state.shouldCenterHero,
     onScrollToBottom: actions.scrollToBottom,
     draftInput: state.draftInput,
+    composerModeLabel: state.composerModeLabel,
+    onCancelComposerMode: actions.cancelComposerMode,
     onDraftInputChange: actions.setDraftInput,
     onComposerKeyDown: actions.onComposerKeyDown,
     onSubmit: actions.onComposerSubmit,
+    onInterruptReply: actions.interruptReply,
     isComposerDisabled: state.isComposerDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,

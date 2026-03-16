@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { Square } from "lucide-react";
 
 import { useChatHeroCanvas } from "../chat-page/ChatCanvasContext";
 
@@ -14,9 +15,12 @@ export function ChatHero() {
     isVerifiedAccount,
     isLeavingHero,
     draftInput,
+    composerModeLabel,
+    onCancelComposerMode,
     onDraftInputChange,
     onComposerKeyDown,
     onSubmit,
+    onInterruptReply,
     isComposerDisabled,
     isSubmitDisabled,
     isSending,
@@ -80,25 +84,46 @@ export function ChatHero() {
 
         <form onSubmit={onSubmit} className={heroComposerMotionClassName}>
           <div className={heroInlineComposerSurfaceClassName}>
+            {composerModeLabel ? (
+              <div className="absolute left-3 top-2 z-10 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                <span>{composerModeLabel}</span>
+                <button
+                  type="button"
+                  onClick={onCancelComposerMode}
+                  className="rounded-full border border-white/10 px-2 py-0.5 text-[9px] text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
             <textarea
               value={draftInput}
               onChange={(event) => onDraftInputChange(event.target.value)}
               onKeyDown={onComposerKeyDown}
               placeholder="What are we creating today?"
               disabled={isComposerDisabled}
-              className="max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14"
+              className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14 ${
+                composerModeLabel ? "pt-8" : ""
+              }`}
               rows={1}
             />
             <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
-              <button
-                type="submit"
-                disabled={isSubmitDisabled}
-                className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
-                aria-label="Send message"
-              >
-                {isSending ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-800" />
-                ) : (
+              {isSending ? (
+                <button
+                  type="button"
+                  onClick={onInterruptReply}
+                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 sm:h-9 sm:w-9"
+                  aria-label="Stop generating"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSubmitDisabled}
+                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
+                  aria-label="Send message"
+                >
                   <svg
                     width="18"
                     height="18"
@@ -114,8 +139,8 @@ export function ChatHero() {
                       strokeLinejoin="round"
                     />
                   </svg>
-                )}
-              </button>
+                </button>
+              )}
             </div>
           </div>
         </form>

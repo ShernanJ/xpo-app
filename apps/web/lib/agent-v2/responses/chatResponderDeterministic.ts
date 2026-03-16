@@ -444,32 +444,42 @@ function buildPostHistoryReply(args: {
 
   return buildStructuredReply(
     [
-      "I can see a few recent posts in the current sample.",
+      "**Current read:** I can see a few recent posts in the current sample.",
       "",
+      "## Recent Posts",
       ...snippets.map((snippet) => `- ${formatRecentPostSnippet(snippet)}`),
     ].join("\n"),
   );
 }
 
+function buildStrongestPostSection(context: ProfileReplyContext): string[] {
+  if (!context.strongestPost) {
+    return [];
+  }
+
+  return [
+    "",
+    "## Strongest Recent Post",
+    "- I can also pull the strongest recent post in scope and break down why it worked.",
+  ];
+}
+
 function buildProfileKnowledgeReply(context: ProfileReplyContext): DeterministicChatReplySpec {
   const topicBullets = buildTopicBullets(context);
-  const responseLines = [buildProfileOpener(context), ""];
+  const responseLines = [`**Current read:** ${buildProfileOpener(context)}`];
 
   if (topicBullets.length > 0) {
-    responseLines.push("Lately you've been posting about:");
+    responseLines.push("", "## Recent Themes");
     responseLines.push(...topicBullets.map((topic) => `- ${topic}`));
   } else {
     responseLines.push(
-      "Recent themes are still a little thin in the current sample, so I'd want a fuller sync before I call out stronger patterns.",
+      "",
+      "## Recent Themes",
+      "- Recent themes are still thin in the current sample, so I would want a fuller sync before making stronger pattern claims.",
     );
   }
 
-  if (context.strongestPost) {
-    responseLines.push("");
-    responseLines.push(
-      "I can also pull the strongest recent post I can see here and break down why it worked.",
-    );
-  }
+  responseLines.push(...buildStrongestPostSection(context));
 
   return buildStructuredReply(responseLines.join("\n"));
 }
@@ -569,8 +579,9 @@ function buildStrongestPostReply(context: ProfileReplyContext): DeterministicCha
 
   const snippet = truncateSnippet(strongestPost.text, 96);
   const lines = [
-    `Your strongest recent post I can see here was about **${snippet.replace(/^"|"$/g, "")}**.`,
+    `**Strongest recent post:** "${snippet.replace(/^"|"$/g, "")}".`,
     "",
+    "## Why It Stood Out",
     buildStrongestPostMetricBullet(strongestPost),
   ];
 

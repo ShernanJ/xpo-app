@@ -7,10 +7,14 @@ import {
 
 const FALLBACK_STREAM_ERROR_MESSAGE = "The live model failed before the backend could return a response.";
 const MAX_STREAM_ERROR_MESSAGE_LENGTH = 240;
+const MAX_PROGRESS_LABEL_LENGTH = 120;
+const MAX_PROGRESS_EXPLANATION_LENGTH = 200;
 
 export interface ChatStreamProgressEventData {
   workflow: PendingStatusWorkflow;
   activeStepId: PendingStatusStepId;
+  label?: string;
+  explanation?: string;
 }
 
 export interface ChatStreamProgressEvent {
@@ -42,11 +46,20 @@ export type ChatStreamEvent<TResult> =
 export function buildChatStreamProgressEvent(
   data: ChatStreamProgressEventData,
 ): ChatStreamProgressEvent {
+  const label = data.label?.trim();
+  const explanation = data.explanation?.trim();
+
   return {
     type: "progress",
     data: {
       workflow: data.workflow,
       activeStepId: data.activeStepId,
+      ...(label ? { label: label.slice(0, MAX_PROGRESS_LABEL_LENGTH) } : {}),
+      ...(explanation
+        ? {
+            explanation: explanation.slice(0, MAX_PROGRESS_EXPLANATION_LENGTH),
+          }
+        : {}),
     },
   };
 }
@@ -101,8 +114,19 @@ export function sanitizeChatStreamProgressEventData(
     return null;
   }
 
+  const label =
+    typeof record.label === "string"
+      ? record.label.trim().slice(0, MAX_PROGRESS_LABEL_LENGTH)
+      : null;
+  const explanation =
+    typeof record.explanation === "string"
+      ? record.explanation.trim().slice(0, MAX_PROGRESS_EXPLANATION_LENGTH)
+      : null;
+
   return {
     workflow,
     activeStepId,
+    ...(label ? { label } : {}),
+    ...(explanation ? { explanation } : {}),
   };
 }

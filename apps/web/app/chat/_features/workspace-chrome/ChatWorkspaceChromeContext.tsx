@@ -175,7 +175,6 @@ export function ChatWorkspaceChromeProvider(
     setExtensionModalOpen,
     resetSourceMaterialDraft,
     openSourceMaterials,
-    openDraftQueue,
     openAnalysis,
     openGrowthGuide,
     sidebarOpen,
@@ -237,10 +236,6 @@ export function ChatWorkspaceChromeProvider(
             openSourceMaterials();
             return;
           }
-          if (tool.key === "draft_review") {
-            openDraftQueue();
-            return;
-          }
           if (tool.key === "profile_breakdown") {
             openAnalysis();
             return;
@@ -251,7 +246,6 @@ export function ChatWorkspaceChromeProvider(
       })),
     [
       openAnalysis,
-      openDraftQueue,
       openGrowthGuide,
       openSourceMaterials,
       resetSourceMaterialDraft,

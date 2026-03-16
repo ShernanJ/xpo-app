@@ -107,3 +107,32 @@ test("growth strategy snapshot carries off-brand and truth-boundary cues", () =>
     true,
   );
 });
+
+test("growth strategy snapshot skips generic pillars when building known-for language", () => {
+  const snapshot = buildGrowthStrategySnapshot({
+    creatorProfile: createProfile({
+      niche: {
+        primaryNiche: "startups_and_growth",
+        targetNiche: null,
+        audienceIntent: "operators scaling teams and systems",
+      },
+      topics: {
+        contentPillars: ["company", "hiring system", "team"],
+        audienceSignals: ["operators scaling teams and systems"],
+      },
+    }) as never,
+    performanceModel: {
+      nextActions: [],
+    } as never,
+    evaluationChecks: [] as never,
+    evaluationOverallScore: 74,
+    readiness: "ready",
+    sampleSize: 42,
+  });
+
+  assert.equal(snapshot.knownFor, "startups and growth through hiring system");
+  assert.equal(
+    snapshot.profileConversionCues.some((entry) => entry.includes("hiring system")),
+    true,
+  );
+});

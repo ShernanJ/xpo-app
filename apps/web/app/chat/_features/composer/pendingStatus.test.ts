@@ -182,10 +182,20 @@ test("explicit streamed progress overrides predicted timing", () => {
   const updated = applyAgentProgressStep(run, {
     workflow: "ideate",
     activeStepId: "pick_direction",
+    label: "Noticing a recent pattern around hiring playbooks",
+    explanation: "This helps keep the response anchored in a theme the account already returns to.",
   });
   const snapshot = resolveAgentProgressSnapshot(updated!, 1_500);
 
   assert.equal(snapshot.activeStepId, "pick_direction");
+  assert.equal(
+    snapshot.steps[2]?.label,
+    "Noticing a recent pattern around hiring playbooks",
+  );
+  assert.equal(
+    snapshot.steps[2]?.explanation,
+    "This helps keep the response anchored in a theme the account already returns to.",
+  );
   assert.deepEqual(
     snapshot.steps.map((step) => step.status),
     ["completed", "completed", "active", "pending"],

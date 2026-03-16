@@ -50,7 +50,7 @@ how do i reply to that?`,
   assert.equal(result.context?.confidence, "medium");
 });
 
-test("parseEmbeddedReplyRequest keeps pasted posts without an explicit reply ask out of forced reply mode", () => {
+test("parseEmbeddedReplyRequest treats pasted posts without an explicit reply ask as plain chat", () => {
   const result = parseEmbeddedReplyRequest({
     message: `@naval
 
@@ -61,9 +61,8 @@ This framing is interesting because it turns leverage into a positioning problem
 Can you break down what's strong about it?`,
   });
 
-  assert.equal(result.classification, "embedded_post_without_reply_request");
-  assert.equal(result.context?.authorHandle, "naval");
-  assert.equal(result.context?.quotedUserAsk, null);
+  assert.equal(result.classification, "plain_chat");
+  assert.equal(result.context, null);
 });
 
 test("buildReplyParseEnvelope marks medium-confidence embedded reply requests as confirmation-needed", () => {

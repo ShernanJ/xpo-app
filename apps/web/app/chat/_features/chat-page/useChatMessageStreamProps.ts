@@ -20,6 +20,8 @@ export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageSt
   messages: TMessage[];
   latestAssistantMessageId: string | null;
   typedAssistantLengths: Record<string, number>;
+  copiedUserMessageId: string | null;
+  editingUserMessageId: string | null;
   registerMessageRef: ChatMessageStreamProps<TMessage>["registerMessageRef"];
   activeDraftRevealByMessageId: Record<string, string>;
   activeAgentProgress: AgentProgressRun | null;
@@ -37,6 +39,8 @@ export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageSt
   messageFeedbackPendingById: Record<string, boolean>;
   canRunReplyActions: boolean;
   contextIdentity: ContextIdentity;
+  onCopyUserMessage: (messageId: string, content: string) => void;
+  onEditUserMessage: (messageId: string, content: string) => void;
   shouldShowQuickReplies: ArtifactSectionProps["shouldShowQuickReplies"];
   shouldShowOptionArtifacts: ArtifactSectionProps["shouldShowOptionArtifacts"];
   shouldShowDraftOutput: ArtifactSectionProps["shouldShowDraftOutput"];
@@ -72,9 +76,13 @@ export function useChatMessageStreamProps<TMessage extends ChatMessageStreamMess
     messages: options.messages,
     latestAssistantMessageId: options.latestAssistantMessageId,
     typedAssistantLengths: options.typedAssistantLengths,
+    copiedUserMessageId: options.copiedUserMessageId,
+    editingUserMessageId: options.editingUserMessageId,
     registerMessageRef: options.registerMessageRef,
     activeDraftRevealByMessageId: options.activeDraftRevealByMessageId,
     activeAgentProgress: options.activeAgentProgress,
+    onCopyUserMessage: options.onCopyUserMessage,
+    onEditUserMessage: options.onEditUserMessage,
     resolveArtifactSectionProps: (message) => ({
       composerCharacterLimit: options.composerCharacterLimit,
       isVerifiedAccount: options.isVerifiedAccount,

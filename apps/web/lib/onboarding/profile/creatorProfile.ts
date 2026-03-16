@@ -49,6 +49,21 @@ import type {
 const LOCATION_CONTEXT_PATTERN =
   /\b(toronto|ontario|canada|burlington|montreal|vancouver|new york|nyc|sf|san francisco|la|los angeles|london)\b/i;
 
+const WEAK_SINGLE_WORD_TOPIC_LABELS = new Set([
+  "business",
+  "businesses",
+  "companies",
+  "company",
+  "founder",
+  "founders",
+  "operator",
+  "operators",
+  "startup",
+  "startups",
+  "team",
+  "teams",
+]);
+
 const STYLE_CARD_STOPWORDS = new Set([
   "about",
   "after",
@@ -467,6 +482,50 @@ function getTimeOrFallback(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeTopicLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function hasNumericTopicLead(label: string): boolean {
+  const firstToken = normalizeTopicLabel(label).split(/\s+/)[0] ?? "";
+  return /^(?:[$EURGBP])?\d[\d,.]*(?:k|m|b|bn|mm|x|%)?$/i.test(firstToken);
+}
+
+function isWeakTopicLabel(label: string): boolean {
+  const normalized = normalizeTopicLabel(label);
+  if (!normalized) {
+    return true;
+  }
+
+  if (hasNumericTopicLead(normalized)) {
+    return true;
+  }
+
+  const parts = normalized.split(/\s+/).filter(Boolean);
+  return parts.length === 1 && WEAK_SINGLE_WORD_TOPIC_LABELS.has(parts[0]);
+}
+
+function getTopicLabelQualityMultiplier(label: string): number {
+  const normalized = normalizeTopicLabel(label);
+  if (!normalized) {
+    return 0.35;
+  }
+
+  if (hasNumericTopicLead(normalized)) {
+    return 0.2;
+  }
+
+  if (normalized.includes(" ")) {
+    return 1.25;
+  }
+
+  if (isWeakTopicLabel(normalized)) {
+    return 0.45;
+  }
+
+  return 1;
+}
+
 function inferTopicSpecificity(label: string, stats: TopicAccumulator): TopicSpecificity {
   const isLowSignal = isLowSignalEntityCandidate(label);
   const looksLikePhrase = label.includes(" ");
@@ -590,9 +649,12 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
         recentSharePercent: toPercent(stats.recentCount / Math.max(1, stats.count)),
         averageEngagement: Number((stats.totalEngagement / stats.count).toFixed(2)),
         score: Number(
-          (stats.weightedScore * specificityMultiplier * stabilityMultiplier).toFixed(
-            2,
-          ),
+          (
+            stats.weightedScore *
+            specificityMultiplier *
+            stabilityMultiplier *
+            getTopicLabelQualityMultiplier(label)
+          ).toFixed(2),
         ),
         specificity,
         stability,
@@ -603,20 +665,38 @@ function extractTopicSignals(posts: XPublicPost[], limit = 5): TopicSignal[] {
 }
 
 function buildContentPillars(topics: TopicSignal[]): string[] {
+  const strongTopics = topics.filter((topic) => !isWeakTopicLabel(topic.label));
+  const weakTopics = topics.filter((topic) => isWeakTopicLabel(topic.label));
   const prioritized = [
-    ...topics.filter(
+    ...strongTopics.filter(
       (topic) =>
         topic.specificity !== "broad" && topic.stability !== "fading",
     ),
-    ...topics.filter(
+    ...strongTopics.filter(
       (topic) =>
         topic.specificity !== "broad" && topic.stability === "fading",
     ),
-    ...topics.filter(
+    ...strongTopics.filter(
       (topic) =>
         topic.specificity === "broad" && topic.stability !== "fading",
     ),
-    ...topics.filter(
+    ...strongTopics.filter(
+      (topic) =>
+        topic.specificity === "broad" && topic.stability === "fading",
+    ),
+    ...weakTopics.filter(
+      (topic) =>
+        topic.specificity !== "broad" && topic.stability !== "fading",
+    ),
+    ...weakTopics.filter(
+      (topic) =>
+        topic.specificity !== "broad" && topic.stability === "fading",
+    ),
+    ...weakTopics.filter(
+      (topic) =>
+        topic.specificity === "broad" && topic.stability !== "fading",
+    ),
+    ...weakTopics.filter(
       (topic) =>
         topic.specificity === "broad" && topic.stability === "fading",
     ),

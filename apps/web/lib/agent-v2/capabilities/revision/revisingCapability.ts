@@ -4,6 +4,7 @@ import {
 import { resolveVoiceTarget } from "../../core/voiceTarget.ts";
 import { buildDraftReply } from "../../responses/draftReply.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
+import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
 import { runRevisionValidationWorkers } from "../../workers/validation/revisionValidationWorkers.ts";
 import type { ReviserOutput } from "../../agents/reviser.ts";
 import type { CriticOutput } from "../../agents/critic.ts";
@@ -584,8 +585,9 @@ export async function executeRevisingCapability(
             firstAttempt.validation!.validations.flatMap((validation) => validation.issues),
           )
         : []),
-    ]),
+      ]),
   );
+  const outputShape = resolveDraftOutputShape(context.turnFormatPreference);
 
   return {
     workflow: args.workflow,
@@ -594,7 +596,7 @@ export async function executeRevisingCapability(
       kind: "revision_ready",
       responseSeed: {
         mode: "draft",
-        outputShape: resolveDraftOutputShape(context.turnFormatPreference),
+        outputShape,
         response: prependFeedbackMemoryNotice(
           buildDraftReply({
             userMessage: context.userMessage,
@@ -610,6 +612,11 @@ export async function executeRevisingCapability(
           draft: finalizedRevisionDraft,
           supportAsset: finalAttempt.reviserOutput.supportAsset,
           issuesFixed,
+          quickReplies: buildDraftResultQuickReplies({
+            outputShape,
+            styleCard: context.styleCard,
+            seedTopic: context.memory.topicSummary,
+          }),
           voiceTarget: revisionVoiceTarget,
           noveltyNotes: [],
           threadFramingStyle: context.turnThreadFramingStyle,

@@ -6,6 +6,7 @@ import { prisma } from "../../db";
 export interface StoredOnboardingRun {
   runId: string;
   persistedAt: string;
+  userId: string | null;
   input: OnboardingInput;
   result: OnboardingResult;
   metadata: {
@@ -17,6 +18,74 @@ export interface OnboardingRunPersistedRecord {
   runId: string;
   persistedAt: string;
   userId: string;
+}
+
+function buildUpsertablePosts(args: {
+  posts: XPublicPost[];
+  replyPosts?: XPublicPost[];
+  quotePosts?: XPublicPost[];
+}): Array<{ post: XPublicPost; lane: "original" | "reply" | "quote" }> {
+  const postsById = new Map<string, { post: XPublicPost; lane: "original" | "reply" | "quote" }>();
+
+  for (const post of args.posts) {
+    if (!postsById.has(post.id)) {
+      postsById.set(post.id, { post, lane: "original" });
+    }
+  }
+
+  for (const post of args.replyPosts ?? []) {
+    if (!postsById.has(post.id)) {
+      postsById.set(post.id, { post, lane: "reply" });
+    }
+  }
+
+  for (const post of args.quotePosts ?? []) {
+    if (!postsById.has(post.id)) {
+      postsById.set(post.id, { post, lane: "quote" });
+    }
+  }
+
+  return Array.from(postsById.values());
+}
+
+export async function syncPostsToDb(params: {
+  userId: string;
+  xHandle: string;
+  posts: XPublicPost[];
+  replyPosts?: XPublicPost[];
+  quotePosts?: XPublicPost[];
+}): Promise<void> {
+  const postsToUpsert = buildUpsertablePosts({
+    posts: params.posts,
+    replyPosts: params.replyPosts,
+    quotePosts: params.quotePosts,
+  });
+
+  if (postsToUpsert.length === 0) return;
+
+  const normalizedXHandle = params.xHandle.replace(/^@/, "").toLowerCase();
+  const upsertOps = postsToUpsert.map(({ post, lane }) =>
+    prisma.post.upsert({
+      where: { id: post.id },
+      update: {
+        userId: params.userId,
+        xHandle: normalizedXHandle,
+        lane,
+        metrics: post.metrics as unknown as Prisma.InputJsonObject,
+      },
+      create: {
+        id: post.id,
+        userId: params.userId,
+        xHandle: normalizedXHandle,
+        text: post.text,
+        lane,
+        metrics: post.metrics as unknown as Prisma.InputJsonObject,
+        createdAt: new Date(post.createdAt),
+      },
+    }),
+  );
+
+  await prisma.$transaction(upsertOps);
 }
 
 export async function persistOnboardingRun(params: {
@@ -54,37 +123,13 @@ export async function syncOnboardingPostsToDb(
   xHandle: string,
   result: OnboardingResult,
 ): Promise<void> {
-  const postsToUpsert: XPublicPost[] = [
-    ...(result.recentPosts ?? []),
-    ...(result.recentReplyPosts ?? []),
-    ...(result.recentQuotePosts ?? []),
-  ];
-
-  if (postsToUpsert.length === 0) return;
-
-  const normalizedXHandle = xHandle.replace(/^@/, "").toLowerCase();
-  let lane: "original" | "reply" | "quote" = "original";
-  const upsertOps = postsToUpsert.map((post) => {
-    if (result.recentReplyPosts?.some((r) => r.id === post.id)) lane = "reply";
-    else if (result.recentQuotePosts?.some((r) => r.id === post.id)) lane = "quote";
-    else lane = "original";
-
-    return prisma.post.upsert({
-      where: { id: post.id },
-      update: { userId, xHandle: normalizedXHandle, metrics: post.metrics as unknown as Prisma.InputJsonObject },
-      create: {
-        id: post.id,
-        userId,
-        xHandle: normalizedXHandle,
-        text: post.text,
-        lane,
-        metrics: post.metrics as unknown as Prisma.InputJsonObject,
-        createdAt: new Date(post.createdAt),
-      },
-    });
+  await syncPostsToDb({
+    userId,
+    xHandle,
+    posts: result.recentPosts ?? [],
+    replyPosts: result.recentReplyPosts ?? [],
+    quotePosts: result.recentQuotePosts ?? [],
   });
-
-  await prisma.$transaction(upsertOps);
 }
 
 export async function readRecentOnboardingRuns(
@@ -99,6 +144,7 @@ export async function readRecentOnboardingRuns(
     return runs.map((run) => ({
       runId: run.id,
       persistedAt: run.createdAt.toISOString(),
+      userId: run.userId,
       input: run.input as unknown as OnboardingInput,
       result: run.result as unknown as OnboardingResult,
       metadata: {
@@ -126,6 +172,7 @@ export async function readOnboardingRunById(
     return {
       runId: run.id,
       persistedAt: run.createdAt.toISOString(),
+      userId: run.userId,
       input: run.input as unknown as OnboardingInput,
       result: run.result as unknown as OnboardingResult,
       metadata: {
@@ -158,6 +205,7 @@ export async function readLatestOnboardingRunByHandle(
     return {
       runId: match.id,
       persistedAt: match.createdAt.toISOString(),
+      userId: match.userId,
       input: match.input as unknown as OnboardingInput,
       result: match.result as unknown as OnboardingResult,
       metadata: { userAgent: null },

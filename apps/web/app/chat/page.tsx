@@ -2,6 +2,8 @@
 
 import {
   Suspense,
+  type FormEvent,
+  type KeyboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -97,7 +99,7 @@ const monetizationEnabled = isMonetizationEnabled();
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="flex h-screen items-center justify-center bg-black text-white">
+      <div className="flex h-screen items-center justify-center bg-[#050505] text-white">
         <div className="animate-pulse text-zinc-500">Loading workspace...</div>
       </div>
     }>
@@ -245,6 +247,7 @@ function ChatPageContent() {
     messageFeedbackPendingById,
     autoSavedSourceUndoPendingByMessageId,
     dismissedAutoSavedSourceByMessageId,
+    pruneMessageArtifactState,
     undoAutoSavedSourceMaterials,
     submitAssistantMessageFeedback,
   } = useMessageArtifactActions<ChatMessage>({
@@ -256,6 +259,11 @@ function ChatPageContent() {
     onErrorMessage: setErrorMessage,
   });
   const [draftInput, setDraftInput] = useState("");
+  const [copiedUserMessageId, setCopiedUserMessageId] = useState<string | null>(null);
+  const copiedUserMessageResetTimeoutRef = useRef<number | null>(null);
+  const [editingUserMessageId, setEditingUserMessageId] = useState<string | null>(null);
+  const [editingUserMessageOriginalText, setEditingUserMessageOriginalText] =
+    useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorkspaceInitializing, setIsWorkspaceInitializing] = useState(false);
   const {
@@ -399,6 +407,13 @@ function ChatPageContent() {
   useEffect(() => {
     loadWorkspaceEffectRef.current = loadWorkspace;
   }, [loadWorkspace]);
+  useEffect(() => {
+    return () => {
+      if (copiedUserMessageResetTimeoutRef.current) {
+        window.clearTimeout(copiedUserMessageResetTimeoutRef.current);
+      }
+    };
+  }, []);
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
@@ -420,6 +435,58 @@ function ChatPageContent() {
     setActiveDraftRevealByMessageId,
     setRevealedDraftMessageIds,
   } = useThreadMessageEffects(messages);
+
+  const clearEditingUserMessage = useCallback(
+    (options?: { clearComposer?: boolean }) => {
+      setEditingUserMessageId(null);
+      setEditingUserMessageOriginalText(null);
+      if (options?.clearComposer) {
+        setDraftInput("");
+      }
+    },
+    [setDraftInput],
+  );
+
+  useEffect(() => {
+    setCopiedUserMessageId(null);
+    clearEditingUserMessage();
+  }, [activeThreadId, clearEditingUserMessage, threadStateResetVersion]);
+
+  const handleCopyUserMessage = useCallback(
+    async (messageId: string, content: string) => {
+      const nextContent = content.trim();
+      if (!nextContent) {
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(nextContent);
+        setCopiedUserMessageId(messageId);
+        if (copiedUserMessageResetTimeoutRef.current) {
+          window.clearTimeout(copiedUserMessageResetTimeoutRef.current);
+        }
+        copiedUserMessageResetTimeoutRef.current = window.setTimeout(() => {
+          setCopiedUserMessageId((current) =>
+            current === messageId ? null : current,
+          );
+          copiedUserMessageResetTimeoutRef.current = null;
+        }, 1800);
+      } catch {
+        setErrorMessage("Copy failed. Try selecting the text manually.");
+      }
+    },
+    [],
+  );
+
+  const handleEditUserMessage = useCallback(
+    (messageId: string, content: string) => {
+      setEditingUserMessageId(messageId);
+      setEditingUserMessageOriginalText(content);
+      setDraftInput(content);
+      setErrorMessage(null);
+    },
+    [],
+  );
 
   const composerCharacterLimit = useMemo(
     () => getComposerCharacterLimit(context),
@@ -648,6 +715,7 @@ function ChatPageContent() {
     copyDraftEditor,
     shareDraftEditorToX,
     copyPreviewDraft,
+    clearCopiedPreviewDraftMessageId,
   } = useDraftEditorState<ChatMessage>({
     activeDraftEditor,
     composerCharacterLimit,
@@ -895,15 +963,18 @@ function ChatPageContent() {
       excludeFromHistory,
     }),
   });
-  const { requestAssistantReply } = assistantReplyOrchestrator;
+  const {
+    interruptAssistantReply,
+    requestAssistantReply,
+  } = assistantReplyOrchestrator;
   const {
     latestAssistantMessageId,
     handleAngleSelect,
     handleReplyOptionSelect,
     handleQuickReplySelect,
-    handleComposerSubmit,
+    handleComposerSubmit: handleComposerSubmitBase,
     submitQuickStarter,
-    handleComposerKeyDown,
+    handleComposerKeyDown: handleComposerKeyDownBase,
   } = useComposerInteractions<
     ChatMessage,
     ChatQuickReply,
@@ -926,6 +997,142 @@ function ChatPageContent() {
     setErrorMessage,
     setIsLeavingHero,
   });
+
+  const rewindAndResendEditedMessage = useCallback(async () => {
+    const trimmedPrompt = draftInput.trim();
+    if (!editingUserMessageId || !trimmedPrompt) {
+      return;
+    }
+
+    const editIndex = messages.findIndex((message) => message.id === editingUserMessageId);
+    if (editIndex < 0) {
+      clearEditingUserMessage();
+      return;
+    }
+
+    if (!activeThreadId) {
+      setErrorMessage("Open a thread before editing a previous message.");
+      return;
+    }
+
+    const retainedMessages = messages.slice(0, editIndex);
+    const retainedMessageIds = retainedMessages.map((message) => message.id);
+    const retainedMessageIdSet = new Set(retainedMessageIds);
+
+    try {
+      setErrorMessage(null);
+      const response = await fetchWorkspace(
+        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(editingUserMessageId)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      const result = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            errors?: Array<{ message?: string }>;
+          }
+        | null;
+
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.errors?.[0]?.message || "Failed to rewind the thread.");
+      }
+
+      setMessages(retainedMessages);
+      setActiveDraftEditor((current) =>
+        current && retainedMessageIdSet.has(current.messageId) ? current : null,
+      );
+      setExpandedInlineThreadPreviewId((current) =>
+        current && retainedMessageIdSet.has(current) ? current : null,
+      );
+      setSelectedThreadPostByMessageId((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([messageId]) => retainedMessageIdSet.has(messageId)),
+        ),
+      );
+      setTypedAssistantLengths((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([messageId]) => retainedMessageIdSet.has(messageId)),
+        ),
+      );
+      setActiveDraftRevealByMessageId((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([messageId]) => retainedMessageIdSet.has(messageId)),
+        ),
+      );
+      setRevealedDraftMessageIds((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([messageId]) => retainedMessageIdSet.has(messageId)),
+        ),
+      );
+      clearCopiedPreviewDraftMessageId(retainedMessageIds);
+      pruneMessageArtifactState(retainedMessageIds);
+      setActiveAgentProgress(null);
+      setCopiedUserMessageId((current) =>
+        current && retainedMessageIdSet.has(current) ? current : null,
+      );
+      clearEditingUserMessage({ clearComposer: true });
+
+      await requestAssistantReply({
+        prompt: trimmedPrompt,
+        appendUserMessage: true,
+        historySeed: retainedMessages,
+        turnSource: "free_text",
+        strategyInputOverride: activeStrategyInputs as ChatStrategyInputs,
+        toneInputOverride: activeToneInputs as ChatToneInputs,
+        contentFocusOverride: activeContentFocus,
+      });
+    } catch (error) {
+      setDraftInput(trimmedPrompt || editingUserMessageOriginalText || "");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to resend the edited message.",
+      );
+    }
+  }, [
+    activeContentFocus,
+    activeStrategyInputs,
+    activeThreadId,
+    activeToneInputs,
+    clearCopiedPreviewDraftMessageId,
+    clearEditingUserMessage,
+    draftInput,
+    editingUserMessageId,
+    editingUserMessageOriginalText,
+    fetchWorkspace,
+    messages,
+    pruneMessageArtifactState,
+    requestAssistantReply,
+    setActiveDraftRevealByMessageId,
+    setDraftInput,
+    setRevealedDraftMessageIds,
+    setTypedAssistantLengths,
+  ]);
+
+  const handleComposerSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (editingUserMessageId) {
+        void rewindAndResendEditedMessage();
+        return;
+      }
+
+      handleComposerSubmitBase(event);
+    },
+    [editingUserMessageId, handleComposerSubmitBase, rewindAndResendEditedMessage],
+  );
+
+  const handleComposerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (editingUserMessageId && event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        void rewindAndResendEditedMessage();
+        return;
+      }
+
+      handleComposerKeyDownBase(event);
+    },
+    [editingUserMessageId, handleComposerKeyDownBase, rewindAndResendEditedMessage],
+  );
 
   const { requestDraftCardRevision, requestSelectedThreadFramingChange } =
     useDraftRevisionActions<ChatMessage>({
@@ -1035,7 +1242,7 @@ function ChatPageContent() {
   };
 
   return (
-    <main className="relative h-screen overflow-hidden bg-black text-white">
+    <main className="relative h-screen overflow-hidden bg-[#050505] text-white">
       <ChatWorkspaceCanvas
         workspaceChromeProps={{
           toolsMenuRef,
@@ -1119,10 +1326,15 @@ function ChatPageContent() {
           heroGreeting,
           isVerifiedAccount,
           isLeavingHero,
+          composerModeLabel: editingUserMessageId ? "Editing message" : null,
           draftInput,
           onDraftInputChange: setDraftInput,
+          onCancelComposerMode: () => clearEditingUserMessage({ clearComposer: true }),
           onComposerKeyDown: handleComposerKeyDown,
           onComposerSubmit: handleComposerSubmit,
+          onInterruptReply: () => {
+            void interruptAssistantReply();
+          },
           isComposerDisabled,
           isSubmitDisabled,
           isSending,
@@ -1141,6 +1353,8 @@ function ChatPageContent() {
             messages={messages}
             latestAssistantMessageId={latestAssistantMessageId}
             typedAssistantLengths={typedAssistantLengths}
+            copiedUserMessageId={copiedUserMessageId}
+            editingUserMessageId={editingUserMessageId}
             registerMessageRef={registerMessageRef}
             activeDraftRevealByMessageId={activeDraftRevealByMessageId}
             activeAgentProgress={activeAgentProgress}
@@ -1158,6 +1372,12 @@ function ChatPageContent() {
             messageFeedbackPendingById={messageFeedbackPendingById}
             canRunReplyActions={canRunReplyActions}
             contextIdentity={contextIdentity}
+            onCopyUserMessage={(messageId, content) => {
+              void handleCopyUserMessage(messageId, content);
+            }}
+            onEditUserMessage={(messageId, content) => {
+              handleEditUserMessage(messageId, content);
+            }}
             shouldShowQuickReplies={(candidate) =>
               shouldShowQuickRepliesForMessage(candidate as ChatMessage)
             }

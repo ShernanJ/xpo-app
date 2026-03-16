@@ -1,4 +1,5 @@
 import type { OnboardingInput, OnboardingResult } from "../contracts/types";
+import { generateStyleProfile } from "../../agent-v2/core/styleProfile";
 import {
   claimNextOnboardingBackfillJob,
   enqueueOnboardingBackfillJob,
@@ -7,6 +8,13 @@ import {
   type StoredOnboardingBackfillJob,
 } from "../store/backfillJobStore";
 import { bootstrapScrapeCaptureWithOptions } from "../sources/scrapeBootstrap";
+import { buildRefreshOnboardingInput } from "./refreshInput";
+import {
+  persistOnboardingRun,
+  readOnboardingRunById,
+  syncOnboardingPostsToDb,
+} from "../store/onboardingRunStore";
+import { runOnboarding } from "./service";
 
 function getBackfillPages(): number {
   const raw = Number(process.env.ONBOARDING_BACKFILL_PAGES);
@@ -26,15 +34,29 @@ function getBackfillCount(): number {
   return Math.max(20, Math.min(100, Math.floor(raw)));
 }
 
+function getBackfillTargetPostCount(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_TARGET);
+  if (!Number.isFinite(raw)) {
+    return 80;
+  }
+
+  return Math.max(40, Math.min(120, Math.floor(raw)));
+}
+
+function getBackfillTimeoutMs(): number {
+  const raw = Number(process.env.ONBOARDING_BACKFILL_TIMEOUT_MS);
+  if (!Number.isFinite(raw)) {
+    return 25_000;
+  }
+
+  return Math.max(4_000, Math.min(45_000, Math.floor(raw)));
+}
+
 export async function maybeEnqueueOnboardingBackfillJob(params: {
   runId: string;
   input: OnboardingInput;
   result: OnboardingResult;
 }): Promise<{ queued: boolean; jobId: string | null; deduped: boolean }> {
-  if (params.input.scrapeFreshness === "cache_only") {
-    return { queued: false, jobId: null, deduped: false };
-  }
-
   if (params.result.source !== "scrape") {
     return { queued: false, jobId: null, deduped: false };
   }
@@ -46,7 +68,10 @@ export async function maybeEnqueueOnboardingBackfillJob(params: {
   const queued = await enqueueOnboardingBackfillJob({
     account: params.input.account,
     sourceRunId: params.runId,
-    targetPostCount: params.result.analysisConfidence.targetPostCount,
+    targetPostCount: Math.max(
+      params.result.analysisConfidence.targetPostCount,
+      getBackfillTargetPostCount(),
+    ),
   });
 
   return {
@@ -81,8 +106,36 @@ export async function processNextOnboardingBackfillJob(): Promise<
     const imported = await bootstrapScrapeCaptureWithOptions(job.account, {
       pages: getBackfillPages(),
       count: getBackfillCount(),
+      targetOriginalPostCount: Math.max(job.targetPostCount, getBackfillTargetPostCount()),
+      maxDurationMs: getBackfillTimeoutMs(),
       userAgent: "onboarding-backfill-worker",
+      forceRefresh: true,
+      mergeWithExisting: true,
     });
+
+    const sourceRun = await readOnboardingRunById(job.sourceRunId);
+    if (!sourceRun?.userId) {
+      throw new Error(`Backfill source run ${job.sourceRunId} could not be loaded.`);
+    }
+
+    const refreshInput = buildRefreshOnboardingInput(
+      sourceRun.input,
+      job.account,
+      "cache_only",
+    );
+    const refreshedResult = await runOnboarding(refreshInput);
+    await persistOnboardingRun({
+      input: refreshInput,
+      result: refreshedResult,
+      userAgent: "onboarding-backfill-worker",
+      userId: sourceRun.userId,
+    });
+    await syncOnboardingPostsToDb(sourceRun.userId, job.account, refreshedResult);
+    await generateStyleProfile(sourceRun.userId, job.account, job.targetPostCount, {
+      forceRegenerate: true,
+    }).catch((error) =>
+      console.error("Failed to refresh style profile after onboarding backfill:", error),
+    );
 
     await markOnboardingBackfillJobCompleted({
       jobId: job.jobId,

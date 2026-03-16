@@ -22,6 +22,13 @@ import {
 
 export { buildConstraintAcknowledgment, isConstraintDeclaration } from "./constraintAcknowledgment.ts";
 
+function responseLooksStructured(response: string): boolean {
+  return (
+    /^\s*(?:[-*]\s+|\d+\.\s+|#\s+|##\s+|###\s+|>\s+)/m.test(response) ||
+    /\*\*[^*\n]+:\*\*/.test(response)
+  );
+}
+
 /**
  * Respond to a conversational turn without triggering generation.
  * Delegates to the existing coach agent but with a lighter prompt intent.
@@ -82,6 +89,9 @@ export async function respondConversationally(args: {
   return reply?.response
     ? {
         response: reply.response,
+        presentationStyle: responseLooksStructured(reply.response)
+          ? "preserve_authored_structure"
+          : undefined,
       }
     : null;
 }

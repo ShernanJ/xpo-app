@@ -8,6 +8,7 @@ interface ChatMessageRowProps {
   previousRole?: "assistant" | "user";
   index: number;
   children: ReactNode;
+  userActions?: ReactNode;
   onRegisterRef: (messageId: string, node: HTMLDivElement | null) => void;
 }
 
@@ -21,18 +22,29 @@ export function ChatMessageRow(props: ChatMessageRowProps) {
   const roleClassName =
     props.role === "assistant"
       ? "text-zinc-100"
-      : "ml-auto w-fit rounded-[1.15rem] bg-white px-4 py-2 text-black";
+      : "ml-auto w-fit rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
 
   return (
     <div
       ref={(node) => props.onRegisterRef(props.messageId, node)}
-      className={`${spacingClassName} max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up ${roleClassName}`}
+      className={`${spacingClassName} group relative max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up`}
       style={{
         contentVisibility: "auto",
         containIntrinsicSize: props.role === "assistant" ? "0 320px" : "0 72px",
       }}
     >
-      {props.children}
+      {props.role === "user" ? (
+        <div className="relative ml-auto w-fit">
+          <div className={roleClassName}>{props.children}</div>
+          {props.userActions ? (
+            <div className="flex h-10 items-start justify-end pt-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+              {props.userActions}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className={roleClassName}>{props.children}</div>
+      )}
     </div>
   );
 }

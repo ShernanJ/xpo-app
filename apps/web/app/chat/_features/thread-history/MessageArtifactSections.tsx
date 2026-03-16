@@ -39,6 +39,7 @@ import {
   getDraftGroundingToneClasses,
   summarizeGroundingSource,
 } from "../draft-queue/draftQueueViewState";
+import { isGeneratedResultOutputShape } from "../chat-page/chatPageViewState";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 
 type QuickReplyLike = {
@@ -113,6 +114,7 @@ interface MessageArtifactSectionsProps {
   message: MessageLike;
   index: number;
   messagesLength: number;
+  selectedIdeationAngleTitle?: string | null;
   composerCharacterLimit: number;
   isVerifiedAccount: boolean;
   isMainChatLocked: boolean;
@@ -158,6 +160,7 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
     message,
     index,
     messagesLength,
+    selectedIdeationAngleTitle,
     composerCharacterLimit,
     isVerifiedAccount,
     isMainChatLocked,
@@ -196,6 +199,7 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
   }
 
   const isLatestMessage = index === messagesLength - 1;
+  const isGeneratedResult = isGeneratedResultOutputShape(message.outputShape);
 
   return (
     <>
@@ -271,14 +275,14 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
         </div>
       ) : null}
 
-      {!message.isStreaming ? (
+      {!isGeneratedResult && !message.isStreaming ? (
         <div className="mt-2 flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => onSubmitAssistantMessageFeedback("up")}
             disabled={isMainChatLocked || messageFeedbackPending}
             aria-label="Thumbs up"
-            className={`inline-flex items-center rounded-full p-1.5 transition ${
+            className={`inline-flex cursor-pointer items-center rounded-full p-1.5 transition ${
               message.feedbackValue === "up"
                 ? "bg-emerald-300/10 text-emerald-300"
                 : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
@@ -291,7 +295,7 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
             onClick={() => onSubmitAssistantMessageFeedback("down")}
             disabled={isMainChatLocked || messageFeedbackPending}
             aria-label="Thumbs down"
-            className={`inline-flex items-center rounded-full p-1.5 transition ${
+            className={`inline-flex cursor-pointer items-center rounded-full p-1.5 transition ${
               message.feedbackValue === "down"
                 ? "bg-rose-300/10 text-rose-300"
                 : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
@@ -302,7 +306,8 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
         </div>
       ) : null}
 
-      {shouldShowQuickReplies(message) &&
+      {!isGeneratedResult &&
+      shouldShowQuickReplies(message) &&
       isLatestMessage &&
       !(message.outputShape === "ideation_angles" && message.angles?.length) ? (
         <QuickReplyButtons
@@ -319,6 +324,12 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
           {message.angles.map((angle, angleIndex) => {
             const isStructured = typeof angle === "object" && angle !== null;
             const title = isStructured ? (angle as Record<string, string>).title : (angle as string);
+            const normalizedTitle = title.trim().toLowerCase();
+            const normalizedSelectedIdeationAngleTitle =
+              selectedIdeationAngleTitle?.trim().toLowerCase() || null;
+            const hasSelectedIdeationAngle = Boolean(normalizedSelectedIdeationAngleTitle);
+            const isSelectedIdeationAngle =
+              normalizedSelectedIdeationAngleTitle === normalizedTitle;
             const selectedAngleFormatHint: SelectedAngleFormatHint =
               message.ideationFormatHint === "thread"
                 ? "thread"
@@ -333,13 +344,33 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
                 key={`${message.id}-angle-${angleIndex}`}
                 type="button"
                 onClick={() => onAngleSelect(title, selectedAngleFormatHint)}
-                className="group relative w-full cursor-pointer rounded-lg py-2 text-left transition-colors hover:bg-white/[0.04]"
+                disabled={hasSelectedIdeationAngle}
+                aria-pressed={isSelectedIdeationAngle}
+                className={`group relative w-full rounded-lg py-2 text-left transition-colors ${
+                  hasSelectedIdeationAngle
+                    ? isSelectedIdeationAngle
+                      ? "bg-white/[0.07] shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+                      : "opacity-60"
+                    : "cursor-pointer hover:bg-white/[0.04]"
+                } disabled:cursor-default`}
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 text-sm font-semibold text-zinc-500">
+                  <span
+                    className={`mt-0.5 text-sm font-semibold ${
+                      isSelectedIdeationAngle ? "text-white" : "text-zinc-500"
+                    }`}
+                  >
                     {angleIndex + 1}.
                   </span>
-                  <p className="text-sm font-medium leading-relaxed text-zinc-400 transition-colors group-hover:text-zinc-100">
+                  <p
+                    className={`text-sm font-medium leading-relaxed transition-colors ${
+                      hasSelectedIdeationAngle
+                        ? isSelectedIdeationAngle
+                          ? "text-white"
+                          : "text-zinc-500"
+                        : "text-zinc-400 group-hover:text-zinc-100"
+                    }`}
+                  >
                     {title}
                   </p>
                 </div>
@@ -349,7 +380,8 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
         </div>
       ) : null}
 
-      {message.outputShape === "ideation_angles" &&
+      {!isGeneratedResult &&
+      message.outputShape === "ideation_angles" &&
       message.angles?.length &&
       shouldShowQuickReplies(message) &&
       isLatestMessage ? (
@@ -427,6 +459,128 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
   );
 }
 
+export function AssistantResultFooter(props: {
+  message: MessageLike;
+  isLatestMessage: boolean;
+  isMainChatLocked: boolean;
+  messageFeedbackPending: boolean;
+  canRunReplyActions: boolean;
+  shouldShowQuickReplies: (message: MessageLike) => boolean;
+  onSubmitAssistantMessageFeedback: (value: "up" | "down") => void;
+  onQuickReplySelect: (quickReply: QuickReplyLike) => void;
+}) {
+  const {
+    message,
+    isLatestMessage,
+    isMainChatLocked,
+    messageFeedbackPending,
+    canRunReplyActions,
+    shouldShowQuickReplies,
+    onSubmitAssistantMessageFeedback,
+    onQuickReplySelect,
+  } = props;
+
+  if (message.role !== "assistant" || !isGeneratedResultOutputShape(message.outputShape)) {
+    return null;
+  }
+
+  const showFeedback = !message.isStreaming;
+  const showQuickReplies = isLatestMessage && shouldShowQuickReplies(message);
+
+  if (!showFeedback && !showQuickReplies) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+      {showFeedback ? (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSubmitAssistantMessageFeedback("up")}
+            disabled={isMainChatLocked || messageFeedbackPending}
+            aria-label="Thumbs up"
+            className={`inline-flex cursor-pointer items-center rounded-full p-1.5 transition ${
+              message.feedbackValue === "up"
+                ? "bg-emerald-300/10 text-emerald-300"
+                : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <ThumbsUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmitAssistantMessageFeedback("down")}
+            disabled={isMainChatLocked || messageFeedbackPending}
+            aria-label="Thumbs down"
+            className={`inline-flex cursor-pointer items-center rounded-full p-1.5 transition ${
+              message.feedbackValue === "down"
+                ? "bg-rose-300/10 text-rose-300"
+                : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <ThumbsDown className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
+
+      {showQuickReplies ? (
+        <ResultQuickReplyRail
+          quickReplies={message.quickReplies ?? []}
+          disabled={!canRunReplyActions}
+          onSelect={onQuickReplySelect}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function FollowUpChipIcon(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className || "h-4 w-4"}
+      fill="currentColor"
+    >
+      <path d="M12 6.229C5.269 7.328 1.995 12.498 2 22.001h2c0-1.914.705-3.537 2.095-4.825 1.5-1.391 3.739-2.259 5.905-2.331v5.507L23.259 10.5 12 .648v5.581zm2 1.773V5.056l6.222 5.443L14 15.942v-3.004l-.924-.07c-.265-.021-.531-.03-.798-.03-2.765 0-5.594 1.064-7.542 2.87l-.129.122c1.13-4.802 3.874-7.242 8.499-7.733l.895-.095z" />
+    </svg>
+  );
+}
+
+function FollowUpChipButton(props: {
+  quickReply: QuickReplyLike;
+  disabled: boolean;
+  onSelect: (quickReply: QuickReplyLike) => void;
+  animationDelaySeconds?: number;
+}) {
+  const { quickReply, disabled, onSelect, animationDelaySeconds } = props;
+
+  return (
+    <button
+      key={`${quickReply.kind}-${quickReply.value}`}
+      type="button"
+      onClick={() => onSelect(quickReply)}
+      disabled={disabled}
+      className="group/follow-up-chip inline-flex w-fit max-w-full cursor-pointer rounded-full bg-transparent text-[#e7e9ea] transition-[color,transform] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55"
+    >
+      <div
+        className="flex items-center gap-2.5 px-1 py-2 animate-fade-in-slide-up"
+        style={
+          animationDelaySeconds !== undefined
+            ? { animationDelay: `${animationDelaySeconds}s` }
+            : undefined
+        }
+      >
+        <FollowUpChipIcon className="h-4 w-4 text-[#71767b] transition [transform:scaleY(-1)] group-hover/follow-up-chip:text-[#e7e9ea]" />
+        <span className="whitespace-nowrap text-[15px] font-medium leading-none tracking-[-0.01em] text-[#b8bbbe] transition group-hover/follow-up-chip:text-[#e7e9ea]">
+          {quickReply.label}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 function QuickReplyButtons(props: {
   quickReplies: QuickReplyLike[];
   disabled: boolean;
@@ -435,17 +589,40 @@ function QuickReplyButtons(props: {
   const { quickReplies, disabled, onSelect } = props;
 
   return (
-    <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-      {quickReplies.map((quickReply) => (
-        <button
+    <div className="mt-4 flex flex-col items-start gap-1 border-t border-white/10 pt-4">
+      {quickReplies.map((quickReply, index) => (
+        <FollowUpChipButton
           key={`${quickReply.kind}-${quickReply.value}`}
-          type="button"
-          onClick={() => onSelect(quickReply)}
+          quickReply={quickReply}
           disabled={disabled}
-          className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
-        >
-          {quickReply.label}
-        </button>
+          onSelect={onSelect}
+          animationDelaySeconds={0.18 + index * 0.04}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ResultQuickReplyRail(props: {
+  quickReplies: QuickReplyLike[];
+  disabled: boolean;
+  onSelect: (quickReply: QuickReplyLike) => void;
+}) {
+  const { quickReplies, disabled, onSelect } = props;
+
+  return (
+    <div
+      data-testid="result-follow-up-rail"
+      className="flex flex-col items-start gap-1 pb-1"
+    >
+      {quickReplies.map((quickReply, index) => (
+        <FollowUpChipButton
+          key={`${quickReply.kind}-${quickReply.value}`}
+          quickReply={quickReply}
+          disabled={disabled}
+          onSelect={onSelect}
+          animationDelaySeconds={0.2 + index * 0.05}
+        />
       ))}
     </div>
   );

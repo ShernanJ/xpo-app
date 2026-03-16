@@ -61,6 +61,27 @@ interface StoredMemoryEnvelope {
   selectedReplyOptionId: string | null;
 }
 
+function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
+  return {
+    constraints: [],
+    conversationState: "collecting_context",
+    pendingPlan: null,
+    clarificationState: null,
+    lastIdeationAngles: [],
+    rollingSummary: null,
+    assistantTurnCount: 0,
+    activeDraftRef: null,
+    latestRefinementInstruction: null,
+    unresolvedQuestion: null,
+    clarificationQuestionsAsked: 0,
+    preferredSurfaceMode: null,
+    formatPreference: null,
+    activeReplyContext: null,
+    activeReplyArtifactRef: null,
+    selectedReplyOptionId: null,
+  };
+}
+
 function normalizeConversationState(value: unknown): ConversationState {
   if (
     value === "collecting_context" ||
@@ -454,6 +475,48 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
   } as Prisma.InputJsonValue;
 }
 
+function buildStoredMemoryEnvelopeFromSnapshot(
+  snapshot: V2ConversationMemory,
+): StoredMemoryEnvelope {
+  return {
+    constraints: snapshot.activeConstraints,
+    conversationState: snapshot.conversationState,
+    pendingPlan: snapshot.pendingPlan,
+    clarificationState: snapshot.clarificationState,
+    lastIdeationAngles: snapshot.lastIdeationAngles,
+    rollingSummary: snapshot.rollingSummary,
+    assistantTurnCount: snapshot.assistantTurnCount,
+    activeDraftRef: snapshot.activeDraftRef,
+    latestRefinementInstruction: snapshot.latestRefinementInstruction,
+    unresolvedQuestion: snapshot.unresolvedQuestion,
+    clarificationQuestionsAsked: snapshot.clarificationQuestionsAsked,
+    preferredSurfaceMode: snapshot.preferredSurfaceMode,
+    formatPreference: snapshot.formatPreference,
+    activeReplyContext: snapshot.activeReplyContext,
+    activeReplyArtifactRef: snapshot.activeReplyArtifactRef,
+    selectedReplyOptionId: snapshot.selectedReplyOptionId,
+  };
+}
+
+export function buildConversationMemoryUpdateInputFromSnapshot(
+  snapshot: V2ConversationMemory,
+): Prisma.ConversationMemoryUpdateInput {
+  return {
+    topicSummary: snapshot.topicSummary,
+    concreteAnswerCount: snapshot.concreteAnswerCount,
+    lastDraftArtifactId: snapshot.currentDraftArtifactId,
+    activeConstraints: serializeMemoryEnvelope(
+      buildStoredMemoryEnvelopeFromSnapshot(snapshot),
+    ),
+  };
+}
+
+export function buildConversationMemoryResetInput(): Prisma.ConversationMemoryUpdateInput {
+  return buildConversationMemoryUpdateInputFromSnapshot(
+    createConversationMemorySnapshot(null),
+  );
+}
+
 export function createConversationMemorySnapshot(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   memory: Record<string, any> | null | undefined,
@@ -528,24 +591,7 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
         runId: args.runId,
         threadId: args.threadId,
         userId: args.userId,
-        activeConstraints: serializeMemoryEnvelope({
-          constraints: [],
-          conversationState: "collecting_context",
-          pendingPlan: null,
-          clarificationState: null,
-          lastIdeationAngles: [],
-          rollingSummary: null,
-          assistantTurnCount: 0,
-          activeDraftRef: null,
-          latestRefinementInstruction: null,
-          unresolvedQuestion: null,
-          clarificationQuestionsAsked: 0,
-          preferredSurfaceMode: null,
-          formatPreference: null,
-          activeReplyContext: null,
-          activeReplyArtifactRef: null,
-          selectedReplyOptionId: null,
-        }),
+        activeConstraints: serializeMemoryEnvelope(createInitialStoredMemoryEnvelope()),
         concreteAnswerCount: 0,
       },
     });

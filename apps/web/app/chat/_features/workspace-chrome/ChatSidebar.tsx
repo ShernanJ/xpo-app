@@ -84,7 +84,7 @@ export function ChatSidebar() {
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden bg-zinc-950 md:sticky md:top-0 md:bg-white/[0.02] [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer transition-[width,transform] duration-300 ${
+        className={`fixed inset-y-0 left-0 z-30 flex min-h-0 shrink-0 flex-col overflow-hidden bg-[#050505] md:sticky md:top-0 md:bg-[#050505] [&_button:not(:disabled)]:cursor-pointer [&_[role=button]]:cursor-pointer transition-[width,transform] duration-300 ${
           sidebarOpen
             ? "w-[18.5rem] border-r border-white/10"
             : "w-[18.5rem] -translate-x-full border-r border-white/10 md:w-0 md:translate-x-0 md:border-r-0 md:bg-transparent"

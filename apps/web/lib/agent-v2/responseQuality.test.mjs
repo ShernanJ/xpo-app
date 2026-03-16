@@ -8,11 +8,14 @@ import { normalizeDraftRevisionInstruction } from "./capabilities/revision/draft
 import { buildDraftReply } from "./responses/draftReply.ts";
 import { buildIdeationReply } from "./responses/ideationReply.ts";
 import { buildIdeationQuickReplies } from "./responses/ideationQuickReplies.ts";
+import { buildDraftResultQuickReplies } from "./responses/draftResultQuickReplies.ts";
+import { buildDraftClarificationQuickReplies } from "./responses/draftClarificationQuickReplies.ts";
 import {
   looksLikeMechanicalEdit,
   looksLikeNegativeFeedback,
 } from "./agents/antiPatternExtractor.ts";
 import { buildPlannerQuickReplies } from "./responses/plannerQuickReplies.ts";
+import { buildProfileAnalysisQuickReplies } from "./responses/profileAnalysisQuickReplies.ts";
 import {
   inferCorrectionRepairQuestion,
   looksLikeSemanticCorrection,
@@ -301,6 +304,189 @@ test("ideation quick replies respect lowercase style preference", () => {
 
   assert.equal(quickReplies[0].label, quickReplies[0].label.toLowerCase());
   assert.equal(quickReplies[0].value, quickReplies[0].value.toLowerCase());
+});
+
+test("draft clarification quick replies mirror explicit choices from the question", () => {
+  const quickReplies = buildDraftClarificationQuickReplies({
+    question:
+      "What specific insight or story do you want to share today - a hiring system tip, a leadership lesson, or a behind-the-scenes metric?",
+    userMessage: "write a post",
+    styleCard: null,
+    topicAnchors: [],
+    seedTopic: null,
+    isVerifiedAccount: false,
+    requestedFormatPreference: "shortform",
+  });
+
+  assert.deepEqual(
+    quickReplies.map((chip) => chip.label),
+    [
+      "Hiring System Tip",
+      "Leadership Lesson",
+      "Behind-The-Scenes Metric",
+    ],
+  );
+  assert.deepEqual(
+    quickReplies.map((chip) => chip.value.toLowerCase()),
+    [
+      "a hiring system tip",
+      "a leadership lesson",
+      "a behind-the-scenes metric",
+    ],
+  );
+});
+
+test("draft clarification quick replies fall back to dynamic draft chips for bare draft asks", () => {
+  const quickReplies = buildDraftClarificationQuickReplies({
+    question: "what should i write about?",
+    userMessage: "write a post",
+    styleCard: baseStyleCard,
+    topicAnchors: ["hiring systems for lean teams", "founder leadership lessons"],
+    seedTopic: null,
+    isVerifiedAccount: false,
+    requestedFormatPreference: "shortform",
+  });
+
+  assert.equal(quickReplies.length, 3);
+  assert.equal(
+    quickReplies.some((chip) => /usual lane|angle|linkedin to x/i.test(chip.label)),
+    true,
+  );
+  assert.equal(
+    quickReplies.some((chip) => chip.explicitIntent === "plan"),
+    true,
+  );
+});
+
+test("draft result quick replies stay format-aware and explicit", () => {
+  const quickReplies = buildDraftResultQuickReplies({
+    outputShape: "thread_seed",
+    styleCard: null,
+    seedTopic: "creator analytics positioning",
+  });
+
+  assert.equal(quickReplies.length, 3);
+  assert.equal(/thread|post|ending/i.test(quickReplies.map((chip) => chip.label).join(" ")), true);
+  assert.equal(/collapse this thread/i.test(quickReplies[1].value.toLowerCase()), true);
+  assert.equal(quickReplies[1].formatPreference, "shortform");
+});
+
+test("profile analysis quick replies prioritize weak profile surfaces", () => {
+  const quickReplies = buildProfileAnalysisQuickReplies({
+    kind: "profile_analysis",
+    profile: {
+      username: "vitddnv",
+      name: "Vitalii Dodonov",
+      bio: "Scaling Stan in public.",
+      avatarUrl: null,
+      headerImageUrl: null,
+      isVerified: true,
+      followersCount: 7927,
+      followingCount: 482,
+      createdAt: "2015-09-01T00:00:00.000Z",
+    },
+    pinnedPost: {
+      id: "pin-1",
+      text: "Current pinned post",
+      createdAt: "2026-01-11T00:00:00.000Z",
+      metrics: {
+        likeCount: 10,
+        replyCount: 2,
+        repostCount: 1,
+        quoteCount: 0,
+      },
+      url: "https://x.com/vitddnv/status/1",
+    },
+    audit: {
+      score: 86,
+      headline: "Profile conversion is mostly aligned with startups and growth through built.",
+      fingerprint: "fp-1",
+      shouldAutoOpen: true,
+      steps: [
+        {
+          key: "bio_formula",
+          title: "Bio Formula",
+          status: "warn",
+          score: 70,
+          summary: "Bio needs a tighter hook.",
+          findings: [],
+          actionLabel: "Rewrite bio",
+        },
+        {
+          key: "visual_real_estate",
+          title: "Visual Real Estate",
+          status: "warn",
+          score: 62,
+          summary: "Banner promise is too vague.",
+          findings: [],
+          actionLabel: "Clarify banner",
+        },
+        {
+          key: "pinned_tweet",
+          title: "Pinned Tweet",
+          status: "fail",
+          score: 40,
+          summary: "Pinned post needs a clearer authority story.",
+          findings: [],
+          actionLabel: "Write pinned post",
+        },
+      ],
+      strengths: [],
+      gaps: ["Bio is too broad."],
+      unknowns: [],
+      bioFormulaCheck: {
+        status: "warn",
+        score: 70,
+        summary: "Bio needs a tighter hook.",
+        findings: [],
+        bio: "Scaling Stan in public.",
+        charCount: 23,
+        matchesFormula: {
+          what: true,
+          who: false,
+          proofOrCta: false,
+        },
+        alternatives: [
+          {
+            id: "bio-1",
+            text: "I help founders grow faster on X with proof-first systems.",
+            proofMode: "cta",
+          },
+        ],
+      },
+      visualRealEstateCheck: {
+        status: "warn",
+        score: 62,
+        summary: "Banner promise is too vague.",
+        findings: [],
+        hasHeaderImage: true,
+        headerImageUrl: null,
+        headerClarity: null,
+        headerClarityResolved: false,
+      },
+      pinnedTweetCheck: {
+        status: "fail",
+        score: 40,
+        summary: "Pinned post needs a clearer authority story.",
+        findings: [],
+        pinnedPost: null,
+        category: "weak",
+        ageDays: 120,
+        isStale: true,
+        promptSuggestions: {
+          originStory: "origin",
+          coreThesis: "core",
+        },
+      },
+    },
+    bannerAnalysis: null,
+  });
+
+  assert.equal(quickReplies.length, 3);
+  assert.deepEqual(
+    quickReplies.map((chip) => chip.label),
+    ["Rewrite bio", "Fix banner promise", "Draft pinned post"],
+  );
 });
 
 test("draft handoff reply stays conversational and asks for tweaks", () => {

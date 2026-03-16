@@ -5,6 +5,7 @@ import {
   buildDraftBundleBriefs,
   type DraftBundleResult,
 } from "./draftBundles.ts";
+import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
 import { runDraftBundleCandidateWorkers } from "../../workers/draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { buildRuntimeWorkerExecution } from "../../runtime/workerPlane.ts";
@@ -327,6 +328,11 @@ export async function executeDraftBundleCapability(
           supportAsset: options[0].supportAsset,
           plan: context.plan,
           issuesFixed: Array.from(new Set(options.flatMap((option) => option.issuesFixed))),
+          quickReplies: buildDraftResultQuickReplies({
+            outputShape: "short_form_post",
+            styleCard: null,
+            seedTopic: context.plan.objective,
+          }),
           groundingSources: context.groundingSources,
           groundingMode: context.groundingMode,
           groundingExplanation: context.groundingExplanation,

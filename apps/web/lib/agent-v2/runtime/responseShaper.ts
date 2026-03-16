@@ -164,21 +164,55 @@ function splitResponseIntoSentences(response: string): string[] {
     .filter(Boolean);
 }
 
-function formatConversationalReplyForScanability(response: string): string {
+function groupSentencesIntoBullets(sentences: string[], maxBullets: number): string[] {
+  if (sentences.length === 0) {
+    return [];
+  }
+
+  const targetBulletCount = Math.max(1, Math.min(maxBullets, sentences.length));
+  const groupSize = Math.max(1, Math.ceil(sentences.length / targetBulletCount));
+  const bullets: string[] = [];
+
+  for (let index = 0; index < sentences.length; index += groupSize) {
+    bullets.push(sentences.slice(index, index + groupSize).join(" "));
+  }
+
+  return bullets;
+}
+
+function formatConversationalReplyForScanability(
+  response: string,
+  options?: { preferStructure?: boolean },
+): string {
   const trimmed = response.trim();
   if (!trimmed || responseAlreadyStructured(trimmed)) {
     return trimmed;
   }
 
   const sentences = splitResponseIntoSentences(trimmed);
-  if (sentences.length < 3 || trimmed.length < 220) {
+  const preferStructure = options?.preferStructure === true;
+  const minimumSentenceCount = preferStructure ? 2 : 3;
+  const minimumLength = preferStructure ? 150 : 220;
+
+  if (sentences.length < minimumSentenceCount || trimmed.length < minimumLength) {
     return trimmed;
   }
 
-  return sentences.map((sentence) => `- ${sentence}`).join("\n");
+  const [thesis, ...remainder] = sentences;
+  const bullets = groupSentencesIntoBullets(remainder, preferStructure ? 3 : 4);
+  const lines = [`**Takeaway:** ${thesis}`];
+
+  if (bullets.length > 0) {
+    lines.push("", ...bullets.map((bullet) => `- ${bullet}`));
+  }
+
+  return lines.join("\n");
 }
 
-function formatConversationalReplyWithFollowUpQuestion(response: string): string {
+function formatConversationalReplyWithFollowUpQuestion(
+  response: string,
+  options?: { preferStructure?: boolean },
+): string {
   const trimmed = response.trim();
   if (!trimmed || responseAlreadyStructured(trimmed)) {
     return trimmed;
@@ -186,12 +220,12 @@ function formatConversationalReplyWithFollowUpQuestion(response: string): string
 
   const { body, question } = splitTrailingFollowUpQuestion(trimmed);
   if (!question || !body) {
-    return formatConversationalReplyForScanability(trimmed);
+    return formatConversationalReplyForScanability(trimmed, options);
   }
 
-  const formattedBody = formatConversationalReplyForScanability(body);
+  const formattedBody = formatConversationalReplyForScanability(body, options);
   const bodyWasFormatted = formattedBody !== body;
-  const bodyIsLongEnough = body.trim().length >= 220;
+  const bodyIsLongEnough = body.trim().length >= (options?.preferStructure ? 150 : 220);
 
   if (!bodyWasFormatted && !bodyIsLongEnough) {
     return trimmed;
@@ -218,6 +252,7 @@ export function shapeAssistantResponse(args: ShapeResponseArgs): string {
   nextResponse = stripFormulaicLeadIn(nextResponse);
   nextResponse = removeAutomaticDraftPrompt(nextResponse);
   nextResponse = shapeBySurfaceMode(nextResponse, args.plan.surfaceMode);
+  const preferStructure = args.plan.mode === "light_guidance";
 
   if (
     args.outputShape === "coach_question" &&
@@ -235,11 +270,13 @@ export function shapeAssistantResponse(args: ShapeResponseArgs): string {
     }
 
     if (args.plan.surfaceMode === "answer_directly") {
-      nextResponse = formatConversationalReplyForScanability(nextResponse);
+      nextResponse = formatConversationalReplyForScanability(nextResponse, { preferStructure });
     }
 
     if (args.plan.surfaceMode === "ask_one_question") {
-      nextResponse = formatConversationalReplyWithFollowUpQuestion(nextResponse);
+      nextResponse = formatConversationalReplyWithFollowUpQuestion(nextResponse, {
+        preferStructure,
+      });
     }
   }
 

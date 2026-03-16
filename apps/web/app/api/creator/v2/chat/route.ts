@@ -30,6 +30,12 @@ import {
   maybeReplayDuplicateTurn,
   refundRouteTurnCharge,
 } from "./_lib/control/routeControlPlane";
+import {
+  isTurnCancellationRequested,
+  markTurnCancelled,
+  markTurnCompleted,
+  upsertRunningTurnControl,
+} from "./_lib/control/routeTurnControl";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/core/conversationHeuristics";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
@@ -47,6 +53,7 @@ import {
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
 import {
   buildInlineProfileAnalysisResponse,
+  generateProfileAnalysisNarrative,
   isInlineProfileAnalysisRequest,
 } from "./_lib/profile/inlineProfileAnalysis";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
@@ -57,6 +64,169 @@ type StreamProgressCallback = (
 ) => Promise<void> | void;
 
 const DEFAULT_THREAD_TITLE = "New Chat";
+
+type RouteProgressCopy = Pick<ChatStreamProgressEventData, "label" | "explanation">;
+
+function normalizeProgressCopy(value?: string | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function lowerCaseFirst(value: string): string {
+  return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
+function resolveProgressTopic(args: {
+  profileReplyContext?: {
+    topicBullets?: string[];
+  } | null;
+  creatorProfileHints?: {
+    contentPillars?: string[];
+    knownFor?: string | null;
+  } | null;
+}): string | null {
+  const topicBullet = normalizeProgressCopy(args.profileReplyContext?.topicBullets?.[0]);
+  if (topicBullet) {
+    return topicBullet;
+  }
+
+  const pillar = normalizeProgressCopy(args.creatorProfileHints?.contentPillars?.[0]);
+  if (pillar) {
+    return pillar;
+  }
+
+  return normalizeProgressCopy(args.creatorProfileHints?.knownFor);
+}
+
+function resolveProgressAccountLabel(activeHandle?: string | null): string {
+  const normalizedHandle = activeHandle?.trim().replace(/^@+/, "");
+  return normalizedHandle ? `@${normalizedHandle}` : "your account";
+}
+
+function resolveRecentPostLead(count?: number | null): string {
+  if (typeof count === "number" && Number.isFinite(count) && count > 0) {
+    return `${count} recent post${count === 1 ? "" : "s"}`;
+  }
+
+  return "recent posts";
+}
+
+function buildRouteProgressCopy(args: {
+  workflow: ChatStreamProgressEventData["workflow"];
+  stepId: PendingStatusStepId;
+  activeHandle?: string | null;
+  selectedDraftContext?: SelectedDraftContext | null;
+  structuredReplyContext?: {
+    authorHandle?: string | null;
+  } | null;
+  creatorProfileHints?: {
+    knownFor?: string | null;
+    contentPillars?: string[];
+  } | null;
+  profileReplyContext?: {
+    topicBullets?: string[];
+    recentPostCount?: number;
+  } | null;
+}): RouteProgressCopy | null {
+  const topic = resolveProgressTopic({
+    profileReplyContext: args.profileReplyContext ?? null,
+    creatorProfileHints: args.creatorProfileHints ?? null,
+  });
+  const accountLabel = resolveProgressAccountLabel(args.activeHandle);
+  const recentPostsLabel = resolveRecentPostLead(args.profileReplyContext?.recentPostCount);
+  const replyAuthorHandle = normalizeProgressCopy(args.structuredReplyContext?.authorHandle);
+
+  switch (args.stepId) {
+    case "understand_request":
+      if (args.workflow === "reply_to_post" && replyAuthorHandle) {
+        return {
+          label: `Reading the conversation around @${replyAuthorHandle.replace(/^@+/, "")}`,
+          explanation: "This helps the reply fit the tone and context of the thread.",
+        };
+      }
+
+      if (args.selectedDraftContext) {
+        return {
+          label: "Reviewing the current draft before changing it",
+          explanation: "This helps keep the main idea while deciding what should change.",
+        };
+      }
+
+      if (args.workflow === "ideate") {
+        return {
+          label: "Getting clear on what kind of idea would help most",
+          explanation: "This keeps the next suggestions pointed at the job you actually want done.",
+        };
+      }
+
+      if (args.workflow === "plan_then_draft") {
+        return {
+          label: "Getting clear on the post you want to make",
+          explanation: "This helps the draft start in the right direction before any writing begins.",
+        };
+      }
+
+      return null;
+    case "scan_context":
+    case "gather_context":
+      return {
+        label: `Looking through ${recentPostsLabel} from ${accountLabel}`,
+        explanation: topic
+          ? `This helps pull in recurring themes, like ${lowerCaseFirst(topic)}.`
+          : "This helps ground the response in what your account has been posting recently.",
+      };
+    case "explore_directions":
+      return {
+        label: topic
+          ? `Exploring directions around ${lowerCaseFirst(topic)}`
+          : "Exploring a few directions that fit your account",
+        explanation: "This helps surface options that already feel natural for your audience.",
+      };
+    case "pick_direction":
+      return {
+        label: topic
+          ? `Leaning into the strongest angle around ${lowerCaseFirst(topic)}`
+          : "Leaning into the strongest angle",
+        explanation: "This helps narrow the response to the clearest, most usable direction.",
+      };
+    case "write_response":
+    case "draft_response":
+      return {
+        label: topic
+          ? `Drafting around ${lowerCaseFirst(topic)}`
+          : "Turning the direction into a working draft",
+        explanation: "This is where the first useful version starts taking shape.",
+      };
+    case "revise_response":
+      return {
+        label: topic
+          ? `Reworking it with the ${lowerCaseFirst(topic)} angle in mind`
+          : "Reworking the draft with the requested change in mind",
+        explanation: "This helps make the revision feel intentional instead of just shorter or longer.",
+      };
+    case "package_ideas":
+      return {
+        label: topic
+          ? `Packaging the best idea around ${lowerCaseFirst(topic)}`
+          : "Packaging the best idea into something usable",
+        explanation: "This helps turn the strongest direction into a clean response you can act on.",
+      };
+    case "finalize_response":
+    case "polish_response":
+      return {
+        label: "Tightening the final wording",
+        explanation: topic
+          ? `This helps the final version stay clear while still feeling connected to ${lowerCaseFirst(topic)}.`
+          : "This helps the final version come back clear, clean, and ready to use.",
+      };
+    default:
+      return null;
+  }
+}
 
 function resolveChatTurnCreditCost(args: {
   explicitIntent:
@@ -176,6 +346,17 @@ function resolveChatResponseErrorMessage(payload: unknown, status: number): stri
   }
 
   return "Failed to generate a reply.";
+}
+
+function buildTurnCancelledResponse() {
+  return NextResponse.json(
+    {
+      ok: false,
+      code: "TURN_CANCELLED",
+      errors: [{ field: "chat", message: "The reply was interrupted." }],
+    },
+    { status: 409 },
+  );
 }
 
 function streamChatRouteResponse(args: {
@@ -304,7 +485,7 @@ async function handleChatRouteRequest(args: {
     threadFramingStyleOverride: threadFramingStyle,
     hasSelectedDraftContext: Boolean(selectedDraftContext),
   });
-  const emitProgress = async (stepIndex: number) => {
+  const emitProgress = async (stepIndex: number, copy?: RouteProgressCopy | null) => {
     const activeStepId = progressPlan.steps[stepIndex]?.id as PendingStatusStepId | undefined;
     if (!activeStepId || !args.onProgress) {
       return;
@@ -313,6 +494,8 @@ async function handleChatRouteRequest(args: {
     await args.onProgress({
       workflow: progressPlan.workflow,
       activeStepId,
+      ...(copy?.label ? { label: copy.label } : {}),
+      ...(copy?.explanation ? { explanation: copy.explanation } : {}),
     });
   };
 
@@ -332,7 +515,16 @@ async function handleChatRouteRequest(args: {
     effectiveMessage,
   );
 
-  await emitProgress(0);
+  await emitProgress(
+    0,
+    buildRouteProgressCopy({
+      workflow: progressPlan.workflow,
+      stepId: progressPlan.steps[0]?.id ?? "understand_request",
+      activeHandle,
+      selectedDraftContext,
+      structuredReplyContext,
+    }),
+  );
 
   if (threadId) {
     const duplicateReplayResponse = await maybeReplayDuplicateTurn({
@@ -372,7 +564,16 @@ async function handleChatRouteRequest(args: {
   }
   const storedRun = storedRunResult.storedRun;
 
-  await emitProgress(1);
+  await emitProgress(
+    1,
+    buildRouteProgressCopy({
+      workflow: progressPlan.workflow,
+      stepId: progressPlan.steps[1]?.id ?? "gather_context",
+      activeHandle,
+      selectedDraftContext,
+      structuredReplyContext,
+    }),
+  );
 
   const {
     onboardingResult,
@@ -405,6 +606,31 @@ async function handleChatRouteRequest(args: {
     selectedDraftContext,
   });
   let debitedCharge: { cost: number; idempotencyKey: string } | null = null;
+  const refundCancelledTurn = async () => {
+    await refundRouteTurnCharge({
+      userId: args.userId,
+      debitedCharge,
+    });
+    debitedCharge = null;
+  };
+  const shouldCancelTurn = async () => {
+    const cancelled = await isTurnCancellationRequested({
+      userId: args.userId,
+      runId: storedRun?.id ?? runId,
+      clientTurnId,
+    });
+    if (!cancelled) {
+      return false;
+    }
+
+    await markTurnCancelled({
+      userId: args.userId,
+      runId: storedRun?.id ?? runId,
+      clientTurnId,
+    });
+    await refundCancelledTurn();
+    return true;
+  };
 
   try {
     const effectiveUserId = args.userId;
@@ -419,6 +645,13 @@ async function handleChatRouteRequest(args: {
       return chargeResult.failureResponse;
     }
     debitedCharge = chargeResult.debitedCharge;
+
+    await upsertRunningTurnControl({
+      userId: args.userId,
+      runId: storedRun?.id ?? runId,
+      clientTurnId,
+      threadId: storedThread.id,
+    });
 
     const conversationContext = await loadRouteConversationContext({
       storedThread,
@@ -440,18 +673,35 @@ async function handleChatRouteRequest(args: {
     const storedMemory = conversationContext.storedMemory;
     selectedDraftContext = conversationContext.selectedDraftContext;
 
+    if (await shouldCancelTurn()) {
+      return buildTurnCancelledResponse();
+    }
+
     if (
       onboardingResult &&
       growthOsPayload?.profileConversionAudit &&
       isInlineProfileAnalysisRequest(effectiveMessage)
     ) {
-      await emitProgress(2);
+      await emitProgress(
+        2,
+        buildRouteProgressCopy({
+          workflow: progressPlan.workflow,
+          stepId: progressPlan.steps[2]?.id ?? "write_response",
+          activeHandle,
+          selectedDraftContext,
+          structuredReplyContext,
+          creatorProfileHints,
+          profileReplyContext,
+        }),
+      );
 
       const preparedTurn = await prepareManagedMainTurn({
         rawResponse: await buildInlineProfileAnalysisResponse({
           onboarding: onboardingResult,
           audit: growthOsPayload.profileConversionAudit,
           memory: storedMemory,
+          profileReplyContext,
+          generateNarrative: generateProfileAnalysisNarrative,
         }),
         recentHistory: recentHistoryStr || "None",
         selectedDraftContext,
@@ -465,7 +715,22 @@ async function handleChatRouteRequest(args: {
         shouldClearReplyWorkflow: false,
       });
 
-      await emitProgress(3);
+      await emitProgress(
+        3,
+        buildRouteProgressCopy({
+          workflow: progressPlan.workflow,
+          stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+          activeHandle,
+          selectedDraftContext,
+          structuredReplyContext,
+          creatorProfileHints,
+          profileReplyContext,
+        }),
+      );
+
+      if (await shouldCancelTurn()) {
+        return buildTurnCancelledResponse();
+      }
 
       return await finalizeMainAssistantTurn({
         preparedTurn,
@@ -511,11 +776,30 @@ async function handleChatRouteRequest(args: {
         explicitIntent: effectiveExplicitIntent,
         loadBilling: loadBillingStateForResponse,
         recordProductEvent,
+        onAssistantTurnPersisted: async (assistantMessageId) => {
+          await markTurnCompleted({
+            userId: args.userId,
+            runId: storedRun?.id ?? runId,
+            clientTurnId,
+            assistantMessageId,
+          });
+        },
       });
     }
 
     const replyInsights = growthOsPayload?.replyInsights ?? null;
-    await emitProgress(2);
+    await emitProgress(
+      2,
+      buildRouteProgressCopy({
+        workflow: progressPlan.workflow,
+        stepId: progressPlan.steps[2]?.id ?? "write_response",
+        activeHandle,
+        selectedDraftContext,
+        structuredReplyContext,
+        creatorProfileHints,
+        profileReplyContext,
+      }),
+    );
     const replyTurnPreflight = await prepareHandledReplyTurn({
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
@@ -538,7 +822,21 @@ async function handleChatRouteRequest(args: {
     const handledReplyTurn = replyTurnPreflight.handledTurn;
 
     if (handledReplyTurn) {
-      await emitProgress(3);
+      await emitProgress(
+        3,
+        buildRouteProgressCopy({
+          workflow: progressPlan.workflow,
+          stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+          activeHandle,
+          selectedDraftContext,
+          structuredReplyContext,
+          creatorProfileHints,
+          profileReplyContext,
+        }),
+      );
+      if (await shouldCancelTurn()) {
+        return buildTurnCancelledResponse();
+      }
       return await finalizeReplyTurn({
         preparedTurn: handledReplyTurn,
         storedMemory,
@@ -553,6 +851,14 @@ async function handleChatRouteRequest(args: {
         activeHandle,
         loadBilling: loadBillingStateForResponse,
         recordProductEvent,
+        onAssistantTurnPersisted: async (assistantMessageId) => {
+          await markTurnCompleted({
+            userId: args.userId,
+            runId: storedRun?.id ?? runId,
+            clientTurnId,
+            assistantMessageId,
+          });
+        },
       });
     }
 
@@ -583,7 +889,21 @@ async function handleChatRouteRequest(args: {
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", rawResponse.mode);
-    await emitProgress(3);
+    await emitProgress(
+      3,
+      buildRouteProgressCopy({
+        workflow: progressPlan.workflow,
+        stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+        activeHandle,
+        selectedDraftContext,
+        structuredReplyContext,
+        creatorProfileHints,
+        profileReplyContext,
+      }),
+    );
+    if (await shouldCancelTurn()) {
+      return buildTurnCancelledResponse();
+    }
     const preparedTurn = await prepareManagedMainTurn({
       rawResponse,
       recentHistory: recentHistoryStr || "None",
@@ -610,6 +930,14 @@ async function handleChatRouteRequest(args: {
       explicitIntent: effectiveExplicitIntent,
       loadBilling: loadBillingStateForResponse,
       recordProductEvent,
+      onAssistantTurnPersisted: async (assistantMessageId) => {
+        await markTurnCompleted({
+          userId: args.userId,
+          runId: storedRun?.id ?? runId,
+          clientTurnId,
+          assistantMessageId,
+        });
+      },
     });
   } catch (error) {
     await refundRouteTurnCharge({

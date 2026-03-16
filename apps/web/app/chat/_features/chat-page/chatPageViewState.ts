@@ -34,6 +34,7 @@ export interface ChatToneInputs {
 
 interface ChatMessageVisibilityTarget {
   quickReplies?: unknown[] | null;
+  outputShape?: string | null;
   surfaceMode?:
     | "answer_directly"
     | "ask_one_question"
@@ -258,11 +259,28 @@ export function getComposerCharacterLimit(context: CreatorAgentContext | null): 
   return getXCharacterLimitForAccount(Boolean(context?.creatorProfile.identity.isVerified));
 }
 
+export function isGeneratedResultOutputShape(outputShape: string | null | undefined): boolean {
+  return (
+    outputShape === "short_form_post" ||
+    outputShape === "long_form_post" ||
+    outputShape === "thread_seed" ||
+    outputShape === "profile_analysis" ||
+    outputShape === "planning_outline" ||
+    outputShape === "ideation_angles" ||
+    outputShape === "reply_candidate" ||
+    outputShape === "quote_candidate"
+  );
+}
+
 export function shouldShowQuickRepliesForMessage(
   message: ChatMessageVisibilityTarget,
 ): boolean {
   if (!message.quickReplies?.length) {
     return false;
+  }
+
+  if (isGeneratedResultOutputShape(message.outputShape)) {
+    return true;
   }
 
   if (!message.surfaceMode) {
