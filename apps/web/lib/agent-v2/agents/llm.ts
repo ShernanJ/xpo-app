@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomUUID } from "crypto";
 import Groq from "groq-sdk";
 import type {
   ChatCompletionCreateParamsNonStreaming,
@@ -90,6 +91,7 @@ async function retryInvalidJsonContent<T>(
   options: LlmCompletionOptions,
   invalidContent: string,
 ): Promise<T | null> {
+  const requestId = randomUUID().slice(0, 8);
   const retryMessages: ChatCompletionMessageParam[] = [
     ...options.messages,
     {
@@ -109,23 +111,24 @@ async function retryInvalidJsonContent<T>(
     reasoningEffort: "low",
   });
 
-  console.warn(`[LLM] Invalid JSON from ${options.model}; retrying once with repair instruction.`);
+  console.warn(`[LLM][${requestId}] Invalid JSON from ${options.model}; retrying once with repair instruction.`);
   const retryCompletion = await getGroqClient().chat.completions.create(retryParams);
   const retryChoice = retryCompletion.choices?.[0];
   const retryContent = extractMessageContent((retryChoice?.message || null) as ChatMessage | null);
 
   if (!retryContent) {
-    console.error("[LLM] JSON repair retry returned no content. Full message:", JSON.stringify(retryChoice?.message, null, 2));
+    console.error(`[LLM][${requestId}] JSON repair retry returned no content.`);
     return null;
   }
 
-  console.log(`[LLM] JSON repair retry got ${retryContent.length} chars back from ${options.model}`);
+  console.log(`[LLM][${requestId}] JSON repair retry got ${retryContent.length} chars back from ${options.model}`);
   return parseJsonContent<T>(retryContent);
 }
 
 async function retryEmptyContentOpenAiJson<T>(
   options: LlmCompletionOptions,
 ): Promise<T | null> {
+  const requestId = randomUUID().slice(0, 8);
   const retryMessages: ChatCompletionMessageParam[] = [
     ...options.messages,
     {
@@ -139,17 +142,17 @@ async function retryEmptyContentOpenAiJson<T>(
     reasoningEffort: "low",
   });
 
-  console.warn(`[LLM] Empty content from ${options.model}; retrying once with forced content-only JSON.`);
+  console.warn(`[LLM][${requestId}] Empty content from ${options.model}; retrying once with forced content-only JSON.`);
   const retryCompletion = await getGroqClient().chat.completions.create(retryParams);
   const retryChoice = retryCompletion.choices?.[0];
   const retryContent = extractMessageContent((retryChoice?.message || null) as ChatMessage | null);
 
   if (!retryContent) {
-    console.error("[LLM] Retry also returned no content. Full message:", JSON.stringify(retryChoice?.message, null, 2));
+    console.error(`[LLM][${requestId}] Retry also returned no content.`);
     return null;
   }
 
-  console.log(`[LLM] Retry got ${retryContent.length} chars back from ${options.model}`);
+  console.log(`[LLM][${requestId}] Retry got ${retryContent.length} chars back from ${options.model}`);
   return parseJsonContent<T>(retryContent);
 }
 
@@ -159,6 +162,7 @@ async function retryEmptyContentOpenAiJson<T>(
 export async function fetchJsonFromGroq<T>(
   options: LlmCompletionOptions,
 ): Promise<T | null> {
+  const requestId = randomUUID().slice(0, 8);
   const reportFailure = (reason: string) => {
     options.onFailure?.(reason);
   };
@@ -167,14 +171,14 @@ export async function fetchJsonFromGroq<T>(
     const isOpenAiModel = options.model.startsWith("openai/");
     const params = buildParams(options, isOpenAiModel);
 
-    console.log(`[LLM] Calling ${options.model} (${isOpenAiModel ? `openai, effort=${String(params.reasoning_effort)}` : "groq-native"})...`);
+    console.log(`[LLM][${requestId}] Calling ${options.model} (${isOpenAiModel ? `openai, effort=${String(params.reasoning_effort)}` : "groq-native"})`);
 
     const chatCompletion = await getGroqClient().chat.completions.create(params);
 
     const choice = chatCompletion.choices?.[0];
     if (!choice) {
       reportFailure("returned no choices");
-      console.error("[LLM] No choices returned from Groq:", JSON.stringify(chatCompletion, null, 2));
+      console.error(`[LLM][${requestId}] No choices returned from provider.`);
       return null;
     }
 
@@ -188,28 +192,28 @@ export async function fetchJsonFromGroq<T>(
             return retryResult;
           }
         } catch (retryError) {
-          console.error("[LLM] Retry after empty content failed:", retryError);
+          console.error(`[LLM][${requestId}] Retry after empty content failed:`, retryError);
         }
       }
 
       reportFailure("returned no content");
-      console.error("[LLM] No content in message. Full message:", JSON.stringify(choice.message, null, 2));
+      console.error(`[LLM][${requestId}] No content in provider response.`);
       return null;
     }
 
-    console.log(`[LLM] Got ${content.length} chars back from ${options.model}`);
+    console.log(`[LLM][${requestId}] Got ${content.length} chars back from ${options.model}`);
 
     try {
       return parseJsonContent<T>(content);
     } catch (err) {
-      console.error("[LLM] Failed to parse JSON from Groq response:", err);
+      console.error(`[LLM][${requestId}] Failed to parse JSON response:`, err);
       try {
         const retryResult = await retryInvalidJsonContent<T>(options, content);
         if (retryResult) {
           return retryResult;
         }
       } catch (retryError) {
-        console.error("[LLM] Retry after invalid JSON failed:", retryError);
+        console.error(`[LLM][${requestId}] Retry after invalid JSON failed:`, retryError);
       }
 
       reportFailure("returned invalid JSON");
@@ -217,7 +221,7 @@ export async function fetchJsonFromGroq<T>(
     }
   } catch (err) {
     reportFailure("request failed");
-    console.error("[LLM] Failed to fetch/parse JSON from Groq:", err);
+    console.error(`[LLM][${requestId}] Failed to fetch/parse JSON from provider:`, err);
     return null;
   }
 }

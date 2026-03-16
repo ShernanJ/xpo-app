@@ -53,6 +53,7 @@ import { useThreadViewState } from "./_features/thread-history/useThreadViewStat
 import { useWorkspaceAccountState } from "./_features/workspace-chrome/useWorkspaceAccountState";
 import { useWorkspaceChromeState } from "./_features/workspace-chrome/useWorkspaceChromeState";
 import {
+  type ChatActiveTurn,
   type ChatContentFocus,
   type ChatMessage,
   type ChatQuickReply,
@@ -160,6 +161,8 @@ function ChatPageContent() {
     toolsMenuRef,
   } = useWorkspaceChromeState({ accountName });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [activeThreadTurn, setActiveThreadTurn] = useState<ChatActiveTurn | null>(null);
   const {
     activeThreadId,
     setActiveThreadId,
@@ -450,6 +453,8 @@ function ChatPageContent() {
   useEffect(() => {
     setCopiedUserMessageId(null);
     clearEditingUserMessage();
+    setActiveThreadTurn(null);
+    setStatusMessage(null);
   }, [activeThreadId, clearEditingUserMessage, threadStateResetVersion]);
 
   const handleCopyUserMessage = useCallback(
@@ -952,6 +957,8 @@ function ChatPageContent() {
     setMessages,
     setActiveDraftEditor,
     setConversationMemory,
+    setActiveThreadTurn,
+    setStatusMessage,
     syncThreadTitle,
     applyCreatedThreadWorkspaceUpdate,
     scrollThreadToBottom,
@@ -1147,6 +1154,7 @@ function ChatPageContent() {
 
   useThreadHistoryHydration<ChatMessage>({
     accountName,
+    activeTurn: activeThreadTurn,
     activeThreadId,
     activeStrategyInputs,
     activeToneInputs,
@@ -1156,8 +1164,10 @@ function ChatPageContent() {
     isSending,
     jumpThreadToBottomImmediately,
     searchParamsKey,
+    setActiveTurn: setActiveThreadTurn,
     setIsThreadHydrating,
     setMessages,
+    setStatusMessage,
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
   });
@@ -1311,6 +1321,7 @@ function ChatPageContent() {
           hasContext: Boolean(context),
           hasContract: Boolean(contract),
           errorMessage,
+          statusMessage,
           showBillingWarningBanner:
             showBillingWarningBanner && Boolean(activeBillingSnapshot),
           billingWarningLevel:

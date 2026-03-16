@@ -79,6 +79,22 @@ enum ReplyOpportunityState {
   observed
 }
 
+enum ChatTurnStatus {
+  queued
+  running
+  cancel_requested
+  cancelled
+  completed
+  failed
+}
+
+enum OnboardingBackfillJobStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -105,6 +121,7 @@ model User {
   billingEntitlement       BillingEntitlement?
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
+  chatTurnControls         ChatTurnControl[]
 }
 
 model OnboardingRun {
@@ -167,21 +184,39 @@ model ChatMessage {
 }
 
 model ChatTurnControl {
-  id                String   @id @default(cuid())
-  userId            String
-  runId             String
-  threadId          String?
-  clientTurnId      String
-  status            String   @default("running")
-  cancelRequestedAt DateTime?
-  completedAt       DateTime?
-  assistantMessageId String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                  String         @id @default(cuid())
+  userId              String
+  runId               String
+  threadId            String?
+  clientTurnId        String
+  userMessageId       String?
+  status              ChatTurnStatus @default(queued)
+  progressStepId      String?
+  progressLabel       String?
+  progressExplanation String?
+  billingIdempotencyKey String?
+  creditCost          Int?
+  requestPayload      Json?
+  errorCode           String?
+  errorMessage        String?
+  cancelRequestedAt   DateTime?
+  startedAt           DateTime?
+  heartbeatAt         DateTime?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  failedAt            DateTime?
+  completedAt         DateTime?
+  assistantMessageId  String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, runId, clientTurnId])
   @@index([threadId, updatedAt])
   @@index([status, updatedAt])
+  @@index([threadId, status, updatedAt])
+  @@index([leaseExpiresAt, status])
 }
 
 model ChatMessageFeedback {
@@ -230,6 +265,40 @@ model ConversationMemory {
   user   User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   run    OnboardingRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
   thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+}
+
+model OnboardingBackfillJob {
+  id             String                     @id @default(cuid())
+  dedupeKey      String                     @unique
+  account        String
+  sourceRunId    String
+  status         OnboardingBackfillJobStatus @default(pending)
+  targetPostCount Int
+  attempts       Int                        @default(0)
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  failedAt       DateTime?
+  lastError      String?
+  lastCaptureId  String?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([account, status, updatedAt])
+  @@index([leaseExpiresAt, status])
+}
+
+model RequestRateLimitBucket {
+  key         String   @id
+  windowStart DateTime
+  count       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([updatedAt])
 }
 
 model VoiceProfile {

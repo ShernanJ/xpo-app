@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { manageConversationTurnRaw } from "@/lib/agent-v2/runtime/conversationManager";
 import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
@@ -31,6 +32,10 @@ import {
   refundRouteTurnCharge,
 } from "./_lib/control/routeControlPlane";
 import {
+  findActiveTurnForThread,
+  markTurnFailed,
+  markTurnProgress,
+  readTurnByIdentity,
   isTurnCancellationRequested,
   markTurnCancelled,
   markTurnCompleted,
@@ -57,6 +62,14 @@ import {
   isInlineProfileAnalysisRequest,
 } from "./_lib/profile/inlineProfileAnalysis";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
+import { isMissingChatTurnControlTableError } from "@/lib/agent-v2/persistence/prismaGuards";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 type StreamProgressCallback = (
@@ -272,15 +285,23 @@ function resolveChatTurnCreditCost(args: {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const monetizationEnabled = isMonetizationEnabled();
   const sessionPromise = getServerSession();
   const bodyResultPromise: Promise<
     | { ok: true; value: CreatorChatRequest }
-    | { ok: false }
-  > = request
-    .json()
-    .then((value) => ({ ok: true as const, value: value as CreatorChatRequest }))
-    .catch(() => ({ ok: false as const }));
+    | { ok: false; response: Response }
+  > = parseJsonBody<CreatorChatRequest>(request, {
+    maxBytes: 128 * 1024,
+  }).then((result) =>
+    result.ok
+      ? { ok: true as const, value: result.value }
+      : { ok: false as const, response: result.response },
+  );
 
   const [session, bodyResult] = await Promise.all([
     sessionPromise,
@@ -291,12 +312,41 @@ export async function POST(request: NextRequest) {
   }
 
   if (!bodyResult.ok) {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+    return bodyResult.response;
   }
   const body = bodyResult.value;
+
+  const userRateLimit = await consumeRateLimit({
+    key: `creator:v2_chat:user:${session.user.id}`,
+    limit: 30,
+    windowMs: 60 * 1000,
+  });
+  if (!userRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many chat turns. Please wait a moment before sending another message.",
+      extras: {
+        retryAfterSeconds: userRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const ipRateLimit = await consumeRateLimit({
+    key: `creator:v2_chat:ip:${getRequestIp(request)}`,
+    limit: 60,
+    windowMs: 60 * 1000,
+  });
+  if (!ipRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many chat turns from this network. Please wait a moment before sending another message.",
+      extras: {
+        retryAfterSeconds: ipRateLimit.retryAfterSeconds,
+      },
+    });
+  }
 
   if (body.stream === true) {
     return streamChatRouteResponse({
@@ -354,6 +404,60 @@ function buildTurnCancelledResponse() {
       ok: false,
       code: "TURN_CANCELLED",
       errors: [{ field: "chat", message: "The reply was interrupted." }],
+    },
+    { status: 409 },
+  );
+}
+
+function buildActiveTurnPayload(
+  turn:
+    | {
+        id: string;
+        threadId: string | null;
+        status: string;
+        progressStepId: string | null;
+        progressLabel: string | null;
+        progressExplanation: string | null;
+        assistantMessageId: string | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }
+    | null,
+) {
+  if (!turn) {
+    return null;
+  }
+
+  return {
+    turnId: turn.id,
+    threadId: turn.threadId,
+    status: turn.status,
+    progressStepId: turn.progressStepId,
+    progressLabel: turn.progressLabel,
+    progressExplanation: turn.progressExplanation,
+    assistantMessageId: turn.assistantMessageId,
+    errorCode: turn.errorCode,
+    errorMessage: turn.errorMessage,
+    createdAt: turn.createdAt.toISOString(),
+    updatedAt: turn.updatedAt.toISOString(),
+  };
+}
+
+function buildTurnInProgressResponse(args: {
+  code: "TURN_IN_PROGRESS" | "ACTIVE_TURN_IN_PROGRESS";
+  message: string;
+  activeTurn: Parameters<typeof buildActiveTurnPayload>[0];
+}) {
+  return NextResponse.json(
+    {
+      ok: false,
+      code: args.code,
+      errors: [{ field: "chat", message: args.message }],
+      data: {
+        activeTurn: buildActiveTurnPayload(args.activeTurn),
+      },
     },
     { status: 409 },
   );
@@ -423,7 +527,7 @@ async function handleChatRouteRequest(args: {
 
   const threadId = typeof args.body.threadId === "string" ? args.body.threadId.trim() : "";
   const runId = typeof args.body.runId === "string" ? args.body.runId.trim() : "";
-  const clientTurnId = normalizeClientTurnId(args.body.clientTurnId);
+  const clientTurnId = normalizeClientTurnId(args.body.clientTurnId) ?? randomUUID();
   const normalizedTurn = normalizeChatTurn({ body: args.body });
   const formatPreference =
     args.body.formatPreference === "shortform" ||
@@ -485,9 +589,23 @@ async function handleChatRouteRequest(args: {
     threadFramingStyleOverride: threadFramingStyle,
     hasSelectedDraftContext: Boolean(selectedDraftContext),
   });
+  let activeTurnId: string | null = null;
   const emitProgress = async (stepIndex: number, copy?: RouteProgressCopy | null) => {
     const activeStepId = progressPlan.steps[stepIndex]?.id as PendingStatusStepId | undefined;
-    if (!activeStepId || !args.onProgress) {
+    if (!activeStepId) {
+      return;
+    }
+
+    if (activeTurnId) {
+      await markTurnProgress({
+        turnId: activeTurnId,
+        stepId: activeStepId,
+        label: copy?.label ?? null,
+        explanation: copy?.explanation ?? null,
+      }).catch(() => null);
+    }
+
+    if (!args.onProgress) {
       return;
     }
 
@@ -526,7 +644,7 @@ async function handleChatRouteRequest(args: {
     }),
   );
 
-  if (threadId) {
+  if (clientTurnId) {
     const duplicateReplayResponse = await maybeReplayDuplicateTurn({
       threadId: storedThread.id,
       clientTurnId,
@@ -563,6 +681,45 @@ async function handleChatRouteRequest(args: {
     return storedRunResult.response;
   }
   const storedRun = storedRunResult.storedRun;
+  const effectiveRunId = storedRun?.id ?? runId;
+  if (!effectiveRunId) {
+    return buildErrorResponse({
+      status: 400,
+      field: "runId",
+      message: "A valid onboarding run is required before sending chat turns.",
+    });
+  }
+
+  const existingTurn = await readTurnByIdentity({
+    userId: args.userId,
+    runId: effectiveRunId,
+    clientTurnId,
+  });
+  if (
+    existingTurn &&
+    (existingTurn.status === "queued" ||
+      existingTurn.status === "running" ||
+      existingTurn.status === "cancel_requested")
+  ) {
+    return buildTurnInProgressResponse({
+      code: "TURN_IN_PROGRESS",
+      message: "This turn is already being processed.",
+      activeTurn: existingTurn,
+    });
+  }
+
+  const activeTurnForThread = await findActiveTurnForThread({
+    userId: args.userId,
+    threadId: storedThread.id,
+    excludeClientTurnId: clientTurnId,
+  });
+  if (activeTurnForThread) {
+    return buildTurnInProgressResponse({
+      code: "ACTIVE_TURN_IN_PROGRESS",
+      message: "Wait for the current reply to finish before sending another message in this chat.",
+      activeTurn: activeTurnForThread,
+    });
+  }
 
   await emitProgress(
     1,
@@ -616,8 +773,9 @@ async function handleChatRouteRequest(args: {
   const shouldCancelTurn = async () => {
     const cancelled = await isTurnCancellationRequested({
       userId: args.userId,
-      runId: storedRun?.id ?? runId,
+      runId: effectiveRunId,
       clientTurnId,
+      turnId: activeTurnId,
     });
     if (!cancelled) {
       return false;
@@ -625,8 +783,9 @@ async function handleChatRouteRequest(args: {
 
     await markTurnCancelled({
       userId: args.userId,
-      runId: storedRun?.id ?? runId,
+      runId: effectiveRunId,
       clientTurnId,
+      turnId: activeTurnId,
     });
     await refundCancelledTurn();
     return true;
@@ -638,6 +797,7 @@ async function handleChatRouteRequest(args: {
       monetizationEnabled: args.monetizationEnabled,
       userId: effectiveUserId,
       threadId: storedThread.id,
+      clientTurnId,
       turnCreditCost,
       explicitIntent: effectiveExplicitIntent,
     });
@@ -646,12 +806,19 @@ async function handleChatRouteRequest(args: {
     }
     debitedCharge = chargeResult.debitedCharge;
 
-    await upsertRunningTurnControl({
+    const runningTurn = await upsertRunningTurnControl({
       userId: args.userId,
-      runId: storedRun?.id ?? runId,
+      runId: effectiveRunId,
       clientTurnId,
       threadId: storedThread.id,
+      requestPayload: {
+        body: args.body,
+        activeHandle,
+      },
+      billingIdempotencyKey: debitedCharge?.idempotencyKey ?? null,
+      creditCost: debitedCharge?.cost ?? turnCreditCost,
     });
+    activeTurnId = runningTurn?.id ?? null;
 
     const conversationContext = await loadRouteConversationContext({
       storedThread,
@@ -672,6 +839,17 @@ async function handleChatRouteRequest(args: {
     const activeDraft = conversationContext.activeDraft;
     const storedMemory = conversationContext.storedMemory;
     selectedDraftContext = conversationContext.selectedDraftContext;
+
+    if (conversationContext.createdUserMessageId) {
+      const refreshedTurn = await upsertRunningTurnControl({
+        userId: args.userId,
+        runId: effectiveRunId,
+        clientTurnId,
+        threadId: storedThread.id,
+        userMessageId: conversationContext.createdUserMessageId,
+      });
+      activeTurnId = refreshedTurn?.id ?? activeTurnId;
+    }
 
     if (await shouldCancelTurn()) {
       return buildTurnCancelledResponse();
@@ -772,6 +950,7 @@ async function handleChatRouteRequest(args: {
         userId: args.userId,
         activeHandle,
         runId: storedRun?.id ?? null,
+        turnId: activeTurnId,
         sourcePrompt: effectiveMessage,
         explicitIntent: effectiveExplicitIntent,
         loadBilling: loadBillingStateForResponse,
@@ -779,8 +958,9 @@ async function handleChatRouteRequest(args: {
         onAssistantTurnPersisted: async (assistantMessageId) => {
           await markTurnCompleted({
             userId: args.userId,
-            runId: storedRun?.id ?? runId,
+            runId: effectiveRunId,
             clientTurnId,
+            turnId: activeTurnId,
             assistantMessageId,
           });
         },
@@ -849,20 +1029,21 @@ async function handleChatRouteRequest(args: {
         shouldIncludeRoutingTrace,
         userId: args.userId,
         activeHandle,
+        turnId: activeTurnId,
         loadBilling: loadBillingStateForResponse,
         recordProductEvent,
         onAssistantTurnPersisted: async (assistantMessageId) => {
           await markTurnCompleted({
             userId: args.userId,
-            runId: storedRun?.id ?? runId,
+            runId: effectiveRunId,
             clientTurnId,
+            turnId: activeTurnId,
             assistantMessageId,
           });
         },
       });
     }
 
-    console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread.id);
     const { rawResponse, routingTrace } = await manageConversationTurnRaw({
       userId: effectiveUserId,
       xHandle: storedThread.xHandle || null,
@@ -888,7 +1069,6 @@ async function handleChatRouteRequest(args: {
       diagnosticContext: effectiveDiagnosticContext,
     });
 
-    console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", rawResponse.mode);
     await emitProgress(
       3,
       buildRouteProgressCopy({
@@ -926,6 +1106,7 @@ async function handleChatRouteRequest(args: {
       userId: args.userId,
       activeHandle,
       runId: storedRun?.id ?? null,
+      turnId: activeTurnId,
       sourcePrompt: effectiveMessage,
       explicitIntent: effectiveExplicitIntent,
       loadBilling: loadBillingStateForResponse,
@@ -933,8 +1114,9 @@ async function handleChatRouteRequest(args: {
       onAssistantTurnPersisted: async (assistantMessageId) => {
         await markTurnCompleted({
           userId: args.userId,
-          runId: storedRun?.id ?? runId,
+          runId: effectiveRunId,
           clientTurnId,
+          turnId: activeTurnId,
           assistantMessageId,
         });
       },
@@ -944,6 +1126,26 @@ async function handleChatRouteRequest(args: {
       userId: args.userId,
       debitedCharge,
     });
+
+    await markTurnFailed({
+      userId: args.userId,
+      runId: effectiveRunId,
+      clientTurnId,
+      turnId: activeTurnId,
+      errorMessage:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "The turn failed before completion.",
+    }).catch(() => null);
+
+    if (isMissingChatTurnControlTableError(error)) {
+      console.error("Chat turn control table is missing. Run the latest Prisma migrations.", error);
+      return buildErrorResponse({
+        status: 503,
+        field: "server",
+        message: "Chat infrastructure is not ready yet. Run the latest database migrations and retry.",
+      });
+    }
 
     console.error("V2 Orchestrator Error:", error);
     return buildRouteServerErrorResponse();

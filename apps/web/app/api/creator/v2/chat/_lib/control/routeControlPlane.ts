@@ -98,6 +98,7 @@ export async function chargeRouteTurn(args: {
   monetizationEnabled: boolean;
   userId: string;
   threadId: string | null;
+  clientTurnId?: string | null;
   turnCreditCost: number;
   explicitIntent: string | null;
 }): Promise<{ failureResponse: Response | null; debitedCharge: RouteDebitedCharge | null }> {
@@ -110,6 +111,7 @@ export async function chargeRouteTurnWithDeps(
     monetizationEnabled: boolean;
     userId: string;
     threadId: string | null;
+    clientTurnId?: string | null;
     turnCreditCost: number;
     explicitIntent: string | null;
   },
@@ -119,7 +121,9 @@ export async function chargeRouteTurnWithDeps(
     return { failureResponse: null, debitedCharge: null };
   }
 
-  const debitIdempotencyKey = `chat:${args.userId}:${args.threadId || "new"}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const debitIdempotencyKey = args.clientTurnId
+    ? `chat:${args.userId}:${args.threadId || "new"}:${args.clientTurnId}`
+    : `chat:${args.userId}:${args.threadId || "new"}:server-fallback`;
   const creditResult = await deps.consumeCredits({
     userId: args.userId,
     cost: args.turnCreditCost,

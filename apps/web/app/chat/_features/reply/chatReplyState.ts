@@ -84,6 +84,7 @@ export interface ChatReplyResultLike<
   contextPacket?: TContextPacket | null;
   profileAnalysisArtifact?: unknown | null;
   newThreadId?: string;
+  turnId?: string;
   messageId?: string;
   threadTitle?: string;
   billing?: TBilling;

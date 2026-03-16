@@ -21,6 +21,7 @@ export interface CreateMemoryArgs {
 export interface UpdateMemoryArgs {
   runId?: string;
   threadId?: string;
+  tx?: Prisma.TransactionClient;
   topicSummary?: string | null;
   lastIdeationAngles?: string[];
   activeConstraints?: string[];
@@ -605,7 +606,8 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
 export async function updateConversationMemory(args: UpdateMemoryArgs) {
   if (!args.runId && !args.threadId) return null;
   try {
-    const existing = await prisma.conversationMemory.findFirst({
+    const db = args.tx ?? prisma;
+    const existing = await db.conversationMemory.findFirst({
       where: args.threadId ? { threadId: args.threadId } : { runId: args.runId },
     });
 
@@ -703,7 +705,7 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
       dataToUpdate.lastDraftArtifactId = args.activeDraftRef?.versionId ?? null;
     }
 
-    const memory = await prisma.conversationMemory.update({
+    const memory = await db.conversationMemory.update({
       where: { id: existing.id },
       data: dataToUpdate,
     });

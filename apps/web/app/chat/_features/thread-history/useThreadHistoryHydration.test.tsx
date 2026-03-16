@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
+import type { ChatActiveTurn } from "../chat-page/chatPageTypes";
 import { useThreadHistoryHydration } from "./useThreadHistoryHydration";
 
 interface ChatMessage {
@@ -43,6 +44,7 @@ function createDeferred<T>() {
 function buildOptions(
   overrides: Partial<{
     accountName: string | null;
+    activeTurn: ChatActiveTurn | null;
     activeThreadId: string | null;
     activeStrategyInputs: unknown;
     activeToneInputs: unknown;
@@ -52,14 +54,17 @@ function buildOptions(
     isSending: boolean;
     jumpThreadToBottomImmediately: () => void;
     searchParamsKey: string;
+    setActiveTurn: (value: ChatActiveTurn | null) => void;
     setIsThreadHydrating: (value: boolean) => void;
     setMessages: (messages: ChatMessage[]) => void;
+    setStatusMessage: (value: string | null) => void;
     shouldJumpToBottomAfterThreadSwitchRef: { current: boolean };
     threadCreatedInSessionRef: { current: boolean };
   }> = {},
 ) {
   return {
     accountName: overrides.accountName ?? "stanley",
+    activeTurn: overrides.activeTurn ?? null,
     activeThreadId: overrides.activeThreadId ?? "thread-1",
     activeStrategyInputs: overrides.activeStrategyInputs ?? { goal: "followers" },
     activeToneInputs: overrides.activeToneInputs ?? { tone: "bold" },
@@ -70,8 +75,10 @@ function buildOptions(
     jumpThreadToBottomImmediately:
       overrides.jumpThreadToBottomImmediately ?? vi.fn(),
     searchParamsKey: overrides.searchParamsKey ?? "",
+    setActiveTurn: overrides.setActiveTurn ?? vi.fn(),
     setIsThreadHydrating: overrides.setIsThreadHydrating ?? vi.fn(),
     setMessages: overrides.setMessages ?? vi.fn(),
+    setStatusMessage: overrides.setStatusMessage ?? vi.fn(),
     shouldJumpToBottomAfterThreadSwitchRef:
       overrides.shouldJumpToBottomAfterThreadSwitchRef ?? { current: false },
     threadCreatedInSessionRef:

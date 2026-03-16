@@ -5,6 +5,50 @@ import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
+import { findActiveTurnForThread } from "../../chat/_lib/control/routeTurnControl";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
+
+function buildActiveTurnPayload(
+  turn:
+    | {
+        id: string;
+        threadId: string | null;
+        status: string;
+        progressStepId: string | null;
+        progressLabel: string | null;
+        progressExplanation: string | null;
+        assistantMessageId: string | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }
+    | null,
+) {
+  if (!turn) {
+    return null;
+  }
+
+  return {
+    turnId: turn.id,
+    threadId: turn.threadId,
+    status: turn.status,
+    progressStepId: turn.progressStepId,
+    progressLabel: turn.progressLabel,
+    progressExplanation: turn.progressExplanation,
+    assistantMessageId: turn.assistantMessageId,
+    errorCode: turn.errorCode,
+    errorMessage: turn.errorMessage,
+    createdAt: turn.createdAt.toISOString(),
+    updatedAt: turn.updatedAt.toISOString(),
+  };
+}
 
 export async function GET(
   request: NextRequest,
@@ -70,8 +114,19 @@ export async function GET(
       ...message,
       feedbackValue: feedbackByMessageId.get(message.id) ?? null,
     }));
+    const activeTurn = await findActiveTurnForThread({
+      userId: session.user.id,
+      threadId,
+    });
 
-    return NextResponse.json({ ok: true, data: { thread, messages: responseMessages } });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        thread,
+        messages: responseMessages,
+        activeTurn: buildActiveTurnPayload(activeTurn),
+      },
+    });
   } catch (error) {
     console.error("GET thread history error:", error);
     return NextResponse.json({ ok: false, errors: [{ field: "server", message: "Failed to fetch thread history." }] }, { status: 500 });
@@ -82,9 +137,30 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
+  }
+
+  const rateLimit = await consumeRateLimit({
+    key: `creator:v2_thread_patch:user:${session.user.id}:${getRequestIp(request)}`,
+    limit: 30,
+    windowMs: 60 * 1000,
+  });
+  if (!rateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many thread updates. Please wait a moment before trying again.",
+      extras: {
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+    });
   }
 
   try {
@@ -97,7 +173,13 @@ export async function PATCH(
     }
 
     const { threadId } = await params;
-    const body = await request.json();
+    const bodyResult = await parseJsonBody<{ title?: string }>(request, {
+      maxBytes: 8 * 1024,
+    });
+    if (!bodyResult.ok) {
+      return bodyResult.response;
+    }
+    const body = bodyResult.value;
     const title = typeof body.title === "string" ? body.title.trim() : null;
 
     if (!title) {
@@ -129,9 +211,30 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
+  }
+
+  const rateLimit = await consumeRateLimit({
+    key: `creator:v2_thread_delete:user:${session.user.id}:${getRequestIp(request)}`,
+    limit: 20,
+    windowMs: 60 * 1000,
+  });
+  if (!rateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many thread deletes. Please wait a moment before trying again.",
+      extras: {
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+    });
   }
 
   try {

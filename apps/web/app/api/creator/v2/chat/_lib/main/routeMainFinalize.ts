@@ -17,6 +17,7 @@ export interface FinalizeMainAssistantTurnArgs {
   userId: string;
   activeHandle: string | null;
   runId: string | null;
+  turnId?: string | null;
   sourcePrompt: string;
   explicitIntent: string | null;
   loadBilling: () => Promise<unknown>;
@@ -134,6 +135,7 @@ export async function finalizeMainAssistantTurnWithDeps(
   return await deps.buildChatSuccessResponse({
     mappedData,
     createdAssistantMessageId,
+    turnId: args.turnId ?? null,
     newThreadId:
       !args.requestedThreadId && args.storedThreadId
         ? args.storedThreadId

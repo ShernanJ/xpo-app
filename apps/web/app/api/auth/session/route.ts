@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { getServerSession, updateAppSessionUser } from "@/lib/auth/serverSession";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface SessionPatchBody {
   activeXHandle?: unknown;
@@ -18,17 +25,59 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getServerSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
   }
 
-  let body: SessionPatchBody;
-  try {
-    body = (await request.json()) as SessionPatchBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return buildErrorResponse({
+      status: 401,
+      field: "auth",
+      message: "Unauthorized.",
+    });
   }
+
+  const userRateLimit = await consumeRateLimit({
+    key: `auth:session:user:${session.user.id}`,
+    limit: 20,
+    windowMs: 5 * 60 * 1000,
+  });
+  if (!userRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many session updates. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: userRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const ipRateLimit = await consumeRateLimit({
+    key: `auth:session:ip:${getRequestIp(request)}`,
+    limit: 40,
+    windowMs: 5 * 60 * 1000,
+  });
+  if (!ipRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many session updates from this network. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: ipRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const bodyResult = await parseJsonBody<SessionPatchBody>(request, {
+    maxBytes: 8 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const activeXHandle =
     typeof body.activeXHandle === "string"

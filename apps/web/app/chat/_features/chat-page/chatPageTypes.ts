@@ -66,6 +66,7 @@ export interface CreatorChatSuccess {
     } | null;
     profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
     newThreadId?: string;
+    turnId?: string;
     messageId?: string;
     threadTitle?: string;
     billing?: BillingStatePayload;
@@ -111,6 +112,28 @@ export interface CreatorChatSuccess {
       voiceFidelity?: "balanced";
     };
   };
+}
+
+export type ChatTurnStatus =
+  | "queued"
+  | "running"
+  | "cancel_requested"
+  | "cancelled"
+  | "completed"
+  | "failed";
+
+export interface ChatActiveTurn {
+  turnId: string;
+  threadId: string | null;
+  status: ChatTurnStatus;
+  progressStepId?: string | null;
+  progressLabel?: string | null;
+  progressExplanation?: string | null;
+  assistantMessageId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type DraftArtifact = DraftArtifactDetails;

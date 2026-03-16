@@ -626,7 +626,7 @@ Respond ONLY with valid JSON matching the exact schema requirements.
     };
   } catch (err) {
     console.error("Ideator validation failed.", err);
-    console.error("RAW DATA RETURNED:", JSON.stringify(data, null, 2));
+    console.error("Ideator validation returned an unexpected payload shape.");
     return null;
   }
 }

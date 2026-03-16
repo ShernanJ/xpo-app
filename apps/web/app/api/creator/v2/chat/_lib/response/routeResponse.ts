@@ -200,6 +200,7 @@ export async function buildChatSuccessResponse(args: {
   mappedData: ChatRouteResponseData;
   createdAssistantMessageId?: string;
   newThreadId?: string;
+  turnId?: string | null;
   routingTrace?: RoutingTrace;
   loadBilling: () => Promise<unknown>;
 }): Promise<Response> {
@@ -216,6 +217,7 @@ export async function buildChatSuccessResponse(args: {
           ? { messageId: args.createdAssistantMessageId }
           : {}),
         ...(args.newThreadId ? { newThreadId: args.newThreadId } : {}),
+        ...(args.turnId ? { turnId: args.turnId } : {}),
       },
     },
     { status: 200 },

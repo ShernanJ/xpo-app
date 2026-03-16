@@ -20,6 +20,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Production Deploy Notes
+
+`pnpm build` only compiles the app and generates the Prisma client. It does not prove that the target database already has the latest Prisma tables and indexes.
+
+Before sending production traffic to this app, run:
+
+```bash
+pnpm -C apps/web exec prisma migrate deploy
+pnpm -C apps/web run db:verify:schema
+pnpm -C apps/web build
+```
+
+If you start the app with `pnpm -C apps/web start`, the `prestart` hook now runs `prisma migrate deploy` and verifies required tables. On serverless platforms that do not execute `next start`, you still need a separate migration step in the deployment pipeline.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

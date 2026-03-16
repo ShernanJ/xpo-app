@@ -88,6 +88,7 @@ function buildCanvasProps(
     hasContext: true,
     hasContract: true,
     errorMessage: null,
+    statusMessage: null,
     showBillingWarningBanner: true,
     billingWarningLevel: "low",
     billingCreditsLabel: "12 credits left",

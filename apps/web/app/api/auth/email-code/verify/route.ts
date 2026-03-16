@@ -4,6 +4,13 @@ import { prisma } from "@/lib/db";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
 import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 import { verifySupabaseEmailCode } from "@/lib/auth/supabase";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface EmailCodeVerifyBody {
   email?: unknown;
@@ -23,13 +30,34 @@ function setSessionCookie(response: NextResponse, token: string) {
 }
 
 export async function POST(request: Request) {
-  let body: EmailCodeVerifyBody;
-
-  try {
-    body = (await request.json()) as EmailCodeVerifyBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
   }
+
+  const rateLimit = await consumeRateLimit({
+    key: `auth:email_code_verify:ip:${getRequestIp(request)}`,
+    limit: 10,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!rateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many verification attempts. Please try again later.",
+      extras: {
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const bodyResult = await parseJsonBody<EmailCodeVerifyBody>(request, {
+    maxBytes: 4 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const code =
@@ -41,10 +69,11 @@ export async function POST(request: Request) {
       : "";
 
   if (!email || !code) {
-    return NextResponse.json(
-      { ok: false, error: "Email and verification code are required." },
-      { status: 400 },
-    );
+    return buildErrorResponse({
+      status: 400,
+      field: "auth",
+      message: "Email and verification code are required.",
+    });
   }
 
   const existingUser = await prisma.user.findUnique({
@@ -62,7 +91,11 @@ export async function POST(request: Request) {
         : authResult.error.code === "invalid_otp"
           ? 401
           : 400;
-    return NextResponse.json({ ok: false, error: authResult.error.message }, { status });
+    return buildErrorResponse({
+      status,
+      field: "auth",
+      message: authResult.error.message,
+    });
   }
 
   const appUser = await ensureAppUserForAuthIdentity({

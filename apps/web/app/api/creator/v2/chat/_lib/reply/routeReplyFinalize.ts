@@ -23,6 +23,7 @@ export interface FinalizeReplyTurnArgs {
   shouldIncludeRoutingTrace?: boolean;
   userId: string;
   activeHandle: string | null;
+  turnId?: string | null;
   loadBilling: () => Promise<unknown>;
   recordProductEvent: (args: {
     userId: string;
@@ -134,6 +135,7 @@ export async function finalizeReplyTurnWithDeps(
   return await deps.buildChatSuccessResponse({
     mappedData,
     createdAssistantMessageId,
+    turnId: args.turnId ?? null,
     newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,
     routingTrace: args.shouldIncludeRoutingTrace
       ? args.preparedTurn.routingTrace

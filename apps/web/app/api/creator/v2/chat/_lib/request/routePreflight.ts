@@ -84,6 +84,7 @@ export interface RouteConversationContext {
   activeDraft: string | undefined;
   storedMemory: V2ConversationMemory;
   selectedDraftContext: SelectedDraftContext | null;
+  createdUserMessageId?: string | null;
 }
 
 function buildConversationalDiagnosticContext(args: {
@@ -454,6 +455,7 @@ export async function loadRouteConversationContext(args: {
     activeDraft: context.activeDraft,
     storedMemory,
     selectedDraftContext,
+    createdUserMessageId: createdUserMessage.id,
   };
 }
 

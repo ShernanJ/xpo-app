@@ -1,8 +1,11 @@
+import { randomUUID } from "crypto";
+
 import type { OnboardingInput, OnboardingResult } from "../contracts/types";
 import { generateStyleProfile } from "../../agent-v2/core/styleProfile";
 import {
   claimNextOnboardingBackfillJob,
   enqueueOnboardingBackfillJob,
+  heartbeatOnboardingBackfillJob,
   markOnboardingBackfillJobCompleted,
   markOnboardingBackfillJobFailed,
   type StoredOnboardingBackfillJob,
@@ -97,7 +100,8 @@ export async function processNextOnboardingBackfillJob(): Promise<
       error: string;
     }
 > {
-  const job = await claimNextOnboardingBackfillJob();
+  const workerId = `backfill-worker-${randomUUID().slice(0, 8)}`;
+  const job = await claimNextOnboardingBackfillJob({ workerId });
   if (!job) {
     return { status: "idle" };
   }
@@ -111,6 +115,10 @@ export async function processNextOnboardingBackfillJob(): Promise<
       userAgent: "onboarding-backfill-worker",
       forceRefresh: true,
       mergeWithExisting: true,
+    });
+    await heartbeatOnboardingBackfillJob({
+      jobId: job.jobId,
+      workerId,
     });
 
     const sourceRun = await readOnboardingRunById(job.sourceRunId);
@@ -140,6 +148,7 @@ export async function processNextOnboardingBackfillJob(): Promise<
     await markOnboardingBackfillJobCompleted({
       jobId: job.jobId,
       captureId: imported.captureId,
+      workerId,
     });
 
     return {
@@ -157,6 +166,7 @@ export async function processNextOnboardingBackfillJob(): Promise<
     await markOnboardingBackfillJobFailed({
       jobId: job.jobId,
       error: message,
+      workerId,
     });
 
     return {

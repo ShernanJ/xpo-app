@@ -261,6 +261,7 @@ async function createBrokerStateStore(params) {
     stateRowId,
   } = params;
   const normalizedBackend = (stateBackend ?? DEFAULT_STATE_BACKEND).trim().toLowerCase();
+  const isProduction = process.env.NODE_ENV === "production";
 
   const shouldUsePostgres =
     normalizedBackend === "postgres" ||
@@ -276,7 +277,7 @@ async function createBrokerStateStore(params) {
       console.log(`[state] Using ${stateStore.backend} scrape-state backend.`);
       return stateStore;
     } catch (error) {
-      if (normalizedBackend === "postgres") {
+      if (normalizedBackend === "postgres" || isProduction) {
         throw error;
       }
 
@@ -285,6 +286,12 @@ async function createBrokerStateStore(params) {
         `[state] Postgres scrape-state backend unavailable (${message}). Falling back to file state.`,
       );
     }
+  }
+
+  if (isProduction) {
+    throw new Error(
+      "Production scraper state requires the Postgres backend. Configure DATABASE_URL or X_WEB_SCRAPE_STATE_BACKEND=postgres.",
+    );
   }
 
   const stateStore = await createFileStateStore(statePath);

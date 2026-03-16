@@ -9,8 +9,20 @@ import {
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -19,15 +31,46 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "account", message: "Request body must be valid JSON." }] },
-      { status: 400 }
-    );
+  const userRateLimit = await consumeRateLimit({
+    key: `creator:v2_scrape:user:${session.user.id}`,
+    limit: 6,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!userRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many scrape requests. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: userRateLimit.retryAfterSeconds,
+      },
+    });
   }
+
+  const ipRateLimit = await consumeRateLimit({
+    key: `creator:v2_scrape:ip:${getRequestIp(request)}`,
+    limit: 12,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!ipRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many scrape requests from this network. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: ipRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const bodyResult = await parseJsonBody<unknown>(request, {
+    maxBytes: 32 * 1024,
+    field: "account",
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const parsed = parseOnboardingInput(body);
   if (!parsed.ok) {

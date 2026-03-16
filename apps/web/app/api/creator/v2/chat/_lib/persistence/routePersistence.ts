@@ -206,6 +206,9 @@ export interface ChatRoutePersistenceDeps {
     voiceTarget: unknown | null;
     noveltyNotes: unknown;
   }) => Promise<unknown>;
+  runInTransaction?: <T>(
+    callback: (deps: Omit<ChatRoutePersistenceDeps, "runInTransaction">) => Promise<T>,
+  ) => Promise<T>;
 }
 
 export async function persistAssistantTurn(args: PersistAssistantTurnArgs): Promise<PersistAssistantTurnResult> {
@@ -216,6 +219,13 @@ export async function persistAssistantTurnWithDeps(
   args: PersistAssistantTurnArgs,
   deps: ChatRoutePersistenceDeps,
 ): Promise<PersistAssistantTurnResult> {
+  if (deps.runInTransaction) {
+    return deps.runInTransaction((transactionDeps) =>
+      persistAssistantTurnWithDeps(args, transactionDeps),
+    );
+  }
+
+  const transactionalDeps = deps as Omit<ChatRoutePersistenceDeps, "runInTransaction">;
   if (!args.threadId) {
     return {
       tracePatch: buildNoThreadTracePatch(args),
@@ -224,7 +234,7 @@ export async function persistAssistantTurnWithDeps(
   const threadId = args.threadId;
   const workerExecutions: RuntimeWorkerExecution[] = [];
 
-  const assistantMessage = await deps.createChatMessage({
+  const assistantMessage = await transactionalDeps.createChatMessage({
     threadId,
     role: "assistant",
     content: args.assistantMessageData.reply,
@@ -246,7 +256,7 @@ export async function persistAssistantTurnWithDeps(
     ? args.buildMemoryUpdate(assistantMessage.id)
     : null;
   if (args.buildMemoryUpdate) {
-    await deps.updateConversationMemory({
+    await transactionalDeps.updateConversationMemory({
       threadId,
       ...memoryUpdate,
     });
@@ -264,7 +274,7 @@ export async function persistAssistantTurnWithDeps(
     );
   }
 
-  const updatedThread = await deps.updateChatThread({
+  const updatedThread = await transactionalDeps.updateChatThread({
     threadId,
     data: args.threadUpdate,
   });
@@ -291,7 +301,7 @@ export async function persistAssistantTurnWithDeps(
     const draftCandidateContext = args.draftCandidateContext;
     const candidateResults = await Promise.allSettled(
       args.draftCandidateCreates.map((candidate) =>
-        deps.createDraftCandidate({
+        transactionalDeps.createDraftCandidate({
           userId: draftCandidateContext.userId,
           xHandle: draftCandidateContext.xHandle,
           threadId,
@@ -401,9 +411,17 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
     import("../../../../../../../lib/agent-v2/memory/memoryStore.ts"),
   ]);
 
-  return {
+  const buildDeps = (
+    client: Pick<
+      typeof prisma,
+      "chatMessage" | "chatThread" | "draftCandidate"
+    > & {
+      $transaction?: typeof prisma.$transaction;
+    },
+    txForMemory?: Parameters<typeof memoryStore.updateConversationMemory>[0]["tx"],
+  ): Omit<ChatRoutePersistenceDeps, "runInTransaction"> => ({
     createChatMessage: ({ threadId, role, content, data }) =>
-      prisma.chatMessage.create({
+      client.chatMessage.create({
         data: {
           threadId,
           role,
@@ -412,14 +430,17 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
         },
       }),
     updateConversationMemory: (args) =>
-      memoryStore.updateConversationMemory(args as never),
+      memoryStore.updateConversationMemory({
+        ...args,
+        ...(txForMemory ? { tx: txForMemory } : {}),
+      } as never),
     updateChatThread: ({ threadId, data }) =>
-      prisma.chatThread.update({
+      client.chatThread.update({
         where: { id: threadId },
         data,
       }),
     createDraftCandidate: (args) =>
-      prisma.draftCandidate.create({
+      client.draftCandidate.create({
         data: {
           userId: args.userId,
           ...(args.xHandle ? { xHandle: args.xHandle } : {}),
@@ -434,6 +455,12 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
           noveltyNotes: args.noveltyNotes as never,
         },
       }),
+  });
+
+  return {
+    ...buildDeps(prisma),
+    runInTransaction: (callback) =>
+      prisma.$transaction((tx) => callback(buildDeps(tx, tx))),
   };
 }
 

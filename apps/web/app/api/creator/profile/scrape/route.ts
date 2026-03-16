@@ -14,6 +14,13 @@ import {
   syncPostsToDb,
 } from "@/lib/onboarding/store/onboardingRunStore";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 type RefreshTrigger = "manual" | "daily_login";
@@ -203,6 +210,11 @@ async function runManualRefresh(params: {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -214,12 +226,46 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: RefreshRequestBody | null = null;
-  try {
-    body = (await request.json()) as RefreshRequestBody;
-  } catch {
-    body = null;
+  const userRateLimit = await consumeRateLimit({
+    key: `creator:profile_scrape:user:${session.user.id}`,
+    limit: 6,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!userRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many profile scrape requests. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: userRateLimit.retryAfterSeconds,
+      },
+    });
   }
+
+  const ipRateLimit = await consumeRateLimit({
+    key: `creator:profile_scrape:ip:${getRequestIp(request)}`,
+    limit: 12,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!ipRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many profile scrape requests from this network. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: ipRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const bodyResult = await parseJsonBody<RefreshRequestBody | null>(request, {
+    maxBytes: 4 * 1024,
+    allowEmpty: true,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const trigger = resolveTrigger(body);
   if (!trigger) {

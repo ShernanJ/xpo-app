@@ -1,10 +1,5 @@
 import { prisma } from "@/lib/db";
-
-type TurnControlStatus =
-  | "running"
-  | "cancel_requested"
-  | "cancelled"
-  | "completed";
+import type { ChatTurnStatus } from "@/lib/generated/prisma/client";
 
 interface TurnControlIdentity {
   userId: string;
@@ -18,83 +13,377 @@ function hasTurnControlIdentity(
   return Boolean(args.userId && args.runId && args.clientTurnId);
 }
 
-export async function upsertRunningTurnControl(args: TurnControlIdentity & {
-  threadId?: string | null;
-}) {
-  const threadId = args.threadId ?? null;
+function activeTurnStatuses(): ChatTurnStatus[] {
+  return ["queued", "running", "cancel_requested"];
+}
+
+function executableTurnStatuses(): ChatTurnStatus[] {
+  return ["queued", "running"];
+}
+
+function buildIdentityWhere(args: TurnControlIdentity) {
   if (!hasTurnControlIdentity(args)) {
     return null;
   }
 
-  return prisma.chatTurnControl.upsert({
-    where: {
-      userId_runId_clientTurnId: {
-        userId: args.userId,
-        runId: args.runId,
-        clientTurnId: args.clientTurnId,
-      },
-    },
-    update: {
-      ...(threadId ? { threadId } : {}),
-    },
-    create: {
+  return {
+    userId_runId_clientTurnId: {
       userId: args.userId,
       runId: args.runId,
       clientTurnId: args.clientTurnId,
-      ...(threadId ? { threadId } : {}),
-      status: "running",
     },
-  });
+  } as const;
 }
 
-export async function isTurnCancellationRequested(args: TurnControlIdentity) {
-  if (!hasTurnControlIdentity(args)) {
-    return false;
-  }
-
-  const control = await prisma.chatTurnControl.findUnique({
-    where: {
-      userId_runId_clientTurnId: {
-        userId: args.userId,
-        runId: args.runId,
-        clientTurnId: args.clientTurnId,
-      },
-    },
-    select: {
-      status: true,
-    },
-  });
-
-  return control?.status === "cancel_requested" || control?.status === "cancelled";
-}
-
-export async function markTurnCancelled(args: TurnControlIdentity) {
-  if (!hasTurnControlIdentity(args)) {
+export async function upsertRunningTurnControl(args: TurnControlIdentity & {
+  threadId?: string | null;
+  userMessageId?: string | null;
+  requestPayload?: unknown;
+  billingIdempotencyKey?: string | null;
+  creditCost?: number | null;
+}) {
+  const threadId = args.threadId ?? null;
+  const userMessageId = args.userMessageId ?? null;
+  const requestPayload = args.requestPayload;
+  const billingIdempotencyKey = args.billingIdempotencyKey ?? null;
+  const creditCost = args.creditCost ?? null;
+  const where = buildIdentityWhere(args);
+  if (!where) {
     return null;
   }
 
   const now = new Date();
+  const identity = where.userId_runId_clientTurnId;
+  return prisma.chatTurnControl.upsert({
+    where,
+    update: {
+      status: "running",
+      startedAt: now,
+      heartbeatAt: now,
+      ...(threadId ? { threadId } : {}),
+      ...(userMessageId ? { userMessageId } : {}),
+      ...(requestPayload !== undefined ? { requestPayload: requestPayload as never } : {}),
+      ...(billingIdempotencyKey ? { billingIdempotencyKey } : {}),
+      ...(typeof creditCost === "number" ? { creditCost } : {}),
+      errorCode: null,
+      errorMessage: null,
+      failedAt: null,
+    },
+    create: {
+      userId: identity.userId,
+      runId: identity.runId,
+      clientTurnId: identity.clientTurnId,
+      ...(threadId ? { threadId } : {}),
+      ...(userMessageId ? { userMessageId } : {}),
+      ...(requestPayload !== undefined ? { requestPayload: requestPayload as never } : {}),
+      ...(billingIdempotencyKey ? { billingIdempotencyKey } : {}),
+      ...(typeof creditCost === "number" ? { creditCost } : {}),
+      status: "running",
+      startedAt: now,
+      heartbeatAt: now,
+    },
+  });
+}
+
+export async function markTurnProgress(args: {
+  turnId?: string | null;
+  userId?: string | null;
+  runId?: string | null;
+  clientTurnId?: string | null;
+  stepId?: string | null;
+  label?: string | null;
+  explanation?: string | null;
+}) {
+  const where = args.turnId
+    ? { id: args.turnId }
+    : buildIdentityWhere({
+        userId: args.userId ?? "",
+        runId: args.runId ?? null,
+        clientTurnId: args.clientTurnId ?? null,
+      });
+  if (!where) {
+    return null;
+  }
+
+  return prisma.chatTurnControl.update({
+    where,
+    data: {
+      heartbeatAt: new Date(),
+      progressStepId: args.stepId ?? null,
+      progressLabel: args.label ?? null,
+      progressExplanation: args.explanation ?? null,
+    },
+  });
+}
+
+export async function readTurnById(args: {
+  turnId: string;
+  userId: string;
+}) {
+  return prisma.chatTurnControl.findFirst({
+    where: {
+      id: args.turnId,
+      userId: args.userId,
+    },
+  });
+}
+
+export async function readTurnByIdentity(args: TurnControlIdentity) {
+  const where = buildIdentityWhere(args);
+  if (!where) {
+    return null;
+  }
+
+  return prisma.chatTurnControl.findUnique({
+    where,
+  });
+}
+
+export async function findActiveTurnForThread(args: {
+  userId: string;
+  threadId: string;
+  excludeTurnId?: string | null;
+  excludeClientTurnId?: string | null;
+}) {
+  return prisma.chatTurnControl.findFirst({
+    where: {
+      userId: args.userId,
+      threadId: args.threadId,
+      status: {
+        in: activeTurnStatuses(),
+      },
+      ...(args.excludeTurnId
+        ? {
+            id: {
+              not: args.excludeTurnId,
+            },
+          }
+        : {}),
+      ...(args.excludeClientTurnId
+        ? {
+            clientTurnId: {
+              not: args.excludeClientTurnId,
+            },
+          }
+        : {}),
+    },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+  });
+}
+
+export async function claimTurnExecutionLease(args: {
+  turnId: string;
+  userId: string;
+  leaseOwner: string;
+  leaseMs?: number;
+}) {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + Math.max(5_000, args.leaseMs ?? 30_000));
+  const updateResult = await prisma.chatTurnControl.updateMany({
+    where: {
+      id: args.turnId,
+      userId: args.userId,
+      status: {
+        in: executableTurnStatuses(),
+      },
+      OR: [
+        { leaseOwner: args.leaseOwner },
+        { leaseExpiresAt: null },
+        { leaseExpiresAt: { lte: now } },
+      ],
+    },
+    data: {
+      status: "running",
+      startedAt: now,
+      heartbeatAt: now,
+      leaseOwner: args.leaseOwner,
+      leaseExpiresAt,
+    },
+  });
+
+  if (updateResult.count === 0) {
+    return null;
+  }
+
+  return readTurnById({
+    turnId: args.turnId,
+    userId: args.userId,
+  });
+}
+
+export async function claimNextExecutableTurn(args: {
+  leaseOwner: string;
+  leaseMs?: number;
+}) {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + Math.max(5_000, args.leaseMs ?? 30_000));
+
+  return prisma.$transaction(async (tx) => {
+    const nextTurn = await tx.chatTurnControl.findFirst({
+      where: {
+        status: {
+          in: executableTurnStatuses(),
+        },
+        OR: [
+          { status: "queued" },
+          { leaseExpiresAt: null },
+          { leaseExpiresAt: { lte: now } },
+        ],
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    if (!nextTurn) {
+      return null;
+    }
+
+    const updateResult = await tx.chatTurnControl.updateMany({
+      where: {
+        id: nextTurn.id,
+        status: {
+          in: executableTurnStatuses(),
+        },
+        OR: [
+          { leaseOwner: args.leaseOwner },
+          { leaseExpiresAt: null },
+          { leaseExpiresAt: { lte: now } },
+        ],
+      },
+      data: {
+        status: "running",
+        startedAt: now,
+        heartbeatAt: now,
+        leaseOwner: args.leaseOwner,
+        leaseExpiresAt,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return null;
+    }
+
+    return tx.chatTurnControl.findUnique({
+      where: {
+        id: nextTurn.id,
+      },
+    });
+  });
+}
+
+export async function heartbeatTurnExecution(args: {
+  turnId: string;
+  userId: string;
+  leaseOwner?: string | null;
+  leaseMs?: number;
+}) {
+  const now = new Date();
+  return prisma.chatTurnControl.updateMany({
+    where: {
+      id: args.turnId,
+      userId: args.userId,
+      ...(args.leaseOwner ? { leaseOwner: args.leaseOwner } : {}),
+      status: {
+        in: executableTurnStatuses(),
+      },
+    },
+    data: {
+      heartbeatAt: now,
+      ...(args.leaseMs
+        ? {
+            leaseExpiresAt: new Date(now.getTime() + Math.max(5_000, args.leaseMs)),
+          }
+        : {}),
+    },
+  });
+}
+
+export async function isTurnCancellationRequested(args: TurnControlIdentity & {
+  turnId?: string | null;
+}) {
+  const control = args.turnId
+    ? await prisma.chatTurnControl.findFirst({
+        where: {
+          id: args.turnId,
+          userId: args.userId,
+        },
+        select: {
+          status: true,
+        },
+      })
+    : await readTurnByIdentity(args);
+
+  return control?.status === "cancel_requested" || control?.status === "cancelled";
+}
+
+export async function markTurnCancelled(args: TurnControlIdentity & {
+  turnId?: string | null;
+}) {
+  const now = new Date();
+  if (args.turnId) {
+    return prisma.chatTurnControl.updateMany({
+      where: {
+        id: args.turnId,
+        userId: args.userId,
+        status: {
+          in: activeTurnStatuses(),
+        },
+      },
+      data: {
+        status: "cancelled",
+        cancelRequestedAt: now,
+        completedAt: now,
+        heartbeatAt: now,
+      },
+    });
+  }
+
+  if (!hasTurnControlIdentity(args)) {
+    return null;
+  }
+
   return prisma.chatTurnControl.updateMany({
     where: {
       userId: args.userId,
       runId: args.runId,
       clientTurnId: args.clientTurnId,
       status: {
-        in: ["running", "cancel_requested"] satisfies TurnControlStatus[],
+        in: activeTurnStatuses(),
       },
     },
     data: {
       status: "cancelled",
       cancelRequestedAt: now,
       completedAt: now,
+      heartbeatAt: now,
     },
   });
 }
 
 export async function markTurnCompleted(args: TurnControlIdentity & {
+  turnId?: string | null;
   assistantMessageId?: string | null;
 }) {
   const assistantMessageId = args.assistantMessageId ?? null;
+  const now = new Date();
+
+  if (args.turnId) {
+    return prisma.chatTurnControl.updateMany({
+      where: {
+        id: args.turnId,
+        userId: args.userId,
+        status: {
+          not: "cancelled",
+        },
+      },
+      data: {
+        status: "completed",
+        completedAt: now,
+        heartbeatAt: now,
+        assistantMessageId,
+      },
+    });
+  }
+
   if (!hasTurnControlIdentity(args)) {
     return null;
   }
@@ -110,32 +399,83 @@ export async function markTurnCompleted(args: TurnControlIdentity & {
     },
     data: {
       status: "completed",
-      completedAt: new Date(),
+      completedAt: now,
+      heartbeatAt: now,
       assistantMessageId,
     },
   });
 }
 
+export async function markTurnFailed(args: TurnControlIdentity & {
+  turnId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}) {
+  const now = new Date();
+  const data = {
+    status: "failed" as const,
+    errorCode: args.errorCode ?? "TURN_FAILED",
+    errorMessage: args.errorMessage ?? "The turn failed before completion.",
+    failedAt: now,
+    completedAt: now,
+    heartbeatAt: now,
+  };
+
+  if (args.turnId) {
+    return prisma.chatTurnControl.updateMany({
+      where: {
+        id: args.turnId,
+        userId: args.userId,
+      },
+      data,
+    });
+  }
+
+  if (!hasTurnControlIdentity(args)) {
+    return null;
+  }
+
+  return prisma.chatTurnControl.updateMany({
+    where: {
+      userId: args.userId,
+      runId: args.runId,
+      clientTurnId: args.clientTurnId,
+    },
+    data,
+  });
+}
+
 export async function requestTurnCancellation(args: TurnControlIdentity & {
+  turnId?: string | null;
   threadId?: string | null;
 }): Promise<"cancel_requested" | "completed" | "not_found"> {
   const threadId = args.threadId ?? null;
-  if (!hasTurnControlIdentity(args)) {
-    return "not_found";
-  }
-
-  const existing = await prisma.chatTurnControl.findUnique({
-    where: {
-      userId_runId_clientTurnId: {
-        userId: args.userId,
-        runId: args.runId,
-        clientTurnId: args.clientTurnId,
-      },
-    },
-    select: {
-      status: true,
-    },
-  });
+  const existing = args.turnId
+    ? await prisma.chatTurnControl.findFirst({
+        where: {
+          id: args.turnId,
+          userId: args.userId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+    : hasTurnControlIdentity(args)
+      ? await prisma.chatTurnControl.findUnique({
+          where: {
+            userId_runId_clientTurnId: {
+              userId: args.userId,
+              runId: args.runId,
+              clientTurnId: args.clientTurnId,
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        })
+      : null;
 
   if (!existing) {
     return "not_found";
@@ -147,11 +487,7 @@ export async function requestTurnCancellation(args: TurnControlIdentity & {
 
   await prisma.chatTurnControl.update({
     where: {
-      userId_runId_clientTurnId: {
-        userId: args.userId,
-        runId: args.runId,
-        clientTurnId: args.clientTurnId,
-      },
+      id: existing.id,
     },
     data: {
       status: "cancel_requested",

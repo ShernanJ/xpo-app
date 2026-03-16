@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { access, mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
+
+import { prisma } from "@/lib/db";
+import type { OnboardingBackfillJobStatus as PrismaBackfillJobStatus } from "@/lib/generated/prisma/client";
 
 export type OnboardingBackfillJobStatus =
   | "pending"
@@ -20,6 +21,9 @@ export interface StoredOnboardingBackfillJob {
   lastError: string | null;
   lastCaptureId: string | null;
   completedAt: string | null;
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+  heartbeatAt: string | null;
 }
 
 export interface OnboardingBackfillJobSummary {
@@ -34,63 +38,17 @@ export interface OnboardingBackfillJobSummary {
   hasStalledQueue: boolean;
 }
 
-const TERMINAL_BACKFILL_JOB_STATUSES: ReadonlySet<OnboardingBackfillJobStatus> =
-  new Set(["completed", "failed"]);
+type PrismaBackfillJob = Awaited<
+  ReturnType<typeof prisma.onboardingBackfillJob.findFirst>
+>;
 
-function candidateBackfillStorePaths(): string[] {
-  if (process.env.ONBOARDING_BACKFILL_STORE_PATH) {
-    return [process.env.ONBOARDING_BACKFILL_STORE_PATH];
+function getLeaseMs(): number {
+  const rawSeconds = Number(process.env.ONBOARDING_BACKFILL_LEASE_SECONDS);
+  if (!Number.isFinite(rawSeconds) || rawSeconds < 30) {
+    return 5 * 60 * 1000;
   }
 
-  const cwd = process.cwd();
-  return [
-    path.resolve(cwd, "db", "onboarding-backfill-jobs.json"),
-    path.resolve(cwd, "..", "..", "db", "onboarding-backfill-jobs.json"),
-  ];
-}
-
-async function resolveBackfillStorePath(): Promise<string> {
-  const candidates = candidateBackfillStorePaths();
-  for (const candidate of candidates) {
-    try {
-      await access(path.dirname(candidate));
-      return candidate;
-    } catch {
-      // Try next candidate.
-    }
-  }
-
-  return candidates[0];
-}
-
-async function readAllBackfillJobs(): Promise<StoredOnboardingBackfillJob[]> {
-  const storePath = await resolveBackfillStorePath();
-
-  try {
-    const raw = await readFile(storePath, "utf8");
-    const parsed = JSON.parse(raw) as StoredOnboardingBackfillJob[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function getBackfillRetentionMs(): number {
-  const raw = Number(process.env.ONBOARDING_BACKFILL_RETENTION_HOURS);
-  if (!Number.isFinite(raw) || raw < 1) {
-    return 1000 * 60 * 60 * 72;
-  }
-
-  return Math.floor(raw) * 60 * 60 * 1000;
-}
-
-function getMaxTerminalBackfillJobs(): number {
-  const raw = Number(process.env.ONBOARDING_BACKFILL_MAX_TERMINAL_JOBS);
-  if (!Number.isFinite(raw) || raw < 1) {
-    return 200;
-  }
-
-  return Math.floor(raw);
+  return Math.floor(rawSeconds) * 1000;
 }
 
 function getBackfillFailureWindowMs(): number {
@@ -111,44 +69,53 @@ function getStalledPendingThresholdMs(): number {
   return Math.floor(raw) * 60 * 1000;
 }
 
-function toTimestamp(value: string | null | undefined): number {
+function toIsoString(value: Date | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.toISOString();
+}
+
+function toTimestamp(value: Date | null | undefined): number {
   if (!value) {
     return 0;
   }
 
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
+  return value.getTime();
 }
 
-function pruneBackfillJobs(
-  jobs: StoredOnboardingBackfillJob[],
-): StoredOnboardingBackfillJob[] {
-  const now = Date.now();
-  const retentionMs = getBackfillRetentionMs();
-  const maxTerminalJobs = getMaxTerminalBackfillJobs();
+function mapBackfillJob(
+  job: PrismaBackfillJob,
+): StoredOnboardingBackfillJob | null {
+  if (!job) {
+    return null;
+  }
 
-  const keepTerminalJobIds = new Set(
-    jobs
-      .filter((job) => TERMINAL_BACKFILL_JOB_STATUSES.has(job.status))
-      .filter((job) => now - toTimestamp(job.updatedAt) <= retentionMs)
-      .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt))
-      .slice(0, maxTerminalJobs)
-      .map((job) => job.jobId),
-  );
-
-  return jobs.filter(
-    (job) =>
-      !TERMINAL_BACKFILL_JOB_STATUSES.has(job.status) ||
-      keepTerminalJobIds.has(job.jobId),
-  );
+  return {
+    jobId: job.id,
+    createdAt: job.createdAt.toISOString(),
+    updatedAt: job.updatedAt.toISOString(),
+    status: job.status,
+    account: job.account,
+    sourceRunId: job.sourceRunId,
+    targetPostCount: job.targetPostCount,
+    attempts: job.attempts,
+    lastError: job.lastError ?? null,
+    lastCaptureId: job.lastCaptureId ?? null,
+    completedAt: toIsoString(job.completedAt),
+    leaseOwner: job.leaseOwner ?? null,
+    leaseExpiresAt: toIsoString(job.leaseExpiresAt),
+    heartbeatAt: toIsoString(job.heartbeatAt),
+  };
 }
 
-async function writeAllBackfillJobs(
-  jobs: StoredOnboardingBackfillJob[],
-): Promise<void> {
-  const storePath = await resolveBackfillStorePath();
-  await mkdir(path.dirname(storePath), { recursive: true });
-  await writeFile(storePath, JSON.stringify(pruneBackfillJobs(jobs), null, 2), "utf8");
+function buildDedupeKey(account: string, sourceRunId: string): string {
+  return `${account.trim().toLowerCase()}:${sourceRunId.trim()}`;
+}
+
+function buildWorkerId(workerId?: string): string {
+  return workerId?.trim() || `backfill-worker-${randomUUID().slice(0, 8)}`;
 }
 
 export async function enqueueOnboardingBackfillJob(params: {
@@ -156,169 +123,273 @@ export async function enqueueOnboardingBackfillJob(params: {
   sourceRunId: string;
   targetPostCount: number;
 }): Promise<{ job: StoredOnboardingBackfillJob; deduped: boolean }> {
-  const jobs = await readAllBackfillJobs();
-  const normalizedAccount = params.account.toLowerCase();
+  const normalizedAccount = params.account.trim().toLowerCase();
+  const dedupeKey = buildDedupeKey(normalizedAccount, params.sourceRunId);
+  const existing = await prisma.onboardingBackfillJob.findUnique({
+    where: { dedupeKey },
+  });
 
-  const existing = jobs.find(
-    (job) =>
-      job.account === normalizedAccount &&
-      (job.status === "pending" || job.status === "processing"),
-  );
-
-  if (existing) {
-    return { job: existing, deduped: true };
+  if (existing && (existing.status === "pending" || existing.status === "processing")) {
+    return {
+      job: mapBackfillJob(existing)!,
+      deduped: true,
+    };
   }
 
-  const now = new Date().toISOString();
-  const job: StoredOnboardingBackfillJob = {
-    jobId: `bf_${randomUUID()}`,
-    createdAt: now,
-    updatedAt: now,
-    status: "pending",
-    account: normalizedAccount,
-    sourceRunId: params.sourceRunId,
-    targetPostCount: params.targetPostCount,
-    attempts: 0,
-    lastError: null,
-    lastCaptureId: null,
-    completedAt: null,
+  const nextJob = existing
+    ? await prisma.onboardingBackfillJob.update({
+        where: { dedupeKey },
+        data: {
+          account: normalizedAccount,
+          sourceRunId: params.sourceRunId,
+          targetPostCount: params.targetPostCount,
+          status: "pending",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          heartbeatAt: null,
+          startedAt: null,
+          completedAt: null,
+          failedAt: null,
+          lastError: null,
+          lastCaptureId: null,
+        },
+      })
+    : await prisma.onboardingBackfillJob.create({
+        data: {
+          dedupeKey,
+          account: normalizedAccount,
+          sourceRunId: params.sourceRunId,
+          targetPostCount: params.targetPostCount,
+        },
+      });
+
+  return {
+    job: mapBackfillJob(nextJob)!,
+    deduped: false,
   };
-
-  jobs.push(job);
-  await writeAllBackfillJobs(jobs);
-
-  return { job, deduped: false };
 }
 
-export async function claimNextOnboardingBackfillJob(): Promise<StoredOnboardingBackfillJob | null> {
-  const jobs = await readAllBackfillJobs();
-  const nextIndex = jobs.findIndex((job) => job.status === "pending");
+export async function claimNextOnboardingBackfillJob(args?: {
+  workerId?: string;
+}): Promise<StoredOnboardingBackfillJob | null> {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + getLeaseMs());
+  const workerId = buildWorkerId(args?.workerId);
 
-  if (nextIndex < 0) {
-    return null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = await prisma.onboardingBackfillJob.findFirst({
+      where: {
+        OR: [
+          { status: "pending" },
+          {
+            status: "processing",
+            leaseExpiresAt: {
+              lte: now,
+            },
+          },
+        ],
+      },
+      orderBy: [{ createdAt: "asc" }, { updatedAt: "asc" }],
+      select: {
+        id: true,
+      },
+    });
+
+    if (!candidate?.id) {
+      return null;
+    }
+
+    const updateResult = await prisma.onboardingBackfillJob.updateMany({
+      where: {
+        id: candidate.id,
+        OR: [
+          { status: "pending" },
+          {
+            status: "processing",
+            leaseExpiresAt: {
+              lte: now,
+            },
+          },
+        ],
+      },
+      data: {
+        status: "processing",
+        attempts: {
+          increment: 1,
+        },
+        leaseOwner: workerId,
+        leaseExpiresAt,
+        heartbeatAt: now,
+        startedAt: now,
+        lastError: null,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      continue;
+    }
+
+    const claimed = await prisma.onboardingBackfillJob.findUnique({
+      where: { id: candidate.id },
+    });
+    return mapBackfillJob(claimed);
   }
 
-  const now = new Date().toISOString();
-  const claimed: StoredOnboardingBackfillJob = {
-    ...jobs[nextIndex],
-    status: "processing",
-    updatedAt: now,
-    attempts: jobs[nextIndex].attempts + 1,
-    lastError: null,
-  };
-
-  jobs[nextIndex] = claimed;
-  await writeAllBackfillJobs(jobs);
-  return claimed;
+  return null;
 }
 
-export async function markOnboardingBackfillJobCompleted(params: {
+export async function heartbeatOnboardingBackfillJob(args: {
+  jobId: string;
+  workerId: string;
+}): Promise<void> {
+  const now = new Date();
+  await prisma.onboardingBackfillJob.updateMany({
+    where: {
+      id: args.jobId,
+      status: "processing",
+      leaseOwner: args.workerId,
+    },
+    data: {
+      heartbeatAt: now,
+      leaseExpiresAt: new Date(now.getTime() + getLeaseMs()),
+    },
+  });
+}
+
+export async function markOnboardingBackfillJobCompleted(args: {
   jobId: string;
   captureId: string | null;
+  workerId?: string | null;
 }): Promise<StoredOnboardingBackfillJob | null> {
-  const jobs = await readAllBackfillJobs();
-  const index = jobs.findIndex((job) => job.jobId === params.jobId);
+  const now = new Date();
+  const updated = await prisma.onboardingBackfillJob.updateMany({
+    where: {
+      id: args.jobId,
+      ...(args.workerId ? { leaseOwner: args.workerId } : {}),
+    },
+    data: {
+      status: "completed",
+      completedAt: now,
+      heartbeatAt: now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastCaptureId: args.captureId,
+      lastError: null,
+    },
+  });
 
-  if (index < 0) {
+  if (updated.count === 0) {
     return null;
   }
 
-  const now = new Date().toISOString();
-  const updated: StoredOnboardingBackfillJob = {
-    ...jobs[index],
-    status: "completed",
-    updatedAt: now,
-    completedAt: now,
-    lastCaptureId: params.captureId,
-    lastError: null,
-  };
-
-  jobs[index] = updated;
-  await writeAllBackfillJobs(jobs);
-  return updated;
+  return mapBackfillJob(
+    await prisma.onboardingBackfillJob.findUnique({
+      where: { id: args.jobId },
+    }),
+  );
 }
 
-export async function markOnboardingBackfillJobFailed(params: {
+export async function markOnboardingBackfillJobFailed(args: {
   jobId: string;
   error: string;
+  workerId?: string | null;
 }): Promise<StoredOnboardingBackfillJob | null> {
-  const jobs = await readAllBackfillJobs();
-  const index = jobs.findIndex((job) => job.jobId === params.jobId);
+  const now = new Date();
+  const updated = await prisma.onboardingBackfillJob.updateMany({
+    where: {
+      id: args.jobId,
+      ...(args.workerId ? { leaseOwner: args.workerId } : {}),
+    },
+    data: {
+      status: "failed",
+      failedAt: now,
+      heartbeatAt: now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastError: args.error,
+    },
+  });
 
-  if (index < 0) {
+  if (updated.count === 0) {
     return null;
   }
 
-  const now = new Date().toISOString();
-  const updated: StoredOnboardingBackfillJob = {
-    ...jobs[index],
-    status: "failed",
-    updatedAt: now,
-    lastError: params.error,
-  };
-
-  jobs[index] = updated;
-  await writeAllBackfillJobs(jobs);
-  return updated;
+  return mapBackfillJob(
+    await prisma.onboardingBackfillJob.findUnique({
+      where: { id: args.jobId },
+    }),
+  );
 }
 
 export async function readRecentOnboardingBackfillJobs(
   limit = 10,
 ): Promise<StoredOnboardingBackfillJob[]> {
-  const jobs = await readAllBackfillJobs();
-  return jobs.slice(-Math.max(1, limit)).reverse();
+  const jobs = await prisma.onboardingBackfillJob.findMany({
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    take: Math.max(1, Math.min(100, limit)),
+  });
+
+  return jobs.map((job) => mapBackfillJob(job)!).filter(Boolean);
 }
 
 export async function readOnboardingBackfillJobSummary(): Promise<OnboardingBackfillJobSummary> {
-  const jobs = await readAllBackfillJobs();
+  const [jobs, counts] = await Promise.all([
+    prisma.onboardingBackfillJob.findMany({
+      select: {
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.onboardingBackfillJob.groupBy({
+      by: ["status"],
+      _count: {
+        _all: true,
+      },
+    }),
+  ]);
+
+  const countByStatus = new Map<PrismaBackfillJobStatus, number>(
+    counts.map((entry) => [entry.status, entry._count._all]),
+  );
   const now = Date.now();
   const failureWindowMs = getBackfillFailureWindowMs();
   const stalledPendingThresholdMs = getStalledPendingThresholdMs();
 
-  const oldestPendingAgeMinutes = jobs
+  const oldestPendingAgeMs = jobs
     .filter((job) => job.status === "pending")
     .map((job) => now - toTimestamp(job.createdAt))
     .filter((ageMs) => ageMs >= 0)
     .sort((left, right) => right - left)[0];
 
-  const summary = jobs.reduce<OnboardingBackfillJobSummary>(
-    (summary, job) => {
-      summary.total += 1;
-      summary[job.status] += 1;
-      return summary;
-    },
-    {
-      total: 0,
-      pending: 0,
-      processing: 0,
-      completed: 0,
-      failed: 0,
-      activeJobCount: 0,
-      oldestPendingAgeMinutes: null,
-      recentFailureCount: 0,
-      hasStalledQueue: false,
-    },
-  );
-
-  summary.activeJobCount = summary.processing;
-  summary.oldestPendingAgeMinutes =
-    oldestPendingAgeMinutes !== undefined
-      ? Math.floor(oldestPendingAgeMinutes / (1000 * 60))
-      : null;
-  summary.recentFailureCount = jobs.filter(
-    (job) =>
-      job.status === "failed" && now - toTimestamp(job.updatedAt) <= failureWindowMs,
-  ).length;
-  summary.hasStalledQueue =
-    oldestPendingAgeMinutes !== undefined &&
-    oldestPendingAgeMinutes >= stalledPendingThresholdMs;
-
-  return summary;
+  return {
+    total: jobs.length,
+    pending: countByStatus.get("pending") ?? 0,
+    processing: countByStatus.get("processing") ?? 0,
+    completed: countByStatus.get("completed") ?? 0,
+    failed: countByStatus.get("failed") ?? 0,
+    activeJobCount: countByStatus.get("processing") ?? 0,
+    oldestPendingAgeMinutes:
+      oldestPendingAgeMs !== undefined
+        ? Math.floor(oldestPendingAgeMs / (1000 * 60))
+        : null,
+    recentFailureCount: jobs.filter(
+      (job) =>
+        job.status === "failed" &&
+        now - toTimestamp(job.updatedAt) <= failureWindowMs,
+    ).length,
+    hasStalledQueue:
+      oldestPendingAgeMs !== undefined &&
+      oldestPendingAgeMs >= stalledPendingThresholdMs,
+  };
 }
 
 export async function readOnboardingBackfillJobById(
   jobId: string,
 ): Promise<StoredOnboardingBackfillJob | null> {
-  const jobs = await readAllBackfillJobs();
-  return jobs.find((job) => job.jobId === jobId) ?? null;
+  return mapBackfillJob(
+    await prisma.onboardingBackfillJob.findUnique({
+      where: { id: jobId },
+    }),
+  );
 }

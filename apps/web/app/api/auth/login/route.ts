@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
 import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
+import { consumeRateLimit } from "@/lib/security/rateLimit";
+import {
+  buildErrorResponse,
+  getRequestIp,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 import {
   requestSupabaseEmailCode,
   signInWithSupabasePassword,
@@ -84,22 +91,44 @@ async function responseWithEmailDeliveryError(email: string): Promise<NextRespon
 }
 
 export async function POST(request: Request) {
-  let body: LoginBody;
-
-  try {
-    body = (await request.json()) as LoginBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
   }
+
+  const rateLimit = await consumeRateLimit({
+    key: `auth:login:ip:${getRequestIp(request)}`,
+    limit: 12,
+    windowMs: 5 * 60 * 1000,
+  });
+  if (!rateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: "Too many login attempts. Please wait before trying again.",
+      extras: {
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  const bodyResult = await parseJsonBody<LoginBody>(request, {
+    maxBytes: 8 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
 
   if (!email || !password) {
-    return NextResponse.json(
-      { ok: false, error: "Email and password are required." },
-      { status: 400 },
-    );
+    return buildErrorResponse({
+      status: 400,
+      field: "auth",
+      message: "Email and password are required.",
+    });
   }
 
   try {
@@ -119,13 +148,21 @@ export async function POST(request: Request) {
       } else if (isEmailDeliveryError(signUpResult.error.message)) {
         return responseWithEmailDeliveryError(email);
       } else if (signUpResult.error.code !== "user_exists") {
-        return NextResponse.json({ ok: false, error: signUpResult.error.message }, { status: 500 });
+        return buildErrorResponse({
+          status: 500,
+          field: "auth",
+          message: signUpResult.error.message,
+        });
       }
     }
 
     if (!authResult.ok) {
       const status = authResult.error.code === "missing_configuration" ? 500 : 401;
-      return NextResponse.json({ ok: false, error: authResult.error.message }, { status });
+      return buildErrorResponse({
+        status,
+        field: "auth",
+        message: authResult.error.message,
+      });
     }
 
     const appUser = await ensureAppUserForAuthIdentity({
@@ -151,12 +188,10 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     console.error("Unexpected auth login error:", error);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Login failed due to a server issue. Please try again.",
-      },
-      { status: 500 },
-    );
+    return buildErrorResponse({
+      status: 500,
+      field: "auth",
+      message: "Login failed due to a server issue. Please try again.",
+    });
   }
 }

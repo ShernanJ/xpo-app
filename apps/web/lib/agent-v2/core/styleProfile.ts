@@ -425,8 +425,10 @@ Respond ONLY with a valid JSON object matching this schema:
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("LLM API Error:", response.status, errorText);
+      console.error("Style profile LLM request failed.", {
+        status: response.status,
+        model,
+      });
       return existingParsed;
     }
 

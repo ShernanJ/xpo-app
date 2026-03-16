@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 
+import type { ChatActiveTurn } from "../chat-page/chatPageTypes";
 import {
   resolveThreadHistoryHydration,
   type ThreadHistoryMessageLike,
@@ -9,6 +10,7 @@ import {
 
 interface UseThreadHistoryHydrationOptions<TMessage extends ThreadHistoryMessageLike> {
   accountName: string | null;
+  activeTurn: ChatActiveTurn | null;
   activeThreadId: string | null;
   activeStrategyInputs: unknown;
   activeToneInputs: unknown;
@@ -18,10 +20,39 @@ interface UseThreadHistoryHydrationOptions<TMessage extends ThreadHistoryMessage
   isSending: boolean;
   jumpThreadToBottomImmediately: () => void;
   searchParamsKey: string;
+  setActiveTurn: (turn: ChatActiveTurn | null) => void;
   setIsThreadHydrating: (value: boolean) => void;
   setMessages: (messages: TMessage[]) => void;
+  setStatusMessage: (value: string | null) => void;
   shouldJumpToBottomAfterThreadSwitchRef: MutableRefObject<boolean>;
   threadCreatedInSessionRef: MutableRefObject<boolean>;
+}
+
+interface ThreadHistoryRouteResponse<TMessage extends ThreadHistoryMessageLike> {
+  ok?: boolean;
+  data?: {
+    messages?: Array<{
+      id: string;
+      role: TMessage["role"];
+      content: string;
+      createdAt?: unknown;
+      threadId?: unknown;
+      feedbackValue?: unknown;
+      data?: Partial<TMessage> | null;
+    }>;
+    activeTurn?: ChatActiveTurn | null;
+  };
+}
+
+interface TurnStatusRouteResponse {
+  ok?: boolean;
+  data?: {
+    turn?: ChatActiveTurn | null;
+  };
+}
+
+function isTurnStillActive(status: ChatActiveTurn["status"]): boolean {
+  return status === "queued" || status === "running" || status === "cancel_requested";
 }
 
 export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageLike>(
@@ -29,6 +60,7 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
 ) {
   const {
     accountName,
+    activeTurn,
     activeThreadId,
     activeStrategyInputs,
     activeToneInputs,
@@ -38,8 +70,10 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
     isSending,
     jumpThreadToBottomImmediately,
     searchParamsKey,
+    setActiveTurn,
     setIsThreadHydrating,
     setMessages,
+    setStatusMessage,
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
   } = options;
@@ -94,6 +128,8 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
       if (activeThreadId) {
         if (threadCreatedInSessionRef.current) {
           if (isLatestRequest()) {
+            setActiveTurn(null);
+            setStatusMessage(null);
             setIsThreadHydrating(false);
           }
           return;
@@ -106,12 +142,20 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
               signal: controller.signal,
             },
           );
-          const data = await response.json();
+          const data = (await response.json()) as ThreadHistoryRouteResponse<TMessage>;
           if (!isLatestRequest()) {
             return;
           }
 
-          if (data.ok && data.data?.messages?.length > 0) {
+          const nextActiveTurn = data.data?.activeTurn ?? null;
+          setActiveTurn(nextActiveTurn);
+          setStatusMessage(
+            nextActiveTurn
+              ? nextActiveTurn.progressLabel || "A previous reply is still running in this chat."
+              : null,
+          );
+
+          if (data.ok && Array.isArray(data.data?.messages) && data.data.messages.length > 0) {
             const hydration = resolveThreadHistoryHydration<TMessage>({
               rawMessages: data.data.messages,
               activeThreadId,
@@ -147,6 +191,8 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
         return;
       }
 
+      setActiveTurn(null);
+      setStatusMessage(null);
       shouldJumpToBottomAfterThreadSwitchRef.current = false;
       setIsThreadHydrating(false);
     }
@@ -167,7 +213,91 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
     searchParamsKey,
     setIsThreadHydrating,
     setMessages,
+    setActiveTurn,
+    setStatusMessage,
     shouldJumpToBottomAfterThreadSwitchRef,
     threadCreatedInSessionRef,
   ]);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      setActiveTurn(null);
+      setStatusMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshThreadHistory() {
+      const response = await fetchWorkspaceRef.current(
+        `/api/creator/v2/threads/${activeThreadId}`,
+      );
+      const data = (await response.json()) as ThreadHistoryRouteResponse<TMessage>;
+      if (cancelled || !data.ok || !Array.isArray(data.data?.messages)) {
+        return;
+      }
+
+      const hydration = resolveThreadHistoryHydration<TMessage>({
+        rawMessages: data.data.messages,
+        activeThreadId,
+        shouldJumpToBottomAfterSwitch: false,
+      });
+      setMessages(hydration.messages);
+      setActiveTurn(data.data?.activeTurn ?? null);
+      setStatusMessage(null);
+    }
+
+    async function pollTurnStatus(turnId: string) {
+      try {
+        const response = await fetchWorkspaceRef.current(
+          `/api/creator/v2/chat/turns/${encodeURIComponent(turnId)}`,
+        );
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as TurnStatusRouteResponse;
+        const nextTurn = data.data?.turn ?? null;
+        if (cancelled || !nextTurn) {
+          return;
+        }
+
+        if (isTurnStillActive(nextTurn.status)) {
+          setActiveTurn(nextTurn);
+          setStatusMessage(
+            nextTurn.progressLabel || "A previous reply is still running in this chat.",
+          );
+          return;
+        }
+
+        if (nextTurn.status === "failed") {
+          setStatusMessage(
+            nextTurn.errorMessage || "A background reply stopped before it could finish.",
+          );
+        } else if (nextTurn.status === "cancelled") {
+          setStatusMessage("The previous reply was cancelled.");
+        }
+
+        setActiveTurn(null);
+        await refreshThreadHistory();
+      } catch {
+        // Keep polling on transient failures.
+      }
+    }
+
+    const activeTurnId = activeTurn?.turnId;
+    if (!activeTurnId) {
+      return;
+    }
+
+    void pollTurnStatus(activeTurnId);
+    const intervalId = window.setInterval(() => {
+      void pollTurnStatus(activeTurnId);
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeThreadId, activeTurn, setActiveTurn, setMessages, setStatusMessage]);
 }

@@ -14,6 +14,7 @@ import type {
   ChatTurnSource,
 } from "../../../../lib/agent-v2/contracts/turnContract";
 import type { ThreadFramingStyle } from "../../../../lib/onboarding/draftArtifacts";
+import type { ChatActiveTurn } from "../chat-page/chatPageTypes";
 import type {
   DraftVersionSnapshotLike,
   ChatHistoryMessage,
@@ -151,7 +152,9 @@ interface UseAssistantReplyOrchestratorOptions<
   setBillingState: (value: TBilling) => void;
   setMessages: Dispatch<SetStateAction<TMessage[]>>;
   setActiveDraftEditor: (value: DraftDrawerSelectionLike | null) => void;
+  setActiveThreadTurn?: Dispatch<SetStateAction<ChatActiveTurn | null>>;
   setConversationMemory: (value: TMemory | null) => void;
+  setStatusMessage?: (value: string | null) => void;
   syncThreadTitle: (threadId: string, title: string) => void;
   applyCreatedThreadWorkspaceUpdate: (
     newThreadId?: string | null,
@@ -250,7 +253,9 @@ export function useAssistantReplyOrchestrator<
     setBillingState,
     setMessages,
     setActiveDraftEditor,
+    setActiveThreadTurn,
     setConversationMemory,
+    setStatusMessage,
     syncThreadTitle,
     applyCreatedThreadWorkspaceUpdate,
     scrollThreadToBottom,
@@ -458,6 +463,8 @@ export function useAssistantReplyOrchestrator<
           : null,
       );
       setErrorMessage(null);
+      setStatusMessage?.(null);
+      setActiveThreadTurn?.(null);
 
       try {
         const response = await fetchWorkspace("/api/creator/v2/chat", {
@@ -499,6 +506,33 @@ export function useAssistantReplyOrchestrator<
             >,
             TFailureBillingSnapshot
           >;
+          const responseCode =
+            data && typeof data === "object" && "code" in data
+              ? (data as { code?: string }).code ?? null
+              : null;
+          const activeTurn =
+            data &&
+            typeof data === "object" &&
+            "data" in data &&
+            (data as { data?: { activeTurn?: ChatActiveTurn | null } }).data?.activeTurn
+              ? (data as { data?: { activeTurn?: ChatActiveTurn | null } }).data?.activeTurn ?? null
+              : null;
+
+          if (
+            !response.ok &&
+            activeTurn &&
+            (responseCode === "TURN_IN_PROGRESS" ||
+              responseCode === "ACTIVE_TURN_IN_PROGRESS")
+          ) {
+            setActiveThreadTurn?.(activeTurn);
+            setStatusMessage?.(
+              activeTurn.progressLabel ||
+                "A previous reply is still running in this chat.",
+            );
+            setActiveAgentProgressState(null);
+            return;
+          }
+
           const outcome = resolveAssistantReplyJsonOutcome<
             TQuickReply,
             TPlan,
@@ -542,6 +576,7 @@ export function useAssistantReplyOrchestrator<
             "completed",
           );
           applyAssistantReplyPlan(outcome.replyPlan, completedProgress);
+          setStatusMessage?.(null);
           setActiveAgentProgressState(null);
           return;
         }
@@ -589,6 +624,7 @@ export function useAssistantReplyOrchestrator<
           }),
           completedProgress,
         );
+        setStatusMessage?.(null);
         setActiveAgentProgressState(null);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -632,10 +668,12 @@ export function useAssistantReplyOrchestrator<
       scrollThreadToBottom,
       selectedDraftContext,
       setActiveAgentProgressState,
+      setActiveThreadTurn,
       setMessages,
       setErrorMessage,
       setIsSending,
       setPricingModalOpen,
+      setStatusMessage,
     ],
   );
 

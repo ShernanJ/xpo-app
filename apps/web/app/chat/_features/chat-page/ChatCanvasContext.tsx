@@ -21,6 +21,7 @@ interface ChatCanvasState {
   hasContext: boolean;
   hasContract: boolean;
   errorMessage: string | null;
+  statusMessage: string | null;
   showBillingWarningBanner: boolean;
   billingWarningLevel: "low" | "critical" | null;
   billingCreditsLabel: string;
@@ -74,6 +75,7 @@ export interface ChatCanvasProviderProps {
   hasContext: boolean;
   hasContract: boolean;
   errorMessage: string | null;
+  statusMessage: string | null;
   showBillingWarningBanner: boolean;
   billingWarningLevel: "low" | "critical" | null;
   billingCreditsLabel: string;
@@ -132,6 +134,7 @@ export function ChatCanvasProvider(
     hasContext,
     hasContract,
     errorMessage,
+    statusMessage,
     showBillingWarningBanner,
     billingWarningLevel,
     billingCreditsLabel,
@@ -172,6 +175,7 @@ export function ChatCanvasProvider(
       hasContext,
       hasContract,
       errorMessage,
+      statusMessage,
       showBillingWarningBanner,
       billingWarningLevel,
       billingCreditsLabel,
@@ -198,6 +202,7 @@ export function ChatCanvasProvider(
       billingWarningLevel,
       draftInput,
       errorMessage,
+      statusMessage,
       hasContext,
       hasContract,
       heroGreeting,
@@ -284,6 +289,7 @@ export function useChatThreadViewCanvas() {
     hasContext: state.hasContext,
     hasContract: state.hasContract,
     errorMessage: state.errorMessage,
+    statusMessage: state.statusMessage,
     showBillingWarningBanner: state.showBillingWarningBanner,
     billingWarningLevel: state.billingWarningLevel,
     billingCreditsLabel: state.billingCreditsLabel,
