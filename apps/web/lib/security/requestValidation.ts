@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { consumeRateLimit } from "./rateLimit";
 
 const DEFAULT_JSON_BODY_LIMIT_BYTES = 128 * 1024;
 
@@ -144,4 +145,60 @@ export function getRequestIp(request: Request): string {
   }
 
   return request.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+export async function enforceSessionMutationRateLimit(
+  request: Request,
+  args: {
+    userId: string;
+    scope: string;
+    user: {
+      limit: number;
+      windowMs: number;
+      message: string;
+    };
+    ip?: {
+      limit: number;
+      windowMs: number;
+      message: string;
+    };
+  },
+): Promise<Response | null> {
+  const userRateLimit = await consumeRateLimit({
+    key: `${args.scope}:user:${args.userId}`,
+    limit: args.user.limit,
+    windowMs: args.user.windowMs,
+  });
+  if (!userRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: args.user.message,
+      extras: {
+        retryAfterSeconds: userRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  if (!args.ip) {
+    return null;
+  }
+
+  const ipRateLimit = await consumeRateLimit({
+    key: `${args.scope}:ip:${getRequestIp(request)}`,
+    limit: args.ip.limit,
+    windowMs: args.ip.windowMs,
+  });
+  if (!ipRateLimit.ok) {
+    return buildErrorResponse({
+      status: 429,
+      field: "rate",
+      message: args.ip.message,
+      extras: {
+        retryAfterSeconds: ipRateLimit.retryAfterSeconds,
+      },
+    });
+  }
+
+  return null;
 }

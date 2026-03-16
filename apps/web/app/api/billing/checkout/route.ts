@@ -20,6 +20,11 @@ import {
   resolveCheckoutBaseUrl,
 } from "@/lib/billing/stripe";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 const CheckoutRequestSchema = z.object({
   offer: z.enum(["pro_monthly", "pro_annual", "lifetime"]),
@@ -72,6 +77,11 @@ function conflictError(message: string, code = "ALREADY_SUBSCRIBED") {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   if (!isMonetizationEnabled()) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "billing", message: "Not found." }] },
@@ -87,15 +97,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "billing:checkout",
+    user: {
+      limit: 12,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many checkout requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 30,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many checkout requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+
+  const bodyResult = await parseJsonBody<unknown>(request, {
+    maxBytes: 16 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const rawBody = bodyResult.value;
 
   const parsed = CheckoutRequestSchema.safeParse(rawBody);
   if (!parsed.success) {

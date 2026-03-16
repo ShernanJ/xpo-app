@@ -6,10 +6,19 @@ import {
   ImageToPostGenerationError,
 } from "@/lib/creator/imagePostGeneration";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 import { fileToDataUrl, parseImageToPostFormData } from "./route.logic";
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -24,6 +33,24 @@ export async function POST(request: NextRequest) {
   });
   if (!workspaceHandle.ok) {
     return workspaceHandle.response;
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_image_posts",
+    user: {
+      limit: 8,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many image-to-post requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many image-to-post requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   let formData: FormData;

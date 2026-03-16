@@ -67,18 +67,24 @@ export async function upsertRunningTurnControl(args: TurnControlIdentity & {
   requestPayload?: unknown;
   billingIdempotencyKey?: string | null;
   creditCost?: number | null;
+  leaseOwner?: string | null;
+  leaseMs?: number;
 }) {
   const threadId = args.threadId ?? null;
   const userMessageId = args.userMessageId ?? null;
   const requestPayload = args.requestPayload;
   const billingIdempotencyKey = args.billingIdempotencyKey ?? null;
   const creditCost = args.creditCost ?? null;
+  const leaseOwner = args.leaseOwner ?? null;
   const where = buildIdentityWhere(args);
   if (!where) {
     return null;
   }
 
   const now = new Date();
+  const leaseExpiresAt = leaseOwner
+    ? new Date(now.getTime() + Math.max(5_000, args.leaseMs ?? 30_000))
+    : null;
   const identity = where.userId_runId_clientTurnId;
   return prisma.chatTurnControl.upsert({
     where,
@@ -91,6 +97,7 @@ export async function upsertRunningTurnControl(args: TurnControlIdentity & {
       ...(requestPayload !== undefined ? { requestPayload: requestPayload as never } : {}),
       ...(billingIdempotencyKey ? { billingIdempotencyKey } : {}),
       ...(typeof creditCost === "number" ? { creditCost } : {}),
+      ...(leaseOwner ? { leaseOwner, leaseExpiresAt } : {}),
       errorCode: null,
       errorMessage: null,
       failedAt: null,
@@ -107,6 +114,57 @@ export async function upsertRunningTurnControl(args: TurnControlIdentity & {
       status: "running",
       startedAt: now,
       heartbeatAt: now,
+      ...(leaseOwner ? { leaseOwner, leaseExpiresAt } : {}),
+    },
+  });
+}
+
+export async function upsertQueuedTurnControl(args: TurnControlIdentity & {
+  threadId?: string | null;
+  userMessageId?: string | null;
+  requestPayload?: unknown;
+  billingIdempotencyKey?: string | null;
+  creditCost?: number | null;
+}) {
+  const threadId = args.threadId ?? null;
+  const userMessageId = args.userMessageId ?? null;
+  const requestPayload = args.requestPayload;
+  const billingIdempotencyKey = args.billingIdempotencyKey ?? null;
+  const creditCost = args.creditCost ?? null;
+  const where = buildIdentityWhere(args);
+  if (!where) {
+    return null;
+  }
+
+  const identity = where.userId_runId_clientTurnId;
+  return prisma.chatTurnControl.upsert({
+    where,
+    update: {
+      status: "queued",
+      ...(threadId ? { threadId } : {}),
+      ...(userMessageId ? { userMessageId } : {}),
+      ...(requestPayload !== undefined ? { requestPayload: requestPayload as never } : {}),
+      ...(billingIdempotencyKey ? { billingIdempotencyKey } : {}),
+      ...(typeof creditCost === "number" ? { creditCost } : {}),
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      errorCode: null,
+      errorMessage: null,
+      failedAt: null,
+      completedAt: null,
+      cancelRequestedAt: null,
+      assistantMessageId: null,
+    },
+    create: {
+      userId: identity.userId,
+      runId: identity.runId,
+      clientTurnId: identity.clientTurnId,
+      ...(threadId ? { threadId } : {}),
+      ...(userMessageId ? { userMessageId } : {}),
+      ...(requestPayload !== undefined ? { requestPayload: requestPayload as never } : {}),
+      ...(billingIdempotencyKey ? { billingIdempotencyKey } : {}),
+      ...(typeof creditCost === "number" ? { creditCost } : {}),
+      status: "queued",
     },
   });
 }
@@ -119,6 +177,8 @@ export async function markTurnProgress(args: {
   stepId?: string | null;
   label?: string | null;
   explanation?: string | null;
+  leaseOwner?: string | null;
+  leaseMs?: number;
 }) {
   const where = args.turnId
     ? { id: args.turnId }
@@ -135,6 +195,14 @@ export async function markTurnProgress(args: {
     where,
     data: {
       heartbeatAt: new Date(),
+      ...(args.leaseOwner
+        ? {
+            leaseOwner: args.leaseOwner,
+            leaseExpiresAt: new Date(
+              Date.now() + Math.max(5_000, args.leaseMs ?? 30_000),
+            ),
+          }
+        : {}),
       progressStepId: args.stepId ?? null,
       progressLabel: args.label ?? null,
       progressExplanation: args.explanation ?? null,

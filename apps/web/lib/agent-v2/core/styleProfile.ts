@@ -1,6 +1,7 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { z } from "zod";
+import { filterProfileContextLeaks } from "./profileContextLeak.ts";
 
 export const FactLedgerSourceMaterialSchema = z.object({
   type: z.enum(["story", "playbook", "framework", "case_study"]).default("story"),
@@ -166,15 +167,27 @@ function dedupeStringList(values: string[]): string[] {
   return next;
 }
 
+function sanitizeContextAnchors(values: string[]): string[] {
+  return filterProfileContextLeaks(dedupeStringList(values));
+}
+
+function sanitizeStyleCardMemory(styleCard: VoiceStyleCard): VoiceStyleCard {
+  return {
+    ...styleCard,
+    contextAnchors: sanitizeContextAnchors(styleCard.contextAnchors || []),
+    factLedger: buildNormalizedFactLedger(styleCard),
+  };
+}
+
 function buildNormalizedFactLedger(card: Pick<VoiceStyleCard, "contextAnchors" | "factLedger">): FactLedger {
   const factLedger = FactLedgerSchema.parse(card.factLedger || {});
 
   return {
     ...factLedger,
-    durableFacts: dedupeStringList([
+    durableFacts: filterProfileContextLeaks(dedupeStringList([
       ...(factLedger.durableFacts || []),
       ...(card.contextAnchors || []),
-    ]),
+    ])),
     allowedFirstPersonClaims: dedupeStringList(factLedger.allowedFirstPersonClaims || []),
     allowedNumbers: dedupeStringList(factLedger.allowedNumbers || []),
     forbiddenClaims: dedupeStringList(factLedger.forbiddenClaims || []),
@@ -201,12 +214,9 @@ export function rememberFactsOnStyleCard(
   styleCard: VoiceStyleCard,
   facts: string[],
 ): VoiceStyleCard {
-  const normalizedFacts = dedupeStringList(facts);
+  const normalizedFacts = filterProfileContextLeaks(dedupeStringList(facts));
   if (normalizedFacts.length === 0) {
-    return {
-      ...styleCard,
-      factLedger: buildNormalizedFactLedger(styleCard),
-    };
+    return sanitizeStyleCardMemory(styleCard);
   }
 
   const nextFactLedger = buildNormalizedFactLedger(styleCard);
@@ -215,14 +225,14 @@ export function rememberFactsOnStyleCard(
     ...normalizedFacts,
   ]);
 
-  return {
+  return sanitizeStyleCardMemory({
     ...styleCard,
     contextAnchors: dedupeStringList([
       ...(styleCard.contextAnchors || []),
       ...normalizedFacts,
     ]),
     factLedger: nextFactLedger,
-  };
+  });
 }
 
 function invertCorrectionDetail(detail: string): string | null {
@@ -333,7 +343,7 @@ export async function generateStyleProfile(
     let existingParsed: VoiceStyleCard | null = null;
     if (existing && existing.styleCard) {
       try {
-        existingParsed = StyleCardSchema.parse(existing.styleCard);
+        existingParsed = sanitizeStyleCardMemory(StyleCardSchema.parse(existing.styleCard));
       } catch (e) {
         console.warn("Existing styleCard failed schema validation, regenerating...", e);
       }
@@ -440,7 +450,7 @@ Respond ONLY with a valid JSON object matching this schema:
     }
 
     const parsedJson = JSON.parse(content);
-    const validatedCard = StyleCardSchema.parse(parsedJson);
+    const validatedCard = sanitizeStyleCardMemory(StyleCardSchema.parse(parsedJson));
     const mergedFactLedger = buildNormalizedFactLedger({
       contextAnchors: dedupeStringList([
         ...(existingParsed?.contextAnchors || []),
@@ -506,11 +516,11 @@ Respond ONLY with a valid JSON object matching this schema:
 // Safer database upsert wrapper specifically for the schema structure
 export async function saveStyleProfile(userId: string, xHandle: string, styleCard: VoiceStyleCard) {
   const normalizedHandle = xHandle.trim().replace(/^@+/, "").toLowerCase();
-  const normalizedStyleCard: VoiceStyleCard = {
+  const normalizedStyleCard: VoiceStyleCard = sanitizeStyleCardMemory({
     ...styleCard,
     contextAnchors: getDurableFactsFromStyleCard(styleCard),
     factLedger: buildNormalizedFactLedger(styleCard),
-  };
+  });
   const existing = await prisma.voiceProfile.findFirst({
     where: { userId, xHandle: normalizedHandle }
   });

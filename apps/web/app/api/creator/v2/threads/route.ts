@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import { createConversationMemory } from "@/lib/agent-v2/memory/memoryStore";
+import {
+  enforceSessionMutationRateLimit,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -39,6 +44,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
@@ -52,6 +62,24 @@ export async function POST(request: NextRequest) {
     return workspaceHandle.response;
   }
 
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_threads",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many thread creations. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many thread creations from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
+  }
+
   try {
     const thread = await prisma.chatThread.create({
       data: {
@@ -61,13 +89,9 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Automatically create a Memory object linked to this thread so the agent can store state
-    await prisma.conversationMemory.create({
-      data: {
-        threadId: thread.id,
-        userId: session.user.id,
-        activeConstraints: [],
-      }
+    await createConversationMemory({
+      threadId: thread.id,
+      userId: session.user.id,
     });
 
     return NextResponse.json({ ok: true, data: { thread } });

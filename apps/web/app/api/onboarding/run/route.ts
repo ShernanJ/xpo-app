@@ -12,8 +12,18 @@ import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
 import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 export async function POST(request: Request) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -22,19 +32,32 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: unknown;
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      {
-        ok: false,
-        errors: [{ field: "account", message: "Request body must be valid JSON." }],
-      },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "onboarding:run",
+    user: {
+      limit: 8,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many onboarding runs. Please wait before starting another scrape.",
+    },
+    ip: {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many onboarding runs from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+
+  const bodyResult = await parseJsonBody<unknown>(request, {
+    maxBytes: 16 * 1024,
+    field: "account",
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const parsed = parseOnboardingInput(body);
   if (!parsed.ok) {

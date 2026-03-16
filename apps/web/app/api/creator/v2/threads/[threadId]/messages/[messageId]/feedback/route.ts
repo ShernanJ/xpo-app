@@ -5,6 +5,11 @@ import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface MessageFeedbackRequest extends Record<string, unknown> {
   value?: unknown;
@@ -80,6 +85,11 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -88,16 +98,30 @@ export async function POST(
     );
   }
 
-  let body: MessageFeedbackRequest;
-
-  try {
-    body = (await request.json()) as MessageFeedbackRequest;
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_message_feedback",
+    user: {
+      limit: 30,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many feedback updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 80,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many feedback updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<MessageFeedbackRequest>(request, {
+    maxBytes: 8 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const value = body.value === "up" || body.value === "down" ? body.value : null;
   if (!value) {
@@ -224,12 +248,35 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
+  const originError = requireAllowedOrigin(_request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
       { status: 401 },
     );
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(_request, {
+    userId: session.user.id,
+    scope: "creator:v2_message_feedback_delete",
+    user: {
+      limit: 30,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many feedback removals. Please wait before trying again.",
+    },
+    ip: {
+      limit: 80,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many feedback removals from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   try {

@@ -32,7 +32,9 @@ import {
   refundRouteTurnCharge,
 } from "./_lib/control/routeControlPlane";
 import {
+  claimTurnExecutionLease,
   findActiveTurnForThread,
+  heartbeatTurnExecution,
   markTurnFailed,
   markTurnProgress,
   readTurnByIdentity,
@@ -77,6 +79,15 @@ type StreamProgressCallback = (
 ) => Promise<void> | void;
 
 const DEFAULT_THREAD_TITLE = "New Chat";
+const CHAT_TURN_LEASE_MS = 30_000;
+const CHAT_TURN_HEARTBEAT_MS = 5_000;
+
+interface ChatTurnExecutionControl {
+  turnId?: string | null;
+  existingUserMessageId?: string | null;
+  leaseOwner?: string | null;
+  leaseMs?: number;
+}
 
 type RouteProgressCopy = Pick<ChatStreamProgressEventData, "label" | "explanation">;
 
@@ -357,6 +368,10 @@ export async function POST(request: NextRequest) {
           monetizationEnabled,
           userId: session.user.id,
           onProgress,
+          turnControl: {
+            leaseOwner: `route:${randomUUID()}`,
+            leaseMs: CHAT_TURN_LEASE_MS,
+          },
         }),
     });
   }
@@ -366,6 +381,10 @@ export async function POST(request: NextRequest) {
     body,
     monetizationEnabled,
     userId: session.user.id,
+    turnControl: {
+      leaseOwner: `route:${randomUUID()}`,
+      leaseMs: CHAT_TURN_LEASE_MS,
+    },
   });
 }
 
@@ -513,12 +532,13 @@ function streamChatRouteResponse(args: {
   });
 }
 
-async function handleChatRouteRequest(args: {
+export async function handleChatRouteRequest(args: {
   request: NextRequest;
   body: CreatorChatRequest;
   monetizationEnabled: boolean;
   userId: string;
   onProgress?: StreamProgressCallback;
+  turnControl?: ChatTurnExecutionControl;
 }): Promise<Response> {
   const loadBillingStateForResponse = () =>
     args.monetizationEnabled
@@ -590,6 +610,29 @@ async function handleChatRouteRequest(args: {
     hasSelectedDraftContext: Boolean(selectedDraftContext),
   });
   let activeTurnId: string | null = null;
+  const turnLeaseOwner = args.turnControl?.leaseOwner ?? null;
+  const turnLeaseMs = Math.max(5_000, args.turnControl?.leaseMs ?? CHAT_TURN_LEASE_MS);
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+  const startHeartbeat = () => {
+    if (!turnLeaseOwner || !activeTurnId || heartbeatTimer) {
+      return;
+    }
+
+    heartbeatTimer = setInterval(() => {
+      void heartbeatTurnExecution({
+        turnId: activeTurnId!,
+        userId: args.userId,
+        leaseOwner: turnLeaseOwner,
+        leaseMs: turnLeaseMs,
+      }).catch(() => null);
+    }, CHAT_TURN_HEARTBEAT_MS);
+  };
   const emitProgress = async (stepIndex: number, copy?: RouteProgressCopy | null) => {
     const activeStepId = progressPlan.steps[stepIndex]?.id as PendingStatusStepId | undefined;
     if (!activeStepId) {
@@ -602,6 +645,8 @@ async function handleChatRouteRequest(args: {
         stepId: activeStepId,
         label: copy?.label ?? null,
         explanation: copy?.explanation ?? null,
+        leaseOwner: turnLeaseOwner,
+        leaseMs: turnLeaseMs,
       }).catch(() => null);
     }
 
@@ -697,6 +742,7 @@ async function handleChatRouteRequest(args: {
   });
   if (
     existingTurn &&
+    existingTurn.id !== args.turnControl?.turnId &&
     (existingTurn.status === "queued" ||
       existingTurn.status === "running" ||
       existingTurn.status === "cancel_requested")
@@ -711,6 +757,7 @@ async function handleChatRouteRequest(args: {
   const activeTurnForThread = await findActiveTurnForThread({
     userId: args.userId,
     threadId: storedThread.id,
+    excludeTurnId: args.turnControl?.turnId ?? null,
     excludeClientTurnId: clientTurnId,
   });
   if (activeTurnForThread) {
@@ -817,8 +864,11 @@ async function handleChatRouteRequest(args: {
       },
       billingIdempotencyKey: debitedCharge?.idempotencyKey ?? null,
       creditCost: debitedCharge?.cost ?? turnCreditCost,
+      leaseOwner: turnLeaseOwner,
+      leaseMs: turnLeaseMs,
     });
-    activeTurnId = runningTurn?.id ?? null;
+    activeTurnId = runningTurn?.id ?? args.turnControl?.turnId ?? null;
+    startHeartbeat();
 
     const conversationContext = await loadRouteConversationContext({
       storedThread,
@@ -834,6 +884,7 @@ async function handleChatRouteRequest(args: {
       formatPreference: effectiveFormatPreference,
       threadFramingStyle,
       structuredReplyContext,
+      existingUserMessageId: args.turnControl?.existingUserMessageId ?? null,
     });
     const recentHistoryStr = conversationContext.recentHistoryStr;
     const activeDraft = conversationContext.activeDraft;
@@ -847,6 +898,8 @@ async function handleChatRouteRequest(args: {
         clientTurnId,
         threadId: storedThread.id,
         userMessageId: conversationContext.createdUserMessageId,
+        leaseOwner: turnLeaseOwner,
+        leaseMs: turnLeaseMs,
       });
       activeTurnId = refreshedTurn?.id ?? activeTurnId;
     }
@@ -1149,5 +1202,7 @@ async function handleChatRouteRequest(args: {
 
     console.error("V2 Orchestrator Error:", error);
     return buildRouteServerErrorResponse();
+  } finally {
+    stopHeartbeat();
   }
 }

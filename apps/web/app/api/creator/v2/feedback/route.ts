@@ -16,6 +16,11 @@ import {
   FEEDBACK_MAX_ATTACHMENTS,
 } from "./route.logic";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 const MAX_LEGACY_BACKFILL_COUNT = 250;
 const MAX_GUARD_LOOKBACK_COUNT = 250;
@@ -266,6 +271,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -284,15 +294,30 @@ export async function POST(request: NextRequest) {
 
   const xHandle = workspaceHandle.xHandle;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_feedback",
+    user: {
+      limit: 12,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many feedback submissions. Please wait before trying again.",
+    },
+    ip: {
+      limit: 24,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many feedback submissions from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<unknown>(request, {
+    maxBytes: 256 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const rawBody = bodyResult.value;
 
   const parsedBody = FeedbackRequestSchema.safeParse(rawBody);
   if (!parsedBody.success) {
@@ -402,6 +427,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -420,15 +450,30 @@ export async function PATCH(request: NextRequest) {
 
   const xHandle = workspaceHandle.xHandle;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_feedback_status",
+    user: {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many feedback status updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 40,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many feedback status updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<unknown>(request, {
+    maxBytes: 8 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const rawBody = bodyResult.value;
 
   const parsedBody = FeedbackStatusUpdateRequestSchema.safeParse(rawBody);
   if (!parsedBody.success) {

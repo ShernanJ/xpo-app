@@ -1,6 +1,7 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { applyMemorySaliencePolicy } from "./memorySalience";
+import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
 import type {
   ActiveDraftRef,
   ActiveReplyArtifactRef,
@@ -226,7 +227,13 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         ...(formatPreference ? { formatPreference } : {}),
       };
     })
-    .filter((item) => item.value && item.label);
+    .filter(
+      (item) =>
+        item.value &&
+        item.label &&
+        !looksLikeProfileContextLeak(item.label) &&
+        !looksLikeProfileContextLeak(item.value),
+    );
 }
 
 function normalizeReplyOption(value: unknown): ActiveReplyContext["latestReplyOptions"][number] | null {
@@ -366,7 +373,10 @@ function normalizeClarificationState(value: unknown): ClarificationState | null 
   return {
     branchKey: record.branchKey,
     stepKey: record.stepKey,
-    seedTopic: typeof record.seedTopic === "string" ? record.seedTopic : null,
+    seedTopic:
+      typeof record.seedTopic === "string" && !looksLikeProfileContextLeak(record.seedTopic)
+        ? record.seedTopic
+        : null,
     options: normalizeQuickReplies(record.options),
   };
 }
@@ -572,11 +582,65 @@ export function createConversationMemorySnapshot(
   };
 }
 
+const MEMORY_UPDATE_MAX_ATTEMPTS = 3;
+
+function resolveConversationMemoryIdentity(args: {
+  runId?: string;
+  threadId?: string;
+}) {
+  if (args.threadId) {
+    return {
+      where: { threadId: args.threadId },
+      label: `thread ${args.threadId}`,
+    } as const;
+  }
+
+  if (args.runId) {
+    return {
+      where: { runId: args.runId },
+      label: `run ${args.runId}`,
+    } as const;
+  }
+
+  return null;
+}
+
+function isConversationMemoryUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
+}
+
+async function findConversationMemoryByIdentity(
+  db: Prisma.TransactionClient | typeof prisma,
+  args: {
+    runId?: string;
+    threadId?: string;
+  },
+) {
+  const identity = resolveConversationMemoryIdentity(args);
+  if (!identity) {
+    return null;
+  }
+
+  if ("threadId" in identity.where) {
+    return db.conversationMemory.findUnique({
+      where: { threadId: identity.where.threadId },
+    });
+  }
+
+  return db.conversationMemory.findUnique({
+    where: { runId: identity.where.runId },
+  });
+}
+
 export async function getConversationMemory({ runId, threadId }: { runId?: string, threadId?: string }) {
   if (!runId && !threadId) return null;
   try {
-    const memory = await prisma.conversationMemory.findFirst({
-      where: threadId ? { threadId } : { runId },
+    const memory = await findConversationMemoryByIdentity(prisma, {
+      runId,
+      threadId,
     });
     return memory;
   } catch (error) {
@@ -586,6 +650,11 @@ export async function getConversationMemory({ runId, threadId }: { runId?: strin
 }
 
 export async function createConversationMemory(args: CreateMemoryArgs) {
+  const identity = resolveConversationMemoryIdentity(args);
+  if (!identity) {
+    return null;
+  }
+
   try {
     const memory = await prisma.conversationMemory.create({
       data: {
@@ -598,6 +667,10 @@ export async function createConversationMemory(args: CreateMemoryArgs) {
     });
     return memory;
   } catch (error) {
+    if (isConversationMemoryUniqueConstraintError(error)) {
+      return findConversationMemoryByIdentity(prisma, args);
+    }
+
     console.error(`Failed to create memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;
   }
@@ -607,109 +680,127 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
   if (!args.runId && !args.threadId) return null;
   try {
     const db = args.tx ?? prisma;
-    const existing = await db.conversationMemory.findFirst({
-      where: args.threadId ? { threadId: args.threadId } : { runId: args.runId },
-    });
+    for (let attempt = 0; attempt < MEMORY_UPDATE_MAX_ATTEMPTS; attempt += 1) {
+      const existing = await findConversationMemoryByIdentity(db, args);
 
-    if (!existing) {
-      console.warn(`Attempted to update non-existent memory for thread ${args.threadId} / run ${args.runId}`);
-      return null;
+      if (!existing) {
+        console.warn(`Attempted to update non-existent memory for thread ${args.threadId} / run ${args.runId}`);
+        return null;
+      }
+
+      const existingSnapshot = createConversationMemorySnapshot(existing as unknown as Record<string, unknown>);
+      const nextEnvelope: StoredMemoryEnvelope = {
+        constraints: args.activeConstraints ?? existingSnapshot.activeConstraints,
+        conversationState: args.conversationState ?? existingSnapshot.conversationState,
+        pendingPlan:
+          args.pendingPlan === undefined ? existingSnapshot.pendingPlan : args.pendingPlan,
+        clarificationState:
+          args.clarificationState === undefined
+            ? existingSnapshot.clarificationState
+            : args.clarificationState,
+        lastIdeationAngles:
+          args.lastIdeationAngles === undefined
+            ? existingSnapshot.lastIdeationAngles
+            : args.lastIdeationAngles.slice(-6),
+        rollingSummary:
+          args.rollingSummary === undefined ? existingSnapshot.rollingSummary : args.rollingSummary,
+        assistantTurnCount:
+          args.assistantTurnCount === undefined
+            ? existingSnapshot.assistantTurnCount
+            : args.assistantTurnCount,
+        activeDraftRef:
+          args.activeDraftRef === undefined ? existingSnapshot.activeDraftRef : args.activeDraftRef,
+        latestRefinementInstruction:
+          args.latestRefinementInstruction === undefined
+            ? existingSnapshot.latestRefinementInstruction
+            : args.latestRefinementInstruction,
+        unresolvedQuestion:
+          args.unresolvedQuestion === undefined
+            ? existingSnapshot.unresolvedQuestion
+            : args.unresolvedQuestion,
+        clarificationQuestionsAsked:
+          args.clarificationQuestionsAsked === undefined
+            ? existingSnapshot.clarificationQuestionsAsked
+            : args.clarificationQuestionsAsked,
+        preferredSurfaceMode:
+          args.preferredSurfaceMode === undefined
+            ? existingSnapshot.preferredSurfaceMode
+            : args.preferredSurfaceMode,
+        formatPreference:
+          args.formatPreference === undefined
+            ? existingSnapshot.formatPreference
+            : args.formatPreference,
+        activeReplyContext:
+          args.activeReplyContext === undefined
+            ? existingSnapshot.activeReplyContext
+            : args.activeReplyContext,
+        activeReplyArtifactRef:
+          args.activeReplyArtifactRef === undefined
+            ? existingSnapshot.activeReplyArtifactRef
+            : args.activeReplyArtifactRef,
+        selectedReplyOptionId:
+          args.selectedReplyOptionId === undefined
+            ? existingSnapshot.selectedReplyOptionId
+            : args.selectedReplyOptionId,
+      };
+      const salience = applyMemorySaliencePolicy({
+        topicSummary:
+          args.topicSummary === undefined ? existingSnapshot.topicSummary : args.topicSummary ?? null,
+        concreteAnswerCount:
+          args.concreteAnswerCount === undefined
+            ? existingSnapshot.concreteAnswerCount
+            : args.concreteAnswerCount,
+        envelope: {
+          constraints: nextEnvelope.constraints,
+          lastIdeationAngles: nextEnvelope.lastIdeationAngles,
+          rollingSummary: nextEnvelope.rollingSummary,
+          latestRefinementInstruction: nextEnvelope.latestRefinementInstruction,
+          unresolvedQuestion: nextEnvelope.unresolvedQuestion,
+        },
+      });
+      nextEnvelope.constraints = salience.envelope.constraints;
+      nextEnvelope.lastIdeationAngles = salience.envelope.lastIdeationAngles;
+      nextEnvelope.rollingSummary = salience.envelope.rollingSummary;
+      nextEnvelope.latestRefinementInstruction = salience.envelope.latestRefinementInstruction;
+      nextEnvelope.unresolvedQuestion = salience.envelope.unresolvedQuestion;
+
+      const dataToUpdate: Prisma.ConversationMemoryUpdateManyMutationInput = {
+        activeConstraints: serializeMemoryEnvelope(nextEnvelope) as Prisma.InputJsonValue,
+        version: {
+          increment: 1,
+        },
+      };
+      if (args.topicSummary !== undefined) dataToUpdate.topicSummary = salience.topicSummary;
+      if (args.concreteAnswerCount !== undefined) {
+        dataToUpdate.concreteAnswerCount = salience.concreteAnswerCount;
+      }
+      if (args.lastDraftArtifactId !== undefined) {
+        dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
+      } else if (args.activeDraftRef !== undefined) {
+        dataToUpdate.lastDraftArtifactId = args.activeDraftRef?.versionId ?? null;
+      }
+
+      const updateResult = await db.conversationMemory.updateMany({
+        where: {
+          id: existing.id,
+          version: existing.version,
+        },
+        data: dataToUpdate,
+      });
+
+      if (updateResult.count === 0) {
+        continue;
+      }
+
+      return db.conversationMemory.findUnique({
+        where: { id: existing.id },
+      });
     }
 
-    const existingSnapshot = createConversationMemorySnapshot(existing as unknown as Record<string, unknown>);
-    const nextEnvelope: StoredMemoryEnvelope = {
-      constraints: args.activeConstraints ?? existingSnapshot.activeConstraints,
-      conversationState: args.conversationState ?? existingSnapshot.conversationState,
-      pendingPlan:
-        args.pendingPlan === undefined ? existingSnapshot.pendingPlan : args.pendingPlan,
-      clarificationState:
-        args.clarificationState === undefined
-          ? existingSnapshot.clarificationState
-          : args.clarificationState,
-      lastIdeationAngles:
-        args.lastIdeationAngles === undefined
-          ? existingSnapshot.lastIdeationAngles
-          : args.lastIdeationAngles.slice(-6),
-      rollingSummary:
-        args.rollingSummary === undefined ? existingSnapshot.rollingSummary : args.rollingSummary,
-      assistantTurnCount:
-        args.assistantTurnCount === undefined
-          ? existingSnapshot.assistantTurnCount
-          : args.assistantTurnCount,
-      activeDraftRef:
-        args.activeDraftRef === undefined ? existingSnapshot.activeDraftRef : args.activeDraftRef,
-      latestRefinementInstruction:
-        args.latestRefinementInstruction === undefined
-          ? existingSnapshot.latestRefinementInstruction
-          : args.latestRefinementInstruction,
-      unresolvedQuestion:
-        args.unresolvedQuestion === undefined
-          ? existingSnapshot.unresolvedQuestion
-          : args.unresolvedQuestion,
-      clarificationQuestionsAsked:
-        args.clarificationQuestionsAsked === undefined
-          ? existingSnapshot.clarificationQuestionsAsked
-          : args.clarificationQuestionsAsked,
-      preferredSurfaceMode:
-        args.preferredSurfaceMode === undefined
-          ? existingSnapshot.preferredSurfaceMode
-          : args.preferredSurfaceMode,
-      formatPreference:
-        args.formatPreference === undefined
-          ? existingSnapshot.formatPreference
-          : args.formatPreference,
-      activeReplyContext:
-        args.activeReplyContext === undefined
-          ? existingSnapshot.activeReplyContext
-          : args.activeReplyContext,
-      activeReplyArtifactRef:
-        args.activeReplyArtifactRef === undefined
-          ? existingSnapshot.activeReplyArtifactRef
-          : args.activeReplyArtifactRef,
-      selectedReplyOptionId:
-        args.selectedReplyOptionId === undefined
-          ? existingSnapshot.selectedReplyOptionId
-          : args.selectedReplyOptionId,
-    };
-    const salience = applyMemorySaliencePolicy({
-      topicSummary:
-        args.topicSummary === undefined ? existingSnapshot.topicSummary : args.topicSummary ?? null,
-      concreteAnswerCount:
-        args.concreteAnswerCount === undefined
-          ? existingSnapshot.concreteAnswerCount
-          : args.concreteAnswerCount,
-      envelope: {
-        constraints: nextEnvelope.constraints,
-        lastIdeationAngles: nextEnvelope.lastIdeationAngles,
-        rollingSummary: nextEnvelope.rollingSummary,
-        latestRefinementInstruction: nextEnvelope.latestRefinementInstruction,
-        unresolvedQuestion: nextEnvelope.unresolvedQuestion,
-      },
-    });
-    nextEnvelope.constraints = salience.envelope.constraints;
-    nextEnvelope.lastIdeationAngles = salience.envelope.lastIdeationAngles;
-    nextEnvelope.rollingSummary = salience.envelope.rollingSummary;
-    nextEnvelope.latestRefinementInstruction = salience.envelope.latestRefinementInstruction;
-    nextEnvelope.unresolvedQuestion = salience.envelope.unresolvedQuestion;
-
-    const dataToUpdate: Prisma.ConversationMemoryUpdateInput = {
-      activeConstraints: serializeMemoryEnvelope(nextEnvelope),
-    };
-    if (args.topicSummary !== undefined) dataToUpdate.topicSummary = salience.topicSummary;
-    if (args.concreteAnswerCount !== undefined) {
-      dataToUpdate.concreteAnswerCount = salience.concreteAnswerCount;
-    }
-    if (args.lastDraftArtifactId !== undefined) {
-      dataToUpdate.lastDraftArtifactId = args.lastDraftArtifactId;
-    } else if (args.activeDraftRef !== undefined) {
-      dataToUpdate.lastDraftArtifactId = args.activeDraftRef?.versionId ?? null;
-    }
-
-    const memory = await db.conversationMemory.update({
-      where: { id: existing.id },
-      data: dataToUpdate,
-    });
-    return memory;
+    console.warn(
+      `Conversation memory update lost a version race after ${MEMORY_UPDATE_MAX_ATTEMPTS} attempts for thread ${args.threadId} / run ${args.runId}`,
+    );
+    return null;
   } catch (error) {
     console.error(`Failed to update memory for thread ${args.threadId} / run ${args.runId}:`, error);
     return null;

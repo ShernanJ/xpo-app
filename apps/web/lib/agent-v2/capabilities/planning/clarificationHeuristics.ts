@@ -27,6 +27,7 @@ import {
   getTurnRelationContext,
   isContextDependentFollowUp,
 } from "../../runtime/turnRelation.ts";
+import { looksLikeProfileContextLeak } from "../../core/profileContextLeak.ts";
 
 export function isLazyDraftRequest(message: string): boolean {
   const normalized = message.trim().toLowerCase();
@@ -246,6 +247,10 @@ export function inferTopicFromIdeaTitles(ideaTitles: string[]): string | null {
 
   const counts = new Map<string, number>();
   for (const title of ideaTitles) {
+    if (looksLikeProfileContextLeak(title)) {
+      continue;
+    }
+
     const tokens = title
       .toLowerCase()
       .replace(/[^a-z0-9\s]+/g, " ")
@@ -377,7 +382,19 @@ export function looksLikeUnsafeClarificationSeed(message: string): boolean {
     return true;
   }
 
+  if (looksLikeProfileContextLeak(message)) {
+    return true;
+  }
+
   return [
+    /^(?:yes|yeah|yep|sure|ok|okay|no|nope|nah)\b/,
+    /^(?:looks|sounds)\s+good\b/,
+    /\b(?:i can|i'll|i will|we can|want me|should i|do you want|tell me)\b/,
+    /\b(?:run with it|write it|draft it|do it|go ahead|use that|pick one|choose one)\b/,
+    /\b(?:keep it|make it|let it)\b/,
+    /\b(?:do|does|did|is|are|was|were|can|could|would|should|will)\s+(?:do|does|did|is|are|was|were|can|could|would|should|will)\b/,
+    /\byou\b.*\b(?:want|need|care|know|make|use|do|are|mean|should)\b/,
+    /\b(?:this|that|it)\b.*\b(?:do|does|is|are|works?|lands?)\b/,
     /^(?:this|that|it)\s+is\s+(?:way\s+too\s+|too\s+)?(?:formal|polished|generic|long|robotic|corporate|salesy|stiff)\b/,
     /^(?:what(?:'s| is)|which)\s+.*\b(?:best|top)\s+post\b/,
   ].some((pattern) => pattern.test(normalized));

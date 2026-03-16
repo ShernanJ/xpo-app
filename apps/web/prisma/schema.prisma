@@ -255,6 +255,7 @@ model ConversationMemory {
   userId              String?
   runId               String?  // Made optional for legacy compatibility
   threadId            String?
+  version             Int      @default(1)
   topicSummary        String?
   activeConstraints   Json? // Array of strings
   concreteAnswerCount Int      @default(0)
@@ -265,6 +266,9 @@ model ConversationMemory {
   user   User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   run    OnboardingRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
   thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([runId])
+  @@unique([threadId])
 }
 
 model OnboardingBackfillJob {

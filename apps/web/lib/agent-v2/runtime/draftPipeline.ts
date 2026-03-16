@@ -631,7 +631,7 @@ export async function executeDraftPipeline(args: {
     const anchorSummary =
       anchors.length > 0 ? anchors.join(", ") : "the scene you mentioned";
 
-    return `i can write this, but i don't want to make up a lesson around ${anchorSummary}. do you want it to land as the funny loss itself, or tie to a takeaway you actually want to make?`;
+    return `i can write this, but i don't want to make up a lesson around ${anchorSummary}. what should it land as - the funny loss itself or the actual takeaway?`;
   }
 
   function normalizeDraftSourceForUserFacingCopy(sourceUserMessage: string): string {
@@ -648,9 +648,9 @@ export async function executeDraftPipeline(args: {
 
     const normalized = normalizeDraftSourceForUserFacingCopy(sourceUserMessage);
     if (/^(?:what|why|how|when|where|who|which)\b/i.test(normalized) || normalized.endsWith("?")) {
-      return "i can write this, but i need one thing first: should this come from your own build experience, or should i keep it as a plain product point?";
+      return "i can write this, but i need one thing first - your own build experience or a plain product point?";
     }
-    return `i can write this, but i don't want to fake a personal usage story around ${normalized}. should i keep it as a plain product claim, or are you speaking from your own use/build experience?`;
+    return `i can write this, but i don't want to fake a personal usage story around ${normalized}. what lane should i use here - plain product claim or your own use/build experience?`;
   }
 
   function buildPlanSourceMessage(plan: StrategyPlan): string {

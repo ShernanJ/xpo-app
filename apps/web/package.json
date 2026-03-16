@@ -7,6 +7,7 @@
     "build": "prisma generate && next build",
     "prestart": "prisma migrate deploy && node scripts/verify-required-db-tables.mjs",
     "start": "next start",
+    "deploy:prepare": "pnpm exec prisma migrate deploy && node scripts/verify-required-db-tables.mjs",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:verify:schema": "node scripts/verify-required-db-tables.mjs",
     "lint": "eslint",

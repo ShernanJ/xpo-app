@@ -9,7 +9,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans:
-    "Instrument Sans", "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue",
+    Avenir, "Avenir Next", "Segoe UI", "Helvetica Neue",
     Helvetica, Arial, sans-serif;
   --font-mono:
     "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco,

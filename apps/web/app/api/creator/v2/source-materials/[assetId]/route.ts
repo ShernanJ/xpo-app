@@ -11,11 +11,21 @@ import {
   parsePatchSourceMaterialBody,
 } from "../route.logic";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ assetId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -32,15 +42,31 @@ export async function PATCH(
     return workspaceHandle.response;
   }
 
-  let body: { asset?: unknown };
-  try {
-    body = (await request.json()) as { asset?: unknown };
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_source_material_asset",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many source material updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many source material updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+
+  const bodyResult = await parseJsonBody<{ asset?: unknown }>(request, {
+    maxBytes: 64 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const parsed = parsePatchSourceMaterialBody(body);
   if (!parsed.ok) {
@@ -114,6 +140,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ assetId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -128,6 +159,24 @@ export async function DELETE(
   });
   if (!workspaceHandle.ok) {
     return workspaceHandle.response;
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_source_material_asset_delete",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many source material deletions. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many source material deletions from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   const { assetId } = await params;

@@ -12,24 +12,20 @@ import {
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface CreatorGenerationContractRequest extends Record<string, unknown> {
   runId?: unknown;
 }
 
 export async function POST(request: Request) {
-  let body: CreatorGenerationContractRequest;
-
-  try {
-    body = (await request.json()) as CreatorGenerationContractRequest;
-  } catch {
-    return NextResponse.json(
-      {
-        ok: false,
-        errors: [{ field: "runId", message: "Request body must be valid JSON." }],
-      },
-      { status: 400 },
-    );
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
   }
 
   const session = await getServerSession();
@@ -42,6 +38,33 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:generation_contract",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many generation contract requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many generation contract requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
+  }
+
+  const bodyResult = await parseJsonBody<CreatorGenerationContractRequest>(request, {
+    maxBytes: 16 * 1024,
+    field: "runId",
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const workspaceHandle = await resolveWorkspaceHandleForRequest({
     request,

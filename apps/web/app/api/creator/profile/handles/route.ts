@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 export async function GET() {
   const session = await getServerSession();
@@ -51,13 +56,42 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const originError = requireAllowedOrigin(req);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  const rateLimitError = await enforceSessionMutationRateLimit(req, {
+    userId: session.user.id,
+    scope: "creator:profile_handles",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many handle updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many handle updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
+  }
+
   try {
-    const { handle } = await req.json();
+    const bodyResult = await parseJsonBody<{ handle?: unknown }>(req, {
+      maxBytes: 4 * 1024,
+    });
+    if (!bodyResult.ok) {
+      return bodyResult.response;
+    }
+    const { handle } = bodyResult.value;
 
     if (!handle || typeof handle !== "string") {
       return NextResponse.json({ ok: false, error: "Handle is required" }, { status: 400 });

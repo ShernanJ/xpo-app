@@ -3,6 +3,10 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
 import { buildRuntimeWorkerExecution } from "../runtime/workerPlane.ts";
+import {
+  isBareDraftRequest,
+  isBareIdeationRequest,
+} from "../core/conversationHeuristics.ts";
 
 const TURN_CONTEXT_HYDRATION_GROUP_ID = "turn_context_hydration";
 
@@ -23,7 +27,26 @@ export interface TurnContextHydrationResult {
 export async function hydrateTurnContextWorkers(
   args: TurnContextHydrationRequest,
 ): Promise<TurnContextHydrationResult> {
-  const focusTopic = args.userMessage || args.topicSummary || "growth";
+  const normalizedUserMessage = args.userMessage.trim();
+  const normalizedTopicSummary = args.topicSummary?.trim() || "";
+  const shouldIgnoreRawUserMessage =
+    !normalizedUserMessage ||
+    isBareDraftRequest(normalizedUserMessage) ||
+    isBareIdeationRequest(normalizedUserMessage);
+  const shouldIgnoreTopicSummary =
+    !normalizedTopicSummary ||
+    isBareDraftRequest(normalizedTopicSummary) ||
+    isBareIdeationRequest(normalizedTopicSummary);
+  const focusTopic = shouldIgnoreRawUserMessage
+    ? shouldIgnoreTopicSummary
+      ? "growth"
+      : normalizedTopicSummary
+    : normalizedUserMessage;
+  const focusTopicSource = shouldIgnoreRawUserMessage
+    ? shouldIgnoreTopicSummary
+      ? "default"
+      : "topic_summary"
+    : "user_message";
 
   const [styleCard, anchors] = await Promise.all([
     args.services.generateStyleProfile(args.userId, args.effectiveXHandle, 20),
@@ -55,6 +78,7 @@ export async function hydrateTurnContextWorkers(
         details: {
           topicAnchorCount: anchors.topicAnchors.length,
           focusTopic,
+          focusTopicSource,
         },
       }),
     ],

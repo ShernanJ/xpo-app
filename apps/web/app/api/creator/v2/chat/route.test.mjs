@@ -1151,7 +1151,7 @@ test("prepareManagedMainTurnWithDeps auto-renames profile analysis threads from 
   );
 
   assert.equal(generateThreadTitleCalled, false);
-  assert.equal(preparedArgs.nextThreadTitle, "Profile Analysis 87/100");
+  assert.equal(preparedArgs.nextThreadTitle, "Profile Analysis (87/100)");
 });
 
 test("finalizeReplyTurnWithDeps keeps reply planning separate from route persistence and response assembly", async () => {

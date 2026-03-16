@@ -1,3 +1,5 @@
+import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
+
 const MAX_TOPIC_SUMMARY_LENGTH = 160;
 const MAX_REFINEMENT_LENGTH = 180;
 const MAX_UNRESOLVED_QUESTION_LENGTH = 180;
@@ -44,6 +46,15 @@ function normalizeRollingSummary(value: string | null | undefined): string | nul
     .slice(0, MAX_ROLLING_SUMMARY_LINES);
 
   return lines.length > 0 ? lines.join("\n") : null;
+}
+
+function normalizeTopicSummary(value: string | null | undefined): string | null {
+  const normalized = normalizeSingleLine(value, MAX_TOPIC_SUMMARY_LENGTH);
+  if (!normalized) {
+    return null;
+  }
+
+  return looksLikeProfileContextLeak(normalized) ? null : normalized;
 }
 
 function dedupeKeepLatest(values: string[]): string[] {
@@ -103,7 +114,7 @@ export function applyMemorySaliencePolicy(args: {
   envelope: MemorySalienceEnvelope;
 }) {
   return {
-    topicSummary: normalizeSingleLine(args.topicSummary, MAX_TOPIC_SUMMARY_LENGTH),
+    topicSummary: normalizeTopicSummary(args.topicSummary),
     concreteAnswerCount:
       Number.isFinite(args.concreteAnswerCount) && args.concreteAnswerCount > 0
         ? Math.min(12, Math.max(0, Math.round(args.concreteAnswerCount)))

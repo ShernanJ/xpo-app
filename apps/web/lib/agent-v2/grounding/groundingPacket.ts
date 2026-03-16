@@ -1,4 +1,5 @@
 import type { DraftContextSlots } from "../capabilities/planning/draftContextSlots.ts";
+import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
 
 export interface GroundingPacketSourceMaterial {
   type: "story" | "playbook" | "framework" | "case_study";
@@ -361,7 +362,7 @@ function getGroundingStyleCardFacts(styleCard: GroundingStyleCard | null | undef
   return dedupeLines([
     ...(styleCard.factLedger?.durableFacts || []),
     ...(styleCard.contextAnchors || []).filter(looksLikeLegacyFactAnchor),
-  ]);
+  ]).filter((entry) => !looksLikeProfileContextLeak(entry));
 }
 
 function getVoiceContextHintsFromStyleCard(styleCard: GroundingStyleCard | null | undefined): string[] {
@@ -374,7 +375,9 @@ function getVoiceContextHintsFromStyleCard(styleCard: GroundingStyleCard | null 
   );
 
   return dedupeLines(styleCard.contextAnchors || []).filter(
-    (entry) => !factualEntries.has(entry.toLowerCase()),
+    (entry) =>
+      !factualEntries.has(entry.toLowerCase()) &&
+      !looksLikeProfileContextLeak(entry),
   );
 }
 

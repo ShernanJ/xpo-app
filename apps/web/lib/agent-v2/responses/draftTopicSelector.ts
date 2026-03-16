@@ -1,4 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
+import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
 
 const JUNK_TOPIC_VALUES = new Set([
   "this",
@@ -16,6 +17,24 @@ function cleanTopicValue(value: string): string {
     .replace(/^[@#]+/, "")
     .replace(/[.?!,]+$/, "")
     .replace(/\s+/g, " ");
+}
+
+function isAwkwardWorkflowTopic(value: string): boolean {
+  const normalized = cleanTopicValue(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /^(?:yes|yeah|yep|sure|ok|okay|no|nope|nah)\b/,
+    /^(?:looks|sounds)\s+good\b/,
+    /\b(?:i can|i'll|i will|we can|want me|should i|do you want|tell me)\b/,
+    /\b(?:run with it|write it|draft it|do it|go ahead|use that|pick one|choose one)\b/,
+    /\b(?:keep it|make it|let it)\b/,
+    /\b(?:do|does|did|is|are|was|were|can|could|would|should|will)\s+(?:do|does|did|is|are|was|were|can|could|would|should|will)\b/,
+    /\byou\b.*\b(?:want|need|care|know|make|use|do|are|mean|should)\b/,
+    /\b(?:this|that|it)\b.*\b(?:do|does|is|are|works?|lands?)\b/,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function isMetaSummaryTopic(value: string): boolean {
@@ -59,7 +78,7 @@ function isComplaintOrMetaTopic(value: string): boolean {
 export function compactTopicLabel(value: string): string {
   const cleaned = cleanTopicValue(value);
 
-  if (!cleaned) {
+  if (!cleaned || isAwkwardWorkflowTopic(cleaned) || looksLikeProfileContextLeak(cleaned)) {
     return "your usual lane";
   }
 
@@ -109,7 +128,12 @@ function isUsableTopicCandidate(value: string | null): value is string {
     return false;
   }
 
-  if (isMetaSummaryTopic(cleaned) || isComplaintOrMetaTopic(cleaned)) {
+  if (
+    isMetaSummaryTopic(cleaned) ||
+    looksLikeProfileContextLeak(cleaned) ||
+    isComplaintOrMetaTopic(cleaned) ||
+    isAwkwardWorkflowTopic(cleaned)
+  ) {
     return false;
   }
 
@@ -189,6 +213,14 @@ export function isHumanSafeTopicLabel(value: string): boolean {
   }
 
   if (isComplaintOrMetaTopic(label)) {
+    return false;
+  }
+
+  if (looksLikeProfileContextLeak(label)) {
+    return false;
+  }
+
+  if (isAwkwardWorkflowTopic(label)) {
     return false;
   }
 

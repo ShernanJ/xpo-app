@@ -133,6 +133,86 @@ test("dynamic draft chips never surface meta summary topics like 'user is...'", 
   );
 });
 
+test("dynamic draft chips never surface malformed confirmation topics", () => {
+  const result = buildDynamicDraftChoices({
+    mode: "topic_known",
+    seedTopic: "Yes does do that",
+    styleCard: {
+      ...baseStyleCard,
+      contextAnchors: ["yes does do that", "founder hiring systems"],
+    },
+    topicAnchors: ["yes does do that", "founder hiring systems"],
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(
+    result.every(
+      (chip) =>
+        !/yes does do that/i.test(chip.label) &&
+        !/yes does do that/i.test(chip.value),
+    ),
+    true,
+  );
+  assert.equal(
+    result.some((chip) => /usual lane|angle|founder hiring systems/i.test(chip.label)),
+    true,
+  );
+});
+
+test("dynamic draft chips never surface leaked profile-summary topics", () => {
+  const result = buildDynamicDraftChoices({
+    mode: "topic_known",
+    seedTopic: "User's X (Twitter) username is @vitddnv",
+    styleCard: {
+      ...baseStyleCard,
+      contextAnchors: [
+        "User's X (Twitter) username is @vitddnv",
+        "- Account: vitddnv @vitddnv",
+        "founder hiring systems",
+      ],
+    },
+    topicAnchors: ["Bio: founder builder on x", "founder hiring systems"],
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(
+    result.every(
+      (chip) =>
+        !/username is|account:|bio:/i.test(chip.label) &&
+        !/username is|account:|bio:/i.test(chip.value),
+    ),
+    true,
+  );
+  assert.equal(
+    result.some((chip) => /usual lane|angle|founder hiring systems/i.test(chip.label)),
+    true,
+  );
+});
+
+test("ideation quick replies stay generic when seed topic is leaked profile context", () => {
+  const result = buildIdeationQuickReplies({
+    styleCard: baseStyleCard,
+    seedTopic: "User's X (Twitter) username is @vitddnv",
+  });
+
+  assert.equal(result.length, 2);
+  assert.equal(result.every((chip) => !/username is|vitddnv/i.test(chip.label)), true);
+  assert.equal(result.every((chip) => !/username is|vitddnv/i.test(chip.value)), true);
+});
+
+test("clarification heuristics reject malformed confirmation fragments as topic seeds", () => {
+  const clarificationHeuristicsSource = readFileSync(
+    fileURLToPath(new URL("./capabilities/planning/clarificationHeuristics.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(clarificationHeuristicsSource, /yes\|yeah\|yep\|sure\|ok\|okay\|no\|nope\|nah/);
+  assert.match(
+    clarificationHeuristicsSource,
+    /run with it\|write it\|draft it\|do it\|go ahead\|use that\|pick one\|choose one/,
+  );
+});
+
 test("story thread chips avoid forcing scan-friendly bullet framing", () => {
   const result = buildDynamicDraftChoices({
     mode: "topic_known",
@@ -336,6 +416,57 @@ test("draft clarification quick replies mirror explicit choices from the questio
   );
 });
 
+test("draft clarification quick replies reject malformed parsed choices and fall back to safer draft chips", () => {
+  const quickReplies = buildDraftClarificationQuickReplies({
+    question:
+      "Which direction should I take - yes does do that, a founder lesson, or a recent example?",
+    userMessage: "write a post",
+    styleCard: baseStyleCard,
+    topicAnchors: ["hiring systems for lean teams", "founder leadership lessons"],
+    seedTopic: null,
+    isVerifiedAccount: false,
+    requestedFormatPreference: "shortform",
+  });
+
+  assert.equal(quickReplies.some((chip) => /yes does do that/i.test(chip.label)), false);
+  assert.equal(quickReplies.length, 3);
+  assert.equal(
+    quickReplies.some((chip) => /usual lane|angle|linkedin to x/i.test(chip.label)),
+    true,
+  );
+});
+
+test("draft clarification fallback chips keep lowercase voice preferences after rejecting bad parsed choices", () => {
+  const quickReplies = buildDraftClarificationQuickReplies({
+    question:
+      "Which direction should I take - yes does do that, a founder lesson, or a recent example?",
+    userMessage: "write a post",
+    styleCard: {
+      ...baseStyleCard,
+      customGuidelines: [],
+      formattingRules: ["all lowercase"],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+    },
+    topicAnchors: ["hiring systems for lean teams", "founder leadership lessons"],
+    seedTopic: null,
+    isVerifiedAccount: false,
+    requestedFormatPreference: "shortform",
+  });
+
+  assert.equal(
+    quickReplies.every((chip) => chip.label === chip.label.toLowerCase()),
+    true,
+  );
+  assert.equal(
+    quickReplies.every((chip) => chip.value === chip.value.toLowerCase()),
+    true,
+  );
+});
+
 test("draft clarification quick replies fall back to dynamic draft chips for bare draft asks", () => {
   const quickReplies = buildDraftClarificationQuickReplies({
     question: "what should i write about?",
@@ -489,13 +620,43 @@ test("profile analysis quick replies prioritize weak profile surfaces", () => {
   );
 });
 
-test("quick reply labels keep natural sentence casing for confirmation phrases", async () => {
+test("quick reply labels keep natural sentence casing for normal phrases", async () => {
   const { normalizeQuickReplyLabel } = await import("./responses/quickReplyVoice.ts");
 
   assert.equal(
-    normalizeQuickReplyLabel("yes does do that", { lowercase: false, concise: false }),
-    "Yes does do that",
+    normalizeQuickReplyLabel("make it more direct", { lowercase: false, concise: false }),
+    "Make it more direct",
   );
+});
+
+test("draft pipeline clarification prompts prefer noun-phrase choices over sentence-like clauses", () => {
+  const draftPipelineSource = readFileSync(
+    fileURLToPath(new URL("./runtime/draftPipeline.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(
+    draftPipelineSource,
+    /what should it land as - the funny loss itself or the actual takeaway\?/,
+  );
+  assert.match(
+    draftPipelineSource,
+    /what lane should i use here - plain product claim or your own use\/build experience\?/,
+  );
+});
+
+test("routing and draft pipeline clarification paths both use the shared hardened draft chip builder", () => {
+  const routingPolicySource = readFileSync(
+    fileURLToPath(new URL("./runtime/routingPolicy.ts", import.meta.url)),
+    "utf8",
+  );
+  const draftPipelineSource = readFileSync(
+    fileURLToPath(new URL("./runtime/draftPipeline.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(routingPolicySource, /buildDraftClarificationQuickReplies\(/);
+  assert.match(draftPipelineSource, /buildDraftClarificationQuickReplies\(/);
 });
 
 test("draft handoff reply stays conversational and asks for tweaks", () => {

@@ -12,6 +12,11 @@ import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface DraftMessagePatchRequest extends Record<string, unknown> {
   draftVersions?: unknown;
@@ -53,6 +58,11 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -61,16 +71,30 @@ export async function PATCH(
     );
   }
 
-  let body: DraftMessagePatchRequest;
-
-  try {
-    body = (await request.json()) as DraftMessagePatchRequest;
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_thread_message",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many message updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many message updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<DraftMessagePatchRequest>(request, {
+    maxBytes: 128 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const activeDraftVersionId =
     typeof body.activeDraftVersionId === "string" ? body.activeDraftVersionId.trim() : "";
@@ -168,12 +192,35 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
       { status: 401 },
     );
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_thread_message_delete",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many message deletions. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many message deletions from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   try {

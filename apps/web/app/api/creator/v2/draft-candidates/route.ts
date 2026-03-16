@@ -13,6 +13,11 @@ import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface DraftCandidatesRequest extends Record<string, unknown> {
   count?: unknown;
@@ -38,6 +43,7 @@ function buildScratchMemoryRecord(args: {
     userId: args.userId,
     threadId: args.threadId ?? null,
     runId: args.runId,
+    version: 1,
     topicSummary: null,
     activeConstraints: {
       constraints: [],
@@ -216,17 +222,41 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
-  let body: DraftCandidatesRequest;
-  try {
-    body = (await request.json()) as DraftCandidatesRequest;
-  } catch {
-    body = {};
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_draft_candidates",
+    user: {
+      limit: 10,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many draft candidate generation requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many draft candidate generation requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<DraftCandidatesRequest | null>(request, {
+    maxBytes: 16 * 1024,
+    allowEmpty: true,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value ?? {};
 
   const count =
     typeof body.count === "number" && Number.isFinite(body.count)

@@ -16,6 +16,10 @@ import {
 } from "@/lib/agent-v2/grounding/sourceMaterials";
 import { buildSeedSourceMaterialInputs } from "@/lib/agent-v2/grounding/sourceMaterialSeeds";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 function buildSourceMaterialIdentityKey(
   asset: Pick<SourceMaterialAssetInput, "type" | "title" | "claims" | "snippets">,
@@ -38,6 +42,11 @@ function buildSourceMaterialIdentityKey(
 }
 
 export async function POST(request: Request) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -52,6 +61,24 @@ export async function POST(request: Request) {
   });
   if (!workspaceHandle.ok) {
     return workspaceHandle.response;
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_source_materials_seed",
+    user: {
+      limit: 10,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many source material seed requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many source material seed requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   const xHandle = workspaceHandle.xHandle;

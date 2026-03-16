@@ -12,6 +12,11 @@ import {
   normalizeUserPreferences,
 } from "@/lib/agent-v2/core/preferenceConstraints";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 async function readVoiceProfile(userId: string, xHandle: string) {
   return prisma.voiceProfile.findFirst({
@@ -53,6 +58,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -69,15 +79,31 @@ export async function PATCH(request: NextRequest) {
     return workspaceHandle.response;
   }
 
-  let body: { preferences?: unknown };
-  try {
-    body = (await request.json()) as { preferences?: unknown };
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_preferences",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many preference updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many preference updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+
+  const bodyResult = await parseJsonBody<{ preferences?: unknown }>(request, {
+    maxBytes: 8 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const parsedPreferences = UserPreferencesSchema.safeParse(body.preferences);
   if (!parsedPreferences.success) {

@@ -9,6 +9,11 @@ import {
   type DraftArtifactDetails,
 } from "@/lib/onboarding/shared/draftArtifacts";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface CandidatePatchRequest extends Record<string, unknown> {
   action?: unknown;
@@ -121,6 +126,7 @@ function buildScratchMemoryRecord(args: {
     userId: args.userId,
     threadId: args.threadId ?? null,
     runId: args.runId,
+    version: 1,
     topicSummary: null,
     activeConstraints: {
       constraints: [],
@@ -148,20 +154,40 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ candidateId: string }> },
 ) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, errors: [{ field: "auth", message: "Unauthorized" }] }, { status: 401 });
   }
 
-  let body: CandidatePatchRequest;
-  try {
-    body = (await request.json()) as CandidatePatchRequest;
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_draft_candidate",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many draft candidate updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many draft candidate updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<CandidatePatchRequest>(request, {
+    maxBytes: 16 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const action = typeof body.action === "string" ? body.action.trim() : "";
   const content = typeof body.content === "string" ? body.content.trim() : "";

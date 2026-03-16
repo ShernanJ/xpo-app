@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { processNextQueuedChatTurn } from "../app/api/creator/v2/chat/_lib/worker/chatTurnWorker.ts";
 import { processNextOnboardingBackfillJob } from "../lib/onboarding/pipeline/backfill.ts";
 
 const IDLE_DELAY_MS = Number.parseInt(process.env.BACKGROUND_WORKER_IDLE_MS ?? "2000", 10);
@@ -17,6 +18,15 @@ process.on("SIGTERM", handleSignal);
 
 while (!shuttingDown) {
   try {
+    const chatResult = await processNextQueuedChatTurn();
+    if (chatResult.ok && chatResult.claimed && chatResult.turnId) {
+      process.stdout.write(
+        `Processed chat turn ${chatResult.turnId} with status ${chatResult.status}.\n`,
+      );
+      await delay(ACTIVE_DELAY_MS);
+      continue;
+    }
+
     const result = await processNextOnboardingBackfillJob();
     if (result.ok && result.jobId) {
       process.stdout.write(

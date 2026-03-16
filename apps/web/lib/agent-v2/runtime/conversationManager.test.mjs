@@ -1396,6 +1396,87 @@ test("turn context hydration workers fall back to topic summary when the message
   assert.equal(result.workerExecutions[1]?.details?.focusTopic, "x growth systems");
 });
 
+test("turn context hydration workers ignore bare draft commands as retrieval topics", async () => {
+  let seenFocusTopic = null;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write a post",
+    topicSummary: "founder hiring systems",
+    services: {
+      generateStyleProfile: async () => null,
+      retrieveAnchors: async (_userId, _xHandle, focusTopic) => {
+        seenFocusTopic = focusTopic;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(seenFocusTopic, "founder hiring systems");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopic, "founder hiring systems");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopicSource, "topic_summary");
+});
+
+test("turn context hydration workers fall back to default focus when a bare draft has no topic summary", async () => {
+  let seenFocusTopic = null;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write a post",
+    topicSummary: null,
+    services: {
+      generateStyleProfile: async () => null,
+      retrieveAnchors: async (_userId, _xHandle, focusTopic) => {
+        seenFocusTopic = focusTopic;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(seenFocusTopic, "growth");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopic, "growth");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopicSource, "default");
+});
+
+test("turn context hydration workers ignore stale generic topic summaries for bare draft requests", async () => {
+  let seenFocusTopic = null;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write a post",
+    topicSummary: "write a post",
+    services: {
+      generateStyleProfile: async () => null,
+      retrieveAnchors: async (_userId, _xHandle, focusTopic) => {
+        seenFocusTopic = focusTopic;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(seenFocusTopic, "growth");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopic, "growth");
+  assert.equal(result.workerExecutions[1]?.details?.focusTopicSource, "default");
+});
+
 test("historical text workers merge posts and queued draft candidates for novelty checks", async () => {
   const result = await loadHistoricalTextWorkers({
     userId: "user_1",
@@ -3089,6 +3170,50 @@ test("grounding packet keeps voice-only context hints out of factual authority",
     packet.factualAuthority?.includes("xpo helps people write and grow faster on x"),
     true,
   );
+});
+
+test("grounding packet strips leaked profile-summary context from facts and voice hints", () => {
+  const packet = buildGroundingPacket({
+    styleCard: {
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      pacing: "direct",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: [],
+      customGuidelines: [],
+      contextAnchors: [
+        "User's X (Twitter) username is @vitddnv",
+        "- Account: vitddnv @vitddnv",
+        "writes about product positioning",
+        "xpo helps people write and grow faster on x",
+      ],
+      factLedger: {
+        durableFacts: ["Bio: founder builder on x"],
+        allowedFirstPersonClaims: [],
+        allowedNumbers: [],
+        forbiddenClaims: [],
+        sourceMaterials: [],
+      },
+      antiExamples: [],
+    },
+    activeConstraints: [],
+    extractedFacts: null,
+  });
+
+  assert.equal(
+    packet.durableFacts.some((entry) => /username is|account:|bio:/i.test(entry)),
+    false,
+  );
+  assert.equal(
+    packet.voiceContextHints?.some((entry) => /username is|account:|bio:/i.test(entry)),
+    false,
+  );
+  assert.equal(
+    packet.factualAuthority?.some((entry) => /username is|account:|bio:/i.test(entry)),
+    false,
+  );
+  assert.equal(packet.voiceContextHints?.includes("writes about product positioning"), true);
 });
 
 test("grounding packet lets correction locks override stale positive facts and source material", () => {

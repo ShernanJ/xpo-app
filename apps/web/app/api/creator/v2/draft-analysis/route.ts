@@ -18,6 +18,11 @@ import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface DraftAnalysisRequest extends Record<string, unknown> {
   mode?: unknown;
@@ -31,6 +36,11 @@ function parseMode(value: unknown): DraftInspectorMode | null {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const monetizationEnabled = isMonetizationEnabled();
   const session = await getServerSession();
   if (!session?.user?.id) {
@@ -40,16 +50,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: DraftAnalysisRequest;
-
-  try {
-    body = (await request.json()) as DraftAnalysisRequest;
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_draft_analysis",
+    user: {
+      limit: 12,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many draft analysis requests. Please wait before trying again.",
+    },
+    ip: {
+      limit: 30,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many draft analysis requests from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+
+  const bodyResult = await parseJsonBody<DraftAnalysisRequest>(request, {
+    maxBytes: 32 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const mode = parseMode(body.mode);
   const draft = typeof body.draft === "string" ? body.draft.trim() : "";

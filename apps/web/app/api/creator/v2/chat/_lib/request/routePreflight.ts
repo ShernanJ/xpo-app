@@ -400,26 +400,37 @@ export async function loadRouteConversationContext(args: {
         authorHandle?: string | null;
       }
     | null;
+  existingUserMessageId?: string | null;
 }): Promise<RouteConversationContext> {
-  const createdUserMessage = await prisma.chatMessage.create({
-    data: {
-      threadId: args.storedThread.id,
-      role: "user",
-      content: args.transcriptMessage || args.routeUserMessage,
-      data: {
-        version: "user_context_v2",
-        clientTurnId: args.clientTurnId,
-        explicitIntent: args.explicitIntent,
-        turnSource: args.turnSource,
-        artifactContext: args.artifactContext,
-        routingDiagnostics: args.routingDiagnostics,
-        formatPreference: args.formatPreference,
-        threadFramingStyle: args.threadFramingStyle,
-        selectedDraftContext: args.selectedDraftContext,
-        replyContext: args.structuredReplyContext,
-      } as unknown as Prisma.InputJsonValue,
-    },
-  });
+  const createdUserMessage = args.existingUserMessageId
+    ? await prisma.chatMessage.findUnique({
+        where: {
+          id: args.existingUserMessageId,
+        },
+      })
+    : await prisma.chatMessage.create({
+        data: {
+          threadId: args.storedThread.id,
+          role: "user",
+          content: args.transcriptMessage || args.routeUserMessage,
+          data: {
+            version: "user_context_v2",
+            clientTurnId: args.clientTurnId,
+            explicitIntent: args.explicitIntent,
+            turnSource: args.turnSource,
+            artifactContext: args.artifactContext,
+            routingDiagnostics: args.routingDiagnostics,
+            formatPreference: args.formatPreference,
+            threadFramingStyle: args.threadFramingStyle,
+            selectedDraftContext: args.selectedDraftContext,
+            replyContext: args.structuredReplyContext,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+  if (!createdUserMessage || createdUserMessage.threadId !== args.storedThread.id) {
+    throw new Error("Unable to load the queued user message for this turn.");
+  }
 
   const [loadedThreadMessages, conversationMemory] = await Promise.all([
     prisma.chatMessage.findMany({
@@ -455,7 +466,7 @@ export async function loadRouteConversationContext(args: {
     activeDraft: context.activeDraft,
     storedMemory,
     selectedDraftContext,
-    createdUserMessageId: createdUserMessage.id,
+    createdUserMessageId: args.existingUserMessageId ? null : createdUserMessage.id,
   };
 }
 

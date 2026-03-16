@@ -87,3 +87,19 @@ test("memory salience collapses whitespace and removes empty values", () => {
   assert.equal(result.envelope.latestRefinementInstruction, null);
   assert.equal(result.envelope.unresolvedQuestion, null);
 });
+
+test("memory salience drops leaked profile-summary topic text", () => {
+  const result = applyMemorySaliencePolicy({
+    topicSummary: "  User's X (Twitter) username is @vitddnv  ",
+    concreteAnswerCount: 1,
+    envelope: {
+      constraints: [],
+      lastIdeationAngles: [],
+      rollingSummary: null,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+    },
+  });
+
+  assert.equal(result.topicSummary, null);
+});

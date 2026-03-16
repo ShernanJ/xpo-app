@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { recordProductEvent } from "@/lib/productEvents";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import {
+  enforceSessionMutationRateLimit,
+  parseJsonBody,
+  requireAllowedOrigin,
+} from "@/lib/security/requestValidation";
 
 interface ProductEventRequest extends Record<string, unknown> {
   eventType?: unknown;
@@ -13,6 +18,11 @@ interface ProductEventRequest extends Record<string, unknown> {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = requireAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
@@ -29,15 +39,30 @@ export async function POST(request: NextRequest) {
     return workspaceHandle.response;
   }
 
-  let body: ProductEventRequest;
-  try {
-    body = (await request.json()) as ProductEventRequest;
-  } catch {
-    return NextResponse.json(
-      { ok: false, errors: [{ field: "body", message: "Request body must be valid JSON." }] },
-      { status: 400 },
-    );
+  const rateLimitError = await enforceSessionMutationRateLimit(request, {
+    userId: session.user.id,
+    scope: "creator:v2_product_events",
+    user: {
+      limit: 120,
+      windowMs: 60 * 1000,
+      message: "Too many product events. Please wait before sending more.",
+    },
+    ip: {
+      limit: 300,
+      windowMs: 60 * 1000,
+      message: "Too many product events from this network. Please wait before sending more.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
   }
+  const bodyResult = await parseJsonBody<ProductEventRequest>(request, {
+    maxBytes: 16 * 1024,
+  });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
+  }
+  const body = bodyResult.value;
 
   const eventType =
     typeof body.eventType === "string" ? body.eventType.trim() : "";

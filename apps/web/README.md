@@ -27,12 +27,17 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 Before sending production traffic to this app, run:
 
 ```bash
-pnpm -C apps/web exec prisma migrate deploy
-pnpm -C apps/web run db:verify:schema
+pnpm -C apps/web run deploy:prepare
 pnpm -C apps/web build
 ```
 
-If you start the app with `pnpm -C apps/web start`, the `prestart` hook now runs `prisma migrate deploy` and verifies required tables. On serverless platforms that do not execute `next start`, you still need a separate migration step in the deployment pipeline.
+`pnpm -C apps/web run deploy:prepare` is the deploy-stage command that applies Prisma migrations and verifies required tables before traffic. Keep that step in CI/CD even if your runtime never calls `next start`.
+
+If you start the app with `pnpm -C apps/web start`, the `prestart` hook still runs the same DB readiness checks as a last line of defense. That should not be the only production control on serverless platforms.
+
+## Background Worker
+
+Run `pnpm -C apps/web run worker:background` anywhere you need durable background processing. The worker now handles both onboarding backfill jobs and chat-turn lease recovery for interrupted creator chat requests.
 
 ## Learn More
 
