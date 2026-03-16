@@ -1051,6 +1051,109 @@ test("prepareManagedMainTurnWithDeps owns plan validation, title promotion, and 
   assert.equal(preparedTurn.persistencePlan.threadUpdate.updatedAt instanceof Date, true);
 });
 
+test("prepareManagedMainTurnWithDeps auto-renames profile analysis threads from the audit score", async () => {
+  let generateThreadTitleCalled = false;
+  let preparedArgs = null;
+
+  await prepareManagedMainTurnWithDeps(
+    {
+      rawResponse: {
+        mode: "analysis",
+        outputShape: "profile_analysis",
+        response: "Here is your profile audit.",
+        memory: {
+          ...baseMemory,
+          conversationState: "done",
+          topicSummary: "analyze my profile",
+          preferredSurfaceMode: "natural",
+        },
+        data: {
+          profileAnalysisArtifact: {
+            audit: {
+              score: 87,
+            },
+          },
+        },
+      },
+      recentHistory: "user: analyze my profile",
+      selectedDraftContext: null,
+      formatPreference: null,
+      isVerifiedAccount: true,
+      userPreferences: null,
+      styleCard: null,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "conversational",
+      },
+      clientTurnId: "turn_profile_analysis_1",
+      currentThreadTitle: "New Chat",
+      shouldClearReplyWorkflow: true,
+    },
+    {
+      generateThreadTitle: async () => {
+        generateThreadTitleCalled = true;
+        return "This should not be used";
+      },
+      prepareChatRouteTurn: (args) => {
+        preparedArgs = args;
+        return {
+          rawResponse: args.rawResponse,
+          responseShapePlan: {
+            surfaceMode: "generate_full_output",
+            shouldShowArtifacts: true,
+            shouldAskFollowUp: true,
+            maxFollowUps: 1,
+          },
+          surfaceMode: "generate_full_output",
+          shapedResponse: args.rawResponse.response,
+          mappedDataSeed: {
+            reply: args.rawResponse.response,
+            angles: [],
+            quickReplies: [],
+            plan: args.plan,
+            draft: null,
+            drafts: [],
+            draftArtifacts: [],
+            draftVersions: [],
+            draftBundle: null,
+            supportAsset: null,
+            groundingSources: [],
+            autoSavedSourceMaterials: null,
+            outputShape: "profile_analysis",
+            surfaceMode: "generate_full_output",
+            memory: args.rawResponse.memory,
+            routingDiagnostics: args.routingDiagnostics,
+            requestTrace: {
+              clientTurnId: args.clientTurnId,
+            },
+            replyArtifacts: null,
+            replyParse: null,
+          },
+          persistencePlan: {
+            assistantMessageData: {},
+            buildMemoryUpdate: () => ({}),
+            threadUpdate: {
+              updatedAt: new Date("2026-03-16T12:00:00.000Z"),
+            },
+            draftCandidateCreates: [],
+            analytics: {
+              primaryGroundingMode: null,
+              primaryGroundingSourceCount: 0,
+              autoSavedSourceMaterialCount: 0,
+            },
+          },
+        };
+      },
+    },
+  );
+
+  assert.equal(generateThreadTitleCalled, false);
+  assert.equal(preparedArgs.nextThreadTitle, "Profile Analysis 87/100");
+});
+
 test("finalizeReplyTurnWithDeps keeps reply planning separate from route persistence and response assembly", async () => {
   let persistedArgs = null;
   let dispatchedArgs = null;

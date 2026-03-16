@@ -18,6 +18,40 @@ import {
 
 const DEFAULT_THREAD_TITLE = "New Chat";
 
+function resolveProfileAnalysisThreadTitle(
+  rawResponse: RawOrchestratorResponse,
+): string | null {
+  if (rawResponse.outputShape !== "profile_analysis") {
+    return null;
+  }
+
+  const resultData =
+    rawResponse.data &&
+    typeof rawResponse.data === "object" &&
+    !Array.isArray(rawResponse.data)
+      ? (rawResponse.data as Record<string, unknown>)
+      : null;
+  const profileAnalysisArtifact =
+    resultData?.profileAnalysisArtifact &&
+    typeof resultData.profileAnalysisArtifact === "object" &&
+    !Array.isArray(resultData.profileAnalysisArtifact)
+      ? (resultData.profileAnalysisArtifact as Record<string, unknown>)
+      : null;
+  const audit =
+    profileAnalysisArtifact?.audit &&
+    typeof profileAnalysisArtifact.audit === "object" &&
+    !Array.isArray(profileAnalysisArtifact.audit)
+      ? (profileAnalysisArtifact.audit as Record<string, unknown>)
+      : null;
+  const score = audit?.score;
+
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return "Profile Analysis";
+  }
+
+  return `Profile Analysis (${Math.round(score)}/100)`;
+}
+
 function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
   const normalized = title?.trim() || "";
   return !normalized || normalized === DEFAULT_THREAD_TITLE;
@@ -168,13 +202,16 @@ export async function prepareManagedMainTurnWithDeps(
     topicSummary: args.rawResponse.memory.topicSummary,
     conversationState: args.rawResponse.memory.conversationState,
   });
-  const nextThreadTitle = shouldPromoteTitle
-    ? await deps.generateThreadTitle({
-        topicSummary: args.rawResponse.memory.topicSummary,
-        recentHistory: args.recentHistory || "None",
-        plan: validatedPlan,
-      })
-    : null;
+  const profileAnalysisThreadTitle = resolveProfileAnalysisThreadTitle(args.rawResponse);
+  const nextThreadTitle = profileAnalysisThreadTitle
+    ? profileAnalysisThreadTitle
+    : shouldPromoteTitle
+      ? await deps.generateThreadTitle({
+          topicSummary: args.rawResponse.memory.topicSummary,
+          recentHistory: args.recentHistory || "None",
+          plan: validatedPlan,
+        })
+      : null;
 
   return deps.prepareChatRouteTurn({
     rawResponse: args.rawResponse,
