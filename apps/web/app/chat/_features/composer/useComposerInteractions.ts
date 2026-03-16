@@ -179,30 +179,13 @@ export function useComposerInteractions<
     ],
   );
 
-  const handleQuickReplySelect = useCallback(
-    (quickReply: TQuickReply) => {
-      const quickReplyUpdate = resolveComposerQuickReplyUpdate({
-        quickReply,
-        isMainChatLocked,
-      });
-      if (!quickReplyUpdate.shouldApply) {
-        return;
-      }
-
-      if (quickReplyUpdate.nextActiveContentFocus) {
-        setActiveContentFocus(quickReplyUpdate.nextActiveContentFocus as TContentFocus);
-      }
-
-      setDraftInput(quickReplyUpdate.nextDraftInput);
-      if (quickReplyUpdate.shouldClearError) {
-        setErrorMessage(null);
-      }
-    },
-    [isMainChatLocked, setActiveContentFocus, setDraftInput, setErrorMessage],
-  );
-
   const submitComposerPrompt = useCallback(
-    async (prompt: string) => {
+    async (
+      prompt: string,
+      options?: {
+        contentFocusOverride?: TContentFocus | null;
+      },
+    ) => {
       const submission = prepareComposerSubmission({
         prompt,
         hasContext: Boolean(context),
@@ -238,7 +221,7 @@ export function useComposerInteractions<
         turnSource: "free_text",
         strategyInputOverride: activeStrategyInputs as TStrategyInputs,
         toneInputOverride: activeToneInputs as TToneInputs,
-        contentFocusOverride: activeContentFocus,
+        contentFocusOverride: options?.contentFocusOverride ?? activeContentFocus,
       });
     },
     [
@@ -254,6 +237,40 @@ export function useComposerInteractions<
       setDraftInput,
       setErrorMessage,
       setIsLeavingHero,
+    ],
+  );
+
+  const handleQuickReplySelect = useCallback(
+    async (quickReply: TQuickReply) => {
+      const quickReplyUpdate = resolveComposerQuickReplyUpdate({
+        quickReply,
+        isMainChatLocked,
+      });
+      if (!quickReplyUpdate.shouldApply) {
+        return;
+      }
+
+      if (quickReplyUpdate.nextActiveContentFocus) {
+        setActiveContentFocus(quickReplyUpdate.nextActiveContentFocus as TContentFocus);
+      }
+
+      setDraftInput(quickReplyUpdate.nextDraftInput);
+      if (quickReplyUpdate.shouldClearError) {
+        setErrorMessage(null);
+      }
+
+      await submitComposerPrompt(quickReplyUpdate.nextDraftInput, {
+        contentFocusOverride:
+          quickReplyUpdate.nextActiveContentFocus ?? activeContentFocus,
+      });
+    },
+    [
+      activeContentFocus,
+      isMainChatLocked,
+      setActiveContentFocus,
+      setDraftInput,
+      setErrorMessage,
+      submitComposerPrompt,
     ],
   );
 

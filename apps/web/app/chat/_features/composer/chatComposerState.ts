@@ -47,7 +47,7 @@ export function resolveComposerQuickReplyUpdate<TFocus extends string>(args: {
   if (args.quickReply.kind === "content_focus") {
     return {
       shouldApply: true,
-      nextDraftInput: `i want to focus on ${args.quickReply.label.toLowerCase()}`,
+      nextDraftInput: args.quickReply.label,
       nextActiveContentFocus: args.quickReply.value as TFocus,
       shouldClearError: true,
     };
@@ -55,7 +55,7 @@ export function resolveComposerQuickReplyUpdate<TFocus extends string>(args: {
 
   return {
     shouldApply: true,
-    nextDraftInput: args.quickReply.value,
+    nextDraftInput: args.quickReply.label,
     ...(args.quickReply.suggestedFocus
       ? { nextActiveContentFocus: args.quickReply.suggestedFocus }
       : {}),

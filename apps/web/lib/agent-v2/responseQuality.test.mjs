@@ -321,9 +321,9 @@ test("draft clarification quick replies mirror explicit choices from the questio
   assert.deepEqual(
     quickReplies.map((chip) => chip.label),
     [
-      "Hiring System Tip",
-      "Leadership Lesson",
-      "Behind-The-Scenes Metric",
+      "Hiring system tip",
+      "Leadership lesson",
+      "Behind-the-scenes metric",
     ],
   );
   assert.deepEqual(
@@ -486,6 +486,15 @@ test("profile analysis quick replies prioritize weak profile surfaces", () => {
   assert.deepEqual(
     quickReplies.map((chip) => chip.label),
     ["Rewrite bio", "Fix banner promise", "Draft pinned post"],
+  );
+});
+
+test("quick reply labels keep natural sentence casing for confirmation phrases", async () => {
+  const { normalizeQuickReplyLabel } = await import("./responses/quickReplyVoice.ts");
+
+  assert.equal(
+    normalizeQuickReplyLabel("yes does do that", { lowercase: false, concise: false }),
+    "Yes does do that",
   );
 });
 

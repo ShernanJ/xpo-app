@@ -68,8 +68,12 @@ export function applyQuickReplyVoiceCase(value: string, voice: QuickReplyVoicePr
   return normalized.toLowerCase();
 }
 
-function titleCaseLabel(value: string): string {
-  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+function sentenceCaseLabel(value: string): string {
+  if (!value) {
+    return value;
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function normalizeQuickReplyLabel(
@@ -77,6 +81,6 @@ export function normalizeQuickReplyLabel(
   voice: QuickReplyVoiceProfile,
 ): string {
   const trimmed = value.trim().replace(/\s+/g, " ");
-  const base = voice.lowercase ? trimmed.toLowerCase() : titleCaseLabel(trimmed);
+  const base = voice.lowercase ? trimmed.toLowerCase() : sentenceCaseLabel(trimmed);
   return base.length > 30 ? `${base.slice(0, 27).trimEnd()}...` : base;
 }

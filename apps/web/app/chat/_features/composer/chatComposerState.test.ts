@@ -34,7 +34,7 @@ test("resolveComposerQuickReplyUpdate maps content focus replies into focus-pref
     }),
     {
       shouldApply: true,
-      nextDraftInput: "i want to focus on build in public",
+      nextDraftInput: "Build In Public",
       nextActiveContentFocus: "build_in_public",
       shouldClearError: true,
     },
@@ -54,7 +54,7 @@ test("resolveComposerQuickReplyUpdate carries suggested focus for non-focus quic
     }),
     {
       shouldApply: true,
-      nextDraftInput: "draft 4 posts from what you know about me",
+      nextDraftInput: "Draft 4 posts",
       nextActiveContentFocus: "operator_lessons",
       shouldClearError: true,
     },
