@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import Image from "next/image";
 import { ArrowUpRight, Check, Copy, Edit3 } from "lucide-react";
 
@@ -107,10 +107,45 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
     convertToThreadPrompt,
     isFocusedDraftPreview,
   } = previewState;
+  const articleRef = useRef<HTMLElement | null>(null);
+  const selectedExpandedPostRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!isThreadPreview || !isFocusedDraftPreview) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (isExpandedThreadPreview && selectedExpandedPostRef.current) {
+        selectedExpandedPostRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        });
+        return;
+      }
+
+      articleRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    isExpandedThreadPreview,
+    isFocusedDraftPreview,
+    isThreadPreview,
+    selectedThreadPreviewPostIndex,
+  ]);
 
   return (
     <div className="mt-4 border-t border-white/10 pt-4">
       <article
+        ref={articleRef}
         className={`rounded-2xl bg-[#000000] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
           isFocusedDraftPreview
             ? "border border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.16)]"
@@ -194,6 +229,11 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                             )}
                           </div>
                           <button
+                            ref={
+                              selectedThreadPreviewPostIndex === postIndex
+                                ? selectedExpandedPostRef
+                                : null
+                            }
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();

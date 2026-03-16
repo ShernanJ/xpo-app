@@ -1,6 +1,7 @@
 import type { ImgHTMLAttributes } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach } from "vitest";
 import { expect, test, vi } from "vitest";
 import type { InlineDraftPreviewState } from "./chatDraftPreviewState";
 import { InlineDraftPreviewCard } from "./chatDraftPreviewCard";
@@ -35,6 +36,27 @@ const previewState: InlineDraftPreviewState = {
   previewRevealKey: "message:1",
 };
 
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+const scrollIntoViewMock = vi.fn();
+const originalRequestAnimationFrame = window.requestAnimationFrame;
+const originalCancelAnimationFrame = window.cancelAnimationFrame;
+
+beforeEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoViewMock;
+  scrollIntoViewMock.mockReset();
+  window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  }) as typeof window.requestAnimationFrame;
+  window.cancelAnimationFrame = vi.fn();
+});
+
+afterEach(() => {
+  Element.prototype.scrollIntoView = originalScrollIntoView;
+  window.requestAnimationFrame = originalRequestAnimationFrame;
+  window.cancelAnimationFrame = originalCancelAnimationFrame;
+});
+
 test("uses a real button for opening the draft preview", async () => {
   const user = userEvent.setup();
   const onOpenDraftEditor = vi.fn();
@@ -68,4 +90,49 @@ test("uses a real button for opening the draft preview", async () => {
 
   await user.click(openDraftButton);
   expect(onOpenDraftEditor).toHaveBeenCalledWith();
+});
+
+test("scrolls the selected expanded thread post into view when focused", async () => {
+  render(
+    <InlineDraftPreviewCard
+      identity={{
+        avatarUrl: null,
+        displayName: "Stanley",
+        username: "stanley",
+      }}
+      previewState={{
+        ...previewState,
+        isThreadPreview: true,
+        isExpandedThreadPreview: true,
+        isFocusedDraftPreview: true,
+        selectedThreadPreviewPostIndex: 1,
+        threadPreviewPosts: [
+          {
+            content: "Post one",
+            originalIndex: 0,
+            weightedCharacterCount: 8,
+            maxCharacterLimit: 280,
+          },
+          {
+            content: "Post two",
+            originalIndex: 1,
+            weightedCharacterCount: 8,
+            maxCharacterLimit: 280,
+          },
+        ],
+      }}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      hasCopiedDraft={false}
+      revealClassName=""
+      shouldAnimateLines={false}
+      onOpenDraftEditor={vi.fn()}
+      onRequestRevision={vi.fn()}
+      onToggleExpanded={vi.fn()}
+      onCopy={vi.fn()}
+      onShare={vi.fn()}
+    />,
+  );
+
+  expect(scrollIntoViewMock).toHaveBeenCalled();
 });

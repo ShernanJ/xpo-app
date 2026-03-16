@@ -31,7 +31,48 @@ export function joinThreadPosts(posts: string[]): string {
   return joinSerializedThreadPosts(posts);
 }
 
-export function splitThreadPostAtBoundary(content: string): [string, string] | null {
+function isLikelyCtaOrClosingTail(content: string): boolean {
+  const normalized = content.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\b(?:comment|reply|dm|message|follow|download|get|grab|join|subscribe|sign up|book)\b/,
+    /\bif you (?:want|need|are interested|would like)\b/,
+    /\bi(?:'ll| will)\s+(?:send|share|reply|dm|message)\b/,
+    /\b(?:link in bio|drop a comment|leave a comment|comment below)\b/,
+    /^(?:the takeaway|bottom line|the point is|that's the point|that's the game|that's how)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function splitTrailingTail(
+  parts: string[],
+  joiner: string,
+): [string, string] | null {
+  for (let tailSize = Math.min(2, parts.length - 1); tailSize >= 1; tailSize -= 1) {
+    const leading = parts.slice(0, -tailSize).join(joiner).trim();
+    const trailing = parts.slice(-tailSize).join(joiner).trim();
+    if (!leading || !trailing) {
+      continue;
+    }
+
+    if (leading.split(/\s+/).filter(Boolean).length < 6) {
+      continue;
+    }
+
+    if (isLikelyCtaOrClosingTail(trailing)) {
+      return [leading, trailing];
+    }
+  }
+
+  return null;
+}
+
+export function splitThreadPostAtBoundary(
+  content: string,
+  options?: { preferClosingTail?: boolean },
+): [string, string] | null {
   const normalized = content.trim();
   if (!normalized) {
     return null;
@@ -39,6 +80,13 @@ export function splitThreadPostAtBoundary(content: string): [string, string] | n
 
   const paragraphParts = normalized.split(/\n{2,}/).filter(Boolean);
   if (paragraphParts.length > 1) {
+    if (options?.preferClosingTail) {
+      const tailSplit = splitTrailingTail(paragraphParts, "\n\n");
+      if (tailSplit) {
+        return tailSplit;
+      }
+    }
+
     const pivot = Math.ceil(paragraphParts.length / 2);
     return [
       paragraphParts.slice(0, pivot).join("\n\n").trim(),
@@ -48,6 +96,13 @@ export function splitThreadPostAtBoundary(content: string): [string, string] | n
 
   const sentenceParts = normalized.split(/(?<=[.!?])\s+/).filter(Boolean);
   if (sentenceParts.length > 1) {
+    if (options?.preferClosingTail) {
+      const tailSplit = splitTrailingTail(sentenceParts, " ");
+      if (tailSplit) {
+        return tailSplit;
+      }
+    }
+
     const pivot = Math.ceil(sentenceParts.length / 2);
     return [
       sentenceParts.slice(0, pivot).join(" ").trim(),
@@ -168,7 +223,9 @@ export function splitThreadDraftPost(args: {
   index: number;
 }): ThreadPostMutationResult | null {
   const target = args.posts[args.index] ?? "";
-  const split = splitThreadPostAtBoundary(target);
+  const split = splitThreadPostAtBoundary(target, {
+    preferClosingTail: args.index === args.posts.length - 1,
+  });
   if (!split) {
     return null;
   }

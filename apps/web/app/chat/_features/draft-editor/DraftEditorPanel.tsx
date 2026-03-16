@@ -1,7 +1,15 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Image from "next/image";
-import { Check, ChevronLeft, ChevronRight, Copy, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import {
   computeXWeightedCharacterCount,
@@ -84,8 +92,6 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
     onPrimaryAction,
     isSelectedDraftThread,
     selectedDraftArtifact,
-    selectedDraftThreadFramingStyle,
-    onChangeThreadFraming,
     isMainChatLocked,
     isViewingHistoricalDraftVersion,
     editorDraftPosts,
@@ -93,9 +99,6 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
     selectedDraftMessageId,
     onSelectThreadPost,
     onUpdateThreadDraftPost,
-    onMoveThreadDraftPost,
-    onSplitThreadDraftPost,
-    onMergeThreadDraftPostDown,
     onAddThreadDraftPost,
     onRemoveThreadDraftPost,
     draftEditorSerializedContent,
@@ -142,6 +145,45 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
         selectedDraftMaxCharacterLimit,
         composerCharacterLimit,
       )} chars`;
+  const threadPostContainerRef = useRef<HTMLDivElement | null>(null);
+  const threadPostTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const historicalThreadPostRef = useRef<HTMLDivElement | null>(null);
+  const activeThreadPostKey = selectedDraftMessageId
+    ? `${selectedDraftMessageId}:${selectedDraftThreadPostIndex}:${isViewingHistoricalDraftVersion ? "history" : "edit"}`
+    : `thread-post:${selectedDraftThreadPostIndex}:${isViewingHistoricalDraftVersion ? "history" : "edit"}`;
+
+  useEffect(() => {
+    if (!isSelectedDraftThread) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      threadPostContainerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+
+      if (isViewingHistoricalDraftVersion) {
+        if (historicalThreadPostRef.current) {
+          historicalThreadPostRef.current.scrollTop = 0;
+        }
+        return;
+      }
+
+      if (threadPostTextareaRef.current) {
+        threadPostTextareaRef.current.scrollTop = 0;
+        threadPostTextareaRef.current.setSelectionRange(0, 0);
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    activeThreadPostKey,
+    isSelectedDraftThread,
+    isViewingHistoricalDraftVersion,
+  ]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
@@ -233,75 +275,15 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
 
       <div className={`min-h-0 flex-1 ${panelPaddingClassName}`}>
         {isSelectedDraftThread ? (
-          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Thread Framing
-                </p>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Control how the thread announces itself.
-                </p>
-              </div>
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+            <div
+              ref={threadPostContainerRef}
+              className="flex min-h-[320px] flex-1 scroll-mt-4 flex-col"
+            >
               <div className="flex flex-wrap items-center gap-2">
-                {[
-                  { value: "none", label: "Natural" },
-                  { value: "soft_signal", label: "Soft Intro" },
-                  { value: "numbered", label: "Numbered" },
-                ].map((option) => {
-                  const isActive = selectedDraftThreadFramingStyle === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() =>
-                        onChangeThreadFraming(option.value as ThreadFramingStyle)
-                      }
-                      disabled={isActive || isMainChatLocked || isViewingHistoricalDraftVersion}
-                      className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
-                        isActive
-                          ? "bg-white text-black"
-                          : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                      } disabled:cursor-not-allowed disabled:opacity-45`}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {threadPosts.map((_, index) => {
-                const isActive = selectedDraftThreadPostIndex === index;
-
-                return (
-                  <button
-                    key={`thread-post-chip-${index}`}
-                    type="button"
-                    onClick={() => {
-                      if (!selectedDraftMessageId) {
-                        return;
-                      }
-                      onSelectThreadPost(index);
-                    }}
-                    className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${
-                      isActive
-                        ? "bg-white text-black"
-                        : "border border-white/10 text-zinc-400 hover:bg-white/[0.04] hover:text-white"
-                    }`}
-                  >
-                    Post {index + 1}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                    Post {selectedDraftThreadPostIndex + 1}
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                    Post {selectedDraftThreadPostIndex + 1} of {threadPosts.length}
                   </span>
                   <span
                     className={`text-[11px] ${
@@ -312,68 +294,68 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
                   </span>
                 </div>
                 {!isViewingHistoricalDraftVersion ? (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        onMoveThreadDraftPost(selectedDraftThreadPostIndex, "up")
+                      onClick={() => onSelectThreadPost(selectedDraftThreadPostIndex - 1)}
+                      disabled={
+                        !selectedDraftMessageId || selectedDraftThreadPostIndex === 0
                       }
-                      disabled={selectedDraftThreadPostIndex === 0}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-label="View previous post"
+                      title="View previous post"
                     >
-                      Up
+                      <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        onMoveThreadDraftPost(selectedDraftThreadPostIndex, "down")
+                      onClick={() => onSelectThreadPost(selectedDraftThreadPostIndex + 1)}
+                      disabled={
+                        !selectedDraftMessageId ||
+                        selectedDraftThreadPostIndex === threadPosts.length - 1
                       }
-                      disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-label="View next post"
+                      title="View next post"
                     >
-                      Down
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSplitThreadDraftPost(selectedDraftThreadPostIndex)}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
-                    >
-                      Split
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onMergeThreadDraftPostDown(selectedDraftThreadPostIndex)
-                      }
-                      disabled={selectedDraftThreadPostIndex === threadPosts.length - 1}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                    >
-                      Merge
+                      <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => onAddThreadDraftPost(selectedDraftThreadPostIndex + 1)}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      disabled={isMainChatLocked}
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-label="Add post below"
+                      title="Add post below"
                     >
-                      Add Below
+                      <Plus className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => onRemoveThreadDraftPost(selectedDraftThreadPostIndex)}
-                      className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                      disabled={isMainChatLocked}
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-label="Remove post"
+                      title="Remove post"
                     >
-                      Remove
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ) : null}
               </div>
 
               {isViewingHistoricalDraftVersion ? (
-                <div className={`mt-3 whitespace-pre-wrap text-white ${bodyTextClassName}`}>
+                <div
+                  key={activeThreadPostKey}
+                  ref={historicalThreadPostRef}
+                  className={`mt-4 flex-1 whitespace-pre-wrap text-white ${bodyTextClassName}`}
+                >
                   {selectedThreadPost}
                 </div>
               ) : (
                 <textarea
+                  key={activeThreadPostKey}
+                  ref={threadPostTextareaRef}
                   value={selectedThreadPost}
                   onChange={(event) =>
                     onUpdateThreadDraftPost(
@@ -381,24 +363,11 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
                       event.target.value,
                     )
                   }
-                  className={`mt-3 min-h-[220px] w-full resize-none overflow-y-auto rounded-2xl border ${
-                    isSelectedThreadPostOverLimit ? "border-red-500/30" : "border-white/10"
-                  } bg-transparent px-3 py-3 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+                  className={`mt-4 min-h-[220px] flex-1 w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
                   placeholder={`Thread post ${selectedDraftThreadPostIndex + 1}`}
                 />
               )}
             </div>
-
-            {!isViewingHistoricalDraftVersion ? (
-              <button
-                type="button"
-                onClick={() => onAddThreadDraftPost()}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 px-4 py-3 text-sm font-medium text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.04] hover:text-white"
-              >
-                <Plus className="h-4 w-4" />
-                Add another post
-              </button>
-            ) : null}
           </div>
         ) : isViewingHistoricalDraftVersion ? (
           <div

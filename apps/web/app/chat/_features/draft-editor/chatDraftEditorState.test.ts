@@ -125,6 +125,19 @@ test("splitThreadPostAtBoundary prefers paragraph and sentence splits", () => {
   );
 });
 
+test("splitThreadPostAtBoundary can peel off a closing CTA tail when requested", () => {
+  assert.deepEqual(
+    splitThreadPostAtBoundary(
+      "The payoff has been dramatic. Headcount grew modestly, but each new hire moved revenue in a visible way. If you want the full playbook, comment \"HIRING\" and I'll send it over.",
+      { preferClosingTail: true },
+    ),
+    [
+      "The payoff has been dramatic. Headcount grew modestly, but each new hire moved revenue in a visible way.",
+      "If you want the full playbook, comment \"HIRING\" and I'll send it over.",
+    ],
+  );
+});
+
 test("thread post mutation helpers preserve selected index behavior", () => {
   assert.deepEqual(
     moveThreadDraftPost({
@@ -146,6 +159,24 @@ test("thread post mutation helpers preserve selected index behavior", () => {
     {
       posts: ["One. Two.", "Three. Four."],
       selectedIndex: 0,
+    },
+  );
+
+  assert.deepEqual(
+    splitThreadDraftPost({
+      posts: [
+        "Opening post.",
+        "The payoff has been dramatic. Headcount grew modestly, but each new hire moved revenue in a visible way. If you want the full playbook, comment \"HIRING\" and I'll send it over.",
+      ],
+      index: 1,
+    }),
+    {
+      posts: [
+        "Opening post.",
+        "The payoff has been dramatic. Headcount grew modestly, but each new hire moved revenue in a visible way.",
+        "If you want the full playbook, comment \"HIRING\" and I'll send it over.",
+      ],
+      selectedIndex: 1,
     },
   );
 
