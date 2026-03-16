@@ -33,6 +33,17 @@ import {
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
 import { isMultiDraftRequest } from "@/lib/agent-v2/core/conversationHeuristics";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
+import {
+  buildPendingStatusPlan,
+  type PendingStatusStepId,
+} from "@/lib/chat/agentProgress";
+import {
+  buildChatStreamErrorEvent,
+  buildChatStreamProgressEvent,
+  buildChatStreamResultEvent,
+  encodeChatStreamEvent,
+  type ChatStreamProgressEventData,
+} from "@/lib/chat/chatStream";
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
 import {
   buildInlineProfileAnalysisResponse,
@@ -41,6 +52,9 @@ import {
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
+type StreamProgressCallback = (
+  data: ChatStreamProgressEventData,
+) => Promise<void> | void;
 
 const DEFAULT_THREAD_TITLE = "New Chat";
 
@@ -113,22 +127,128 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = bodyResult.value;
+
+  if (body.stream === true) {
+    return streamChatRouteResponse({
+      execute: async (onProgress) =>
+        handleChatRouteRequest({
+          request,
+          body,
+          monetizationEnabled,
+          userId: session.user.id,
+          onProgress,
+        }),
+    });
+  }
+
+  return await handleChatRouteRequest({
+    request,
+    body,
+    monetizationEnabled,
+    userId: session.user.id,
+  });
+}
+
+function resolveChatResponseErrorMessage(payload: unknown, status: number): string {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const record = payload as Record<string, unknown>;
+    const errors = record.errors;
+    if (Array.isArray(errors)) {
+      const firstMessage = errors.find(
+        (error) =>
+          error &&
+          typeof error === "object" &&
+          "message" in (error as Record<string, unknown>) &&
+          typeof (error as Record<string, unknown>).message === "string",
+      ) as { message?: string } | undefined;
+      if (firstMessage?.message?.trim()) {
+        return firstMessage.message.trim();
+      }
+    }
+  }
+
+  if (status === 401) {
+    return "Unauthorized";
+  }
+
+  if (status === 400) {
+    return "The request could not be processed.";
+  }
+
+  return "Failed to generate a reply.";
+}
+
+function streamChatRouteResponse(args: {
+  execute: (onProgress: StreamProgressCallback) => Promise<Response>;
+}): Response {
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const writeEvent = (chunk: string) => {
+        controller.enqueue(encoder.encode(chunk));
+      };
+
+      const writeProgress = (data: ChatStreamProgressEventData) => {
+        writeEvent(encodeChatStreamEvent(buildChatStreamProgressEvent(data)));
+      };
+
+      const writeError = (message?: string | null) => {
+        writeEvent(encodeChatStreamEvent(buildChatStreamErrorEvent(message)));
+      };
+
+      void (async () => {
+        try {
+          const response = await args.execute(writeProgress);
+          const payload = (await response.json()) as Record<string, unknown>;
+
+          if (response.ok && payload.ok === true && "data" in payload) {
+            writeEvent(
+              encodeChatStreamEvent(buildChatStreamResultEvent(payload.data)),
+            );
+            return;
+          }
+
+          writeError(resolveChatResponseErrorMessage(payload, response.status));
+        } catch (error) {
+          writeError(error instanceof Error ? error.message : null);
+        } finally {
+          controller.close();
+        }
+      })();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function handleChatRouteRequest(args: {
+  request: NextRequest;
+  body: CreatorChatRequest;
+  monetizationEnabled: boolean;
+  userId: string;
+  onProgress?: StreamProgressCallback;
+}): Promise<Response> {
   const loadBillingStateForResponse = () =>
-    monetizationEnabled
-      ? getBillingStateForUser(session.user.id)
+    args.monetizationEnabled
+      ? getBillingStateForUser(args.userId)
       : Promise.resolve(null);
 
-  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
-  const runId = typeof body.runId === "string" ? body.runId.trim() : "";
-  const clientTurnId = normalizeClientTurnId(body.clientTurnId);
-  // If no threadId or runId, we will automatically generate a thread below.
-
-  const normalizedTurn = normalizeChatTurn({ body });
+  const threadId = typeof args.body.threadId === "string" ? args.body.threadId.trim() : "";
+  const runId = typeof args.body.runId === "string" ? args.body.runId.trim() : "";
+  const clientTurnId = normalizeClientTurnId(args.body.clientTurnId);
+  const normalizedTurn = normalizeChatTurn({ body: args.body });
   const formatPreference =
-    body.formatPreference === "shortform" ||
-    body.formatPreference === "longform" ||
-    body.formatPreference === "thread"
-      ? body.formatPreference
+    args.body.formatPreference === "shortform" ||
+    args.body.formatPreference === "longform" ||
+    args.body.formatPreference === "thread"
+      ? args.body.formatPreference
       : null;
   const effectiveFormatPreference =
     formatPreference ??
@@ -136,26 +256,31 @@ export async function POST(request: NextRequest) {
     normalizedTurn.artifactContext.formatHint === "thread"
       ? "thread"
       : null);
-  const threadFramingStyle = resolveThreadFramingStyle(body.threadFramingStyle);
+  const threadFramingStyle = resolveThreadFramingStyle(args.body.threadFramingStyle);
   let selectedDraftContext =
-    normalizedTurn.selectedDraftContext ?? parseSelectedDraftContext(body.selectedDraftContext);
+    normalizedTurn.selectedDraftContext ??
+    parseSelectedDraftContext(args.body.selectedDraftContext);
   const structuredReplyContext =
-    body.replyContext && typeof body.replyContext === "object" && !Array.isArray(body.replyContext)
-      ? (body.replyContext as {
+    args.body.replyContext &&
+    typeof args.body.replyContext === "object" &&
+    !Array.isArray(args.body.replyContext)
+      ? (args.body.replyContext as {
           sourceText?: string | null;
           sourceUrl?: string | null;
           authorHandle?: string | null;
         })
       : null;
-  const preferenceConstraints = Array.isArray(body.preferenceConstraints)
-    ? body.preferenceConstraints
+  const preferenceConstraints = Array.isArray(args.body.preferenceConstraints)
+    ? args.body.preferenceConstraints
         .filter((value): value is string => typeof value === "string")
         .map((value) => value.trim())
         .filter(Boolean)
     : [];
   const transientPreferenceSettings =
-    body.preferenceSettings && typeof body.preferenceSettings === "object" && !Array.isArray(body.preferenceSettings)
-      ? (body.preferenceSettings as Partial<UserPreferences>)
+    args.body.preferenceSettings &&
+    typeof args.body.preferenceSettings === "object" &&
+    !Array.isArray(args.body.preferenceSettings)
+      ? (args.body.preferenceSettings as Partial<UserPreferences>)
       : null;
   const routeUserMessage =
     normalizedTurn.message ||
@@ -171,11 +296,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const progressPlan = buildPendingStatusPlan({
+    message: effectiveMessage,
+    turnSource: normalizedTurn.source,
+    artifactContext: normalizedTurn.artifactContext ?? null,
+    intent: normalizedTurn.explicitIntent ?? null,
+    threadFramingStyleOverride: threadFramingStyle,
+    hasSelectedDraftContext: Boolean(selectedDraftContext),
+  });
+  const emitProgress = async (stepIndex: number) => {
+    const activeStepId = progressPlan.steps[stepIndex]?.id as PendingStatusStepId | undefined;
+    if (!activeStepId || !args.onProgress) {
+      return;
+    }
+
+    await args.onProgress({
+      workflow: progressPlan.workflow,
+      activeStepId,
+    });
+  };
+
   const threadState = await resolveRouteThreadState({
-    request,
-    session: { user: { id: session.user.id } },
+    request: args.request,
+    session: { user: { id: args.userId } },
     bodyHandle:
-      typeof body.workspaceHandle === "string" ? body.workspaceHandle : null,
+      typeof args.body.workspaceHandle === "string" ? args.body.workspaceHandle : null,
     threadId,
   });
   if (!threadState.ok) {
@@ -186,6 +331,8 @@ export async function POST(request: NextRequest) {
   const shouldForcePinnedRefreshForAnalysis = isInlineProfileAnalysisRequest(
     effectiveMessage,
   );
+
+  await emitProgress(0);
 
   if (threadId) {
     const duplicateReplayResponse = await maybeReplayDuplicateTurn({
@@ -217,13 +364,15 @@ export async function POST(request: NextRequest) {
 
   const storedRunResult = await resolveRouteStoredRun({
     runId,
-    userId: session.user.id,
+    userId: args.userId,
     activeHandle,
   });
   if (!storedRunResult.ok) {
     return storedRunResult.response;
   }
   const storedRun = storedRunResult.storedRun;
+
+  await emitProgress(1);
 
   const {
     onboardingResult,
@@ -238,7 +387,7 @@ export async function POST(request: NextRequest) {
     effectiveUserPreferences,
     mergedPreferenceConstraints,
   } = await resolveRouteProfileContext({
-    userId: session.user.id,
+    userId: args.userId,
     activeHandle,
     storedRun,
     transientPreferenceSettings,
@@ -258,9 +407,9 @@ export async function POST(request: NextRequest) {
   let debitedCharge: { cost: number; idempotencyKey: string } | null = null;
 
   try {
-    const effectiveUserId = session.user.id;
+    const effectiveUserId = args.userId;
     const chargeResult = await chargeRouteTurn({
-      monetizationEnabled,
+      monetizationEnabled: args.monetizationEnabled,
       userId: effectiveUserId,
       threadId: storedThread.id,
       turnCreditCost,
@@ -273,7 +422,7 @@ export async function POST(request: NextRequest) {
 
     const conversationContext = await loadRouteConversationContext({
       storedThread,
-      history: body.history,
+      history: args.body.history,
       selectedDraftContext,
       transcriptMessage: normalizedTurn.transcriptMessage,
       routeUserMessage,
@@ -296,6 +445,8 @@ export async function POST(request: NextRequest) {
       growthOsPayload?.profileConversionAudit &&
       isInlineProfileAnalysisRequest(effectiveMessage)
     ) {
+      await emitProgress(2);
+
       const preparedTurn = await prepareManagedMainTurn({
         rawResponse: await buildInlineProfileAnalysisResponse({
           onboarding: onboardingResult,
@@ -313,6 +464,8 @@ export async function POST(request: NextRequest) {
         currentThreadTitle: storedThread.title,
         shouldClearReplyWorkflow: false,
       });
+
+      await emitProgress(3);
 
       return await finalizeMainAssistantTurn({
         preparedTurn,
@@ -351,7 +504,7 @@ export async function POST(request: NextRequest) {
         shouldIncludeRoutingTrace,
         storedThreadId: storedThread.id,
         requestedThreadId: threadId,
-        userId: session.user.id,
+        userId: args.userId,
         activeHandle,
         runId: storedRun?.id ?? null,
         sourcePrompt: effectiveMessage,
@@ -362,6 +515,7 @@ export async function POST(request: NextRequest) {
     }
 
     const replyInsights = growthOsPayload?.replyInsights ?? null;
+    await emitProgress(2);
     const replyTurnPreflight = await prepareHandledReplyTurn({
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
@@ -375,8 +529,8 @@ export async function POST(request: NextRequest) {
       structuredReplyContext,
       shouldBypassReplyHandling: !normalizedTurn.shouldAllowReplyHandling,
       memory: storedMemory,
-      toneRisk: body.toneRisk,
-      goal: body.goal,
+      toneRisk: args.body.toneRisk,
+      goal: args.body.goal,
       replyInsights,
       styleCard,
     });
@@ -384,6 +538,7 @@ export async function POST(request: NextRequest) {
     const handledReplyTurn = replyTurnPreflight.handledTurn;
 
     if (handledReplyTurn) {
+      await emitProgress(3);
       return await finalizeReplyTurn({
         preparedTurn: handledReplyTurn,
         storedMemory,
@@ -394,7 +549,7 @@ export async function POST(request: NextRequest) {
         storedThreadTitle: storedThread.title ?? null,
         requestedThreadId: threadId,
         shouldIncludeRoutingTrace,
-        userId: session.user.id,
+        userId: args.userId,
         activeHandle,
         loadBilling: loadBillingStateForResponse,
         recordProductEvent,
@@ -404,7 +559,7 @@ export async function POST(request: NextRequest) {
     console.log("[V2 Chat Checkpoint] Reached manageConversationTurn with threadId:", storedThread.id);
     const { rawResponse, routingTrace } = await manageConversationTurnRaw({
       userId: effectiveUserId,
-      xHandle: storedThread.xHandle || null, // Pipeline context isolation
+      xHandle: storedThread.xHandle || null,
       threadId: storedThread.id,
       runId: storedRun?.id,
       userMessage: routeUserMessage,
@@ -428,6 +583,7 @@ export async function POST(request: NextRequest) {
     });
 
     console.log("[V2 Chat Checkpoint] Survived manageConversationTurn. Mode:", rawResponse.mode);
+    await emitProgress(3);
     const preparedTurn = await prepareManagedMainTurn({
       rawResponse,
       recentHistory: recentHistoryStr || "None",
@@ -447,7 +603,7 @@ export async function POST(request: NextRequest) {
       shouldIncludeRoutingTrace,
       storedThreadId: storedThread.id,
       requestedThreadId: threadId,
-      userId: session.user.id,
+      userId: args.userId,
       activeHandle,
       runId: storedRun?.id ?? null,
       sourcePrompt: effectiveMessage,
@@ -457,7 +613,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     await refundRouteTurnCharge({
-      userId: session.user.id,
+      userId: args.userId,
       debitedCharge,
     });
 

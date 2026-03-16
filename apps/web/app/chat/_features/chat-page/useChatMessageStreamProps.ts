@@ -3,6 +3,7 @@
 import type { ComponentProps } from "react";
 
 import type { SelectedAngleFormatHint } from "@/lib/agent-v2/contracts/turnContract";
+import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { ThreadFramingStyle } from "@/lib/onboarding/draftArtifacts";
 
 import { MessageArtifactSections } from "../thread-history/MessageArtifactSections";
@@ -21,10 +22,7 @@ export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageSt
   typedAssistantLengths: Record<string, number>;
   registerMessageRef: ChatMessageStreamProps<TMessage>["registerMessageRef"];
   activeDraftRevealByMessageId: Record<string, string>;
-  shouldShowPendingDraftShell: boolean;
-  pendingDraftWorkflow: "plan_then_draft" | "revise_draft" | null;
-  pendingStatusLabel: string | null;
-  isSending: boolean;
+  activeAgentProgress: AgentProgressRun | null;
   composerCharacterLimit: number;
   isVerifiedAccount: boolean;
   isMainChatLocked: boolean;
@@ -76,10 +74,7 @@ export function useChatMessageStreamProps<TMessage extends ChatMessageStreamMess
     typedAssistantLengths: options.typedAssistantLengths,
     registerMessageRef: options.registerMessageRef,
     activeDraftRevealByMessageId: options.activeDraftRevealByMessageId,
-    shouldShowPendingDraftShell: options.shouldShowPendingDraftShell,
-    pendingDraftWorkflow: options.pendingDraftWorkflow,
-    pendingStatusLabel: options.pendingStatusLabel,
-    isSending: options.isSending,
+    activeAgentProgress: options.activeAgentProgress,
     resolveArtifactSectionProps: (message) => ({
       composerCharacterLimit: options.composerCharacterLimit,
       isVerifiedAccount: options.isVerifiedAccount,

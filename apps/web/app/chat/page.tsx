@@ -17,11 +17,9 @@ import {
   type BillingStatePayload,
 } from "./_features/billing/billingViewState";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
+import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import { useBillingState } from "./_features/billing/useBillingState";
 import { buildChatWorkspaceUrl } from "@/lib/workspaceHandle";
-import {
-  type PendingStatusPlan,
-} from "./_features/composer/pendingStatus";
 import {
   buildDefaultExampleQuickReplies,
   resolveComposerViewState,
@@ -44,7 +42,6 @@ import {
 import { useChatRouteWorkspaceState } from "./_features/workspace/useChatRouteWorkspaceState";
 import { useChatWorkspaceBootstrap } from "./_features/workspace/useChatWorkspaceBootstrap";
 import { useChatWorkspaceReset } from "./_features/workspace/useChatWorkspaceReset";
-import { usePendingStatusLabel } from "./_features/composer/usePendingStatusLabel";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
 import { useThreadHistoryHydration } from "./_features/thread-history/useThreadHistoryHydration";
@@ -75,7 +72,6 @@ import {
   formatNicheSummary,
   getComposerCharacterLimit,
   inferInitialToneInputs,
-  isDraftPendingWorkflow,
   normalizeAccountHandle,
   personalizePlaybookTemplateText,
   shouldShowDraftOutputForMessage,
@@ -358,7 +354,9 @@ function ChatPageContent() {
 
   const [isSending, setIsSending] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
-  const [pendingStatusPlan, setPendingStatusPlan] = useState<PendingStatusPlan | null>(null);
+  const [activeAgentProgress, setActiveAgentProgress] = useState<AgentProgressRun | null>(
+    null,
+  );
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
@@ -764,15 +762,11 @@ function ChatPageContent() {
     setRevealedDraftMessageIds,
     setIsLeavingHero,
   });
-  const pendingStatusLabel = usePendingStatusLabel({
-    isActive: isSending,
-    plan: pendingStatusPlan,
-    backendStatus: streamStatus,
-  });
-  const pendingDraftWorkflow = isDraftPendingWorkflow(pendingStatusPlan?.workflow)
-    ? pendingStatusPlan.workflow
-    : null;
-  const shouldShowPendingDraftShell = isSending && pendingDraftWorkflow !== null;
+
+  useEffect(() => {
+    setActiveAgentProgress(null);
+  }, [activeThreadId, threadStateResetVersion]);
+
   const {
     selectedDraftThreadPostIndex,
     selectedDraftContext,
@@ -884,8 +878,7 @@ function ChatPageContent() {
     applyBillingSnapshot,
     setPricingModalOpen,
     setIsSending,
-    setStreamStatus,
-    setPendingStatusPlan,
+    setActiveAgentProgress,
     setErrorMessage,
     setBillingState,
     setMessages,
@@ -1150,10 +1143,7 @@ function ChatPageContent() {
             typedAssistantLengths={typedAssistantLengths}
             registerMessageRef={registerMessageRef}
             activeDraftRevealByMessageId={activeDraftRevealByMessageId}
-            shouldShowPendingDraftShell={shouldShowPendingDraftShell}
-            pendingDraftWorkflow={pendingDraftWorkflow}
-            pendingStatusLabel={pendingStatusLabel}
-            isSending={isSending}
+            activeAgentProgress={activeAgentProgress}
             composerCharacterLimit={composerCharacterLimit}
             isVerifiedAccount={isVerifiedAccount}
             isMainChatLocked={isMainChatLocked}

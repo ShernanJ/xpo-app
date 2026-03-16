@@ -1,14 +1,17 @@
 "use client";
 
 import { startTransition, useEffect, useState, type ComponentProps } from "react";
+import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 
 import {
   buildDraftRevealClassName,
   shouldAnimateDraftRevealLines,
 } from "./draftRevealState";
+import { AgentProgressCard } from "./AgentProgressCard";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { MessageArtifactSections } from "./MessageArtifactSections";
 import { MessageContent } from "./MessageContent";
+import { isDraftPendingWorkflow } from "../chat-page/chatPageViewState";
 
 const DRAFT_SHELL_LINE_WIDTHS = ["96%", "82%", "90%"] as const;
 
@@ -52,14 +55,15 @@ function AssistantTypingBubble(props: { label?: string | null }) {
   );
 }
 
-function PendingDraftShell(props: {
-  workflow: "plan_then_draft" | "revise_draft";
-  label?: string | null;
-}) {
+function PendingDraftShell(props: { progress: AgentProgressRun }) {
   const eyebrow =
-    props.workflow === "revise_draft" ? "Revision in progress" : "Draft in progress";
+    props.progress.workflow === "revise_draft"
+      ? "Revision in progress"
+      : "Draft in progress";
   const title =
-    props.workflow === "revise_draft" ? "Reworking the draft" : "Building the draft";
+    props.progress.workflow === "revise_draft"
+      ? "Reworking the draft"
+      : "Building the draft";
 
   return (
     <div
@@ -85,7 +89,7 @@ function PendingDraftShell(props: {
         <div className="mt-4 space-y-2.5">
           {DRAFT_SHELL_LINE_WIDTHS.map((width, index) => (
             <div
-              key={`${props.workflow}-shell-line-${index}`}
+              key={`${props.progress.workflow}-shell-line-${index}`}
               className="draft-shell-shimmer h-3 rounded-full bg-white/[0.06]"
               style={{ width }}
             />
@@ -93,10 +97,9 @@ function PendingDraftShell(props: {
         </div>
 
         <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
-          <span className="inline-flex items-center rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            {title}
-          </span>
-          {props.label ? <span>{props.label}</span> : null}
+          <div className="w-full">
+            <AgentProgressCard progress={props.progress} variant="shell" />
+          </div>
         </div>
       </div>
     </div>
@@ -112,10 +115,7 @@ export interface ChatMessageStreamProps<TMessage extends ChatMessageStreamMessag
   typedAssistantLengths: Record<string, number>;
   registerMessageRef: (messageId: string, node: HTMLDivElement | null) => void;
   activeDraftRevealByMessageId: Record<string, string>;
-  shouldShowPendingDraftShell: boolean;
-  pendingDraftWorkflow: "plan_then_draft" | "revise_draft" | null;
-  pendingStatusLabel: string | null;
-  isSending: boolean;
+  activeAgentProgress: AgentProgressRun | null;
   resolveArtifactSectionProps: (
     message: TMessage,
     index: number,
@@ -138,12 +138,14 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
     typedAssistantLengths,
     registerMessageRef,
     activeDraftRevealByMessageId,
-    shouldShowPendingDraftShell,
-    pendingDraftWorkflow,
-    pendingStatusLabel,
-    isSending,
+    activeAgentProgress,
     resolveArtifactSectionProps,
   } = props;
+  const activePendingDraftWorkflow =
+    activeAgentProgress?.phase === "active" &&
+    isDraftPendingWorkflow(activeAgentProgress.workflow)
+      ? activeAgentProgress.workflow
+      : null;
 
   return (
     <>
@@ -162,6 +164,21 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
             index={index}
             onRegisterRef={registerMessageRef}
           >
+            {(message as TMessage & { agentProgress?: AgentProgressRun | null })
+              .agentProgress ? (
+              <div className="mb-3">
+                <AgentProgressCard
+                  progress={
+                    (
+                      message as TMessage & {
+                        agentProgress?: AgentProgressRun | null;
+                      }
+                    ).agentProgress as AgentProgressRun
+                  }
+                  variant="message"
+                />
+              </div>
+            ) : null}
             <MessageContent
               role={message.role}
               content={message.content}
@@ -183,10 +200,12 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
         );
       })}
 
-      {shouldShowPendingDraftShell && pendingDraftWorkflow ? (
-        <PendingDraftShell workflow={pendingDraftWorkflow} label={pendingStatusLabel} />
-      ) : isSending ? (
-        <AssistantTypingBubble label={pendingStatusLabel} />
+      {activeAgentProgress?.phase === "active" && activePendingDraftWorkflow ? (
+        <PendingDraftShell progress={activeAgentProgress} />
+      ) : activeAgentProgress ? (
+        <div className="max-w-[88%] px-0 py-1 text-zinc-100">
+          <AgentProgressCard progress={activeAgentProgress} variant="bubble" />
+        </div>
       ) : null}
     </>
   );

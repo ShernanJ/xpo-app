@@ -1,4 +1,6 @@
 import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
+import type { ChatStreamEvent, ChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
+import { sanitizeChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
 
 export type ChatResultOutputShape =
   | "coach_question"
@@ -717,29 +719,10 @@ export function resolveAssistantReplyJsonOutcome<
   };
 }
 
-interface ChatStreamStatusEvent {
-  type: "status";
-  message: string;
-}
-
-interface ChatStreamResultEvent<TResult> {
-  type: "result";
-  data: TResult;
-}
-
-interface ChatStreamErrorEvent {
-  type: "error";
-  message: string;
-}
-
-type ChatStreamEvent<TResult> =
-  | ChatStreamStatusEvent
-  | ChatStreamResultEvent<TResult>
-  | ChatStreamErrorEvent;
-
 export async function readChatResponseStream<TResult>(args: {
   body: ReadableStream<Uint8Array>;
   onStatus?: (message: string) => void;
+  onProgress?: (data: ChatStreamProgressEventData) => void;
 }): Promise<TResult> {
   const reader = args.body.getReader();
   const decoder = new TextDecoder();
@@ -763,6 +746,13 @@ export async function readChatResponseStream<TResult>(args: {
       }
 
       const event = JSON.parse(line) as ChatStreamEvent<TResult>;
+      if (event.type === "progress") {
+        const sanitized = sanitizeChatStreamProgressEventData(event.data);
+        if (sanitized) {
+          args.onProgress?.(sanitized);
+        }
+        continue;
+      }
       if (event.type === "status") {
         args.onStatus?.(event.message);
         continue;
@@ -777,7 +767,12 @@ export async function readChatResponseStream<TResult>(args: {
 
   if (buffer.trim()) {
     const event = JSON.parse(buffer.trim()) as ChatStreamEvent<TResult>;
-    if (event.type === "status") {
+    if (event.type === "progress") {
+      const sanitized = sanitizeChatStreamProgressEventData(event.data);
+      if (sanitized) {
+        args.onProgress?.(sanitized);
+      }
+    } else if (event.type === "status") {
       args.onStatus?.(event.message);
     } else if (event.type === "result") {
       streamedResult = event.data;

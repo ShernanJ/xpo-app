@@ -488,18 +488,30 @@ test("resolveCreatedThreadPlan and applyCreatedThreadPlanToList remap placeholde
   assert.equal(remapped[0]?.id, "thread-9");
   assert.equal(remapped[0]?.title, "Drafting");
 
-  const inserted = applyCreatedThreadPlanToList([], plan!);
+  const inserted = applyCreatedThreadPlanToList(
+    [] as Array<{ id: string; title: string; updatedAt: string }>,
+    plan!,
+  );
   assert.equal(inserted[0]?.id, "thread-9");
   assert.equal(inserted[0]?.title, "Fresh thread");
 });
 
-test("readChatResponseStream returns the final result and emits status updates", async () => {
+test("readChatResponseStream returns the final result and emits status and progress updates", async () => {
   const statusMessages: string[] = [];
+  const progressSnapshots: string[] = [];
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(
         new TextEncoder().encode(
-          JSON.stringify({ type: "status", message: "planning" }) +
+          JSON.stringify({
+            type: "progress",
+            data: {
+              workflow: "plan_then_draft",
+              activeStepId: "gather_context",
+            },
+          }) +
+            "\n" +
+            JSON.stringify({ type: "status", message: "planning" }) +
             "\n" +
             JSON.stringify({
               type: "result",
@@ -516,8 +528,48 @@ test("readChatResponseStream returns the final result and emits status updates",
   const result = await readChatResponseStream<{ reply: string }>({
     body,
     onStatus: (message) => statusMessages.push(message),
+    onProgress: (progress) =>
+      progressSnapshots.push(`${progress.workflow}:${progress.activeStepId}`),
   });
 
   assert.equal(result.reply, "done");
   assert.deepEqual(statusMessages, ["planning"]);
+  assert.deepEqual(progressSnapshots, ["plan_then_draft:gather_context"]);
+});
+
+test("readChatResponseStream ignores malformed progress payloads", async () => {
+  const progressSnapshots: string[] = [];
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "progress",
+            data: {
+              workflow: "plan_then_draft",
+              activeStepId: "bad_step",
+              leakedPrompt: "do not show this",
+            },
+          }) +
+            "\n" +
+            JSON.stringify({
+              type: "result",
+              data: {
+                reply: "done",
+              },
+            }),
+        ),
+      );
+      controller.close();
+    },
+  });
+
+  const result = await readChatResponseStream<{ reply: string }>({
+    body,
+    onProgress: (progress) =>
+      progressSnapshots.push(`${progress.workflow}:${progress.activeStepId}`),
+  });
+
+  assert.equal(result.reply, "done");
+  assert.deepEqual(progressSnapshots, []);
 });

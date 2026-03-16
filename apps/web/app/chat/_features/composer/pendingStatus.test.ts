@@ -2,8 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applyAgentProgressStep,
   buildPendingStatusPlan,
+  completeAgentProgressRun,
+  createAgentProgressRun,
+  formatAgentProgressDuration,
+  formatAgentProgressThoughtDuration,
   normalizeBackendPendingStatus,
+  resolveAgentProgressSnapshot,
+  resolvePendingStatusSnapshot,
   resolvePendingStatusLabel,
   resolvePendingStatusWorkflow,
 } from "./pendingStatus.ts";
@@ -15,10 +22,16 @@ test("bare draft asks resolve to ideate status plans", () => {
   });
 
   assert.equal(plan.workflow, "ideate");
-  assert.deepEqual(plan.steps.map((step) => step.label), [
-    "thinking of a few directions",
-    "picking the strongest one",
+  assert.deepEqual(plan.steps.map((step) => step.id), [
+    "scan_context",
+    "explore_directions",
+    "pick_direction",
+    "package_ideas",
   ]);
+  assert.equal(
+    plan.steps[0]?.explanation,
+    "This helps the assistant ground the ideas in what you already shared.",
+  );
 });
 
 test("selected ideation picks resolve to plan_then_draft", () => {
@@ -54,9 +67,11 @@ test("draft revisions resolve to revise_draft", () => {
   });
 
   assert.equal(plan.workflow, "revise_draft");
-  assert.deepEqual(plan.steps.map((step) => step.label), [
-    "reworking the draft",
-    "tightening the wording",
+  assert.deepEqual(plan.steps.map((step) => step.id), [
+    "understand_request",
+    "gather_context",
+    "revise_response",
+    "polish_response",
   ]);
 });
 
@@ -69,10 +84,8 @@ test("thread conversion revisions get thread-specific copy", () => {
   });
 
   assert.equal(plan.workflow, "revise_draft");
-  assert.deepEqual(plan.steps.map((step) => step.label), [
-    "mapping the thread flow",
-    "turning it into a thread",
-  ]);
+  assert.equal(plan.steps[1]?.label, "Mapping the thread flow");
+  assert.equal(plan.steps[2]?.label, "Turning it into a thread");
 });
 
 test("reply option flow resolves to reply_to_post", () => {
@@ -106,43 +119,39 @@ test("generic fallback resolves to answer_question", () => {
   });
 
   assert.equal(plan.workflow, "answer_question");
-  assert.deepEqual(plan.steps.map((step) => step.label), [
-    "thinking this through",
+  assert.deepEqual(plan.steps.map((step) => step.id), [
+    "understand_request",
+    "gather_context",
+    "write_response",
+    "finalize_response",
   ]);
 });
 
-test("status progression advances once after the second-step delay", () => {
+test("status progression advances through the predicted step sequence", () => {
   const plan = buildPendingStatusPlan({
     message: "write a post",
     turnSource: "free_text",
   });
 
-  assert.equal(
-    resolvePendingStatusLabel({
-      plan,
-      elapsedMs: 0,
-    }),
-    "thinking of a few directions",
-  );
-  assert.equal(
-    resolvePendingStatusLabel({
-      plan,
-      elapsedMs: 1500,
-    }),
-    "picking the strongest one",
-  );
-  assert.equal(
-    resolvePendingStatusLabel({
-      plan,
-      elapsedMs: 8000,
-    }),
-    "picking the strongest one",
+  const initialSnapshot = resolvePendingStatusSnapshot({
+    plan,
+    elapsedMs: 0,
+  });
+  const lateSnapshot = resolvePendingStatusSnapshot({
+    plan,
+    elapsedMs: 5000,
+  });
+
+  assert.equal(initialSnapshot?.activeStepId, "scan_context");
+  assert.deepEqual(
+    lateSnapshot?.steps.map((step) => step.status),
+    ["completed", "completed", "completed", "active"],
   );
 });
 
 test("backend statuses override local pending status labels", () => {
   const plan = buildPendingStatusPlan({
-    message: "write a post",
+    message: "draft a post about retention",
     turnSource: "free_text",
   });
 
@@ -152,10 +161,56 @@ test("backend statuses override local pending status labels", () => {
       elapsedMs: 0,
       backendStatus: "Writing draft options.",
     }),
-    "drafting it now",
+    "Drafting the post",
   );
   assert.equal(
     normalizeBackendPendingStatus("Planning the next move."),
-    "figuring out the angle",
+    "Gather Context",
+  );
+});
+
+test("explicit streamed progress overrides predicted timing", () => {
+  const plan = buildPendingStatusPlan({
+    message: "write a post",
+    turnSource: "free_text",
+  });
+  const run = createAgentProgressRun({
+    plan,
+    startedAtMs: 1_000,
+  });
+
+  const updated = applyAgentProgressStep(run, {
+    workflow: "ideate",
+    activeStepId: "pick_direction",
+  });
+  const snapshot = resolveAgentProgressSnapshot(updated!, 1_500);
+
+  assert.equal(snapshot.activeStepId, "pick_direction");
+  assert.deepEqual(
+    snapshot.steps.map((step) => step.status),
+    ["completed", "completed", "active", "pending"],
+  );
+});
+
+test("completed progress freezes all steps and duration formatting is stable", () => {
+  const plan = buildPendingStatusPlan({
+    message: "write a post",
+    turnSource: "free_text",
+  });
+  const completed = completeAgentProgressRun(
+    createAgentProgressRun({
+      plan,
+      startedAtMs: 1_000,
+    }),
+    "completed",
+    19_500,
+  );
+
+  assert.equal(formatAgentProgressDuration(18_500), "0:18");
+  assert.equal(formatAgentProgressThoughtDuration(18_500), "18s");
+  assert.equal(completed?.phase, "completed");
+  assert.deepEqual(
+    completed?.frozenSnapshot?.steps.map((step) => step.status),
+    ["completed", "completed", "completed", "completed"],
   );
 });

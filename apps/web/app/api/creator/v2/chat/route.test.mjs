@@ -44,6 +44,12 @@ import { resolveArtifactContinuationAction } from "../../../../../lib/agent-v2/a
 import { inferSourceTransparencyReply } from "../../../../../lib/agent-v2/responses/sourceTransparency.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../../../../lib/agent-v2/runtime/runtimeTrace.ts";
 import { prepareHandledReplyTurn } from "../../../../../lib/agent-v2/capabilities/reply/handledReplyTurn.ts";
+import { buildPendingStatusPlan } from "../../../../../lib/chat/agentProgress.ts";
+import {
+  buildChatStreamProgressEvent,
+  encodeChatStreamEvent,
+  sanitizeChatStreamProgressEventData,
+} from "../../../../../lib/chat/chatStream.ts";
 
 const baseMemory = {
   conversationState: "needs_more_context",
@@ -122,6 +128,43 @@ test("selectedDraftContext defaults route intent to edit when explicit intent is
   });
 
   assert.equal(nextIntent, "edit");
+});
+
+test("streamed progress events stay on the allowlisted workflow stage ids and order", () => {
+  const plan = buildPendingStatusPlan({
+    message: "draft a post about retention",
+    turnSource: "free_text",
+  });
+  const events = plan.steps.map((step) =>
+    buildChatStreamProgressEvent({
+      workflow: plan.workflow,
+      activeStepId: step.id,
+    }),
+  );
+
+  assert.deepEqual(
+    events.map((event) => event.data.activeStepId),
+    [
+      "understand_request",
+      "gather_context",
+      "draft_response",
+      "polish_response",
+    ],
+  );
+  assert.deepEqual(Object.keys(events[0].data).sort(), ["activeStepId", "workflow"]);
+  assert.equal(encodeChatStreamEvent(events[0]).includes("sourceText"), false);
+  assert.equal(encodeChatStreamEvent(events[0]).includes("worker"), false);
+});
+
+test("streamed progress event sanitization rejects unknown stage ids", () => {
+  assert.equal(
+    sanitizeChatStreamProgressEventData({
+      workflow: "plan_then_draft",
+      activeStepId: "bad_step",
+      sourceText: "should not pass through",
+    }),
+    null,
+  );
 });
 
 test("selected draft revisions bypass embedded reply handling", () => {

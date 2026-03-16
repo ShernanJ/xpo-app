@@ -1,6 +1,12 @@
 "use client";
 
-import { startTransition, useCallback, type Dispatch, type SetStateAction } from "react";
+import {
+  startTransition,
+  useCallback,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import type {
   ChatArtifactContext,
@@ -23,7 +29,13 @@ import {
   type DraftDrawerSelectionLike,
   type DraftVersionEntryLike,
 } from "./chatReplyState";
-import type { PendingStatusPlan } from "../composer/pendingStatus";
+import {
+  applyAgentProgressBackendStatus,
+  applyAgentProgressStep,
+  completeAgentProgressRun,
+  createAgentProgressRun,
+  type AgentProgressRun,
+} from "../composer/pendingStatus";
 
 type ChatIntent =
   | "coach"
@@ -133,8 +145,7 @@ interface UseAssistantReplyOrchestratorOptions<
   applyBillingSnapshot: (billing: TFailureBillingSnapshot | null) => void;
   setPricingModalOpen: (open: boolean) => void;
   setIsSending: (value: boolean) => void;
-  setStreamStatus: (value: string | null) => void;
-  setPendingStatusPlan: (value: PendingStatusPlan | null) => void;
+  setActiveAgentProgress: Dispatch<SetStateAction<AgentProgressRun | null>>;
   setErrorMessage: (value: string | null) => void;
   setBillingState: (value: TBilling) => void;
   setMessages: Dispatch<SetStateAction<TMessage[]>>;
@@ -231,8 +242,7 @@ export function useAssistantReplyOrchestrator<
     applyBillingSnapshot,
     setPricingModalOpen,
     setIsSending,
-    setStreamStatus,
-    setPendingStatusPlan,
+    setActiveAgentProgress,
     setErrorMessage,
     setBillingState,
     setMessages,
@@ -243,6 +253,23 @@ export function useAssistantReplyOrchestrator<
     scrollThreadToBottom,
     createUserMessage,
   } = options;
+  const activeAgentProgressRef = useRef<AgentProgressRun | null>(null);
+
+  const setActiveAgentProgressState = useCallback(
+    (
+      value:
+        | AgentProgressRun
+        | null
+        | ((current: AgentProgressRun | null) => AgentProgressRun | null),
+    ) => {
+      setActiveAgentProgress((current) => {
+        const next = typeof value === "function" ? value(current) : value;
+        activeAgentProgressRef.current = next;
+        return next;
+      });
+    },
+    [setActiveAgentProgress],
+  );
 
   const applyAssistantReplyPlan = useCallback(
     (
@@ -259,16 +286,28 @@ export function useAssistantReplyOrchestrator<
         TMemory,
         TBilling
       >,
+      completedProgress?: AgentProgressRun | null,
     ) => {
       startTransition(() => {
         if (replyPlan.nextBilling) {
           setBillingState(replyPlan.nextBilling);
         }
 
-        setMessages((current) => [
-          ...current,
-          replyPlan.buildAssistantMessage(current.length) as unknown as TMessage,
-        ]);
+        setMessages((current) => {
+          const assistantMessage = replyPlan.buildAssistantMessage(
+            current.length,
+          ) as unknown as TMessage & { agentProgress?: AgentProgressRun | null };
+
+          return [
+            ...current,
+            (completedProgress
+              ? {
+                  ...assistantMessage,
+                  agentProgress: completedProgress,
+                }
+              : assistantMessage) as TMessage,
+          ];
+        });
 
         if (replyPlan.nextDraftEditor) {
           setActiveDraftEditor(replyPlan.nextDraftEditor);
@@ -393,8 +432,13 @@ export function useAssistantReplyOrchestrator<
       }
 
       setIsSending(true);
-      setStreamStatus(null);
-      setPendingStatusPlan(preparedRequest.pendingStatusPlan);
+      setActiveAgentProgressState(
+        preparedRequest.pendingStatusPlan
+          ? createAgentProgressRun({
+              plan: preparedRequest.pendingStatusPlan,
+            })
+          : null,
+      );
       setErrorMessage(null);
 
       try {
@@ -461,6 +505,9 @@ export function useAssistantReplyOrchestrator<
           });
 
           if (outcome.kind === "failure") {
+            setActiveAgentProgressState((current) =>
+              completeAgentProgressRun(current, "failed"),
+            );
             if (outcome.nextBillingSnapshot) {
               applyBillingSnapshot(outcome.nextBillingSnapshot);
             }
@@ -471,7 +518,12 @@ export function useAssistantReplyOrchestrator<
             return;
           }
 
-          applyAssistantReplyPlan(outcome.replyPlan);
+          const completedProgress = completeAgentProgressRun(
+            activeAgentProgressRef.current,
+            "completed",
+          );
+          applyAssistantReplyPlan(outcome.replyPlan, completedProgress);
+          setActiveAgentProgressState(null);
           return;
         }
 
@@ -495,16 +547,34 @@ export function useAssistantReplyOrchestrator<
           >
         >({
           body: response.body,
-          onStatus: (message) => setStreamStatus(message),
+          onProgress: (progress) => {
+            setActiveAgentProgressState((current) =>
+              applyAgentProgressStep(current, progress),
+            );
+          },
+          onStatus: (message) => {
+            setActiveAgentProgressState((current) =>
+              applyAgentProgressBackendStatus(current, message),
+            );
+          },
         });
+        const completedProgress = completeAgentProgressRun(
+          activeAgentProgressRef.current,
+          "completed",
+        );
         applyAssistantReplyPlan(
           resolveAssistantReplyPlan({
             ...replyPlanArgs,
             result: streamedResult,
             mode: "stream",
           }),
+          completedProgress,
         );
+        setActiveAgentProgressState(null);
       } catch (error) {
+        setActiveAgentProgressState((current) =>
+          completeAgentProgressRun(current, "failed"),
+        );
         setErrorMessage(
           error instanceof Error
             ? error.message
@@ -512,8 +582,6 @@ export function useAssistantReplyOrchestrator<
         );
       } finally {
         setIsSending(false);
-        setStreamStatus(null);
-        setPendingStatusPlan(null);
       }
     },
     [
@@ -536,12 +604,11 @@ export function useAssistantReplyOrchestrator<
       providerPreference,
       scrollThreadToBottom,
       selectedDraftContext,
+      setActiveAgentProgressState,
       setMessages,
       setErrorMessage,
       setIsSending,
-      setPendingStatusPlan,
       setPricingModalOpen,
-      setStreamStatus,
     ],
   );
 

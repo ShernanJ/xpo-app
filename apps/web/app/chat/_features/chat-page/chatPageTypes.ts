@@ -4,6 +4,7 @@ import type { BillingStatePayload } from "../billing/billingViewState";
 import type { SourceMaterialAsset } from "../source-materials/sourceMaterialsState";
 import type { DraftArtifactDetails } from "@/lib/onboarding/draftArtifacts";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
+import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
 
 export interface CreatorChatSuccess {
@@ -248,6 +249,7 @@ export interface ChatMessage {
   profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
+  agentProgress?: AgentProgressRun | null;
 }
 
 export type ChatIntent =
