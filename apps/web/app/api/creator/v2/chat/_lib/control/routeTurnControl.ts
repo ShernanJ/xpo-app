@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { ChatTurnStatus } from "@/lib/generated/prisma/client";
+import { isMissingChatTurnControlTableError } from "@/lib/agent-v2/persistence/prismaGuards";
 
 interface TurnControlIdentity {
   userId: string;
@@ -19,6 +20,31 @@ function activeTurnStatuses(): ChatTurnStatus[] {
 
 function executableTurnStatuses(): ChatTurnStatus[] {
   return ["queued", "running"];
+}
+
+let hasLoggedMissingTurnControlTable = false;
+
+async function withMissingTurnControlFallback<T>(
+  operation: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isMissingChatTurnControlTableError(error)) {
+      if (!hasLoggedMissingTurnControlTable) {
+        hasLoggedMissingTurnControlTable = true;
+        console.error(
+          "ChatTurnControl table is missing. Turn-control reads are temporarily disabled until the latest Prisma migrations are applied.",
+          error,
+        );
+      }
+
+      return fallback;
+    }
+
+    throw error;
+  }
 }
 
 function buildIdentityWhere(args: TurnControlIdentity) {
@@ -120,12 +146,16 @@ export async function readTurnById(args: {
   turnId: string;
   userId: string;
 }) {
-  return prisma.chatTurnControl.findFirst({
-    where: {
-      id: args.turnId,
-      userId: args.userId,
-    },
-  });
+  return withMissingTurnControlFallback(
+    () =>
+      prisma.chatTurnControl.findFirst({
+        where: {
+          id: args.turnId,
+          userId: args.userId,
+        },
+      }),
+    null,
+  );
 }
 
 export async function readTurnByIdentity(args: TurnControlIdentity) {
@@ -134,9 +164,13 @@ export async function readTurnByIdentity(args: TurnControlIdentity) {
     return null;
   }
 
-  return prisma.chatTurnControl.findUnique({
-    where,
-  });
+  return withMissingTurnControlFallback(
+    () =>
+      prisma.chatTurnControl.findUnique({
+        where,
+      }),
+    null,
+  );
 }
 
 export async function findActiveTurnForThread(args: {
@@ -145,30 +179,34 @@ export async function findActiveTurnForThread(args: {
   excludeTurnId?: string | null;
   excludeClientTurnId?: string | null;
 }) {
-  return prisma.chatTurnControl.findFirst({
-    where: {
-      userId: args.userId,
-      threadId: args.threadId,
-      status: {
-        in: activeTurnStatuses(),
-      },
-      ...(args.excludeTurnId
-        ? {
-            id: {
-              not: args.excludeTurnId,
-            },
-          }
-        : {}),
-      ...(args.excludeClientTurnId
-        ? {
-            clientTurnId: {
-              not: args.excludeClientTurnId,
-            },
-          }
-        : {}),
-    },
-    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-  });
+  return withMissingTurnControlFallback(
+    () =>
+      prisma.chatTurnControl.findFirst({
+        where: {
+          userId: args.userId,
+          threadId: args.threadId,
+          status: {
+            in: activeTurnStatuses(),
+          },
+          ...(args.excludeTurnId
+            ? {
+                id: {
+                  not: args.excludeTurnId,
+                },
+              }
+            : {}),
+          ...(args.excludeClientTurnId
+            ? {
+                clientTurnId: {
+                  not: args.excludeClientTurnId,
+                },
+              }
+            : {}),
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      }),
+    null,
+  );
 }
 
 export async function claimTurnExecutionLease(args: {
@@ -300,16 +338,21 @@ export async function heartbeatTurnExecution(args: {
 export async function isTurnCancellationRequested(args: TurnControlIdentity & {
   turnId?: string | null;
 }) {
-  const control = args.turnId
-    ? await prisma.chatTurnControl.findFirst({
-        where: {
-          id: args.turnId,
-          userId: args.userId,
-        },
-        select: {
-          status: true,
-        },
-      })
+  const turnId = args.turnId;
+  const control = turnId
+    ? await withMissingTurnControlFallback(
+        () =>
+          prisma.chatTurnControl.findFirst({
+            where: {
+              id: turnId,
+              userId: args.userId,
+            },
+            select: {
+              status: true,
+            },
+          }),
+        null,
+      )
     : await readTurnByIdentity(args);
 
   return control?.status === "cancel_requested" || control?.status === "cancelled";
