@@ -29,7 +29,6 @@ import {
   type PlaybookDefinition,
   type PlaybookStageKey,
 } from "@/lib/creator/playbooks";
-import { ProfileAuditBannerGenerator } from "./ProfileAuditBannerGenerator";
 
 interface AnalysisFollowerProgress {
   currentFollowersLabel: string;
@@ -108,8 +107,6 @@ interface ProfileAnalysisDialogProps {
   onBioAlternativeCopied: (text: string) => void;
   onBioAlternativeRefine: (text: string) => void;
   onPinnedPromptStart: (kind: "origin_story" | "core_thesis") => void;
-  onBannerGeneratorOpened: () => void;
-  onBannerDownloaded: (presetId: string) => void;
   onOpenFeedback: () => void;
   onOpenGrowthGuide: () => void;
   onOpenGrowthGuideForRecommendation: (stage: PlaybookStageKey, playbookId: string) => void;
@@ -191,8 +188,6 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     onBioAlternativeCopied,
     onBioAlternativeRefine,
     onPinnedPromptStart,
-    onBannerGeneratorOpened,
-    onBannerDownloaded,
     onOpenFeedback,
     onOpenGrowthGuide,
     onOpenGrowthGuideForRecommendation,
@@ -655,13 +650,6 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
                       </div>
                     ) : null}
 
-                    <div className="mt-4">
-                      <ProfileAuditBannerGenerator
-                        presets={audit.visualRealEstateCheck.bannerPresets}
-                        onOpen={onBannerGeneratorOpened}
-                        onDownload={onBannerDownloaded}
-                      />
-                    </div>
                   </article>
 
                   <article className="rounded-2xl border border-white/10 bg-black/20 p-4">

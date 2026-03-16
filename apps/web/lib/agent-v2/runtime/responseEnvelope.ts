@@ -1,4 +1,5 @@
 import type {
+  ResponsePresentationStyle,
   ResponseShapePlan,
   SurfaceMode,
   V2ChatOutputShape,
@@ -15,9 +16,10 @@ export interface RawResponseEnvelope {
   response: string;
   data?: unknown;
   memory: V2ConversationMemory;
+  presentationStyle?: ResponsePresentationStyle | null;
 }
 
-export interface FinalizedResponseEnvelope extends RawResponseEnvelope {
+export interface FinalizedResponseEnvelope extends Omit<RawResponseEnvelope, "presentationStyle"> {
   surfaceMode: SurfaceMode;
   responseShapePlan: ResponseShapePlan;
 }
@@ -34,10 +36,11 @@ export type FinalizedFastReplyEnvelope<TData = unknown> =
 
 export function finalizeResponseEnvelope<T extends RawResponseEnvelope>(
   rawResponse: T,
-): T & {
+): Omit<T, "presentationStyle"> & {
   surfaceMode: SurfaceMode;
   responseShapePlan: ResponseShapePlan;
 } {
+  const { presentationStyle, ...rawResponseWithoutPresentationStyle } = rawResponse;
   const resultData =
     rawResponse.data && typeof rawResponse.data === "object" && !Array.isArray(rawResponse.data)
       ? (rawResponse.data as Record<string, unknown>)
@@ -55,11 +58,12 @@ export function finalizeResponseEnvelope<T extends RawResponseEnvelope>(
   });
 
   return {
-    ...rawResponse,
+    ...rawResponseWithoutPresentationStyle,
     response: shapeAssistantResponse({
       response: rawResponse.response,
       outputShape: rawResponse.outputShape,
       plan: responseShapePlan,
+      presentationStyle,
     }),
     surfaceMode: responseShapePlan.surfaceMode,
     responseShapePlan,
@@ -70,6 +74,7 @@ export function buildFastReplyOrchestratorResponse<TData = unknown>(args: {
   response: string;
   memory: V2ConversationMemory;
   data?: TData;
+  presentationStyle?: ResponsePresentationStyle | null;
 }): FinalizedFastReplyEnvelope<TData> {
   return finalizeResponseEnvelope(
     buildFastReplyRawResponse(args),
@@ -80,6 +85,7 @@ export function buildFastReplyRawResponse<TData = unknown>(args: {
   response: string;
   memory: V2ConversationMemory;
   data?: TData;
+  presentationStyle?: ResponsePresentationStyle | null;
 }): RawFastReplyEnvelope<TData> {
   return {
     mode: "coach",
@@ -87,5 +93,6 @@ export function buildFastReplyRawResponse<TData = unknown>(args: {
     response: args.response,
     data: args.data,
     memory: args.memory,
+    presentationStyle: args.presentationStyle ?? undefined,
   };
 }

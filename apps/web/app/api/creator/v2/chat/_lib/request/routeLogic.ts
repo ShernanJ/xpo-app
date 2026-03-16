@@ -19,6 +19,7 @@ import type {
   ChatArtifactContext,
   NormalizedChatTurnDiagnostics,
   ChatTurnSource,
+  SelectedAngleFormatHint,
   SelectedDraftContextPayload,
 } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
 import {
@@ -38,6 +39,7 @@ import type {
   ChatReplyParseEnvelope,
 } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
+import type { ProfileAnalysisArtifact } from "../../../../../../../lib/chat/profileAnalysisArtifact.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -501,6 +503,19 @@ export function resolveSelectedDraftContextFromHistory(args: {
     .map((entry) => normalizeHistoryEntry(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
 
+  if (args.selectedDraftContext) {
+    const matchingEntry = normalizedEntries.find(
+      (entry) => entry.id === args.selectedDraftContext?.messageId,
+    );
+    const matchingContext = matchingEntry
+      ? buildSelectedDraftContextFromEntry({
+          entry: matchingEntry,
+          versionId: args.selectedDraftContext.versionId,
+        })
+      : null;
+    return matchingContext || args.selectedDraftContext;
+  }
+
   if (args.activeDraftRef?.messageId && args.activeDraftRef.versionId) {
     const preferredEntry = normalizedEntries.find(
       (entry) => entry.id === args.activeDraftRef?.messageId,
@@ -514,19 +529,6 @@ export function resolveSelectedDraftContextFromHistory(args: {
     if (preferredContext) {
       return preferredContext;
     }
-  }
-
-  if (args.selectedDraftContext) {
-    const matchingEntry = normalizedEntries.find(
-      (entry) => entry.id === args.selectedDraftContext?.messageId,
-    );
-    const matchingContext = matchingEntry
-      ? buildSelectedDraftContextFromEntry({
-          entry: matchingEntry,
-          versionId: args.selectedDraftContext.versionId,
-        })
-      : null;
-    return matchingContext || args.selectedDraftContext;
   }
 
   for (const entry of [...normalizedEntries].reverse()) {
@@ -1027,6 +1029,7 @@ export function buildDraftBundleVersionPayload(args: {
 export interface ChatRouteMappedDataSeed {
   reply: string;
   angles: unknown[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   quickReplies: unknown[];
   plan: StrategyPlan | null;
   draft: string | null;
@@ -1056,6 +1059,7 @@ export interface ChatRouteMappedDataSeed {
   };
   replyArtifacts: ChatReplyArtifacts | null;
   replyParse: ChatReplyParseEnvelope | null;
+  profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
 }
 
 export interface AssistantContextPacket {
@@ -1318,6 +1322,11 @@ export function buildChatRouteMappedData(args: {
     typeof resultData?.groundingExplanation === "string"
       ? (resultData.groundingExplanation as string)
       : null;
+  const responseIdeationFormatHint =
+    typeof resultData?.ideationFormatHint === "string" &&
+    (resultData.ideationFormatHint === "thread" || resultData.ideationFormatHint === "post")
+      ? (resultData.ideationFormatHint as SelectedAngleFormatHint)
+      : null;
   const rawDraftBundle =
     resultData?.draftBundle &&
     typeof resultData.draftBundle === "object" &&
@@ -1383,6 +1392,7 @@ export function buildChatRouteMappedData(args: {
       angles: args.result.responseShapePlan.shouldShowArtifacts
         ? ((resultData?.angles as unknown[]) || [])
         : [],
+      ...(responseIdeationFormatHint ? { ideationFormatHint: responseIdeationFormatHint } : {}),
       quickReplies: args.result.responseShapePlan.shouldShowArtifacts
         ? ((resultData?.quickReplies as unknown[]) || [])
         : [],
@@ -1422,6 +1432,12 @@ export function buildChatRouteMappedData(args: {
       },
       replyArtifacts: null,
       replyParse: null,
+      profileAnalysisArtifact:
+        resultData?.profileAnalysisArtifact &&
+        typeof resultData.profileAnalysisArtifact === "object" &&
+        !Array.isArray(resultData.profileAnalysisArtifact)
+          ? (resultData.profileAnalysisArtifact as ProfileAnalysisArtifact)
+          : null,
     },
     responseVoiceTarget,
     responseNoveltyNotes,
@@ -1468,9 +1484,12 @@ export function prepareChatRouteTurn(args: {
     response: args.rawResponse.response,
     outputShape: args.rawResponse.outputShape,
     plan: responseShapePlan,
+    presentationStyle: args.rawResponse.presentationStyle,
   });
+  const { presentationStyle: _presentationStyle, ...rawResponseWithoutPresentationStyle } =
+    args.rawResponse;
   const preparedResponse = {
-    ...args.rawResponse,
+    ...rawResponseWithoutPresentationStyle,
     response: shapedResponse,
     surfaceMode: responseShapePlan.surfaceMode,
     responseShapePlan,

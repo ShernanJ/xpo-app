@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 
@@ -78,6 +79,82 @@ import { isMissingDraftCandidateTableError } from "../persistence/prismaGuards.t
 import { planTurn } from "./turnPlanner.ts";
 import { checkDraftClaimsAgainstGrounding } from "../grounding/claimChecker.ts";
 import { getDeterministicChatReply } from "../responses/chatResponderDeterministic.ts";
+
+let extensionlessTsResolutionEnabled = false;
+const require = createRequire(import.meta.url);
+const { registerHooks } = require("node:module");
+
+function enableExtensionlessTsResolution() {
+  if (extensionlessTsResolutionEnabled) {
+    return;
+  }
+
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      try {
+        return nextResolve(specifier, context);
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !("code" in error) ||
+          error.code !== "ERR_MODULE_NOT_FOUND" ||
+          !(
+            specifier.startsWith("./") ||
+            specifier.startsWith("../") ||
+            specifier.startsWith("/")
+          ) ||
+          /\.[a-z0-9]+$/i.test(specifier)
+        ) {
+          throw error;
+        }
+
+        try {
+          return nextResolve(`${specifier}.ts`, context);
+        } catch (tsError) {
+          if (
+            !(tsError instanceof Error) ||
+            !("code" in tsError) ||
+            tsError.code !== "ERR_MODULE_NOT_FOUND"
+          ) {
+            throw tsError;
+          }
+
+          return nextResolve(`${specifier}/index.ts`, context);
+        }
+      }
+    },
+  });
+
+  extensionlessTsResolutionEnabled = true;
+}
+
+function createStoredMemoryRecord(overrides = {}) {
+  return {
+    id: "memory_1",
+    topicSummary: null,
+    concreteAnswerCount: 0,
+    lastDraftArtifactId: null,
+    activeConstraints: {
+      constraints: [],
+      conversationState: "collecting_context",
+      pendingPlan: null,
+      clarificationState: null,
+      lastIdeationAngles: [],
+      rollingSummary: null,
+      assistantTurnCount: 0,
+      activeDraftRef: null,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
+      formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
+    },
+    ...overrides,
+  };
+}
 
 test("initial context load workers return mergeable outputs for identified users", async () => {
   const result = await loadInitialContextWorkers({
@@ -244,6 +321,120 @@ test("turn context hydration workers return style profile and anchors as mergeab
       },
     ],
   );
+});
+
+test("routing fast replies use the loaded user context for profile knowledge asks", async () => {
+  enableExtensionlessTsResolution();
+  const { resolveRoutingPolicy } = await import("./routingPolicy.ts");
+  let updatedMemoryArgs = null;
+
+  const result = await resolveRoutingPolicy(
+    {
+      userId: "user_1",
+      xHandle: "stan",
+      effectiveXHandle: "stan",
+      runId: "run_1",
+      threadId: "thread_1",
+      userMessage: "what do you know about my profile?",
+      planSeedMessage: null,
+      recentHistory: "",
+      activeDraft: undefined,
+      turnSource: "free_text",
+      artifactContext: null,
+      planSeedSource: null,
+      resolvedWorkflow: null,
+      replyHandlingBypassedReason: null,
+      formatPreference: null,
+      threadFramingStyle: null,
+      explicitIntent: null,
+      diagnosticContext: null,
+      creatorProfileHints: null,
+      userContextString: [
+        "User Profile Summary:",
+        "- Stage: 0-1k",
+        "- Primary Goal: authority",
+        "- Account: shernan @shernanjavier",
+        "- Bio: building xpo. helping builders turn ideas into posts that actually ship.",
+      ].join("\n"),
+      memory: {
+        conversationState: "collecting_context",
+        activeConstraints: [],
+        topicSummary: null,
+        lastIdeationAngles: [],
+        concreteAnswerCount: 0,
+        currentDraftArtifactId: null,
+        activeDraftRef: null,
+        rollingSummary: null,
+        pendingPlan: null,
+        clarificationState: null,
+        assistantTurnCount: 0,
+        latestRefinementInstruction: null,
+        unresolvedQuestion: null,
+        clarificationQuestionsAsked: 0,
+        preferredSurfaceMode: null,
+        formatPreference: null,
+        activeReplyContext: null,
+        activeReplyArtifactRef: null,
+        selectedReplyOptionId: null,
+        voiceFidelity: "balanced",
+      },
+      effectiveActiveConstraints: [],
+      turnPlan: null,
+      styleCard: null,
+      anchors: {
+        topicAnchors: ["generic ai copy usually comes from weak retrieval, not weak models."],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      },
+      initialWorkerExecutions: [],
+    },
+    {
+      controlTurn: async () => ({
+        action: "retrieve_then_answer",
+        needs_memory_update: false,
+        confidence: 0.9,
+        rationale: "test fast reply",
+      }),
+      updateConversationMemory: async (args) => {
+        updatedMemoryArgs = args;
+        return createStoredMemoryRecord({
+          topicSummary: args.topicSummary ?? null,
+          concreteAnswerCount: args.concreteAnswerCount ?? 0,
+          activeConstraints: {
+            constraints: args.activeConstraints ?? [],
+            conversationState: args.conversationState ?? "needs_more_context",
+            pendingPlan: null,
+            clarificationState: null,
+            lastIdeationAngles: [],
+            rollingSummary: args.rollingSummary ?? null,
+            assistantTurnCount: args.assistantTurnCount ?? 0,
+            activeDraftRef: null,
+            latestRefinementInstruction: null,
+            unresolvedQuestion: args.unresolvedQuestion ?? null,
+            clarificationQuestionsAsked: args.clarificationQuestionsAsked ?? 0,
+            preferredSurfaceMode: null,
+            formatPreference: null,
+            activeReplyContext: null,
+            activeReplyArtifactRef: null,
+            selectedReplyOptionId: null,
+          },
+        });
+      },
+    },
+  );
+
+  assert.equal(result.isFastReply, true);
+  assert.equal(
+    result.fastReplyResponse?.response.includes("Lately you've been posting about:"),
+    true,
+  );
+  assert.equal(
+    result.fastReplyResponse?.response.includes("- "),
+    true,
+  );
+  assert.equal(result.fastReplyResponse?.presentationStyle, "preserve_authored_structure");
+  assert.equal(updatedMemoryArgs?.assistantTurnCount, 1);
 });
 
 test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
@@ -1638,7 +1829,21 @@ test("revision validation workers isolate deterministic revision claim checks", 
         groupId: "revision_delivery_validation_initial",
       },
       {
+        worker: "thread_separator_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "skipped",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
         worker: "thread_shape_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "skipped",
+        groupId: "revision_delivery_validation_initial",
+      },
+      {
+        worker: "thread_hook_guard",
         phase: "validation",
         mode: "sequential",
         status: "skipped",
@@ -1700,7 +1905,20 @@ test("delivery validators catch truncation, prompt echo, artifact mismatch, and 
       formatPreference: "thread",
       sourceUserMessage: "write a thread",
     }).issues.map((issue) => issue.code),
-    ["thread_post_shape_mismatch"],
+    ["thread_separator_cleanup", "thread_post_shape_mismatch"],
+  );
+
+  assert.deepEqual(
+    validateDelivery({
+      draft: [
+        "We all assume growth comes from hiring faster. The real tension is that rushed hiring usually creates more drag. The impact is subtle at first, but it compounds until the team slows down. The takeaway sounds simple on paper, but if you're scaling, this is the part that bites hardest.",
+        "We fixed it by making ownership the filter.",
+        'Comment "HIRING" to get access to my hiring playbook.',
+      ].join("\n\n---\n\n"),
+      formatPreference: "thread",
+      sourceUserMessage: "write a thread about hiring",
+    }).issues.map((issue) => issue.code),
+    ["thread_hook_summary"],
   );
 });
 
@@ -1736,7 +1954,17 @@ test("delivery validation workers expose standardized worker names and retry met
         groupId: "draft_delivery_validation_initial",
       },
       {
+        worker: "thread_separator_guard",
+        status: "skipped",
+        groupId: "draft_delivery_validation_initial",
+      },
+      {
         worker: "thread_shape_guard",
+        status: "skipped",
+        groupId: "draft_delivery_validation_initial",
+      },
+      {
+        worker: "thread_hook_guard",
         status: "skipped",
         groupId: "draft_delivery_validation_initial",
       },
@@ -2577,6 +2805,22 @@ test("bare draft requests force loose ideation before stale topic memory can aut
       userMessage: "write a post",
       explicitIntent: null,
       hasActiveDraft: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write a post",
+      explicitIntent: "draft",
+      hasActiveDraft: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldForceLooseDraftIdeation({
+      userMessage: "write a post",
+      explicitIntent: "review",
+      hasActiveDraft: false,
     }),
     false,
   );

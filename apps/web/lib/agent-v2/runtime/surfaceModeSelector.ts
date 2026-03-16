@@ -57,6 +57,17 @@ export function selectResponseShapePlan(
     };
   }
 
+  if (args.outputShape === "profile_analysis") {
+    return {
+      mode: "structured_generation",
+      surfaceMode: "answer_directly",
+      shouldShowArtifacts: true,
+      shouldExplainReasoning: false,
+      shouldAskFollowUp: false,
+      maxFollowUps: 0,
+    };
+  }
+
   if (args.hasQuickReplies || args.hasAngles || args.hasPlan) {
     return {
       mode: "light_guidance",

@@ -72,6 +72,7 @@ import {
 import {
   mapPreferredOutputShapeToFormatPreference,
 } from "../grounding/creatorHintPolicy";
+import { buildUserContextString } from "../grounding/userContextString";
 import { buildSourceMaterialDraftConstraints } from "../grounding/sourceMaterialDraftPolicy";
 import {
   mergeSourceMaterialsIntoGroundingPacket,
@@ -182,6 +183,7 @@ export async function executeDraftPipeline(args: {
     effectiveActiveConstraints,
     formatPreference,
     creatorProfileHints,
+    userContextString: preloadedUserContextString,
     runId,
     threadId,
     turnPlan,
@@ -324,20 +326,18 @@ export async function executeDraftPipeline(args: {
     : "Unknown";
   const strategyState = onboardingResult?.strategyState as Record<string, unknown> | undefined;
   const goal = typeof strategyState?.goal === "string" ? strategyState.goal : "Audience growth";
-  const contextAnchorsStr =
-    factualContext.length > 0
-      ? `\n- Known Facts: ${factualContext.join(" | ")}`
-      : "";
-  const voiceHintsStr =
-    voiceContextHints.length > 0
-      ? `\n- Voice/Territory Hints: ${voiceContextHints.join(" | ")}`
-      : "";
-
-  const userContextString = `
-User Profile Summary:
-- Stage: ${stage}
-- Primary Goal: ${goal}${contextAnchorsStr}${voiceHintsStr}
-  `.trim();
+  const userContextString =
+    preloadedUserContextString ||
+    buildUserContextString({
+      onboardingResult:
+        (storedRun?.result as Parameters<typeof buildUserContextString>[0]["onboardingResult"]) ??
+        null,
+      creatorProfileHints,
+      stage,
+      goal,
+      factualContext,
+      voiceContextHints,
+    });
 
   const writeMemoryLocal = async (
     patch: Parameters<typeof saveConversationTurnMemory>[0]["patch"],
@@ -1118,6 +1118,7 @@ User Profile Summary:
       memory,
       recentHistory,
       factualContext,
+      historicalPostAnchors: anchors.topicAnchors,
       feedbackMemoryNotice,
       nextAssistantTurnCount,
       writeMemory: writeMemoryLocal,

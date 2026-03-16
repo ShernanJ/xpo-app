@@ -1,7 +1,10 @@
+import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
+
 export type ChatResultOutputShape =
   | "coach_question"
   | "ideation_angles"
   | "planning_outline"
+  | "profile_analysis"
   | "short_form_post"
   | "long_form_post"
   | "thread_seed"
@@ -52,6 +55,7 @@ export interface ChatReplyResultLike<
 > {
   reply: string;
   angles: unknown[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   quickReplies?: TQuickReply[];
   plan?: TPlan | null;
   draft?: string | null;
@@ -76,6 +80,7 @@ export interface ChatReplyResultLike<
   replyArtifacts?: TReplyArtifacts | null;
   replyParse?: TReplyParse | null;
   contextPacket?: TContextPacket | null;
+  profileAnalysisArtifact?: unknown | null;
   newThreadId?: string;
   messageId?: string;
   threadTitle?: string;
@@ -100,6 +105,7 @@ export interface AssistantChatMessageLike<
   content: string;
   createdAt: string;
   angles: unknown[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   plan: TPlan | null;
   draft: string | null;
   drafts: string[];
@@ -123,6 +129,7 @@ export interface AssistantChatMessageLike<
   replyArtifacts: TReplyArtifacts | null;
   replyParse: TReplyParse | null;
   contextPacket: TContextPacket | null;
+  profileAnalysisArtifact?: unknown | null;
   feedbackValue: null;
   quickReplies?: TQuickReply[];
 }
@@ -426,6 +433,9 @@ export function buildAssistantMessageFromChatResult<
     content: args.result.reply,
     createdAt,
     angles: args.result.angles,
+    ...(args.result.ideationFormatHint
+      ? { ideationFormatHint: args.result.ideationFormatHint }
+      : {}),
     plan: args.result.plan ?? null,
     draft: args.result.draft || null,
     drafts: args.result.drafts,
@@ -442,6 +452,7 @@ export function buildAssistantMessageFromChatResult<
     replyArtifacts: args.result.replyArtifacts ?? null,
     replyParse: args.result.replyParse ?? null,
     contextPacket: args.result.contextPacket ?? null,
+    profileAnalysisArtifact: args.result.profileAnalysisArtifact ?? null,
     feedbackValue: null,
     quickReplies,
   };

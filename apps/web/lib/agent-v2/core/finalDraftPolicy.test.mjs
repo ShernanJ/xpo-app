@@ -41,6 +41,37 @@ test("replaces leaked pdf links with a plain access CTA", () => {
   assert.equal(result.includes('Comment "HIRING" to get access to my hiring playbook.'), true);
 });
 
+test("rewrites vague resource CTas into a keyword access CTA when the draft offers a playbook", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "We cut hiring time from eight weeks to three.",
+      "The whole system is documented in a 21-page hiring playbook PDF.",
+      "Leave a comment below with the part of the hiring process you struggle with most, and I'll send you the guide.",
+    ].join("\n"),
+    formatPreference: "shortform",
+    isVerifiedAccount: true,
+  });
+
+  assert.equal(
+    result.includes('Comment "HIRING" to get access to my hiring playbook.'),
+    true,
+  );
+  assert.equal(result.includes("Leave a comment below"), false);
+});
+
+test("does not force a keyword CTA when no concrete downloadable asset is offered", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "Hiring gets easier when ownership is the filter.",
+      "Leave a comment if you want me to break down the interview scorecard next.",
+    ].join("\n"),
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+  });
+
+  assert.equal(result.includes('Comment "HIRING"'), false);
+});
+
 test("applies casing, bullet style, and blacklist preferences", () => {
   const result = applyFinalDraftPolicy({
     draft: "here we go\n- first item\n- second item\nthis grind gets real",
@@ -249,6 +280,39 @@ test("soft-signal thread openers expand inline bullet stacks into cleaner paragr
   assert.equal(result.includes("•"), false);
   assert.match(result, /script\.\n\nPublish a live hiring board/i);
   assert.match(result, /\n\nRequire a short public demo/i);
+});
+
+test("thread policy strips leading and trailing separator-only scaffolding", () => {
+  const result = applyFinalDraftPolicy({
+    draft: [
+      "---",
+      "no fluff. just the schedule and feedback loop that made the thread work.",
+      "",
+      "---",
+      "",
+      "i ran it on my own profile first.",
+      "",
+      "---",
+      "",
+      "that gave me one clean beat per post instead of one chopped essay.",
+      "",
+      "---",
+    ].join("\n"),
+    formatPreference: "thread",
+    isVerifiedAccount: false,
+    threadFramingStyle: "soft_signal",
+  });
+
+  assert.equal(result.startsWith("---"), false);
+  assert.equal(result.endsWith("---"), false);
+  assert.equal(result.includes("\n---\nno fluff"), false);
+
+  const posts = result.split(/\n\s*---\s*\n/g).map((post) => post.trim()).filter(Boolean);
+  assert.deepEqual(posts, [
+    "no fluff. just the schedule and feedback loop that made the thread work.",
+    "i ran it on my own profile first.",
+    "that gave me one clean beat per post instead of one chopped essay.",
+  ]);
 });
 
 test("numbered threads preserve numbering markers", () => {

@@ -564,8 +564,6 @@ function ChatPageContent() {
     handleBioAlternativeCopied,
     handleBioAlternativeRefine,
     handlePinnedPromptStart,
-    handleBannerGeneratorOpened,
-    handleBannerDownloaded,
   } = useAnalysisState({
     accountName,
     activeThreadId,
@@ -1478,8 +1476,6 @@ function ChatPageContent() {
         handleBioAlternativeCopied={handleBioAlternativeCopied}
         handleBioAlternativeRefine={handleBioAlternativeRefine}
         handlePinnedPromptStart={handlePinnedPromptStart}
-        handleBannerGeneratorOpened={handleBannerGeneratorOpened}
-        handleBannerDownloaded={handleBannerDownloaded}
         openGrowthGuide={openGrowthGuide}
         openGrowthGuideForRecommendation={openGrowthGuideForRecommendation}
         isAddAccountModalOpen={isAddAccountModalOpen}

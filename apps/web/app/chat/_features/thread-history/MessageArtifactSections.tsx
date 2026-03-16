@@ -21,6 +21,7 @@ import {
   AnimatedDraftText,
   InlineDraftPreviewCard,
 } from "../draft-editor/chatDraftPreviewCard";
+import { InlineProfileAnalysisCard } from "../analysis/InlineProfileAnalysisCard";
 import {
   buildDraftArtifactRevealKey,
   buildDraftBundleRevealKey,
@@ -38,6 +39,7 @@ import {
   getDraftGroundingToneClasses,
   summarizeGroundingSource,
 } from "../draft-queue/draftQueueViewState";
+import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 
 type QuickReplyLike = {
   kind: string;
@@ -78,6 +80,7 @@ interface MessageLike extends ChatMessageLike {
   quickReplies?: QuickReplyLike[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   angles?: any[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   surfaceMode?: string;
   autoSavedSourceMaterials?: {
     count: number;
@@ -103,6 +106,7 @@ interface MessageLike extends ChatMessageLike {
   draftVersions?: DraftVersionEntryLike[];
   whyThisWorks?: string[];
   watchOutFor?: string[];
+  profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
 }
 
 interface MessageArtifactSectionsProps {
@@ -315,11 +319,14 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
           {message.angles.map((angle, angleIndex) => {
             const isStructured = typeof angle === "object" && angle !== null;
             const title = isStructured ? (angle as Record<string, string>).title : (angle as string);
-            const selectedAngleFormatHint: SelectedAngleFormatHint = /\bthread directions\b/i.test(
-              message.content,
-            )
-              ? "thread"
-              : "post";
+            const selectedAngleFormatHint: SelectedAngleFormatHint =
+              message.ideationFormatHint === "thread"
+                ? "thread"
+                : message.ideationFormatHint === "post"
+                  ? "post"
+                  : /\bthread directions\b/i.test(message.content)
+                    ? "thread"
+                    : "post";
 
             return (
               <button
@@ -351,6 +358,10 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
           disabled={!canRunReplyActions}
           onSelect={onQuickReplySelect}
         />
+      ) : null}
+
+      {message.profileAnalysisArtifact ? (
+        <InlineProfileAnalysisCard artifact={message.profileAnalysisArtifact} />
       ) : null}
 
       <ReplyArtifactSections

@@ -1,4 +1,5 @@
 import type {
+  ResponsePresentationStyle,
   ResponseShapePlan,
   SurfaceMode,
   V2ChatOutputShape,
@@ -8,6 +9,7 @@ interface ShapeResponseArgs {
   response: string;
   outputShape: V2ChatOutputShape;
   plan: ResponseShapePlan;
+  presentationStyle?: ResponsePresentationStyle | null;
 }
 
 const FEEDBACK_NOTICE_REPLIES = new Set([
@@ -96,6 +98,39 @@ function removeTrailingFollowUpQuestion(response: string): string {
   return trimmed.replace(/\s*(?:want|should|does|do|anything|which)\b[^?]*\?\s*$/i, "").trim();
 }
 
+function splitTrailingFollowUpQuestion(
+  response: string,
+): { body: string; question: string | null } {
+  const trimmed = response.trim();
+  if (!trimmed.includes("?")) {
+    return { body: trimmed, question: null };
+  }
+
+  const lines = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length > 1) {
+    const lastLine = lines[lines.length - 1] || "";
+    if (/\?$/.test(lastLine)) {
+      return {
+        body: lines.slice(0, -1).join("\n").trim(),
+        question: lastLine,
+      };
+    }
+  }
+
+  const sentenceSplit = trimmed.match(/^(.*?[.?!])\s+([^.?!]*\?)\s*$/);
+  if (sentenceSplit?.[1] && sentenceSplit[2]) {
+    return {
+      body: sentenceSplit[1].trim(),
+      question: sentenceSplit[2].trim(),
+    };
+  }
+
+  return { body: trimmed, question: null };
+}
+
 function removeAutomaticDraftPrompt(response: string): string {
   return response
     .replace(/\s*want me to turn that into a post\?\s*$/i, "")
@@ -109,6 +144,64 @@ function normalizeWhitespace(response: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function responseAlreadyStructured(response: string): boolean {
+  return (
+    /^\s*(?:[-*]\s+|\d+\.\s+|#\s+|##\s+|###\s+|>\s+)/m.test(response) ||
+    /\*\*[^*\n]+:\*\*/.test(response)
+  );
+}
+
+function splitResponseIntoSentences(response: string): string[] {
+  return response
+    .replace(/\n+/g, " ")
+    .replace(/:\s+-\s+/g, ": ")
+    .replace(/\s+-\s+(?=[A-Z"(])/g, ". ")
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .map((sentence) => sentence.replace(/^-+\s*/, ""))
+    .filter(Boolean);
+}
+
+function formatConversationalReplyForScanability(response: string): string {
+  const trimmed = response.trim();
+  if (!trimmed || responseAlreadyStructured(trimmed)) {
+    return trimmed;
+  }
+
+  const sentences = splitResponseIntoSentences(trimmed);
+  if (sentences.length < 3 || trimmed.length < 220) {
+    return trimmed;
+  }
+
+  return sentences.map((sentence) => `- ${sentence}`).join("\n");
+}
+
+function formatConversationalReplyWithFollowUpQuestion(response: string): string {
+  const trimmed = response.trim();
+  if (!trimmed || responseAlreadyStructured(trimmed)) {
+    return trimmed;
+  }
+
+  const { body, question } = splitTrailingFollowUpQuestion(trimmed);
+  if (!question || !body) {
+    return formatConversationalReplyForScanability(trimmed);
+  }
+
+  const formattedBody = formatConversationalReplyForScanability(body);
+  const bodyWasFormatted = formattedBody !== body;
+  const bodyIsLongEnough = body.trim().length >= 220;
+
+  if (!bodyWasFormatted && !bodyIsLongEnough) {
+    return trimmed;
+  }
+
+  if (formattedBody.startsWith("- ")) {
+    return `${formattedBody}\n${question}`;
+  }
+
+  return `${formattedBody}\n\n${question}`;
 }
 
 function shapeBySurfaceMode(response: string, surfaceMode: SurfaceMode): string {
@@ -131,6 +224,23 @@ export function shapeAssistantResponse(args: ShapeResponseArgs): string {
     args.plan.maxFollowUps === 0
   ) {
     nextResponse = removeTrailingFollowUpQuestion(nextResponse);
+  }
+
+  if (args.outputShape === "coach_question") {
+    if (
+      args.presentationStyle === "plain_paragraph" ||
+      args.presentationStyle === "preserve_authored_structure"
+    ) {
+      return nextResponse;
+    }
+
+    if (args.plan.surfaceMode === "answer_directly") {
+      nextResponse = formatConversationalReplyForScanability(nextResponse);
+    }
+
+    if (args.plan.surfaceMode === "ask_one_question") {
+      nextResponse = formatConversationalReplyWithFollowUpQuestion(nextResponse);
+    }
   }
 
   return normalizeWhitespace(nextResponse);

@@ -337,6 +337,44 @@ test("buildChatRouteMappedData derives draft handoff from finalized envelope fie
   assert.equal(mapped.mappedData.draft, "updated draft body");
 });
 
+test("buildChatRouteMappedData preserves ideation format hints for angle picks", () => {
+  const mapped = buildChatRouteMappedData({
+    result: {
+      outputShape: "ideation_angles",
+      response: "here are a few directions.",
+      surfaceMode: "offer_options",
+      responseShapePlan: {
+        surfaceMode: "offer_options",
+        shouldShowArtifacts: true,
+        shouldAskFollowUp: true,
+        maxFollowUps: 1,
+      },
+      memory: baseMemory,
+      data: {
+        angles: [{ title: "hook angle" }],
+        ideationFormatHint: "thread",
+      },
+    },
+    plan: null,
+    selectedDraftContext: null,
+    formatPreference: null,
+    isVerifiedAccount: false,
+    userPreferences: null,
+    styleCard: null,
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "ideate",
+    },
+    clientTurnId: "turn_thread_ideation",
+  });
+
+  assert.equal(mapped.mappedData.ideationFormatHint, "thread");
+  assert.deepEqual(mapped.mappedData.angles, [{ title: "hook angle" }]);
+});
+
 test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, and analytics from mapped data", () => {
   const plan = buildChatRoutePersistencePlan({
     mappedDataSeed: {
@@ -2410,7 +2448,7 @@ test("conversation context builder prefers standardized context packet refs over
   );
 });
 
-test("selected draft resolution prefers the stored active draft ref over stale client selection", () => {
+test("selected draft resolution prefers the explicit client selection over stale active draft memory", () => {
   const resolved = resolveSelectedDraftContextFromHistory({
     selectedDraftContext: parseSelectedDraftContext({
       messageId: "assistant_old",
@@ -2467,10 +2505,10 @@ test("selected draft resolution prefers the stored active draft ref over stale c
     ],
   });
 
-  assert.equal(resolved?.messageId, "assistant_new");
-  assert.equal(resolved?.versionId, "ver_new");
-  assert.equal(resolved?.content, "newest canonical draft");
-  assert.equal(resolved?.revisionChainId, "revision-chain-new");
+  assert.equal(resolved?.messageId, "assistant_old");
+  assert.equal(resolved?.versionId, "ver_old");
+  assert.equal(resolved?.content, "older selected draft");
+  assert.equal(resolved?.revisionChainId, "revision-chain-old");
 });
 
 test("continuity stack routes lets do it into draft from stored pending-plan context", () => {

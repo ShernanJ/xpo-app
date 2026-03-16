@@ -58,6 +58,30 @@ test("prepareAssistantReplyTransport resolves ideation picks into structured tra
   assert.equal(prepared.clientTurnId?.startsWith("turn_"), true);
 });
 
+test("prepareAssistantReplyTransport preserves thread intent for thread angle picks", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "",
+    history: [{ id: "user-1", role: "user", content: "write a thread" }],
+    runId: "run-1",
+    threadId: "thread-1",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "selected_angle",
+      angle: "the hiring filter that kept our team lean",
+      formatHint: "thread",
+    },
+    formatPreferenceOverride: "thread",
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.transportRequest?.artifactContext?.kind, "selected_angle");
+  assert.equal(prepared.transportRequest?.formatPreference, "thread");
+  assert.equal(prepared.pendingStatusPlan?.workflow, "plan_then_draft");
+});
+
 test("prepareAssistantReplyTransport carries selected draft context for revision requests", () => {
   const prepared = prepareAssistantReplyTransport({
     prompt: "make it shorter and sharper",

@@ -61,6 +61,7 @@ import {
   type CreatorProfileHints,
   type GroundingPacketSourceMaterial,
 } from "../grounding/groundingPacket";
+import type { ProfileReplyContext } from "../grounding/profileReplyContext.ts";
 import {
   type DraftBundleResult,
 } from "../capabilities/drafting/draftBundles";
@@ -68,6 +69,7 @@ import { finalizeResponseEnvelope } from "./responseEnvelope";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
+  ResponsePresentationStyle,
   ResponseShapePlan,
   SurfaceMode,
   StrategyPlan,
@@ -110,6 +112,8 @@ export interface OrchestratorInput {
   threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
   creatorProfileHints?: CreatorProfileHints | null;
+  userContextString?: string | null;
+  profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
 }
 
@@ -202,10 +206,14 @@ export type OrchestratorResponse = {
   memory: V2ConversationMemory;
 };
 
-export type RawOrchestratorResponse = Omit<
-  OrchestratorResponse,
-  "surfaceMode" | "responseShapePlan"
->;
+export type RawOrchestratorResponse = {
+  mode: "coach" | "ideate" | "plan" | "draft" | "error";
+  outputShape: V2ChatOutputShape;
+  response: string;
+  data?: OrchestratorData;
+  memory: V2ConversationMemory;
+  presentationStyle?: ResponsePresentationStyle | null;
+};
 
 export interface ManagedConversationTurnRawResult {
   rawResponse: RawOrchestratorResponse;

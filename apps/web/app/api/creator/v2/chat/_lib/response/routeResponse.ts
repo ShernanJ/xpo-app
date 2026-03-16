@@ -153,6 +153,15 @@ export function planMainAssistantTurnProductEvents(args: {
     });
   }
 
+  if (args.mappedData.outputShape === "profile_analysis") {
+    events.push({
+      eventType: "profile_analysis_generated",
+      properties: {
+        surfaceMode: args.mappedData.surfaceMode ?? null,
+      },
+    });
+  }
+
   return events;
 }
 

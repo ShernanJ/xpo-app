@@ -34,6 +34,10 @@ import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/dia
 import { isMultiDraftRequest } from "@/lib/agent-v2/core/conversationHeuristics";
 import { prepareHandledReplyTurn } from "@/lib/agent-v2/capabilities/reply/handledReplyTurn";
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
+import {
+  buildInlineProfileAnalysisResponse,
+  isInlineProfileAnalysisRequest,
+} from "./_lib/profile/inlineProfileAnalysis";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
@@ -126,6 +130,12 @@ export async function POST(request: NextRequest) {
     body.formatPreference === "thread"
       ? body.formatPreference
       : null;
+  const effectiveFormatPreference =
+    formatPreference ??
+    (normalizedTurn.artifactContext?.kind === "selected_angle" &&
+    normalizedTurn.artifactContext.formatHint === "thread"
+      ? "thread"
+      : null);
   const threadFramingStyle = resolveThreadFramingStyle(body.threadFramingStyle);
   let selectedDraftContext =
     normalizedTurn.selectedDraftContext ?? parseSelectedDraftContext(body.selectedDraftContext);
@@ -173,6 +183,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { activeHandle, storedThread } = threadState;
+  const shouldForcePinnedRefreshForAnalysis = isInlineProfileAnalysisRequest(
+    effectiveMessage,
+  );
 
   if (threadId) {
     const duplicateReplayResponse = await maybeReplayDuplicateTurn({
@@ -213,8 +226,11 @@ export async function POST(request: NextRequest) {
   const storedRun = storedRunResult.storedRun;
 
   const {
+    onboardingResult,
     isVerifiedAccount,
     creatorProfileHints,
+    userContextString,
+    profileReplyContext,
     creatorAgentContext,
     growthOsPayload,
     diagnosticContext,
@@ -227,6 +243,7 @@ export async function POST(request: NextRequest) {
     storedRun,
     transientPreferenceSettings,
     preferenceConstraints,
+    forcePinnedRefreshForAnalysis: shouldForcePinnedRefreshForAnalysis,
   });
 
   const effectiveExplicitIntent = normalizedTurn.explicitIntent;
@@ -265,7 +282,7 @@ export async function POST(request: NextRequest) {
       turnSource: normalizedTurn.source,
       artifactContext: normalizedTurn.artifactContext,
       routingDiagnostics: normalizedTurn.diagnostics,
-      formatPreference,
+      formatPreference: effectiveFormatPreference,
       threadFramingStyle,
       structuredReplyContext,
     });
@@ -273,6 +290,76 @@ export async function POST(request: NextRequest) {
     const activeDraft = conversationContext.activeDraft;
     const storedMemory = conversationContext.storedMemory;
     selectedDraftContext = conversationContext.selectedDraftContext;
+
+    if (
+      onboardingResult &&
+      growthOsPayload?.profileConversionAudit &&
+      isInlineProfileAnalysisRequest(effectiveMessage)
+    ) {
+      const preparedTurn = await prepareManagedMainTurn({
+        rawResponse: await buildInlineProfileAnalysisResponse({
+          onboarding: onboardingResult,
+          audit: growthOsPayload.profileConversionAudit,
+          memory: storedMemory,
+        }),
+        recentHistory: recentHistoryStr || "None",
+        selectedDraftContext,
+        formatPreference: effectiveFormatPreference,
+        isVerifiedAccount,
+        userPreferences: effectiveUserPreferences,
+        styleCard,
+        routingDiagnostics: normalizedTurn.diagnostics,
+        clientTurnId,
+        currentThreadTitle: storedThread.title,
+        shouldClearReplyWorkflow: false,
+      });
+
+      return await finalizeMainAssistantTurn({
+        preparedTurn,
+        routingTrace: {
+          normalizedTurn: {
+            turnSource: normalizedTurn.source,
+            artifactKind: normalizedTurn.artifactContext?.kind ?? null,
+            planSeedSource: normalizedTurn.diagnostics.planSeedSource,
+            replyHandlingBypassedReason:
+              normalizedTurn.diagnostics.replyHandlingBypassedReason,
+            resolvedWorkflow: normalizedTurn.diagnostics.resolvedWorkflow,
+          },
+          runtimeResolution: null,
+          workerExecutions: [],
+          workerExecutionSummary: {
+            total: 0,
+            parallel: 0,
+            sequential: 0,
+            completed: 0,
+            skipped: 0,
+            failed: 0,
+            groups: [],
+          },
+          persistedStateChanges: null,
+          validations: [],
+          turnPlan: null,
+          controllerAction: "inline_profile_analysis",
+          classifiedIntent: effectiveExplicitIntent,
+          resolvedMode: "coach",
+          routerState: null,
+          planInputSource: null,
+          clarification: null,
+          draftGuard: null,
+          planFailure: null,
+        },
+        shouldIncludeRoutingTrace,
+        storedThreadId: storedThread.id,
+        requestedThreadId: threadId,
+        userId: session.user.id,
+        activeHandle,
+        runId: storedRun?.id ?? null,
+        sourcePrompt: effectiveMessage,
+        explicitIntent: effectiveExplicitIntent,
+        loadBilling: loadBillingStateForResponse,
+        recordProductEvent,
+      });
+    }
 
     const replyInsights = growthOsPayload?.replyInsights ?? null;
     const replyTurnPreflight = await prepareHandledReplyTurn({
@@ -331,10 +418,12 @@ export async function POST(request: NextRequest) {
       planSeedSource: normalizedTurn.diagnostics.planSeedSource,
       resolvedWorkflow: normalizedTurn.diagnostics.resolvedWorkflow,
       replyHandlingBypassedReason: normalizedTurn.diagnostics.replyHandlingBypassedReason,
-      formatPreference,
+      formatPreference: effectiveFormatPreference,
       threadFramingStyle,
       preferenceConstraints: mergedPreferenceConstraints,
       creatorProfileHints,
+      userContextString,
+      profileReplyContext,
       diagnosticContext: effectiveDiagnosticContext,
     });
 
@@ -343,7 +432,7 @@ export async function POST(request: NextRequest) {
       rawResponse,
       recentHistory: recentHistoryStr || "None",
       selectedDraftContext,
-      formatPreference,
+      formatPreference: effectiveFormatPreference,
       isVerifiedAccount,
       userPreferences: effectiveUserPreferences,
       styleCard,

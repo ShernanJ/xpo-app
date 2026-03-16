@@ -131,6 +131,8 @@ export async function executeIdeationCapability(
         data: ideas
           ? {
               angles: ideas.angles,
+              ideationFormatHint:
+                context.turnFormatPreference === "thread" ? "thread" : "post",
               quickReplies: buildIdeationQuickReplies({
                 styleCard: context.styleCard,
                 seedTopic: nextIdeationTopicSummary || currentTopicSummary,

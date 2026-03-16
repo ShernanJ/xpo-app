@@ -1,4 +1,8 @@
-import type { DraftArtifactDetails } from "../../../../lib/onboarding/draftArtifacts.ts";
+import {
+  joinSerializedThreadPosts,
+  splitSerializedThreadPosts,
+  type DraftArtifactDetails,
+} from "../../../../lib/onboarding/draftArtifacts.ts";
 
 type DraftArtifact = DraftArtifactDetails;
 
@@ -20,17 +24,11 @@ function getArtifactPosts(artifact: DraftArtifact | null | undefined): string[] 
 }
 
 export function splitThreadContent(content: string): string[] {
-  return content
-    .split(/\n\s*---\s*\n/g)
-    .map((post) => post.trim())
-    .filter(Boolean);
+  return splitSerializedThreadPosts(content);
 }
 
 export function joinThreadPosts(posts: string[]): string {
-  return posts
-    .map((post) => post.trim())
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  return joinSerializedThreadPosts(posts);
 }
 
 export function splitThreadPostAtBoundary(content: string): [string, string] | null {

@@ -102,6 +102,51 @@ test("resolveDraftCardRevisionAction targets the active draft version and carrie
   });
 });
 
+test("resolveDraftCardRevisionAction prefers the latest editable active version in a revision chain", () => {
+  const action = resolveDraftCardRevisionAction({
+    messageId: "message-latest",
+    prompt: "make it punchier",
+    composerCharacterLimit: 280,
+    messages: [
+      {
+        id: "message-latest",
+        role: "assistant",
+        revisionChainId: "chain-latest",
+        draftVersions: [
+          {
+            id: "v1",
+            content: "older version",
+            source: "assistant_generated",
+            createdAt: "2026-03-14T11:00:00.000Z",
+            basedOnVersionId: null,
+            weightedCharacterCount: 13,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+          },
+          {
+            id: "v2",
+            content: "latest editable version",
+            source: "assistant_revision",
+            createdAt: "2026-03-14T12:00:00.000Z",
+            basedOnVersionId: "v1",
+            weightedCharacterCount: 23,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+          },
+        ],
+        activeDraftVersionId: "v2",
+      },
+    ],
+  });
+
+  assert.equal(action?.activeDraftEditor.versionId, "v2");
+  assert.equal(action?.request.selectedDraftContextOverride.versionId, "v2");
+  assert.equal(
+    action?.request.selectedDraftContextOverride.content,
+    "latest editable version",
+  );
+});
+
 test("resolveDraftCardRevisionAction respects an explicit thread framing override", () => {
   const action = resolveDraftCardRevisionAction({
     messageId: "message-2",

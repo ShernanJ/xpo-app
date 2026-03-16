@@ -46,6 +46,8 @@ export async function resolveRoutingPolicy(
     threadId,
     userId,
     diagnosticContext,
+    userContextString,
+    profileReplyContext,
     styleCard,
     anchors,
     initialWorkerExecutions,
@@ -158,7 +160,8 @@ export async function resolveRoutingPolicy(
       topicSummary: currentMemory.topicSummary,
       styleCard,
       topicAnchors: anchors.topicAnchors,
-      userContextString: "",
+      userContextString,
+      profileReplyContext,
       activeConstraints: currentMemory.activeConstraints,
       diagnosticContext,
       options: {
@@ -195,11 +198,12 @@ export async function resolveRoutingPolicy(
         routingTrace,
         memory: finalMemory,
         fastReplyResponse: buildFastReplyRawResponse({
-          response: fastReply,
+          response: fastReply.response,
           memory: finalMemory,
           data: {
             routingTrace,
           },
+          presentationStyle: fastReply.presentationStyle,
         }) as RawOrchestratorResponse,
       };
     }

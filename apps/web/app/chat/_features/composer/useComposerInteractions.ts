@@ -41,6 +41,7 @@ type RequestAssistantReplyFn<TStrategyInputs, TToneInputs, TContentFocus extends
           kind: "reply_option_select";
           optionIndex: number;
         };
+    formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
     appendUserMessage: boolean;
     strategyInputOverride?: TStrategyInputs;
     toneInputOverride?: TToneInputs;
@@ -132,6 +133,7 @@ export function useComposerInteractions<
           angle,
           formatHint,
         },
+        formatPreferenceOverride: formatHint === "thread" ? "thread" : null,
         appendUserMessage: true,
         strategyInputOverride: activeStrategyInputs,
         toneInputOverride: activeToneInputs,

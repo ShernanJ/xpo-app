@@ -59,9 +59,21 @@ const WORKER_CONFIG: Array<{
     appliesTo: () => true,
   },
   {
+    code: "thread_separator_cleanup",
+    worker: "thread_separator_guard",
+    validator: "thread_separator_guard",
+    appliesTo: (formatPreference) => formatPreference === "thread",
+  },
+  {
     code: "thread_post_shape_mismatch",
     worker: "thread_shape_guard",
     validator: "thread_shape_guard",
+    appliesTo: (formatPreference) => formatPreference === "thread",
+  },
+  {
+    code: "thread_hook_summary",
+    worker: "thread_hook_guard",
+    validator: "thread_hook_guard",
     appliesTo: (formatPreference) => formatPreference === "thread",
   },
 ];

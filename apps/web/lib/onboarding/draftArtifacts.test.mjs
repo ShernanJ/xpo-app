@@ -108,3 +108,33 @@ test("thread artifacts cap oversized one-block fallbacks to six posts", () => {
   assert.equal(artifact.posts[0]?.content.includes("first lesson"), true);
   assert.equal(artifact.posts[5]?.content.length > 0, true);
 });
+
+test("thread artifacts strip separator-only scaffolding from the opener and close", () => {
+  const artifact = buildThreadArtifact(
+    [
+      "---",
+      "no fluff. just the schedule that made the thread work.",
+      "",
+      "---",
+      "",
+      "i tested it on my own profile first.",
+      "",
+      "---",
+      "",
+      "that gave me one clean lesson per post instead of one chopped essay.",
+      "",
+      "---",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(
+    artifact.posts.map((post) => post.content),
+    [
+      "no fluff. just the schedule that made the thread work.",
+      "i tested it on my own profile first.",
+      "that gave me one clean lesson per post instead of one chopped essay.",
+    ],
+  );
+  assert.equal(artifact.content.startsWith("---"), false);
+  assert.equal(artifact.content.endsWith("---"), false);
+});

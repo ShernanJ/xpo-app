@@ -1,6 +1,9 @@
 import "dotenv/config";
 import Groq from "groq-sdk";
-import type { ChatCompletionCreateParamsNonStreaming } from "groq-sdk/resources/chat/completions";
+import type {
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionMessageParam,
+} from "groq-sdk/resources/chat/completions";
 
 let groqClient: Groq | null = null;
 
@@ -13,12 +16,13 @@ function getGroqClient(): Groq {
 
 export interface LlmCompletionOptions {
   model: string;
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  messages: Array<ChatCompletionMessageParam>;
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
   /** Only used for openai/ reasoning models. "low" | "medium" | "high" */
   reasoning_effort?: "low" | "medium" | "high";
+  jsonRepairInstruction?: string;
   onFailure?: (reason: string) => void;
 }
 
@@ -82,13 +86,50 @@ function parseJsonContent<T>(rawContent: string): T | null {
   return JSON.parse(jsonStr) as T;
 }
 
+async function retryInvalidJsonContent<T>(
+  options: LlmCompletionOptions,
+  invalidContent: string,
+): Promise<T | null> {
+  const retryMessages: ChatCompletionMessageParam[] = [
+    ...options.messages,
+    {
+      role: "assistant",
+      content: invalidContent,
+    },
+    {
+      role: "user",
+      content:
+        options.jsonRepairInstruction ||
+        "Your previous response was not valid JSON. Return ONLY the corrected valid JSON with the same overall structure and no markdown or commentary.",
+    },
+  ];
+  const isOpenAiModel = options.model.startsWith("openai/");
+  const retryParams = buildParams(options, isOpenAiModel, {
+    messages: retryMessages,
+    reasoningEffort: "low",
+  });
+
+  console.warn(`[LLM] Invalid JSON from ${options.model}; retrying once with repair instruction.`);
+  const retryCompletion = await getGroqClient().chat.completions.create(retryParams);
+  const retryChoice = retryCompletion.choices?.[0];
+  const retryContent = extractMessageContent((retryChoice?.message || null) as ChatMessage | null);
+
+  if (!retryContent) {
+    console.error("[LLM] JSON repair retry returned no content. Full message:", JSON.stringify(retryChoice?.message, null, 2));
+    return null;
+  }
+
+  console.log(`[LLM] JSON repair retry got ${retryContent.length} chars back from ${options.model}`);
+  return parseJsonContent<T>(retryContent);
+}
+
 async function retryEmptyContentOpenAiJson<T>(
   options: LlmCompletionOptions,
 ): Promise<T | null> {
-  const retryMessages = [
+  const retryMessages: ChatCompletionMessageParam[] = [
     ...options.messages,
     {
-      role: "user" as const,
+      role: "user",
       content:
         "Return ONLY the final valid JSON in message content. Do not leave content empty. Do not place the answer in reasoning.",
     },
@@ -161,8 +202,17 @@ export async function fetchJsonFromGroq<T>(
     try {
       return parseJsonContent<T>(content);
     } catch (err) {
-      reportFailure("returned invalid JSON");
       console.error("[LLM] Failed to parse JSON from Groq response:", err);
+      try {
+        const retryResult = await retryInvalidJsonContent<T>(options, content);
+        if (retryResult) {
+          return retryResult;
+        }
+      } catch (retryError) {
+        console.error("[LLM] Retry after invalid JSON failed:", retryError);
+      }
+
+      reportFailure("returned invalid JSON");
       return null;
     }
   } catch (err) {

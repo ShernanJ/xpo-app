@@ -140,27 +140,6 @@ export function useSelectedDraftTimelineState<TMessage extends ChatMessageLike>(
     selectedDraftThreadPostCount,
     selectedThreadPostByMessageId,
   ]);
-  const selectedDraftContext = useMemo<DraftVersionSnapshotLike | null>(() => {
-    if (!activeDraftEditor || !selectedDraftVersion || !selectedDraftMessage) {
-      return null;
-    }
-
-    return {
-      messageId: activeDraftEditor.messageId,
-      versionId: selectedDraftVersion.id,
-      content: draftEditorSerializedContent.trim() || selectedDraftVersion.content,
-      source: selectedDraftVersion.source,
-      createdAt: selectedDraftVersion.createdAt,
-      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
-      revisionChainId:
-        activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
-    };
-  }, [
-    activeDraftEditor,
-    draftEditorSerializedContent,
-    selectedDraftMessage,
-    selectedDraftVersion,
-  ]);
   const selectedDraftTimeline = useMemo(
     () =>
       buildDraftRevisionTimeline({
@@ -188,6 +167,33 @@ export function useSelectedDraftTimelineState<TMessage extends ChatMessageLike>(
       selectedDraftVersionContent,
     ],
   );
+  const selectedDraftContext = useMemo<DraftVersionSnapshotLike | null>(() => {
+    if (
+      timelineState.isViewingHistoricalDraftVersion ||
+      !activeDraftEditor ||
+      !selectedDraftVersion ||
+      !selectedDraftMessage
+    ) {
+      return null;
+    }
+
+    return {
+      messageId: activeDraftEditor.messageId,
+      versionId: selectedDraftVersion.id,
+      content: draftEditorSerializedContent.trim() || selectedDraftVersion.content,
+      source: selectedDraftVersion.source,
+      createdAt: selectedDraftVersion.createdAt,
+      maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
+      revisionChainId:
+        activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
+    };
+  }, [
+    activeDraftEditor,
+    draftEditorSerializedContent,
+    selectedDraftMessage,
+    selectedDraftVersion,
+    timelineState.isViewingHistoricalDraftVersion,
+  ]);
 
   const navigateDraftTimeline = useCallback(
     (direction: "back" | "forward") => {

@@ -129,6 +129,7 @@ export async function handleNonDraftCoachTurn(
     memory: V2ConversationMemory;
     recentHistory: string;
     factualContext: string[];
+    historicalPostAnchors?: string[];
     feedbackMemoryNotice?: string | null;
     nextAssistantTurnCount: number;
     writeMemory: (patch: MemoryPatch) => Promise<void>;
@@ -159,6 +160,7 @@ export async function handleNonDraftCoachTurn(
     referenceText: args.memory.lastIdeationAngles.join(" "),
     recentHistory: args.recentHistory,
     contextAnchors: args.factualContext,
+    historicalPostAnchors: args.historicalPostAnchors,
   });
 
   if (sourceTransparencyReply) {
@@ -168,6 +170,7 @@ export async function handleNonDraftCoachTurn(
   const postReferenceReply = inferPostReferenceReply({
     userMessage: args.userMessage,
     recentHistory: args.recentHistory,
+    historicalPostAnchors: args.historicalPostAnchors,
   });
   if (postReferenceReply) {
     return respond(postReferenceReply, "needs_more_context");

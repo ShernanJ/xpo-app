@@ -174,7 +174,11 @@ export function shouldForceLooseDraftIdeation(args: {
   explicitIntent?: V2ChatIntent | null;
   hasActiveDraft: boolean;
 }): boolean {
-  if (args.explicitIntent || args.hasActiveDraft) {
+  if (
+    args.explicitIntent &&
+    args.explicitIntent !== "draft" &&
+    args.explicitIntent !== "planner_feedback"
+  ) {
     return false;
   }
 

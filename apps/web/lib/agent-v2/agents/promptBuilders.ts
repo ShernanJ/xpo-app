@@ -247,6 +247,98 @@ Reject broad motivational filler, generic praise-only replies, and off-brand sid
   `.trim();
 }
 
+function hasConcreteAssetCue(value: string): boolean {
+  return /\b(pdf|playbook|guide|checklist|template|worksheet|download|resource|access)\b/i.test(
+    value,
+  );
+}
+
+function inferAssetCtaKeyword(value: string): string {
+  const normalized = value.toLowerCase();
+
+  if (/\bhir(?:e|ing|es|ed)|recruit/i.test(normalized)) {
+    return "HIRING";
+  }
+
+  if (/\bdelegat/i.test(normalized)) {
+    return "DELEGATION";
+  }
+
+  if (/\bgrowth|scale|scaling|arr\b/i.test(normalized)) {
+    return "GROWTH";
+  }
+
+  if (/\bteam\b/i.test(normalized)) {
+    return "TEAM";
+  }
+
+  if (/\bchecklist\b/i.test(normalized)) {
+    return "CHECKLIST";
+  }
+
+  if (/\btemplate\b/i.test(normalized)) {
+    return "TEMPLATE";
+  }
+
+  if (/\bplaybook\b/i.test(normalized)) {
+    return "PLAYBOOK";
+  }
+
+  return "ACCESS";
+}
+
+function inferAssetCtaObject(value: string): string {
+  const normalized = value.toLowerCase();
+
+  if (/\bhiring\b.*\bplaybook\b|\bplaybook\b.*\bhiring\b/i.test(normalized)) {
+    return "my hiring playbook";
+  }
+
+  if (/\bdelegation\b.*\bplaybook\b|\bplaybook\b.*\bdelegation\b/i.test(normalized)) {
+    return "my delegation playbook";
+  }
+
+  if (/\bplaybook\b/i.test(normalized)) {
+    return "the playbook";
+  }
+
+  if (/\bchecklist\b/i.test(normalized)) {
+    return "the checklist";
+  }
+
+  if (/\btemplate\b/i.test(normalized)) {
+    return "the template";
+  }
+
+  if (/\bguide\b/i.test(normalized)) {
+    return "the guide";
+  }
+
+  if (/\bpdf\b/i.test(normalized)) {
+    return "the PDF";
+  }
+
+  return "the resource";
+}
+
+function buildAssetCtaBlock(value: string): string | null {
+  if (!hasConcreteAssetCue(value)) {
+    return null;
+  }
+
+  const keyword = inferAssetCtaKeyword(value);
+  const object = inferAssetCtaObject(value);
+
+  return `
+ASSET CTA MODE:
+- This draft is offering a concrete downloadable asset.
+- Default to a specific keyword CTA tied to the asset topic, not a vague "leave a comment" ask.
+- Preferred shape: Comment "${keyword}" to get access to ${object}.
+- Do NOT ask the reader to explain their struggle first unless the user explicitly requested that mechanic.
+- If there is no real downloadable asset in the final draft, do NOT force this CTA pattern.
+  `.trim();
+}
+
 export interface BuildPlanInstructionArgs {
   userMessage: string;
   topicSummary: string | null;
@@ -322,11 +414,13 @@ Rules for thread planning:
 - Each "proofPoints" array should contain 1 to 2 specific points, not every sub-idea from the whole thread.
 - Proof points must be concrete evidence, scenes, constraints, examples, or sharp claims from the request/grounding. Do NOT use meta reminders like "be specific", "make it clear", or "keep it engaging" as proof points.
 - The hook post must open a loop or create tension, NOT summarize. Use one specific contradiction, surprise, stake, or scene from the source material to earn the hook.
+- The hook post should feel like a native feed opener with immediate forward pull, not a mini-essay, table of contents, or recap of the whole thread.
 - Every post must advance the thread, not restate the previous beat in new words.
 - transitionHint should explain how the next post earns its place. Use null only for the last post.
 - Do NOT plan an essay that will be chopped into posts.
 - Do NOT repeat the same proof point, hook framing, or payoff line across multiple posts.
 - The close must feel like a distinct ending move. Do NOT use the close to simply restate the payoff with slightly different wording.
+- If the thread is offering a concrete downloadable asset, let the close use a specific keyword CTA instead of a vague "leave a comment" ending.
 `.trim();
 }
 
@@ -346,6 +440,9 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const assetCtaBlock = buildAssetCtaBlock(
+    [args.userMessage, args.topicSummary || "", args.recentHistory].filter(Boolean).join("\n"),
+  );
   const artifactContextBlock = buildArtifactContextBlock({
     activePlan: args.options?.activePlan || null,
     activeDraft: args.activeDraft,
@@ -390,6 +487,7 @@ ${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
 ${safeFrameworkFallbackBlock ? `${safeFrameworkFallbackBlock}\n` : ""}
 
 ${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
+${assetCtaBlock ? `${assetCtaBlock}\n` : ""}
 
 ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 
@@ -481,6 +579,16 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const assetCtaBlock = buildAssetCtaBlock(
+    [
+      args.options?.sourceUserMessage || "",
+      args.plan.objective,
+      args.plan.angle,
+      ...args.plan.mustInclude,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
   const artifactContextBlock = buildArtifactContextBlock({
     activePlan: args.options?.activePlan || args.plan,
     activeDraft: args.activeDraft,
@@ -549,7 +657,7 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
                 : ""
             }`,
         )
-        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nRole execution rules:\n- HOOK: open a loop with one real tension, contradiction, stake, or scene. Do NOT summarize the full thread.\n- SETUP: frame the context or problem so the next post earns its place.\n- PROOF: introduce a new fact, example, observation, or consequence. Do NOT restate the previous post with fresher wording.\n- TURN: change the frame, reveal the catch, or sharpen the contrast.\n- PAYOFF: land the earned takeaway the reader came for. It should feel more decisive than the earlier posts.\n- CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.\nIf two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.`
+        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nRole execution rules:\n- HOOK: open a loop with one real tension, contradiction, stake, or scene. Do NOT summarize the full thread.\n- HOOK: make Post 1 feel like a native feed opener with immediate forward pull, not a mini-essay, recap, or table of contents.\n- SETUP: frame the context or problem so the next post earns its place.\n- PROOF: introduce a new fact, example, observation, or consequence. Do NOT restate the previous post with fresher wording.\n- TURN: change the frame, reveal the catch, or sharpen the contrast.\n- PAYOFF: land the earned takeaway the reader came for. It should feel more decisive than the earlier posts.\n- CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.\n- CLOSE: if the thread is offering a concrete downloadable asset, prefer a specific keyword CTA over a vague "leave a comment" ending.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.\nIf two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.`
     : null;
 
   const strategyLayer = `
@@ -562,6 +670,7 @@ Must Include: ${args.plan.mustInclude.join(" | ") || "None"}
 Must Avoid: ${args.plan.mustAvoid.join(" | ") || "None"}
 Active Session Constraints: ${args.activeConstraints.join(" | ") || "None"}
 ${creatorHintsBlock ? `\n${creatorHintsBlock}` : ""}
+${assetCtaBlock ? `\n${assetCtaBlock}` : ""}
 ${threadBeatBlock ? `\n${threadBeatBlock}` : ""}
   `.trim();
   const voiceShapeLayer = `
@@ -631,6 +740,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}
 10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
 10b. If this is NOT a thread, do NOT start with labels like "thread:", "post 1:", "tweet 1:", or any serialized thread opener.
+10c. If this is a thread, make Post 1 read like a real thread opener: sharp, tension-first, and native to X. Do NOT use the opener to summarize the whole lesson, framework, or CTA.
 11. ${buildVerificationProfessionalismRule("draft")}
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
@@ -649,6 +759,8 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 14c. If the strategic angle conflicts with the factual truth layer, keep the factual truth and adjust the framing instead of widening the claim.
 15. ${buildMarkdownStylingRule("draft")}
 16. ${buildEngagementBaitRule("draft")}
+16a. If the draft offers a concrete downloadable asset like a PDF, playbook, guide, checklist, or template, use a specific keyword CTA tied to the asset topic. Prefer \`Comment "HIRING" to get access to my hiring playbook.\` over vague endings like "leave a comment and i'll send it."
+16b. If there is no real concrete asset payoff, do NOT force a keyword CTA.
 17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
 17a. If the source brief is phrased as a question, treat it as the problem the post should answer, not as text to paste back into the draft. If you use it as a hook, write the full hook cleanly and answer it. Never end on an unfinished fragment of the source question.
 

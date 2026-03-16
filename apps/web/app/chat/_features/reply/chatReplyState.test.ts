@@ -38,6 +38,30 @@ test("buildAssistantMessageFromChatResult preserves response quick replies when 
   assert.equal(message.quickReplies?.[0]?.label, "Go");
 });
 
+test("buildAssistantMessageFromChatResult carries ideation format hints onto assistant messages", () => {
+  const message = buildAssistantMessageFromChatResult({
+    result: {
+      reply: "here are a few directions.",
+      angles: [{ title: "angle one" }],
+      ideationFormatHint: "thread",
+      plan: null,
+      draft: null,
+      drafts: [],
+      draftArtifacts: [],
+      supportAsset: null,
+      outputShape: "ideation_angles",
+    },
+    activeThreadId: "thread-1",
+    existingMessageCount: 1,
+    trimmedPrompt: "write a thread",
+    artifactKind: null,
+    defaultQuickReplies: [],
+    now: new Date("2026-03-13T12:00:00.000Z"),
+  });
+
+  assert.equal(message.ideationFormatHint, "thread");
+});
+
 test("buildAssistantMessageFromChatResult falls back to starter quick replies only on empty threads", () => {
   const fallbackReplies = [
     { kind: "example_reply", value: "idea", label: "Give me ideas" },
@@ -83,6 +107,91 @@ test("buildAssistantMessageFromChatResult falls back to starter quick replies on
   });
 
   assert.equal(selectedAngleMessage.quickReplies, undefined);
+});
+
+test("buildAssistantMessageFromChatResult carries inline profile analysis artifacts through to the message", () => {
+  const message = buildAssistantMessageFromChatResult({
+    result: {
+      reply: "here's the current read on your profile",
+      angles: [],
+      plan: null,
+      draft: null,
+      drafts: [],
+      draftArtifacts: [],
+      supportAsset: null,
+      outputShape: "profile_analysis",
+      profileAnalysisArtifact: {
+        kind: "profile_analysis",
+        profile: {
+          username: "stan",
+          name: "Stan",
+          bio: "bio",
+          avatarUrl: null,
+          headerImageUrl: null,
+          isVerified: false,
+          followersCount: 10,
+          followingCount: 20,
+          createdAt: "2026-03-14T12:00:00.000Z",
+        },
+        pinnedPost: null,
+        audit: {
+          score: 80,
+          headline: "Strong profile",
+          fingerprint: "fp-1",
+          shouldAutoOpen: false,
+          steps: [],
+          strengths: [],
+          gaps: [],
+          unknowns: [],
+          bioFormulaCheck: {
+            status: "pass",
+            score: 80,
+            summary: "Good",
+            findings: [],
+            bio: "bio",
+            charCount: 3,
+            matchesFormula: { what: true, who: true, proofOrCta: true },
+            alternatives: [],
+          },
+          visualRealEstateCheck: {
+            status: "pass",
+            score: 80,
+            summary: "Good",
+            findings: [],
+            hasHeaderImage: false,
+            headerImageUrl: null,
+            headerClarity: null,
+            headerClarityResolved: true,
+          },
+          pinnedTweetCheck: {
+            status: "unknown",
+            score: 0,
+            summary: "Unknown",
+            findings: [],
+            pinnedPost: null,
+            category: "unknown",
+            ageDays: null,
+            isStale: false,
+            promptSuggestions: {
+              originStory: "origin",
+              coreThesis: "core",
+            },
+          },
+        },
+      },
+    },
+    activeThreadId: "thread-1",
+    existingMessageCount: 1,
+    trimmedPrompt: "analyze my profile",
+    artifactKind: null,
+    defaultQuickReplies: undefined,
+    now: new Date("2026-03-13T12:00:00.000Z"),
+  });
+
+  assert.equal(
+    (message.profileAnalysisArtifact as { profile: { username: string } }).profile.username,
+    "stan",
+  );
 });
 
 test("resolveNextDraftEditorSelection keeps json and stream rules distinct", () => {

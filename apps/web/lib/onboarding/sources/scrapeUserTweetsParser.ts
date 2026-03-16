@@ -10,6 +10,36 @@ interface ParsedScrapeTimeline {
   quotePosts: XPublicPost[];
 }
 
+function mergeProfiles(
+  base: XPublicProfile | null,
+  incoming: XPublicProfile | null,
+): XPublicProfile | null {
+  if (!base) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...incoming,
+    bio: incoming.bio || base.bio,
+    avatarUrl: incoming.avatarUrl ?? base.avatarUrl ?? null,
+    headerImageUrl: incoming.headerImageUrl ?? base.headerImageUrl ?? null,
+    isVerified: incoming.isVerified ?? base.isVerified ?? false,
+    followersCount:
+      incoming.followersCount > 0 ? incoming.followersCount : base.followersCount,
+    followingCount:
+      incoming.followingCount > 0 ? incoming.followingCount : base.followingCount,
+    createdAt:
+      incoming.createdAt !== new Date(0).toISOString()
+        ? incoming.createdAt
+        : base.createdAt,
+  };
+}
+
 const MAX_PARSED_SCRAPE_POSTS = 250;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -90,6 +120,82 @@ function extractUserNodeFromTweetNode(tweetNode: Record<string, unknown>): Recor
   const core = asRecord(tweetNode.core);
   const userResults = asRecord(core?.user_results);
   return asRecord(userResults?.result);
+}
+
+function getTopLevelUserResultNode(payload: unknown): Record<string, unknown> | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const user = asRecord(data?.user);
+  return asRecord(user?.result);
+}
+
+function extractProfileFromUserNode(userNode: Record<string, unknown>): XPublicProfile | null {
+  const userCore = asRecord(userNode.core);
+  const userLegacy = asRecord(userNode.legacy);
+  const profileBio = asRecord(userNode.profile_bio);
+  const avatar = asRecord(userNode.avatar);
+  const verification = asRecord(userNode.verification);
+
+  const username = asString(userCore?.screen_name) ?? asString(userLegacy?.screen_name);
+  if (!username) {
+    return null;
+  }
+
+  return {
+    username,
+    name: asString(userCore?.name) ?? asString(userLegacy?.name) ?? username,
+    bio:
+      asString(userLegacy?.description) ??
+      asString(profileBio?.description) ??
+      "",
+    avatarUrl: normalizeXAvatarUrl(
+      asString(avatar?.image_url) ??
+        asString(userLegacy?.profile_image_url_https) ??
+        asString(userLegacy?.profile_image_url) ??
+        null,
+    ),
+    headerImageUrl: normalizeXHeaderUrl(
+      asString(userLegacy?.profile_banner_url) ??
+        asString(userNode.profile_banner_url) ??
+        asString(asRecord(userNode.banner)?.image_url) ??
+        null,
+    ),
+    isVerified:
+      asBoolean(verification?.verified) ??
+      asBoolean(userNode.is_blue_verified) ??
+      asBoolean(userLegacy?.verified) ??
+      false,
+    followersCount: asNumber(
+      userLegacy?.followers_count ?? userLegacy?.normal_followers_count,
+    ),
+    followingCount: asNumber(userLegacy?.friends_count),
+    createdAt: toIsoDate(userCore?.created_at ?? userLegacy?.created_at),
+  };
+}
+
+function extractPinnedTweetIdsFromUserNode(userNode: Record<string, unknown>): string[] {
+  const userLegacy = asRecord(userNode.legacy);
+  const candidates = [
+    userLegacy?.pinned_tweet_ids_str,
+    userNode.pinned_tweet_ids_str,
+    userLegacy?.pinned_tweet_ids,
+    userNode.pinned_tweet_ids,
+  ];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) {
+      continue;
+    }
+
+    const ids = candidate
+      .map((value) => asString(value))
+      .filter((value): value is string => Boolean(value));
+    if (ids.length > 0) {
+      return ids;
+    }
+  }
+
+  return [];
 }
 
 function extractTimelineTweetNode(value: unknown): Record<string, unknown> | null {
@@ -197,6 +303,95 @@ function collectTweetResultNodesFromTimeline(payload: unknown): Record<string, u
   return nodes;
 }
 
+function findPinnedTimelineTweetNode(payload: unknown): Record<string, unknown> | null {
+  const timeline = getTimelineFromPayload(payload);
+  if (!timeline) {
+    return null;
+  }
+
+  const instructions = Array.isArray(timeline.instructions) ? timeline.instructions : [];
+
+  for (const instructionValue of instructions) {
+    const instruction = asRecord(instructionValue);
+    if (!instruction) {
+      continue;
+    }
+
+    const entries: unknown[] = [];
+    if (Array.isArray(instruction.entries)) {
+      entries.push(...instruction.entries);
+    }
+
+    const singleEntry = asRecord(instruction.entry);
+    if (singleEntry) {
+      entries.push(singleEntry);
+    }
+
+    for (const entryValue of entries) {
+      const entry = asRecord(entryValue);
+      const content = asRecord(entry?.content);
+      if (!content) {
+        continue;
+      }
+
+      const clientEventInfo = asRecord(content.clientEventInfo);
+      const itemContent = asRecord(content.itemContent);
+      const socialContext = asRecord(itemContent?.socialContext);
+      const isPinnedEntry =
+        asString(clientEventInfo?.component) === "pinned_tweets" ||
+        asString(socialContext?.contextType) === "Pin" ||
+        asString(socialContext?.text)?.toLowerCase() === "pinned";
+
+      if (!isPinnedEntry) {
+        continue;
+      }
+
+      const tweetNode = extractTimelineTweetNode(content);
+      if (tweetNode) {
+        return tweetNode;
+      }
+    }
+  }
+
+  return null;
+}
+
+function collectTweetResultNodesFromPayload(payload: unknown): Record<string, unknown>[] {
+  const nodes: Record<string, unknown>[] = [];
+  const queue: unknown[] = [payload];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) {
+      continue;
+    }
+
+    if (typeof current === "object") {
+      seen.add(current);
+    }
+
+    const tweetNode = unwrapTweetResultNode(current);
+    if (tweetNode) {
+      nodes.push(tweetNode);
+    }
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    const record = asRecord(current);
+    if (!record) {
+      continue;
+    }
+
+    queue.push(...Object.values(record));
+  }
+
+  return nodes;
+}
+
 function extractProfileFromTweetNode(
   tweetNode: Record<string, unknown>,
 ): XPublicProfile | null {
@@ -205,47 +400,7 @@ function extractProfileFromTweetNode(
     return null;
   }
 
-  const userCore = asRecord(userNode.core);
-  const userLegacy = asRecord(userNode.legacy);
-  const profileBio = asRecord(userNode.profile_bio);
-  const avatar = asRecord(userNode.avatar);
-  const verification = asRecord(userNode.verification);
-
-  const username = asString(userCore?.screen_name) ?? asString(userLegacy?.screen_name);
-  if (!username) {
-    return null;
-  }
-
-  return {
-    username,
-    name: asString(userCore?.name) ?? asString(userLegacy?.name) ?? username,
-    bio:
-      asString(userLegacy?.description) ??
-      asString(profileBio?.description) ??
-      "",
-    avatarUrl: normalizeXAvatarUrl(
-      asString(avatar?.image_url) ??
-        asString(userLegacy?.profile_image_url_https) ??
-        asString(userLegacy?.profile_image_url) ??
-        null,
-    ),
-    headerImageUrl: normalizeXHeaderUrl(
-      asString(userLegacy?.profile_banner_url) ??
-        asString(userNode.profile_banner_url) ??
-        asString(asRecord(userNode.banner)?.image_url) ??
-        null,
-    ),
-    isVerified:
-      asBoolean(verification?.verified) ??
-      asBoolean(userNode.is_blue_verified) ??
-      asBoolean(userLegacy?.verified) ??
-      false,
-    followersCount: asNumber(
-      userLegacy?.followers_count ?? userLegacy?.normal_followers_count,
-    ),
-    followingCount: asNumber(userLegacy?.friends_count),
-    createdAt: toIsoDate(userCore?.created_at ?? userLegacy?.created_at),
-  };
+  return extractProfileFromUserNode(userNode);
 }
 
 function extractPinnedTweetIdsFromTweetNode(tweetNode: Record<string, unknown>): string[] {
@@ -254,28 +409,7 @@ function extractPinnedTweetIdsFromTweetNode(tweetNode: Record<string, unknown>):
     return [];
   }
 
-  const userLegacy = asRecord(userNode.legacy);
-  const candidates = [
-    userLegacy?.pinned_tweet_ids_str,
-    userNode.pinned_tweet_ids_str,
-    userLegacy?.pinned_tweet_ids,
-    userNode.pinned_tweet_ids,
-  ];
-
-  for (const candidate of candidates) {
-    if (!Array.isArray(candidate)) {
-      continue;
-    }
-
-    const ids = candidate
-      .map((value) => asString(value))
-      .filter((value): value is string => Boolean(value));
-    if (ids.length > 0) {
-      return ids;
-    }
-  }
-
-  return [];
+  return extractPinnedTweetIdsFromUserNode(userNode);
 }
 
 function extractPostFromTweetNode(
@@ -390,6 +524,32 @@ function buildPinnedPost(
   };
 }
 
+function findPostByTweetId(
+  nodes: Record<string, unknown>[],
+  tweetId: string,
+  accountFilter: string | null,
+): XPublicPost | null {
+  const matchedNode = nodes.find((node) => {
+    const legacy = asRecord(node.legacy);
+    return (
+      asString(legacy?.id_str) === tweetId ||
+      asString(node.rest_id) === tweetId ||
+      asString(node.id_str) === tweetId ||
+      asString(node.id) === tweetId
+    );
+  });
+
+  if (!matchedNode) {
+    return null;
+  }
+
+  return extractPostFromTweetNode(matchedNode, accountFilter, {
+    includeRetweets: true,
+    includeReplies: true,
+    includeQuotes: true,
+  });
+}
+
 export function parseUserTweetsGraphqlPayload(params: {
   payload: unknown;
   account?: string;
@@ -404,6 +564,7 @@ export function parseUserTweetsGraphqlPayload(params: {
   const includeReplies = params.includeReplies ?? false;
   const includeQuotes = params.includeQuotes ?? false;
   const nodes = collectTweetResultNodesFromTimeline(params.payload);
+  const payloadTweetNodes = collectTweetResultNodesFromPayload(params.payload);
 
   const postsById = new Map<string, XPublicPost>();
   const fallbackPostsById = new Map<string, XPublicPost>();
@@ -411,7 +572,17 @@ export function parseUserTweetsGraphqlPayload(params: {
   const quotePostsById = new Map<string, XPublicPost>();
   const pinnedPostCandidates = new Map<string, XPublicPost>();
   const pinnedTweetIds = new Set<string>();
-  let profileCandidate: XPublicProfile | null = null;
+  const payloadUserNode = getTopLevelUserResultNode(params.payload);
+  const pinnedTimelineTweetNode = findPinnedTimelineTweetNode(params.payload);
+  let profileCandidate: XPublicProfile | null = payloadUserNode
+    ? extractProfileFromUserNode(payloadUserNode)
+    : null;
+
+  for (const pinnedTweetId of payloadUserNode
+    ? extractPinnedTweetIdsFromUserNode(payloadUserNode)
+    : []) {
+    pinnedTweetIds.add(pinnedTweetId);
+  }
 
   for (const node of nodes) {
     const nodeProfile = extractProfileFromTweetNode(node);
@@ -428,7 +599,7 @@ export function parseUserTweetsGraphqlPayload(params: {
         accountNormalized &&
         nodeProfile.username.toLowerCase() === accountNormalized.toLowerCase()
       ) {
-        profileCandidate = nodeProfile;
+        profileCandidate = mergeProfiles(profileCandidate, nodeProfile);
       }
     }
 
@@ -507,8 +678,21 @@ export function parseUserTweetsGraphqlPayload(params: {
       followingCount: 0,
       createdAt: new Date(0).toISOString(),
     } satisfies XPublicProfile);
-  const pinnedPostCandidate = Array.from(pinnedTweetIds)
-    .map((id) => pinnedPostCandidates.get(id) ?? fallbackPostsById.get(id) ?? postsById.get(id))
+  const pinnedTimelinePost = pinnedTimelineTweetNode
+    ? extractPostFromTweetNode(pinnedTimelineTweetNode, accountNormalized, {
+        includeRetweets: true,
+        includeReplies: true,
+        includeQuotes: true,
+      })
+    : null;
+  const pinnedPostCandidate = pinnedTimelinePost ?? Array.from(pinnedTweetIds)
+    .map(
+      (id) =>
+        pinnedPostCandidates.get(id) ??
+        fallbackPostsById.get(id) ??
+        postsById.get(id) ??
+        findPostByTweetId(payloadTweetNodes, id, accountNormalized)
+    )
     .find((value): value is XPublicPost => Boolean(value));
 
   return {

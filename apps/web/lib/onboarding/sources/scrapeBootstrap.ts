@@ -132,10 +132,11 @@ export async function bootstrapScrapeCaptureWithOptions(
     pages: number;
     count: number;
     userAgent: string;
+    forceRefresh?: boolean;
   },
 ) {
   const existingCapture = await readLatestScrapeCaptureByAccount(account);
-  if (existingCapture) {
+  if (existingCapture && !options.forceRefresh) {
     return {
       captureId: existingCapture.captureId,
       capturedAt: existingCapture.capturedAt,

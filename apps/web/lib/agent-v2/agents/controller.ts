@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fetchJsonFromGroq } from "./llm.ts";
 import type { ConversationState, V2ChatIntent } from "../contracts/chat";
 import type { TurnPlan } from "../contracts/chat";
+import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
 
 export const ControllerActionSchema = z.enum([
   "answer",
@@ -117,10 +118,22 @@ const CONTROLLER_DRAFT_PATTERNS = [
 ];
 const CONTROLLER_RETRIEVE_PATTERNS = [
   /\bwhat do you know about me\b/,
+  /\bwhat do you know about my (?:profile|background)\b/,
   /\bbased on what you know\b/,
   /\bmy (?:history|voice|style|positioning|profile|preferences|best posts?)\b/,
+  /\b(?:top|best|strongest|most popular)\s+(?:recent\s+)?(?:post|thread|reply)\b/,
+  /\bwhat performed best\b/,
+  /\bwhich post performed best\b/,
+  /\bwhy did (?:this|that|my) post do well\b/,
   /\b(?:past|previous|prior|best)\s+(?:posts?|threads?|replies?)\b/,
   /\bour history\b/,
+];
+const CONTROLLER_PROFILE_SUMMARY_PATTERNS = [
+  /\bwrite (?:me\s+)?(?:a\s+)?summary about my profile\b/,
+  /\bwrite (?:me\s+)?(?:a\s+)?summary of my profile\b/,
+  /\bsummar(?:ize|ise) my (?:profile|background)\b/,
+  /\b(?:quick\s+)?snapshot of my (?:profile|background)\b/,
+  /\bprofile summary\b/,
 ];
 const CONTROLLER_FACT_THIN_PATTERNS = [
   /\bmy (?:product|startup|company|app|tool|business|background|story|journey)\b/,
@@ -142,17 +155,46 @@ function looksLikeDirectQuestion(normalized: string): boolean {
   return normalized.includes("?") || CONTROLLER_DIRECT_QUESTION_PREFIX.test(normalized);
 }
 
+function looksLikeRetrieveThenAnswerQuestion(normalized: string): boolean {
+  return CONTROLLER_RETRIEVE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeProfileSummaryRequest(normalized: string): boolean {
+  return CONTROLLER_PROFILE_SUMMARY_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export function buildControllerFallbackDecision(args: {
   userMessage: string;
   memory: ControllerMemorySummary;
 }): ControllerDecision {
   const normalized = normalizeControllerMessage(args.userMessage);
 
+  if (isBareDraftRequest(normalized)) {
+    return {
+      action: "plan",
+      needs_memory_update: false,
+      confidence: 0.72,
+      rationale: "fallback bare draft request",
+    };
+  }
+
+  if (looksLikeProfileSummaryRequest(normalized)) {
+    return {
+      action: "retrieve_then_answer",
+      needs_memory_update: false,
+      confidence: 0.7,
+      rationale: "fallback retrieval summary",
+    };
+  }
+
   if (
     CONTROLLER_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     looksLikeDirectQuestion(normalized)
   ) {
-    if (CONTROLLER_RETRIEVE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    if (
+      looksLikeRetrieveThenAnswerQuestion(normalized) ||
+      looksLikeProfileSummaryRequest(normalized)
+    ) {
       return {
         action: "retrieve_then_answer",
         needs_memory_update: false,
@@ -414,6 +456,7 @@ RULES:
 - Use revise when they are changing existing wording, tone, hook, length, or structure.
 - Use analyze for "why is this underperforming", "what's wrong", "compare", "which is stronger", "what should i focus on".
 - Use retrieve_then_answer when the question is about their history, preferences, best posts, prior context, or stored learning.
+- Use retrieve_then_answer for profile-summary asks like "summarize my profile" or "write a summary about my profile" when synced workspace context already exists.
 - If there is a pending plan and the user says "lets do it", "write it", or plainly approves it, choose draft.
 - If there are ideation angles in scope and the user picks "option 2", "the second one", or similar, choose plan.
 - If there is an active draft and the user says "make that punchier", "same angle but softer", or another short edit follow-up, choose revise.

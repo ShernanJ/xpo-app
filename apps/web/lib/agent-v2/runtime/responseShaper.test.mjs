@@ -164,3 +164,131 @@ test("surface mode selector treats thread drafts as full generated output", () =
 
   assert.equal(response, "drafted a version. tune tone, hook, or length?");
 });
+
+test("response shaper formats long direct coach replies into skimmable bullets", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response:
+      'lead with a concrete hook that shows the payoff for followers. example: "Built $30M ARR with 10 engineers." follow with a one-line proof: "60k creators on our platform, $2.5M MRR." add a CTA that ties to your PDF: "FREE hiring playbook ->". keep it under 150 characters and avoid filler.',
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response:
+      'lead with a concrete hook that shows the payoff for followers. example: "Built $30M ARR with 10 engineers." follow with a one-line proof: "60k creators on our platform, $2.5M MRR." add a CTA that ties to your PDF: "FREE hiring playbook ->". keep it under 150 characters and avoid filler.',
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.match(response, /^- lead with a concrete hook that shows the payoff for followers\./m);
+  assert.match(response, /- example: "Built \$30M ARR with 10 engineers\."/i);
+  assert.equal(/Bottom line|Note:|Best next move/i.test(response), false);
+  assert.match(response, /keep it under 150 characters and avoid filler/i);
+});
+
+test("response shaper preserves authored structure for profile replies", () => {
+  const responseText = [
+    "I see you've positioned yourself as a builder focused on growth systems.",
+    "",
+    "Lately you've been posting about:",
+    "- Retrieval quality and proof-first writing",
+    "- Narrowing the lane before scaling output",
+    "",
+    "I can also pull the strongest recent post I can see here and break down why it worked.",
+  ].join("\n");
+
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: responseText,
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: responseText,
+    outputShape: "coach_question",
+    plan,
+    presentationStyle: "preserve_authored_structure",
+  });
+
+  assert.equal(response.includes("- **Bottom line:**"), false);
+  assert.equal(response, responseText);
+});
+
+test("response shaper formats long coach replies before a follow-up question", () => {
+  const responseText =
+    "Your hooks hit hard because they lead with numbers and contrast. What works: - Bold claim, then a quick breakdown of the range. - FREE offer framed as high-value content. What to tighten: - Add a single line that tells the reader why they should care now. - Keep the body scannable with short takeaway lines. Next step: rewrite one recent caption around a stronger why-now line. Which post would you like to revamp first?";
+
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: responseText,
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: responseText,
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(plan.surfaceMode, "ask_one_question");
+  assert.match(response, /^- Your hooks hit hard because they lead with numbers and contrast\./m);
+  assert.match(response, /^Which post would you like to revamp first\?$/m);
+  assert.equal(/Bottom line|What to fix|Next:/i.test(response), false);
+});
+
+test("response shaper leaves short direct coach replies unformatted", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "lead with the proof first, then tighten the CTA.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: "lead with the proof first, then tighten the CTA.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "lead with the proof first, then tighten the CTA.");
+});
+
+test("response shaper preserves existing markdown structure", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "- **Hook:** lead with the proof\n- **CTA:** tighten the ask",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response: "- **Hook:** lead with the proof\n- **CTA:** tighten the ask",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "- **Hook:** lead with the proof\n- **CTA:** tighten the ask");
+});

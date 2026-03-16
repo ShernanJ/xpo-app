@@ -64,6 +64,12 @@ const NAMED_DETAIL_PATTERN =
   /\b(?:in|at|from|with|for|near|around|inside)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}|[A-Z]{2,})\b/;
 const TITLE_CASE_ENTITY_PATTERN =
   /\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+|[A-Z]{2,})\b/;
+const RESOURCE_ACCESS_CTA_PATTERN =
+  /^(?:comment|reply)\s+["'][^"']+["']\s+(?:to\s+)?(?:get|grab|access|receive|unlock)\b/i;
+const RESOURCE_SEND_CTA_PATTERN =
+  /^(?:comment|reply)\s+["'][^"']+["']\s+and\s+i(?:'ll| will)\s+(?:send|share)\b/i;
+const RESOURCE_ASSET_PATTERN =
+  /\b(?:playbook|guide|checklist|template|pdf|resource|worksheet|framework)\b/i;
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -199,6 +205,13 @@ function cleanupDraft(value: string): string {
     .trim();
 }
 
+function looksLikeResourceAccessCta(line: string): boolean {
+  return (
+    RESOURCE_ASSET_PATTERN.test(line) &&
+    (RESOURCE_ACCESS_CTA_PATTERN.test(line) || RESOURCE_SEND_CTA_PATTERN.test(line))
+  );
+}
+
 function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
   nextLine: string;
   issue: string | null;
@@ -206,6 +219,10 @@ function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
   const trimmed = normalizeWhitespace(line);
   if (!trimmed || trimmed === "---") {
     return { nextLine: line.trim(), issue: null };
+  }
+
+  if (looksLikeResourceAccessCta(trimmed)) {
+    return { nextLine: trimmed, issue: null };
   }
 
   const allSources = getGroundingSources(packet);

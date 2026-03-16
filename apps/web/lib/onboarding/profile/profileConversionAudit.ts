@@ -21,14 +21,6 @@ export interface ProfileAuditBioAlternative {
   proofMode: "proof" | "cta";
 }
 
-export interface ProfileAuditBannerPreset {
-  id: string;
-  headline: string;
-  subheadline: string;
-  proofLine: string | null;
-  ctaLine: string | null;
-}
-
 export interface ProfileAuditStep {
   key: "bio_formula" | "visual_real_estate" | "pinned_tweet";
   title: string;
@@ -63,7 +55,6 @@ export interface VisualRealEstateCheck {
   headerImageUrl: string | null;
   headerClarity: ProfileAuditHeaderClarity | null;
   headerClarityResolved: boolean;
-  bannerPresets: ProfileAuditBannerPreset[];
 }
 
 export interface PinnedTweetCheck {
@@ -288,48 +279,6 @@ function buildBioAlternatives(args: {
   }));
 }
 
-function buildBannerPresets(args: {
-  onboarding: OnboardingResult;
-  context: CreatorAgentContext;
-}): ProfileAuditBannerPreset[] {
-  const who = titleCase(
-    compressPhrase(args.context.growthStrategySnapshot.targetAudience, 5, 42) || "X creators",
-  );
-  const pillar = titleCase(
-    compressPhrase(
-      args.context.growthStrategySnapshot.contentPillars[0] ||
-        args.context.growthStrategySnapshot.knownFor,
-      6,
-      46,
-    ),
-  );
-  const proofOrCta = buildProofOrCta(args);
-
-  return [
-    {
-      id: "authority-stack",
-      headline: pillar,
-      subheadline: `Helping ${who.toLowerCase()} grow with a clearer X profile.`,
-      proofLine: proofOrCta.mode === "proof" ? proofOrCta.text : null,
-      ctaLine: proofOrCta.mode === "cta" ? proofOrCta.text : null,
-    },
-    {
-      id: "audience-first",
-      headline: `For ${who}`,
-      subheadline: `Positioning, profile clarity, and repeatable ${pillar.toLowerCase()}.`,
-      proofLine: proofOrCta.mode === "proof" ? proofOrCta.text : null,
-      ctaLine: proofOrCta.mode === "cta" ? proofOrCta.text : null,
-    },
-    {
-      id: "value-prop",
-      headline: `${pillar} that converts`,
-      subheadline: `Make the right audience understand you in one glance.`,
-      proofLine: proofOrCta.mode === "proof" ? proofOrCta.text : null,
-      ctaLine: proofOrCta.mode === "cta" ? proofOrCta.text : null,
-    },
-  ];
-}
-
 function buildProfileFingerprint(onboarding: OnboardingResult): string {
   const bio = normalizeText(onboarding.profile.bio).toLowerCase();
   const banner = normalizeText(onboarding.profile.headerImageUrl).toLowerCase();
@@ -535,7 +484,6 @@ function buildVisualRealEstateCheck(args: {
     headerImageUrl,
     headerClarity,
     headerClarityResolved,
-    bannerPresets: buildBannerPresets(args),
   };
 }
 

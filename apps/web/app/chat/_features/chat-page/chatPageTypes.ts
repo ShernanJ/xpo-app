@@ -3,12 +3,15 @@
 import type { BillingStatePayload } from "../billing/billingViewState";
 import type { SourceMaterialAsset } from "../source-materials/sourceMaterialsState";
 import type { DraftArtifactDetails } from "@/lib/onboarding/draftArtifacts";
+import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
+import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
 
 export interface CreatorChatSuccess {
   ok: true;
   data: {
     reply: string;
     angles: unknown[];
+    ideationFormatHint?: SelectedAngleFormatHint | null;
     quickReplies?: ChatQuickReply[];
     plan?: {
       objective: string;
@@ -42,6 +45,7 @@ export interface CreatorChatSuccess {
       | "coach_question"
       | "ideation_angles"
       | "planning_outline"
+      | "profile_analysis"
       | "short_form_post"
       | "long_form_post"
       | "thread_seed"
@@ -59,6 +63,7 @@ export interface CreatorChatSuccess {
       version: string;
       summary: string;
     } | null;
+    profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
     newThreadId?: string;
     messageId?: string;
     threadTitle?: string;
@@ -206,6 +211,7 @@ export interface ChatMessage {
   excludeFromHistory?: boolean;
   quickReplies?: ChatQuickReply[];
   angles?: unknown[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   plan?: CreatorChatSuccess["data"]["plan"];
   draft?: string | null;
   drafts?: string[];
@@ -239,6 +245,7 @@ export interface ChatMessage {
     version: string;
     summary: string;
   } | null;
+  profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
 }

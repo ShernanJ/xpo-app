@@ -12,9 +12,18 @@ import {
   type VoiceStyleCard,
 } from "@/lib/agent-v2/core/styleProfile";
 import {
+  hydrateOnboardingProfileForAnalysis,
+  hydrateOnboardingProfileForAnalysisWithPinnedRefresh,
+} from "@/lib/onboarding/profile/profileHydration";
+import {
   applyGrowthStrategyToCreatorProfileHints,
   buildCreatorProfileHintsFromOnboarding,
 } from "@/lib/agent-v2/grounding/creatorProfileHints";
+import {
+  buildProfileReplyContext,
+  type ProfileReplyContext,
+} from "@/lib/agent-v2/grounding/profileReplyContext";
+import { buildUserContextString } from "@/lib/agent-v2/grounding/userContextString";
 import {
   buildPreferenceConstraintsFromPreferences,
   mergeUserPreferences,
@@ -33,6 +42,7 @@ import type {
 } from "@/lib/agent-v2/grounding/groundingPacket";
 import type { V2ConversationMemory } from "@/lib/agent-v2/contracts/chat";
 import type { NormalizedChatTurnDiagnostics } from "@/lib/agent-v2/contracts/turnContract";
+import type { OnboardingResult } from "@/lib/onboarding/types";
 import {
   buildRecommendedPlaybookSummaries,
   inferCurrentPlaybookStage,
@@ -56,8 +66,11 @@ export interface RouteStoredRun {
 }
 
 export interface RouteProfileContext {
+  onboardingResult: OnboardingResult | null;
   isVerifiedAccount: boolean;
   creatorProfileHints: CreatorProfileHints | null;
+  userContextString: string;
+  profileReplyContext: ProfileReplyContext | null;
   creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null;
   growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null;
   diagnosticContext: ConversationalDiagnosticContext | null;
@@ -226,14 +239,14 @@ export async function resolveRouteProfileContext(args: {
   storedRun: RouteStoredRun | null;
   transientPreferenceSettings: Partial<UserPreferences> | null;
   preferenceConstraints: string[];
+  forcePinnedRefreshForAnalysis?: boolean;
 }): Promise<RouteProfileContext> {
-  const onboardingResult = (args.storedRun?.result || null) as
-    | {
-        profile?: {
-          isVerified?: boolean;
-        };
-      }
-    | null;
+  const storedOnboardingResult = (args.storedRun?.result || null) as OnboardingResult | null;
+  const onboardingResult = storedOnboardingResult
+    ? await (args.forcePinnedRefreshForAnalysis
+        ? hydrateOnboardingProfileForAnalysisWithPinnedRefresh(storedOnboardingResult)
+        : hydrateOnboardingProfileForAnalysis(storedOnboardingResult))
+    : null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
 
   let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
@@ -250,7 +263,7 @@ export async function resolveRouteProfileContext(args: {
     args.storedRun?.id && args.storedRun?.result
       ? (async () => {
           try {
-            const onboarding = args.storedRun!.result as unknown as Parameters<
+            const onboarding = onboardingResult as Parameters<
               typeof buildCreatorProfileHintsFromOnboarding
             >[0]["onboarding"];
             const baseHints = buildCreatorProfileHintsFromOnboarding({
@@ -329,10 +342,25 @@ export async function resolveRouteProfileContext(args: {
       ...args.preferenceConstraints,
     ]),
   );
+  const userContextString = onboardingResult
+    ? buildUserContextString({
+        onboardingResult,
+        creatorProfileHints,
+      })
+    : "";
+  const profileReplyContext = buildProfileReplyContext({
+    onboardingResult,
+    creatorProfileHints,
+    creatorAgentContext,
+    diagnosticContext,
+  });
 
   return {
+    onboardingResult,
     isVerifiedAccount,
     creatorProfileHints,
+    userContextString,
+    profileReplyContext,
     creatorAgentContext,
     growthOsPayload,
     diagnosticContext,

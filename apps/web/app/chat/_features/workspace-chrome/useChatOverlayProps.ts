@@ -266,8 +266,6 @@ export interface UseChatOverlayPropsOptions {
   handleBioAlternativeCopied: (text: string) => Promise<void>;
   handleBioAlternativeRefine: (text: string) => Promise<void>;
   handlePinnedPromptStart: (kind: "origin_story" | "core_thesis") => Promise<void>;
-  handleBannerGeneratorOpened: () => Promise<void>;
-  handleBannerDownloaded: (presetId: string) => Promise<void>;
   openGrowthGuide: () => void;
   openGrowthGuideForRecommendation: ProfileAnalysisDialogProps["onOpenGrowthGuideForRecommendation"];
   isAddAccountModalOpen: boolean;
@@ -603,12 +601,6 @@ export function useChatOverlayProps(
             onPinnedPromptStart: (kind) => {
               options.closeAnalysis();
               void options.handlePinnedPromptStart(kind);
-            },
-            onBannerGeneratorOpened: () => {
-              void options.handleBannerGeneratorOpened();
-            },
-            onBannerDownloaded: (presetId) => {
-              void options.handleBannerDownloaded(presetId);
             },
             onOpenFeedback: () => {
               options.closeAnalysis();

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
 import { StyleCardSchema } from "@/lib/agent-v2/core/styleProfile";
-import { hydrateOnboardingProfile } from "@/lib/onboarding/profile/profileHydration";
+import { hydrateOnboardingProfileForAnalysis } from "@/lib/onboarding/profile/profileHydration";
 import {
   applyCreatorStrategyOverrides,
   extractCreatorStrategyOverrides,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const onboarding = await hydrateOnboardingProfile(
+  const onboarding = await hydrateOnboardingProfileForAnalysis(
     applyCreatorStrategyOverrides({
       onboarding: storedRun.result,
       overrides: extractCreatorStrategyOverrides(body),

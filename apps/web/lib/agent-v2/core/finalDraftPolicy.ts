@@ -1,6 +1,10 @@
 import type { DraftFormatPreference } from "../contracts/chat";
 import type { UserPreferences, VoiceStyleCard } from "./styleProfile";
-import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
+import {
+  joinSerializedThreadPosts,
+  splitSerializedThreadPosts,
+  type ThreadFramingStyle,
+} from "../../onboarding/draftArtifacts.ts";
 
 const SHORT_FORM_X_LIMIT = 280;
 const LONG_FORM_X_LIMIT = 25_000;
@@ -607,6 +611,67 @@ function buildResourceAccessCta(context: string): string {
   return `Comment "${keyword}" to get access to ${object}.`;
 }
 
+function hasConcreteResourceCue(value: string): boolean {
+  return /\b(playbook|guide|checklist|template|worksheet|resource|download|access|pdf)\b/i.test(
+    value,
+  );
+}
+
+function lineLooksLikeGenericResourceCta(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    /^(?:comment|reply)\s+["'][^"']+["']/.test(normalized) &&
+    hasConcreteResourceCue(normalized)
+  ) {
+    return false;
+  }
+
+  if (
+    /^(?:leave|drop)\s+a\s+comment\b/.test(normalized) ||
+    /^(?:comment|reply)\b/.test(normalized) ||
+    /\bcomment below\b/.test(normalized) ||
+    /\bdm me\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return (
+    /^(?:i(?:'m| am)?\s+happy\s+to\s+share|happy\s+to\s+share|i(?:'ll| will)?\s+send|i\s+can\s+send|i\s+can\s+share|i(?:'ll| will)\s+share)\b/.test(
+      normalized,
+    ) &&
+    /\b(playbook|guide|checklist|template|resource|pdf)\b/.test(normalized)
+  );
+}
+
+function normalizeGenericResourceCtas(value: string): string {
+  if (!hasConcreteResourceCue(value)) {
+    return value;
+  }
+
+  const lines = value.split("\n");
+  let replaced = false;
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const trimmed = lines[index]?.trim() || "";
+    if (!trimmed || !lineLooksLikeGenericResourceCta(trimmed)) {
+      continue;
+    }
+
+    const context = [value, lines[index - 1] || "", lines[index + 1] || ""]
+      .filter(Boolean)
+      .join(" ");
+    lines[index] = buildResourceAccessCta(context);
+    replaced = true;
+    break;
+  }
+
+  return replaced ? lines.join("\n") : value;
+}
+
 function normalizeGeneratedLinks(value: string): string {
   const lines = value.split("\n");
   const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
@@ -757,10 +822,7 @@ function normalizeThreadDraftFormatting(
   draft: string,
   threadFramingStyle: ThreadFramingStyle | null | undefined,
 ): string {
-  const posts = draft
-    .split(/\n\s*---\s*\n/g)
-    .map((post) => post.trim())
-    .filter(Boolean);
+  const posts = splitSerializedThreadPosts(draft);
 
   if (posts.length <= 1) {
     return draft.trim();
@@ -778,7 +840,7 @@ function normalizeThreadDraftFormatting(
     return nextPost.trim();
   });
 
-  return normalizedPosts.join("\n\n---\n\n");
+  return joinSerializedThreadPosts(normalizedPosts);
 }
 
 function normalizeThreadComparisonText(value: string): string {
@@ -818,10 +880,7 @@ function computeThreadPostSimilarity(left: string, right: string): number {
 }
 
 function collapseSameyThreadPosts(draft: string): string {
-  const posts = draft
-    .split(/\n\s*---\s*\n/g)
-    .map((post) => post.trim())
-    .filter(Boolean);
+  const posts = splitSerializedThreadPosts(draft);
 
   if (posts.length <= 3) {
     return draft.trim();
@@ -850,22 +909,14 @@ function collapseSameyThreadPosts(draft: string): string {
     return draft.trim();
   }
 
-  return keptPosts.join("\n\n---\n\n").trim();
+  return joinSerializedThreadPosts(keptPosts).trim();
 }
 
 function normalizeNonThreadSerializedDraft(
   draft: string,
   formatPreference: "shortform" | "longform",
 ): string {
-  if (!/\n\s*---\s*\n/.test(draft)) {
-    return draft.trim();
-  }
-
-  const segments = draft
-    .split(/\n\s*---\s*\n/g)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
+  const segments = splitSerializedThreadPosts(draft);
   if (segments.length <= 1) {
     return draft.trim();
   }
@@ -956,10 +1007,11 @@ export function applyFinalDraftPolicyWithReport(args: {
   const withNoScaffolding = stripLeakedDraftScaffolding(args.draft);
   const withNoMarkdown = stripUnsupportedMarkdown(withNoScaffolding);
   const withNoGeneratedLinks = normalizeGeneratedLinks(withNoMarkdown);
+  const withResourceCta = normalizeGenericResourceCtas(withNoGeneratedLinks);
   const withResolvedFormat =
     formatPreference === "thread"
-      ? withNoGeneratedLinks
-      : normalizeNonThreadSerializedDraft(withNoGeneratedLinks, formatPreference);
+      ? withResourceCta
+      : normalizeNonThreadSerializedDraft(withResourceCta, formatPreference);
   const withBetterCta = normalizeWeakEngagementBaitCta(withResolvedFormat);
   const withBlacklistsApplied = applyBlacklist(withBetterCta, normalizedPreferences.blacklist);
   const withBullets = normalizeBulletStyle(withBlacklistsApplied, normalizedPreferences.bulletStyle);
@@ -980,7 +1032,8 @@ export function applyFinalDraftPolicyWithReport(args: {
     adjustments: {
       markdownAdjusted:
         withNoMarkdown !== args.draft.trim() || withNoGeneratedLinks !== withNoMarkdown,
-      engagementAdjusted: withBetterCta !== withResolvedFormat,
+      engagementAdjusted:
+        withResourceCta !== withNoGeneratedLinks || withBetterCta !== withResolvedFormat,
       styleAdjusted:
         withResolvedFormat !== withNoMarkdown || withThreadFormatting !== withCasing,
       trimmed: finalDraft !== withThreadDeduped,

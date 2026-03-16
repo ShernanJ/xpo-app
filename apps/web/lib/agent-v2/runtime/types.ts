@@ -2,6 +2,7 @@ import type { VoiceTarget } from "../core/voiceTarget";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
+  ResponsePresentationStyle,
   ResponseShapePlan,
   SurfaceMode,
   StrategyPlan,
@@ -13,6 +14,7 @@ import type {
   ChatArtifactContext,
   ChatPlanSeedSource,
   ChatResolvedWorkflow,
+  SelectedAngleFormatHint,
   ChatTurnSource,
 } from "../contracts/turnContract";
 import type {
@@ -33,7 +35,9 @@ import type {
   CreatorProfileHints,
   GroundingPacketSourceMaterial,
 } from "../grounding/groundingPacket.ts";
+import type { ProfileReplyContext } from "../grounding/profileReplyContext.ts";
 import type { DraftBundleResult } from "../capabilities/drafting/draftBundles.ts";
+import type { ProfileAnalysisArtifact } from "../../chat/profileAnalysisArtifact.ts";
 
 export interface OrchestratorInput {
   userId: string;
@@ -54,11 +58,14 @@ export interface OrchestratorInput {
   threadFramingStyle?: ThreadFramingStyle | null;
   preferenceConstraints?: string[];
   creatorProfileHints?: CreatorProfileHints | null;
+  userContextString?: string | null;
+  profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
 }
 
 export interface OrchestratorData {
   angles?: unknown[];
+  ideationFormatHint?: SelectedAngleFormatHint | null;
   plan?: StrategyPlan | null;
   draft?: string | null;
   drafts?: string[];
@@ -80,6 +87,7 @@ export interface OrchestratorData {
       deletable: boolean;
     }>;
   };
+  profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
   routingTrace?: RoutingTrace;
 }
 
@@ -151,10 +159,14 @@ export type OrchestratorResponse = {
   memory: V2ConversationMemory;
 };
 
-export type RawOrchestratorResponse = Omit<
-  OrchestratorResponse,
-  "surfaceMode" | "responseShapePlan"
->;
+export type RawOrchestratorResponse = {
+  mode: "coach" | "ideate" | "plan" | "draft" | "error";
+  outputShape: V2ChatOutputShape;
+  response: string;
+  data?: OrchestratorData;
+  memory: V2ConversationMemory;
+  presentationStyle?: ResponsePresentationStyle | null;
+};
 
 export interface ManagedConversationTurnRawResult {
   rawResponse: RawOrchestratorResponse;

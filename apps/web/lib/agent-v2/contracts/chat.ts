@@ -35,6 +35,10 @@ export type SurfaceMode =
   | "offer_options"
   | "generate_full_output";
 
+export type ResponsePresentationStyle =
+  | "plain_paragraph"
+  | "preserve_authored_structure";
+
 export interface ResponseShapePlan {
   mode: ResponseMode;
   surfaceMode: SurfaceMode;
@@ -153,6 +157,7 @@ export type V2ChatOutputShape =
   | "coach_question"
   | "ideation_angles"
   | "planning_outline"
+  | "profile_analysis"
   | "short_form_post"
   | "long_form_post"
   | "thread_seed";

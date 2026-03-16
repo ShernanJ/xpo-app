@@ -194,6 +194,7 @@ function buildCapabilityBehaviorBlock(capability: GuidanceCapability): string[] 
       "- Prioritize what the post is doing: the angle, tension, proof style, audience signal, and likely reason it lands or misses.",
       "- Make the analysis legible and concrete instead of abstract strategy jargon.",
       "- Keep the guidance grounded to the source post and avoid drifting into unrelated writing advice.",
+      "- If the user asks about their recent/newest posts and retrieved post snippets are already in context, analyze those directly instead of asking them to paste posts again.",
     ];
   }
 
@@ -217,6 +218,7 @@ function buildCapabilityRuleBlock(capability: GuidanceCapability): string[] {
       "- Do not write the final reply or quote draft here unless the user explicitly switches tasks later.",
       "- Do not pretend to know author intent when the text only supports an inference.",
       "- Keep the analysis concrete and source-bound instead of motivational.",
+      "- Only ask for a pasted post or URL when the current context does not already include usable post text.",
     ];
   }
 
@@ -260,9 +262,27 @@ async function generateGuidanceReply(
       .join(". ")
     : "";
 
-  const anchorHint = topicAnchors.length
-    ? `Their recent posts seem to be about: ${topicAnchors.slice(0, 2).map((a) => `"${a.slice(0, 60)}..."`).join("; ")}`
-    : "No specific post history retrieved yet.";
+  const summarizedAnchors = topicAnchors
+    .map((anchor) => anchor.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .slice(0, capability === "analysis" ? 3 : 2)
+    .map((anchor, index) => {
+      const snippet =
+        anchor.length <= 180
+          ? anchor
+          : `${anchor.slice(0, 177).trimEnd()}...`;
+      return `${index + 1}. ${snippet}`;
+    });
+  const anchorSectionLabel =
+    capability === "analysis" ? "RETRIEVED RECENT POSTS" : "THEIR RECENT POST TOPICS";
+  const anchorHint =
+    summarizedAnchors.length > 0
+      ? capability === "analysis"
+        ? summarizedAnchors.join("\n")
+        : `Their recent posts seem to be about: ${summarizedAnchors
+            .map((anchor) => anchor.replace(/^\d+\.\s*/, `"`) + `"`)
+            .join("; ")}`
+      : "No specific post history retrieved yet.";
 
   const instruction = `
 ${buildCapabilityIdentity(capability)}
@@ -280,6 +300,8 @@ BEHAVIOR:
 - Keep replies short. Usually 2-4 lines max unless they asked for something bigger.
 - Match their energy and casing when it feels natural.
 - Be natural without being overly friendly. No fluff, no cheerleading, no empty praise.
+- When the answer has multiple distinct points, format it for scanability with short markdown bullets and occasional bold lead-ins.
+- Keep formatting tasteful. Use structure to reduce density, not to look robotic or over-designed.
 - Default to useful action. If you can answer, suggest, or tee up the next writing step without more questions, do that.
 - If they gave a concrete topic, react to it and only ask ONE follow-up if you still need something important.
 - If enough context already exists in the conversation, answer directly instead of asking again.
@@ -294,7 +316,8 @@ RULES:
 - Never say "Let's dive in", "In conclusion", "Great question", "Certainly", or anything that sounds like a customer support bot.
 - Never use filler like "love that", "totally", "for sure", or "absolutely" unless the user is clearly talking that way first.
 - Never pad the reply with encouragement that does not add information.
-- Never use emoji headers or bold section headers.
+- Never use emoji headers.
+- Do not over-format short replies. Save bullets and bold lead-ins for longer answers with multiple points.
 - If the user gives a concrete topic, repeat that topic in the follow-up question so it feels specific.
 - Avoid generic follow-up questions. "tell me more" is almost always too weak.
 ${buildCapabilityRuleBlock(capability).join("\n")}
@@ -307,7 +330,7 @@ ${toningCues || "Mirror the user's energy."}
 USER CONTEXT:
 ${userContextString || "Profile not loaded yet."}
 
-THEIR RECENT POST TOPICS:
+${anchorSectionLabel}:
 ${anchorHint}
 
 CONVERSATION SO FAR:

@@ -1,4 +1,6 @@
 import { buildCreatorProfileHintsFromOnboarding } from "../grounding/creatorProfileHints";
+import { buildProfileReplyContext } from "../grounding/profileReplyContext";
+import { buildUserContextString } from "../grounding/userContextString";
 import { planTurn } from "../runtime/turnPlanner";
 import { hydrateTurnContextWorkers } from "../workers/turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
@@ -10,6 +12,7 @@ import {
 import type { OrchestratorInput } from "./types.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
+import type { ProfileReplyContext } from "../grounding/profileReplyContext";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
@@ -35,6 +38,8 @@ export interface TurnContext {
   diagnosticContext: OrchestratorInput["diagnosticContext"];
   
   creatorProfileHints: CreatorProfileHints | null;
+  userContextString: string;
+  profileReplyContext: ProfileReplyContext | null;
   memory: V2ConversationMemory;
   effectiveActiveConstraints: string[];
   turnPlan: ReturnType<typeof planTurn>;
@@ -66,9 +71,17 @@ export async function buildTurnContext(
     formatPreference,
     threadFramingStyle,
     creatorProfileHints: inputCreatorProfileHints,
+    userContextString: inputUserContextString,
+    profileReplyContext: inputProfileReplyContext,
     diagnosticContext,
     preferenceConstraints,
   } = input;
+
+  const resolvedFormatPreference =
+    formatPreference ??
+    (artifactContext?.kind === "selected_angle" && artifactContext.formatHint === "thread"
+      ? "thread"
+      : null);
 
   const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
   const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
@@ -97,6 +110,24 @@ export async function buildTurnContext(
         return null;
       }
     })();
+  const userContextString =
+    typeof inputUserContextString === "string" && inputUserContextString.trim().length > 0
+      ? inputUserContextString.trim()
+      : buildUserContextString({
+          onboardingResult:
+            (preloadedRun?.result as Parameters<typeof buildUserContextString>[0]["onboardingResult"]) ??
+            null,
+          creatorProfileHints,
+        });
+  const profileReplyContext =
+    inputProfileReplyContext ??
+    buildProfileReplyContext({
+      onboardingResult:
+        (preloadedRun?.result as Parameters<typeof buildProfileReplyContext>[0]["onboardingResult"]) ??
+        null,
+      creatorProfileHints,
+      diagnosticContext,
+    });
 
   let memoryRecord = await services.getConversationMemory({ runId, threadId });
   if (!memoryRecord) {
@@ -159,11 +190,13 @@ export async function buildTurnContext(
     planSeedSource,
     resolvedWorkflow,
     replyHandlingBypassedReason,
-    formatPreference,
+    formatPreference: resolvedFormatPreference,
     threadFramingStyle,
     explicitIntent,
     diagnosticContext,
     creatorProfileHints,
+    userContextString,
+    profileReplyContext,
     memory,
     effectiveActiveConstraints,
     turnPlan,

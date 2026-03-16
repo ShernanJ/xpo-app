@@ -4,6 +4,8 @@ import test from "node:test";
 import type { OnboardingResult } from "./contracts/types.ts";
 import {
   hydrateOnboardingProfile,
+  hydrateOnboardingProfileForAnalysis,
+  mergeLatestScrapeIntoOnboarding,
   mergeFreshProfileIntoOnboarding,
 } from "./profile/profileHydration.ts";
 
@@ -117,4 +119,70 @@ test("hydrateOnboardingProfile falls back to the stored profile when the live pr
 
   assert.equal(hydrated.profile.avatarUrl, onboarding.profile.avatarUrl);
   assert.equal(hydrated, onboarding);
+});
+
+test("mergeLatestScrapeIntoOnboarding refreshes the pinned post from the latest scrape capture", () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
+
+  const hydrated = mergeLatestScrapeIntoOnboarding(onboarding, {
+    profile: {
+      avatarUrl: onboarding.profile.avatarUrl,
+      bio: onboarding.profile.bio,
+      headerImageUrl: onboarding.profile.headerImageUrl,
+      isVerified: false,
+    },
+    pinnedPost: {
+      id: "2010284331479249364",
+      text: "I’m planning to be more intentional on Twitter in 2026.",
+      createdAt: "2026-01-11T09:35:08.000Z",
+      metrics: {
+        likeCount: 580,
+        replyCount: 102,
+        repostCount: 29,
+        quoteCount: 1,
+      },
+      url: "https://x.com/stan/status/2010284331479249364",
+    },
+  });
+
+  assert.equal(hydrated.pinnedPost?.id, "2010284331479249364");
+});
+
+test("hydrateOnboardingProfileForAnalysis merges live profile fields and latest scrape pinned post", async () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
+
+  const hydrated = await hydrateOnboardingProfileForAnalysis(
+    onboarding,
+    async () => ({
+      avatarUrl: "https://pbs.twimg.com/profile_images/new_400x400.jpg",
+      bio: "updated bio",
+      headerImageUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+      isVerified: true,
+    }),
+    async () => ({
+      profile: {
+        avatarUrl: onboarding.profile.avatarUrl,
+        bio: onboarding.profile.bio,
+        headerImageUrl: onboarding.profile.headerImageUrl,
+        isVerified: false,
+      },
+      pinnedPost: {
+        id: "2010284331479249364",
+        text: "I’m planning to be more intentional on Twitter in 2026.",
+        createdAt: "2026-01-11T09:35:08.000Z",
+        metrics: {
+          likeCount: 580,
+          replyCount: 102,
+          repostCount: 29,
+          quoteCount: 1,
+        },
+        url: "https://x.com/stan/status/2010284331479249364",
+      },
+    }),
+  );
+
+  assert.equal(hydrated.profile.bio, "updated bio");
+  assert.equal(hydrated.profile.headerImageUrl, "https://pbs.twimg.com/profile_banners/123/1500x500");
+  assert.equal(hydrated.profile.isVerified, true);
+  assert.equal(hydrated.pinnedPost?.id, "2010284331479249364");
 });

@@ -748,6 +748,39 @@ test("post reference reply avoids fake specific post claims", () => {
   );
 });
 
+test("post reference reply can point to synced historical posts when available", () => {
+  const reply = inferPostReferenceReply({
+    userMessage: "which post are you referring to?",
+    recentHistory: "assistant: your recent posts already show the lane shift",
+    historicalPostAnchors: [
+      "i stopped writing broad growth takes and started posting tighter product lessons",
+      "the newer posts are simpler, sharper, and easier to build on",
+    ],
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("synced post history"), true);
+});
+
+test("source transparency can cite synced posts when chat history is not the source", () => {
+  const reply = inferSourceTransparencyReply({
+    userMessage: "how do you understand me then?",
+    activeDraft: null,
+    recentHistory: [
+      "user: analyze my newest posts",
+      "assistant: send me the text of the posts you want analyzed.",
+    ].join("\n"),
+    contextAnchors: [],
+    historicalPostAnchors: [
+      "i stopped chasing broad audience growth and started writing about what i am actually building",
+      "my newer posts are tighter because i finally know the lane i want to own",
+    ],
+  });
+
+  assert.equal(typeof reply, "string");
+  assert.equal(reply?.toLowerCase().includes("attached x account"), true);
+});
+
 test("semantic correction detector flags meta corrections", () => {
   assert.equal(looksLikeSemanticCorrection("no that was a question"), true);
   assert.equal(

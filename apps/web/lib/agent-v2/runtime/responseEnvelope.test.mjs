@@ -76,6 +76,24 @@ test("buildFastReplyOrchestratorResponse includes surface mode and response shap
   assert.equal(response.data?.routingTrace?.normalizedTurn?.turnSource, "free_text");
 });
 
+test("buildFastReplyOrchestratorResponse preserves authored profile reply structure", () => {
+  const response = buildFastReplyOrchestratorResponse({
+    response: [
+      "I see you've positioned yourself as a builder focused on growth systems.",
+      "",
+      "Lately you've been posting about:",
+      "- Retrieval quality and proof-first writing",
+      "- Narrowing the lane before scaling output",
+    ].join("\n"),
+    memory: baseMemory,
+    presentationStyle: "preserve_authored_structure",
+  });
+
+  assert.equal(response.response.includes("- **Bottom line:**"), false);
+  assert.equal(response.response.includes("Lately you've been posting about:"), true);
+  assert.equal("presentationStyle" in response, false);
+});
+
 test("finalizeResponseEnvelope preserves structured draft outputs", () => {
   const response = finalizeResponseEnvelope({
     mode: "draft",

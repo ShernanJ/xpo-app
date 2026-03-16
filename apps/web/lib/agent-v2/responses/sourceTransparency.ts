@@ -10,6 +10,8 @@ const SOURCE_TRANSPARENCY_CUES = [
   "what are you basing this on",
   "what's the source",
   "source for that",
+  "how do you understand me",
+  "how do you know me",
 ];
 
 const IDEATION_RATIONALE_CUES = [
@@ -184,6 +186,14 @@ function pickEvidenceSnippet(sourceText: string, referenceTokens: string[]): str
   }
 
   return truncateSourceSnippet(bestSegment);
+}
+
+function summarizeHistoricalPostAnchors(anchors: string[] | undefined): string[] {
+  return (anchors || [])
+    .map((anchor) => anchor.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((anchor) => truncateSourceSnippet(anchor, 88));
 }
 
 function parseUserTurns(recentHistory: string): string[] {
@@ -386,6 +396,7 @@ export function inferIdeationRationaleReply(args: {
 export function inferPostReferenceReply(args: {
   userMessage: string;
   recentHistory: string;
+  historicalPostAnchors?: string[];
 }): string | null {
   if (!looksLikePostReferenceRequest(args.userMessage)) {
     return null;
@@ -401,6 +412,15 @@ export function inferPostReferenceReply(args: {
 
   if (recentUrls.length > 0) {
     return `i was referring to this link from the chat: ${recentUrls[recentUrls.length - 1]}.`;
+  }
+
+  const historicalPostAnchors = summarizeHistoricalPostAnchors(args.historicalPostAnchors);
+  if (historicalPostAnchors.length > 0) {
+    if (historicalPostAnchors.length === 1) {
+      return `i meant your synced post history in this workspace, not one specific link. the recent post i had in mind was "${historicalPostAnchors[0]}".`;
+    }
+
+    return `i meant your synced post history in this workspace, not one specific link. recent posts in scope include "${historicalPostAnchors[0]}" and "${historicalPostAnchors[1]}".`;
   }
 
   const assistantTurns = parseAssistantTurns(args.recentHistory);
@@ -421,6 +441,7 @@ export function inferSourceTransparencyReply(args: {
   referenceText?: string | null;
   recentHistory: string;
   contextAnchors: string[];
+  historicalPostAnchors?: string[];
 }): string | null {
   void args.contextAnchors;
 
@@ -466,6 +487,15 @@ export function inferSourceTransparencyReply(args: {
     .sort((left, right) => right.score - left.score)[0];
 
   if (!bestMatch || bestMatch.score < 2 || !bestMatch.text.trim()) {
+    const historicalPostAnchors = summarizeHistoricalPostAnchors(args.historicalPostAnchors);
+    if (historicalPostAnchors.length > 0) {
+      if (historicalPostAnchors.length === 1) {
+        return `mostly from the posts synced from your attached x account in this workspace. one recent post in scope is "${historicalPostAnchors[0]}".`;
+      }
+
+      return `mostly from the posts synced from your attached x account in this workspace. recent ones in scope include "${historicalPostAnchors[0]}" and "${historicalPostAnchors[1]}".`;
+    }
+
     return "it didn't come from anything you explicitly said earlier in this chat. that was my mistake and i should've asked first.";
   }
 

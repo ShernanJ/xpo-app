@@ -13,9 +13,11 @@ import type {
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
-import type {
-  DraftGroundingMode,
-  ThreadFramingStyle,
+import {
+  joinSerializedThreadPosts,
+  splitSerializedThreadPosts,
+  type DraftGroundingMode,
+  type ThreadFramingStyle,
 } from "../../../onboarding/draftArtifacts.ts";
 import type {
   CapabilityResponseOutput,
@@ -43,6 +45,13 @@ type RawOrchestratorResponse = Omit<
 
 type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 
+interface RevisionAttemptResult {
+  activeConstraints: string[];
+  reviserOutput: ReviserOutput | null;
+  criticOutput: CriticOutput | null;
+  validation: ReturnType<typeof runRevisionValidationWorkers> | null;
+}
+
 function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
   return Array.from(
     new Set(
@@ -63,6 +72,71 @@ function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
       }),
     ),
   );
+}
+
+function normalizeRevisionComparisonDraft(args: {
+  draft: string;
+  formatPreference: DraftFormatPreference;
+}): string {
+  const normalized = args.draft.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (args.formatPreference === "thread") {
+    const posts = splitSerializedThreadPosts(normalized);
+    return posts.length > 1 ? joinSerializedThreadPosts(posts) : normalized;
+  }
+
+  return normalized.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function resolveAttemptDraft(attempt: RevisionAttemptResult): string {
+  return (
+    attempt.validation?.correctedDraft ||
+    attempt.criticOutput?.finalDraft ||
+    attempt.reviserOutput?.revisedDraft ||
+    ""
+  );
+}
+
+function hasMaterialRevisionChange(args: {
+  originalDraft: string;
+  revisedDraft: string;
+  formatPreference: DraftFormatPreference;
+}): boolean {
+  return (
+    normalizeRevisionComparisonDraft({
+      draft: args.originalDraft,
+      formatPreference: args.formatPreference,
+    }) !==
+    normalizeRevisionComparisonDraft({
+      draft: args.revisedDraft,
+      formatPreference: args.formatPreference,
+    })
+  );
+}
+
+function buildMaterialChangeRetryConstraint(args: {
+  changeKind: DraftRevisionDirective["changeKind"];
+  criticRejected: boolean;
+}): string {
+  if (args.criticRejected) {
+    return "Retry the revision with a cleaner scoped edit that satisfies the request without drifting back to the original draft.";
+  }
+
+  switch (args.changeKind) {
+    case "length_trim":
+      return "The revision is still too close to the original. Shorten it materially while keeping the same point.";
+    case "specificity_tune":
+      return "The revision is still too close to the original. Make it materially more specific using only grounded details.";
+    case "tone_shift":
+      return "The revision is still too close to the original. Change the tone materially without changing the facts.";
+    case "full_rewrite":
+      return "The revision is still too close to the original. Rebuild it materially around the requested structure while staying grounded.";
+    default:
+      return "The revision is still too close to the original. Apply the user's requested change materially instead of returning the same draft.";
+  }
 }
 
 export interface RevisingCapabilityContext {
@@ -132,10 +206,20 @@ export async function executeRevisingCapability(
     memory: context.memory,
   });
 
+  const buildUnchangedRevisionFallbackResponse = (): RawOrchestratorResponse => ({
+    mode: "coach",
+    outputShape: "coach_question",
+    response: prependFeedbackMemoryNotice(
+      "that pass didn't land a clean revision, so i left the current draft as-is. want me to try again with a stronger rewrite?",
+      context.feedbackMemoryNotice ?? null,
+    ),
+    memory: context.memory,
+  });
+
   const runRevisionAttempt = async (attempt: {
     extraConstraints?: string[];
     validationGroupId: string;
-  }) => {
+  }): Promise<RevisionAttemptResult> => {
     const activeConstraints = Array.from(
       new Set([
         ...context.revisionActiveConstraints,
@@ -324,7 +408,24 @@ export async function executeRevisingCapability(
     };
   }
 
-  const retryConstraints = firstAttempt.validation!.retryConstraints;
+  const firstAttemptChanged = hasMaterialRevisionChange({
+    originalDraft: context.activeDraft,
+    revisedDraft: resolveAttemptDraft(firstAttempt),
+    formatPreference: context.turnFormatPreference,
+  });
+  const retryConstraints = Array.from(
+    new Set([
+      ...firstAttempt.validation!.retryConstraints,
+      ...(!firstAttemptChanged || !firstAttempt.criticOutput.approved
+        ? [
+            buildMaterialChangeRetryConstraint({
+              changeKind: context.revision.changeKind,
+              criticRejected: !firstAttempt.criticOutput.approved,
+            }),
+          ]
+        : []),
+    ]),
+  );
   const finalAttempt = retryConstraints.length > 0
     ? await runRevisionAttempt({
         extraConstraints: retryConstraints,
@@ -432,10 +533,29 @@ export async function executeRevisingCapability(
   }
 
   const revisionWasRejectedByCritic = !finalAttempt.criticOutput.approved;
+  const finalizedRevisionCandidate =
+    finalAttempt.validation!.correctedDraft || finalAttempt.reviserOutput.revisedDraft;
+  const revisionHasMaterialChange = hasMaterialRevisionChange({
+    originalDraft: context.activeDraft,
+    revisedDraft: finalizedRevisionCandidate,
+    formatPreference: context.turnFormatPreference,
+  });
+
+  if (revisionWasRejectedByCritic || !revisionHasMaterialChange) {
+    return {
+      workflow: args.workflow,
+      capability: args.capability,
+      output: {
+        kind: "response",
+        response: buildUnchangedRevisionFallbackResponse(),
+      },
+      workers: accumulatedWorkers,
+      validations: accumulatedValidations,
+    };
+  }
+
   const finalizedRevisionDraft =
-    (revisionWasRejectedByCritic
-      ? context.activeDraft
-      : finalAttempt.validation!.correctedDraft) ||
+    finalAttempt.validation!.correctedDraft ||
     finalAttempt.reviserOutput.revisedDraft;
   const revisionVoiceTarget = resolveVoiceTarget({
     styleCard: context.styleCard,
@@ -463,9 +583,6 @@ export async function executeRevisingCapability(
         ? buildDeliveryFixSummaries(
             firstAttempt.validation!.validations.flatMap((validation) => validation.issues),
           )
-        : []),
-      ...(revisionWasRejectedByCritic
-        ? ["Kept the revision closer to the original edit scope."]
         : []),
     ]),
   );

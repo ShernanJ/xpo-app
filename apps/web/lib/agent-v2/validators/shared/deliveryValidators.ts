@@ -5,12 +5,19 @@ import {
   stripTrailingPromptEcho,
 } from "../../agents/draftCompletion.ts";
 import type { DraftFormatPreference } from "../../contracts/chat.ts";
+import {
+  hasSerializedThreadSeparator,
+  joinSerializedThreadPosts,
+  splitSerializedThreadPosts,
+} from "../../../onboarding/shared/draftArtifacts.ts";
 
 export type DeliveryValidationIssueCode =
   | "truncation"
   | "prompt_echo"
   | "artifact_mismatch"
-  | "thread_post_shape_mismatch";
+  | "thread_separator_cleanup"
+  | "thread_post_shape_mismatch"
+  | "thread_hook_summary";
 
 export interface DeliveryValidationIssue {
   code: DeliveryValidationIssueCode;
@@ -31,8 +38,6 @@ export interface DeliveryValidationResult {
   retryConstraints: string[];
 }
 
-const THREAD_SEPARATOR = /\n\s*---\s*\n/;
-
 function buildTruncationRetryConstraint(): string {
   return "Finish the draft with a complete ending. Do not stop on a connector, stub, or cut-off closing fragment.";
 }
@@ -51,11 +56,57 @@ function buildThreadShapeRetryConstraint(): string {
   return "Return a real thread with distinct posts separated cleanly, and make sure each post is complete.";
 }
 
-function splitThreadPosts(value: string): string[] {
-  return value
-    .split(THREAD_SEPARATOR)
-    .map((entry) => entry.trim())
+function buildThreadSeparatorCleanupConstraint(): string {
+  return "Return a clean thread with separator lines only between substantive posts, never as the opening hook.";
+}
+
+function buildThreadHookRetryConstraint(): string {
+  return "Rewrite the opener as a sharp thread hook. Open a loop or clear tension, keep it native to X, and do not summarize the whole thread in the first post.";
+}
+
+function hasMalformedThreadOpener(posts: string[]): boolean {
+  const firstPost = posts[0]?.trim() || "";
+  return !firstPost || /^[-–—]{3,}$/.test(firstPost);
+}
+
+function looksLikeSummaryHeavyThreadOpener(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  const sentences = normalized
+    .split(/[.!?…]+/)
+    .map((segment) => segment.trim())
     .filter(Boolean);
+  const lowered = normalized.toLowerCase();
+  const summaryMarkerCount = [
+    "we all assume",
+    "everyone thinks",
+    "at first",
+    "the real tension",
+    "the impact",
+    "the takeaway",
+    "the result",
+    "in short",
+    "what this means",
+    "what you need",
+    "the framework",
+    "the playbook",
+    "the lesson",
+    "the lessons",
+    "if you're",
+  ].filter((marker) => lowered.includes(marker)).length;
+
+  if (sentences.length >= 4 && normalized.length >= 360) {
+    return true;
+  }
+
+  if (sentences.length >= 4 && normalized.length >= 240 && summaryMarkerCount >= 2) {
+    return true;
+  }
+
+  return sentences.length >= 3 && normalized.length >= 220 && summaryMarkerCount >= 3;
 }
 
 export function validateDelivery(
@@ -100,7 +151,7 @@ export function validateDelivery(
   if (args.formatPreference !== "thread") {
     const strippedThreadLead = stripThreadishLeadLabel(correctedDraft);
     const hadThreadishLead = strippedThreadLead !== correctedDraft;
-    if (hadThreadishLead || THREAD_SEPARATOR.test(correctedDraft)) {
+    if (hadThreadishLead || hasSerializedThreadSeparator(correctedDraft)) {
       correctedDraft = strippedThreadLead;
       issues.push({
         code: "artifact_mismatch",
@@ -112,12 +163,43 @@ export function validateDelivery(
   }
 
   if (args.formatPreference === "thread") {
-    const posts = splitThreadPosts(correctedDraft);
+    const posts = splitSerializedThreadPosts(correctedDraft);
+    const normalizedThreadDraft =
+      posts.length > 1 ? joinSerializedThreadPosts(posts) : correctedDraft;
+
+    if (posts.length > 1 && normalizedThreadDraft !== correctedDraft) {
+      correctedDraft = normalizedThreadDraft;
+      issues.push({
+        code: "thread_separator_cleanup",
+        message: "Thread draft had malformed separator scaffolding around the opener or between posts.",
+        retryConstraint: buildThreadSeparatorCleanupConstraint(),
+        corrected: true,
+      });
+    }
+
+    if (hasMalformedThreadOpener(posts)) {
+      issues.push({
+        code: "thread_post_shape_mismatch",
+        message: "Thread draft opener is malformed or missing substantive hook text.",
+        retryConstraint: buildThreadShapeRetryConstraint(),
+        corrected: false,
+      });
+    }
+
     if (posts.length < 3) {
       issues.push({
         code: "thread_post_shape_mismatch",
         message: "Thread draft does not contain enough distinct posts.",
         retryConstraint: buildThreadShapeRetryConstraint(),
+        corrected: false,
+      });
+    }
+
+    if (posts.length > 0 && looksLikeSummaryHeavyThreadOpener(posts[0] || "")) {
+      issues.push({
+        code: "thread_hook_summary",
+        message: "Thread opener reads like a summary block instead of a sharp hook.",
+        retryConstraint: buildThreadHookRetryConstraint(),
         corrected: false,
       });
     }

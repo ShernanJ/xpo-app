@@ -2,11 +2,15 @@ import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
 import { generateCoachReply } from "../agents/coach.ts";
 import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
+import type { ProfileReplyContext } from "../grounding/profileReplyContext.ts";
 import {
   buildConstraintAcknowledgment,
   isConstraintDeclaration,
 } from "./constraintAcknowledgment.ts";
-import { getDeterministicChatReply } from "./chatResponderDeterministic.ts";
+import {
+  getDeterministicChatReplySpec,
+  type DeterministicChatReplySpec,
+} from "./chatResponderDeterministic.ts";
 
 // ---------------------------------------------------------------------------
 // Chat Responder (V3)
@@ -32,6 +36,7 @@ export async function respondConversationally(args: {
   styleCard: VoiceStyleCard | null;
   topicAnchors: string[];
   userContextString: string;
+  profileReplyContext?: ProfileReplyContext | null;
   activeConstraints?: string[];
   diagnosticContext?: ConversationalDiagnosticContext | null;
   options?: {
@@ -39,20 +44,24 @@ export async function respondConversationally(args: {
     conversationState?: ConversationState;
     antiPatterns?: string[];
   };
-}): Promise<string | null> {
+}): Promise<DeterministicChatReplySpec | null> {
   // Short-circuit for constraint declarations — no LLM call needed.
   if (isConstraintDeclaration(args.userMessage)) {
-    return buildConstraintAcknowledgment({
-      message: args.userMessage,
-      recentHistory: args.recentHistory,
-    });
+    return {
+      response: buildConstraintAcknowledgment({
+        message: args.userMessage,
+        recentHistory: args.recentHistory,
+      }),
+    };
   }
 
-  const deterministicReply = getDeterministicChatReply({
+  const deterministicReply = getDeterministicChatReplySpec({
     userMessage: args.userMessage,
     recentHistory: args.recentHistory,
     userContextString: args.userContextString,
+    profileReplyContext: args.profileReplyContext,
     activeConstraints: args.activeConstraints,
+    topicAnchors: args.topicAnchors,
     diagnosticContext: args.diagnosticContext,
   });
   if (deterministicReply) {
@@ -70,5 +79,9 @@ export async function respondConversationally(args: {
     args.options,
   );
 
-  return reply?.response ?? null;
+  return reply?.response
+    ? {
+        response: reply.response,
+      }
+    : null;
 }

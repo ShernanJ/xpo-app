@@ -21,7 +21,10 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "vague-product-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "opaque-entity-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "thread-playbook-direct-draft"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "profile-summary-uses-synced-context"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "profile-strongest-post-follow-up"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-loop"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "xpo-correction-then-redraft"), true);
 });
@@ -142,6 +145,60 @@ test("transcript replay delivers a draft for a direct first-turn draft ask", asy
   assert.equal(result.finalMemory.pendingPlan, null);
 });
 
+test("transcript replay keeps direct thread asks in thread mode and lands on a keyword playbook CTA", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "thread-playbook-direct-draft",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture, {
+    async generatePlan(message) {
+      return {
+        objective: message,
+        angle: "show that hiring got faster when ownership became the filter",
+        targetLane: "original",
+        mustInclude: ["lean team", "ownership filter", "hiring playbook pdf"],
+        mustAvoid: ["generic discussion prompt"],
+        hookType: "contrarian",
+        pitchResponse: "lead with the hiring bottleneck nobody sees coming",
+        formatPreference: "thread",
+      };
+    },
+    async generateDrafts(plan) {
+      return {
+        draft: [
+          "Most founders think hiring slows down because the pipeline is too small.\nFor us, the bottleneck was hiring people who could own a feature without creating more drag.",
+          "Once we changed the filter from pedigree to ownership, time-to-hire dropped and the team stayed lean.",
+          "That change is what let us scale without bloating headcount or slowing product velocity.",
+          'Comment \"HIRING\" to get access to my hiring playbook PDF.',
+        ].join("\n\n---\n\n"),
+        plan,
+        supportAsset: "Hiring playbook PDF",
+      };
+    },
+    async critiqueDrafts(draft) {
+      return {
+        approved: true,
+        issues: [],
+        finalDraft: draft.draft,
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "draft");
+  assert.equal(result.turns[0]?.output.outputShape, "thread_seed");
+  assert.equal(
+    result.turns[0]?.output.data?.draft?.includes('Comment "HIRING" to get access to my hiring playbook'),
+    true,
+  );
+  assert.equal(
+    result.turns[0]?.output.data?.draft?.startsWith("Most founders think hiring slows down"),
+    true,
+  );
+});
+
 test("transcript replay turns a pending-plan draft command straight into a draft", async () => {
   const fixture = findReplayFixture(
     CREATOR_TRANSCRIPT_FIXTURES,
@@ -215,6 +272,101 @@ test("transcript replay does not turn growth draft commands into capability chat
     result.finalMemory.clarificationState?.branchKey === "abstract_topic_focus_pick",
     false,
   );
+});
+
+test("transcript replay answers profile-summary asks from synced profile context", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "profile-summary-uses-synced-context",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture);
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "coach");
+  assert.equal(result.turns[0]?.output.outputShape, "coach_question");
+  assert.equal(
+    /i see|your profile centers on/i.test(result.turns[0]?.output.response || ""),
+    true,
+  );
+  assert.equal(
+    result.turns[0]?.output.response.includes("Lately you've been posting about:"),
+    true,
+  );
+  assert.equal(
+    result.turns[0]?.output.response.includes("- **Bottom line:**"),
+    false,
+  );
+  assert.equal(
+    result.turns[0]?.output.response.toLowerCase().includes("synced profile"),
+    false,
+  );
+});
+
+test("transcript replay answers strongest-post follow-ups with analytics bullets", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "profile-strongest-post-follow-up",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture);
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "coach");
+  assert.equal(
+    result.turns[0]?.output.response.includes("Your strongest recent post I can see here was about"),
+    true,
+  );
+  assert.equal(result.turns[0]?.output.response.includes("**40,000** likes"), true);
+  assert.equal(result.turns[0]?.output.response.includes("**10x**"), true);
+  assert.equal(result.turns[0]?.output.response.includes("- **Bottom line:**"), false);
+});
+
+test("transcript replay keeps bare draft asks in ideation mode even when draft context is already in play", async () => {
+  const result = await replayTranscriptFixture(
+    {
+      id: "bare-draft-stays-ideation",
+      title: "Bare Draft Stays Ideation",
+      description:
+        "Checks that a bare draft ask still returns selectable ideation options instead of a direct draft when stale draft context is present.",
+      xHandle: "shernanjavier",
+      initialMemory: {
+        topicSummary: "hiring velocity with a lean team",
+        conversationState: "ready_to_ideate",
+        concreteAnswerCount: 3,
+        assistantTurnCount: 4,
+      },
+      turns: [
+        {
+          role: "user",
+          message: "write a post",
+          explicitIntent: "draft",
+          activeDraft: "old draft that should not get reused here",
+        },
+      ],
+    },
+    {
+      async generateIdeasMenu() {
+        return {
+          intro: "here are 3 grounded post directions.",
+          angles: [
+            "The hiring metric that keeps a 5-person team fast",
+            "What we refuse to optimize for in lean hiring",
+            "Why fast hiring only works when the scorecard is brutal",
+          ],
+          close: "pick one and i'll draft it.",
+        };
+      },
+    },
+  );
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "ideate");
+  assert.equal(result.turns[0]?.output.outputShape, "ideation_angles");
+  assert.equal((result.turns[0]?.output.data?.quickReplies || []).length > 0, true);
+  assert.equal(result.turns[0]?.output.response.includes("- **Bottom line:**"), false);
 });
 
 test("transcript replay asks one useful question for a vague product draft ask, then drafts after the answer", async () => {

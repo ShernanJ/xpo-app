@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveTopLevelAction } from "./controller.ts";
+import { buildControllerFallbackDecision, resolveTopLevelAction } from "./controller.ts";
 
 function buildMemory(overrides = {}) {
   return {
@@ -70,4 +70,34 @@ test("resolveTopLevelAction maps controller output into one classified intent", 
   assert.equal(result.source, "controller");
   assert.equal(result.classifiedIntent, "draft");
   assert.equal(result.decision.action, "draft");
+});
+
+test("controller fallback treats profile-summary asks as retrieve_then_answer", () => {
+  const decision = buildControllerFallbackDecision({
+    userMessage: "write a summary about my profile",
+    memory: buildMemory(),
+  });
+
+  assert.equal(decision.action, "retrieve_then_answer");
+});
+
+test("controller fallback treats strongest-post asks as retrieve_then_answer", () => {
+  const decision = buildControllerFallbackDecision({
+    userMessage: "what performed best recently?",
+    memory: buildMemory(),
+  });
+
+  assert.equal(decision.action, "retrieve_then_answer");
+});
+
+test("controller fallback keeps bare draft asks in plan mode even with saved context", () => {
+  const decision = buildControllerFallbackDecision({
+    userMessage: "write a post",
+    memory: buildMemory({
+      topicSummary: "hiring systems",
+      concreteAnswerCount: 3,
+    }),
+  });
+
+  assert.equal(decision.action, "plan");
 });

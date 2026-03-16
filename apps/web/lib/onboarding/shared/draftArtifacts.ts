@@ -69,6 +69,7 @@ export const THREAD_POST_X_LIMIT = 280;
 export const THREAD_DEFAULT_POST_COUNT = 6;
 export const THREAD_TOTAL_X_LIMIT = THREAD_POST_X_LIMIT * THREAD_DEFAULT_POST_COUNT;
 export type DraftLengthMode = "shortform" | "longform" | "thread";
+export const SERIALIZED_THREAD_SEPARATOR = "---";
 
 export function getThreadPostLimit(threadPostMaxCharacterLimit?: number): number {
   return threadPostMaxCharacterLimit ?? THREAD_POST_X_LIMIT;
@@ -109,6 +110,50 @@ export function getXCharacterLimitForFormat(
   }
 
   return SHORT_FORM_X_LIMIT;
+}
+
+export function splitSerializedThreadPosts(value: string): string[] {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const posts: string[] = [];
+  let currentLines: string[] = [];
+
+  const flushCurrentPost = () => {
+    const nextPost = currentLines.join("\n").trim();
+    if (nextPost) {
+      posts.push(nextPost);
+    }
+    currentLines = [];
+  };
+
+  for (const line of normalized.split("\n")) {
+    if (line.trim() === SERIALIZED_THREAD_SEPARATOR) {
+      flushCurrentPost();
+      continue;
+    }
+
+    currentLines.push(line);
+  }
+
+  flushCurrentPost();
+  return posts;
+}
+
+export function joinSerializedThreadPosts(posts: string[]): string {
+  return posts
+    .map((post) => post.trim())
+    .filter(Boolean)
+    .join(`\n\n${SERIALIZED_THREAD_SEPARATOR}\n\n`);
+}
+
+export function hasSerializedThreadSeparator(value: string): boolean {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .some((line) => line.trim() === SERIALIZED_THREAD_SEPARATOR);
 }
 
 export function buildDraftArtifacts(params: {
@@ -165,7 +210,7 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     );
   const content =
     params.kind === "thread_seed"
-      ? posts.map((post) => post.content).join("\n\n---\n\n")
+      ? joinSerializedThreadPosts(posts.map((post) => post.content))
       : posts[0]?.content || params.content.trim();
   const weightedCharacterCount = posts.reduce(
     (total, post) => total + post.weightedCharacterCount,
@@ -479,10 +524,7 @@ function splitDraftIntoThreadPosts(
     return [];
   }
 
-  const explicitSplit = normalized
-    .split(/\n\s*---\s*\n/g)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const explicitSplit = splitSerializedThreadPosts(normalized);
   if (explicitSplit.length > 1) {
     return explicitSplit.map((part) =>
       trimToXCharacterLimit(part, threadPostMaxCharacterLimit),

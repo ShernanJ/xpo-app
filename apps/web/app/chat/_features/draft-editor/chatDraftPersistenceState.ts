@@ -12,6 +12,7 @@ type OutputShape =
   | "coach_question"
   | "ideation_angles"
   | "planning_outline"
+  | "profile_analysis"
   | "short_form_post"
   | "long_form_post"
   | "thread_seed"

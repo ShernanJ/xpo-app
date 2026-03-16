@@ -55,11 +55,9 @@ export interface UseDraftEditorSurfacePropsOptions {
 export function useDraftEditorSurfaceProps(
   options: UseDraftEditorSurfacePropsOptions,
 ): DraftEditorSurfaceProps {
-  const primaryActionLabel = options.shouldShowRevertDraftCta
-    ? "Revert to this Version"
-    : "Save As New Version";
-  const isPrimaryActionDisabled = options.shouldShowRevertDraftCta
-    ? false
+  const primaryActionLabel = "Save As New Version";
+  const isPrimaryActionDisabled = options.isViewingHistoricalDraftVersion
+    ? !options.draftEditorSerializedContent.trim()
     : !options.draftEditorSerializedContent.trim() || !options.hasDraftEditorChanges;
   const draftInspectorActionLabel = options.isViewingHistoricalDraftVersion
     ? "Compare to Current"
@@ -78,9 +76,7 @@ export function useDraftEditorSurfaceProps(
     primaryActionLabel,
     isPrimaryActionDisabled,
     onPrimaryAction: () => {
-      void (options.shouldShowRevertDraftCta
-        ? options.revertToSelectedDraftVersion()
-        : options.saveDraftEditor());
+      void options.saveDraftEditor();
     },
     isSelectedDraftThread: options.isSelectedDraftThread,
     selectedDraftArtifact: options.selectedDraftArtifact,

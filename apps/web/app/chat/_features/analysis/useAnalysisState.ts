@@ -838,27 +838,6 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
     [context, submitQuickStarter, trackProductEvent],
   );
 
-  const handleBannerGeneratorOpened = useCallback(
-    async () => {
-      await trackProductEvent({
-        eventType: "profile_audit_banner_generator_opened",
-      });
-    },
-    [trackProductEvent],
-  );
-
-  const handleBannerDownloaded = useCallback(
-    async (presetId: string) => {
-      await trackProductEvent({
-        eventType: "profile_audit_banner_downloaded",
-        properties: {
-          presetId,
-        },
-      });
-    },
-    [trackProductEvent],
-  );
-
   return {
     analysisOpen,
     setAnalysisOpen,
@@ -892,7 +871,5 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
     handleBioAlternativeCopied,
     handleBioAlternativeRefine,
     handlePinnedPromptStart,
-    handleBannerGeneratorOpened,
-    handleBannerDownloaded,
   };
 }

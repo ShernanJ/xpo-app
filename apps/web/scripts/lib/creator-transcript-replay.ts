@@ -24,6 +24,8 @@ import type {
 } from "../../lib/agent-v2/contracts/chat";
 
 type ReplayUpdateMemoryArgs = Parameters<ConversationServices["updateConversationMemory"]>[0];
+type ReplayFixtureOnboarding = NonNullable<TranscriptReplayFixture["onboarding"]>;
+type ReplayFixtureRecentPost = NonNullable<ReplayFixtureOnboarding["recentPosts"]>[number];
 
 export interface TranscriptReplayTurn {
   role: "user" | "assistant";
@@ -50,6 +52,28 @@ export interface TranscriptReplayFixture {
     isVerified?: boolean;
     goal?: string;
     stage?: string;
+    profile?: {
+      name?: string;
+      username?: string;
+      bio?: string;
+      followersCount?: number;
+      followingCount?: number;
+      createdAt?: string;
+    };
+    pinnedPost?: string;
+    recentPosts?: Array<
+      | string
+      | {
+          text: string;
+          createdAt?: string;
+          metrics?: {
+            likeCount?: number;
+            replyCount?: number;
+            repostCount?: number;
+            quoteCount?: number;
+          };
+        }
+    >;
   };
   turns: TranscriptReplayTurn[];
 }
@@ -152,6 +176,37 @@ function ensureReplayModelEnv(): void {
   }
 }
 
+function normalizeReplayRecentPost(
+  post: ReplayFixtureRecentPost,
+  index: number,
+) {
+  if (typeof post === "string") {
+    return {
+      id: `recent_post_${index + 1}`,
+      text: post,
+      createdAt: new Date(Date.UTC(2024, 0, index + 3)).toISOString(),
+      metrics: {
+        likeCount: 0,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+    };
+  }
+
+  return {
+    id: `recent_post_${index + 1}`,
+    text: post.text,
+    createdAt: post.createdAt || new Date(Date.UTC(2024, 0, index + 3)).toISOString(),
+    metrics: {
+      likeCount: post.metrics?.likeCount || 0,
+      replyCount: post.metrics?.replyCount || 0,
+      repostCount: post.metrics?.repostCount || 0,
+      quoteCount: post.metrics?.quoteCount || 0,
+    },
+  };
+}
+
 export interface TranscriptReplayResult {
   turnNumber: number;
   userMessage: string;
@@ -234,6 +289,14 @@ function inferReplayControlAction(args: {
     return "plan";
   }
 
+  const fallbackAction = buildControllerFallbackDecision({
+    userMessage: args.userMessage,
+    memory: args.memory,
+  }).action;
+  if (fallbackAction === "retrieve_then_answer") {
+    return fallbackAction;
+  }
+
   if (
     /\b(?:write|draft|compose|generate|create|make)\b/.test(normalized) &&
     (/\babout\b/.test(normalized) ||
@@ -252,10 +315,7 @@ function inferReplayControlAction(args: {
     return "answer";
   }
 
-  return buildControllerFallbackDecision({
-    userMessage: args.userMessage,
-    memory: args.memory,
-  }).action;
+  return fallbackAction;
 }
 
 function buildReplayControlTurnOverride(args: {
@@ -810,18 +870,42 @@ export function createReplayServiceOverrides(
       return memoryRecord as unknown as UpdateMemoryReturn;
     },
     async getOnboardingRun() {
+      const onboardingProfile = fixture.onboarding?.profile || {};
       return {
         input: {
-          account: fixture.xHandle || "replay",
+          account: onboardingProfile.username || fixture.xHandle || "replay",
         },
         result: {
           profile: {
+            username: onboardingProfile.username || fixture.xHandle || "replay",
+            name: onboardingProfile.name || onboardingProfile.username || fixture.xHandle || "replay",
+            bio: onboardingProfile.bio || "",
+            followersCount: onboardingProfile.followersCount || 0,
+            followingCount: onboardingProfile.followingCount || 0,
+            createdAt:
+              onboardingProfile.createdAt || new Date("2024-01-01T00:00:00.000Z").toISOString(),
             isVerified: fixture.onboarding?.isVerified === true,
           },
           growthStage: fixture.onboarding?.stage || "Unknown",
           strategyState: {
             goal: fixture.onboarding?.goal || "Audience growth",
           },
+          pinnedPost: fixture.onboarding?.pinnedPost
+            ? {
+                id: "pinned_post",
+                text: fixture.onboarding.pinnedPost,
+                createdAt: new Date("2024-01-02T00:00:00.000Z").toISOString(),
+                metrics: {
+                  likeCount: 0,
+                  replyCount: 0,
+                  repostCount: 0,
+                  quoteCount: 0,
+                },
+              }
+            : null,
+          recentPosts: (fixture.onboarding?.recentPosts || []).map((post, index) =>
+            normalizeReplayRecentPost(post, index),
+          ),
         },
       } as Record<string, unknown>;
     },
