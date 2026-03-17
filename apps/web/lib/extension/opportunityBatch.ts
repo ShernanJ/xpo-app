@@ -217,6 +217,27 @@ function ageHours(createdAtIso: string | null, capturedAtIso: string) {
   return Math.max(0, (capturedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60));
 }
 
+function getEngagementSaturation(candidate: ExtensionOpportunityCandidate) {
+  const replyCount =
+    typeof candidate.engagement.replyCount === "number" && Number.isFinite(candidate.engagement.replyCount)
+      ? Math.max(0, candidate.engagement.replyCount)
+      : 0;
+  const hasRealViewCount =
+    typeof candidate.engagement.viewCount === "number" &&
+    Number.isFinite(candidate.engagement.viewCount) &&
+    candidate.engagement.viewCount > 0;
+  const viewCount = hasRealViewCount ? candidate.engagement.viewCount : null;
+  const safeViewCount = viewCount ?? 1000;
+
+  return {
+    replyCount,
+    hasRealViewCount,
+    viewCount,
+    safeViewCount,
+    saturationRatio: replyCount / Math.max(1, safeViewCount),
+  };
+}
+
 function levelFromScore(score: number): ExtensionExpectedValueLevel {
   if (score >= 70) {
     return "high";
@@ -420,23 +441,24 @@ function computeFreshnessScore(args: { createdAtIso: string | null; capturedAtIs
   if (hours <= 1) {
     return 96;
   }
+  if (hours <= 2) {
+    return 82;
+  }
+  if (hours <= 4) {
+    return 45;
+  }
   if (hours <= 6) {
-    return 88;
+    return 25;
   }
   if (hours <= 24) {
-    return 74;
+    return 15;
   }
-  if (hours <= 72) {
-    return 58;
-  }
-  if (hours <= 168) {
-    return 40;
-  }
-  return 22;
+  return 5;
 }
 
 function computeVisibilityPotential(candidate: ExtensionOpportunityCandidate, freshness: number) {
   const followerCount = candidate.author.followerCount;
+  const saturation = getEngagementSaturation(candidate);
   let score = freshness * 0.45;
 
   if (followerCount >= 2_000 && followerCount <= 100_000) {
@@ -459,8 +481,14 @@ function computeVisibilityPotential(candidate: ExtensionOpportunityCandidate, fr
     score -= 18;
   }
 
-  if (candidate.engagement.replyCount > 80) {
-    score -= 10;
+  if (saturation.saturationRatio > 0.05) {
+    score -= 30;
+  } else if (
+    saturation.saturationRatio < 0.01 &&
+    saturation.hasRealViewCount &&
+    saturation.viewCount >= 1000
+  ) {
+    score += 15;
   }
 
   return roundScore(score);
@@ -570,6 +598,7 @@ function computeAudienceFit(args: {
 }
 
 function computeConversationQuality(candidate: ExtensionOpportunityCandidate) {
+  const saturation = getEngagementSaturation(candidate);
   let score =
     candidate.postType === "original"
       ? 78
@@ -590,7 +619,7 @@ function computeConversationQuality(candidate: ExtensionOpportunityCandidate) {
   if (candidate.media.hasLink) {
     score -= 6;
   }
-  if (candidate.engagement.replyCount > 100) {
+  if (saturation.saturationRatio > 0.05) {
     score -= 12;
   }
 

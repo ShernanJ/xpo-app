@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { rankOpportunityBatch } from "./opportunityBatch.ts";
+import { rankOpportunityBatch, scoreOpportunityCandidate } from "./opportunityBatch.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import type { ExtensionOpportunityCandidate } from "./types.ts";
 
 const strategy: GrowthStrategySnapshot = {
   knownFor: "software and product through product positioning",
@@ -24,6 +25,84 @@ const strategy: GrowthStrategySnapshot = {
     unknowns: ["No profile click data yet."],
   },
 };
+
+function makeCandidate(
+  overrides: Partial<ExtensionOpportunityCandidate> & {
+    author?: Partial<ExtensionOpportunityCandidate["author"]>;
+    engagement?: Partial<ExtensionOpportunityCandidate["engagement"]>;
+    conversation?: Partial<ExtensionOpportunityCandidate["conversation"]>;
+    media?: Partial<ExtensionOpportunityCandidate["media"]>;
+  } = {},
+): ExtensionOpportunityCandidate {
+  const candidate: ExtensionOpportunityCandidate = {
+    postId: "heuristic_post",
+    author: {
+      id: "heuristic_author",
+      handle: "smallbuilder",
+      name: "Small Builder",
+      verified: false,
+      followerCount: 540,
+    },
+    text: "What is the smallest proof layer that makes a positioning claim believable?",
+    url: "https://x.com/smallbuilder/status/heuristic",
+    createdAtIso: "2026-03-11T11:30:00.000Z",
+    engagement: {
+      replyCount: 5,
+      repostCount: 2,
+      likeCount: 18,
+      quoteCount: 1,
+      viewCount: 1200,
+    },
+    postType: "original",
+    conversation: {
+      conversationId: "conv_heuristic",
+      inReplyToPostId: null,
+      inReplyToHandle: null,
+    },
+    media: {
+      hasMedia: false,
+      hasImage: false,
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+      hasPoll: false,
+    },
+    surface: "home",
+    captureSource: "graphql",
+    capturedAtIso: "2026-03-11T12:00:00.000Z",
+  };
+
+  return {
+    ...candidate,
+    ...overrides,
+    author: {
+      ...candidate.author,
+      ...overrides.author,
+    },
+    engagement: {
+      ...candidate.engagement,
+      ...overrides.engagement,
+    },
+    conversation: {
+      ...candidate.conversation,
+      ...overrides.conversation,
+    },
+    media: {
+      ...candidate.media,
+      ...overrides.media,
+    },
+  };
+}
+
+function scoreCandidate(candidate: ExtensionOpportunityCandidate) {
+  return scoreOpportunityCandidate({
+    candidate,
+    requestSurface: candidate.surface,
+    pageUrl: "https://x.com/home",
+    strategy,
+    styleCard: null,
+  });
+}
 
 test("rankOpportunityBatch returns top scored opportunities with valid shapes", () => {
   const result = rankOpportunityBatch({
@@ -237,4 +316,93 @@ test("rankOpportunityBatch biases opportunity scoring toward converting reply pa
     learned.notes.some((entry) => entry.toLowerCase().includes("biased toward reply patterns")),
     true,
   );
+});
+
+test("scoreOpportunityCandidate applies the tightened freshness curve", () => {
+  const cases = [
+    {
+      createdAtIso: "2026-03-11T11:15:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 96,
+    },
+    {
+      createdAtIso: "2026-03-11T10:15:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 82,
+    },
+    {
+      createdAtIso: "2026-03-11T08:30:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 45,
+    },
+    {
+      createdAtIso: "2026-03-11T06:30:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 25,
+    },
+    {
+      createdAtIso: "2026-03-10T13:00:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 15,
+    },
+    {
+      createdAtIso: "2026-03-09T11:00:00.000Z",
+      capturedAtIso: "2026-03-11T12:00:00.000Z",
+      expected: 5,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const scored = scoreCandidate(
+      makeCandidate({
+        createdAtIso: testCase.createdAtIso,
+        capturedAtIso: testCase.capturedAtIso,
+      }),
+    );
+
+    assert.equal(scored.opportunity.scoringBreakdown.freshness, testCase.expected);
+  }
+});
+
+test("scoreOpportunityCandidate rewards low-saturation high-view conversations", () => {
+  const scored = scoreCandidate(
+    makeCandidate({
+      engagement: {
+        replyCount: 8,
+        viewCount: 2000,
+      },
+    }),
+  );
+
+  assert.equal(scored.opportunity.scoringBreakdown.visibility_potential, 78);
+  assert.equal(scored.opportunity.scoringBreakdown.conversation_quality, 86);
+});
+
+test("scoreOpportunityCandidate penalizes saturated conversations by ratio", () => {
+  const scored = scoreCandidate(
+    makeCandidate({
+      engagement: {
+        replyCount: 90,
+        viewCount: 1000,
+      },
+    }),
+  );
+
+  assert.equal(scored.opportunity.scoringBreakdown.visibility_potential, 33);
+  assert.equal(scored.opportunity.scoringBreakdown.conversation_quality, 74);
+});
+
+test("scoreOpportunityCandidate safely falls back when viewCount is invalid", () => {
+  const scored = scoreCandidate(
+    makeCandidate({
+      engagement: {
+        replyCount: 5,
+        viewCount: Number.NaN,
+      },
+    }),
+  );
+
+  assert.equal(scored.opportunity.scoringBreakdown.visibility_potential, 63);
+  assert.equal(scored.opportunity.scoringBreakdown.conversation_quality, 86);
+  assert.equal(Number.isFinite(scored.opportunity.scoringBreakdown.visibility_potential), true);
 });
