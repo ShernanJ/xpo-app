@@ -71,8 +71,8 @@ export function ChatHero() {
                   <a
                     href={`https://x.com/${heroHandle}`}
                     target="_blank"
-                    rel="noreferrer"
-                    className="transition text-white underline decoration-white/25 underline-offset-4 hover:decoration-white/70"
+                    rel="noopener noreferrer"
+                    className="text-white transition hover:text-zinc-200"
                   >
                     @{heroHandle}
                   </a>
