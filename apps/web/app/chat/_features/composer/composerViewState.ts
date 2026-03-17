@@ -243,7 +243,7 @@ function isClearlyCasualGreetingProfile(
 function buildHeroGreeting(params: {
   context: CreatorAgentContext | null;
   accountName: string | null;
-}): string {
+}): { greeting: string; handle: string | null } {
   const resolvedHandle = normalizeAccountHandle(
     params.accountName ??
       params.context?.creatorProfile.identity.username ??
@@ -254,7 +254,10 @@ function buildHeroGreeting(params: {
     ? "yo"
     : "Hey";
 
-  return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
+  return {
+    greeting: resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`,
+    handle: resolvedHandle || null,
+  };
 }
 
 export function formatComposerModeLabel(mode: ChatComposerMode): string | null {
@@ -275,7 +278,7 @@ export function resolveComposerViewState(params: {
   const { context, accountName, activeThreadId, messagesLength, isLeavingHero } = params;
   const isNewChatHero =
     !activeThreadId && messagesLength === 0 && Boolean(context) && !isLeavingHero;
-  const heroGreeting = buildHeroGreeting({
+  const { greeting: heroGreeting, handle: heroHandle } = buildHeroGreeting({
     context,
     accountName,
   });
@@ -292,6 +295,7 @@ export function resolveComposerViewState(params: {
 
   return {
     heroGreeting,
+    heroHandle,
     heroInitials,
     heroIdentityLabel,
     heroQuickActions,

@@ -12,6 +12,7 @@ export function ChatHero() {
     heroIdentityLabel,
     heroInitials,
     heroGreeting,
+    heroHandle,
     isVerifiedAccount,
     isLeavingHero,
     heroQuickActions,
@@ -39,6 +40,11 @@ export function ChatHero() {
   const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${
     isLeavingHero ? "-translate-y-4 opacity-0 blur-[2px]" : "translate-y-0 opacity-100 blur-0"
   }`;
+  const linkedHeroGreetingSuffix = heroHandle ? `@${heroHandle}` : null;
+  const heroGreetingPrefix =
+    linkedHeroGreetingSuffix && heroGreeting.endsWith(linkedHeroGreetingSuffix)
+      ? heroGreeting.slice(0, -linkedHeroGreetingSuffix.length).trimEnd()
+      : heroGreeting;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-10 py-10 text-center">
@@ -59,7 +65,21 @@ export function ChatHero() {
 
           <div className="flex items-center justify-center gap-2">
             <p className="text-xl font-semibold tracking-[-0.04em] text-white sm:text-3xl">
-              {heroGreeting}
+              {heroHandle ? (
+                <>
+                  {heroGreetingPrefix}{" "}
+                  <a
+                    href={`https://x.com/${heroHandle}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="transition text-white underline decoration-white/25 underline-offset-4 hover:decoration-white/70"
+                  >
+                    @{heroHandle}
+                  </a>
+                </>
+              ) : (
+                heroGreeting
+              )}
             </p>
             {isVerifiedAccount ? (
               <Image

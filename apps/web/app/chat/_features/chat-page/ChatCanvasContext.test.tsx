@@ -102,6 +102,7 @@ function buildCanvasProps(
     heroIdentityLabel: "Stanley",
     heroInitials: "S",
     heroGreeting: "What are we making?",
+    heroHandle: "stanley",
     isVerifiedAccount: true,
     isLeavingHero: false,
     composerMode: null,
@@ -167,6 +168,23 @@ test("wires hero quick actions and billing controls through the canvas provider"
   });
   expect(canvasProps.onOpenPricing).toHaveBeenCalledTimes(1);
   expect(canvasProps.onDismissBillingWarning).toHaveBeenCalledTimes(1);
+});
+
+test("renders the hero handle as an external X link", () => {
+  render(
+    <ChatWorkspaceCanvas
+      workspaceChromeProps={buildWorkspaceChromeProps()}
+      canvasProps={buildCanvasProps({
+        heroGreeting: "Hey @stanley",
+        heroHandle: "stanley",
+      })}
+      threadContent={null}
+    />,
+  );
+
+  const heroLink = screen.getByRole("link", { name: "@stanley" });
+  expect(heroLink).toHaveAttribute("href", "https://x.com/stanley");
+  expect(heroLink).toHaveAttribute("target", "_blank");
 });
 
 test("wires the dock composer and scroll action through the canvas provider", async () => {

@@ -36,6 +36,7 @@ interface ChatCanvasState {
   heroIdentityLabel: string;
   heroInitials: string;
   heroGreeting: string;
+  heroHandle: string | null;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
   composerMode: ChatComposerMode;
@@ -106,6 +107,7 @@ export interface ChatCanvasProviderProps {
   heroIdentityLabel: string;
   heroInitials: string;
   heroGreeting: string;
+  heroHandle: string | null;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
   composerMode: ChatComposerMode;
@@ -179,6 +181,7 @@ export function ChatCanvasProvider(
     heroIdentityLabel,
     heroInitials,
     heroGreeting,
+    heroHandle,
     isVerifiedAccount,
     isLeavingHero,
     composerMode,
@@ -232,6 +235,7 @@ export function ChatCanvasProvider(
       heroIdentityLabel,
       heroInitials,
       heroGreeting,
+      heroHandle,
       isVerifiedAccount,
       isLeavingHero,
       composerMode,
@@ -262,6 +266,7 @@ export function ChatCanvasProvider(
       hasContext,
       hasContract,
       heroGreeting,
+      heroHandle,
       heroIdentityLabel,
       heroInitials,
       heroQuickActions,
@@ -384,6 +389,7 @@ export function useChatHeroCanvas() {
     heroIdentityLabel: state.heroIdentityLabel,
     heroInitials: state.heroInitials,
     heroGreeting: state.heroGreeting,
+    heroHandle: state.heroHandle,
     isVerifiedAccount: state.isVerifiedAccount,
     isLeavingHero: state.isLeavingHero,
     draftInput: state.draftInput,

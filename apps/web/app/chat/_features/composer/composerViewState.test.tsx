@@ -70,6 +70,7 @@ test("resolveComposerViewState builds contextual prompt pools and lowercase chip
   });
 
   expect(viewState.heroGreeting).toBe("yo @stanleyx");
+  expect(viewState.heroHandle).toBe("stanleyx");
   expect(viewState.heroQuickActions).toEqual([
     {
       kind: "prompt",

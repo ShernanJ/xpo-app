@@ -1670,6 +1670,7 @@ function ChatPageContent() {
 
   const {
     heroGreeting,
+    heroHandle,
     heroInitials,
     heroIdentityLabel,
     heroQuickActions,
@@ -1854,6 +1855,7 @@ function ChatPageContent() {
           heroIdentityLabel,
           heroInitials,
           heroGreeting,
+          heroHandle,
           isVerifiedAccount,
           isLeavingHero,
           composerMode,
