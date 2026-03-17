@@ -18,6 +18,10 @@ import {
   type StripeWebhookEvent,
 } from "@/lib/billing/stripe";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+} from "@/lib/posthog/server";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -284,6 +288,19 @@ async function dispatchStripeEvent(event: StripeWebhookEvent): Promise<void> {
   }
 }
 
+async function resolveStripeWebhookDistinctId(event: StripeWebhookEvent): Promise<string | null> {
+  const object = getEventObject(event);
+  const metadata = getMetadata(object);
+
+  return (
+    await resolveUserIdFromStripeReferences({
+      metadataUserId: asString(metadata.userId),
+      customerId: asString(object.customer),
+      subscriptionId: asString(object.subscription),
+    })
+  ) ?? asString(object.customer) ?? asString(object.subscription) ?? asString(object.id) ?? event.id;
+}
+
 export async function POST(request: NextRequest) {
   if (!isMonetizationEnabled()) {
     return NextResponse.json({ ok: true, monetizationEnabled: false });
@@ -356,6 +373,15 @@ export async function POST(request: NextRequest) {
         processedAt: new Date(),
       },
     });
+    await capturePostHogServerEvent({
+      distinctId: await resolveStripeWebhookDistinctId(event),
+      event: "xpo_stripe_webhook_processed",
+      properties: {
+        route: "/api/stripe/webhook",
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -365,6 +391,15 @@ export async function POST(request: NextRequest) {
         status: "failed",
         errorMessage: error instanceof Error ? error.message : "Unknown webhook failure.",
         processedAt: new Date(),
+      },
+    });
+    await capturePostHogServerException({
+      distinctId: await resolveStripeWebhookDistinctId(event),
+      error,
+      properties: {
+        route: "/api/stripe/webhook",
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
       },
     });
 

@@ -3,12 +3,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { AppSession, AppSessionStatus } from "./types";
+import {
+  buildPostHogHeaders,
+  identifyPostHogUser,
+  resetPostHogUser,
+} from "@/lib/posthog/client";
 
 const AUTH_CHANGED_EVENT = "sx-auth-changed";
 
 interface SessionResponse {
   ok: true;
   session: AppSession | null;
+}
+
+interface AuthResponseSuccess {
+  ok: true;
+  user?: AppSession["user"];
+}
+
+interface AuthResponseFailure {
+  ok?: false;
+  error?: string;
+  code?: string;
 }
 
 function emitAuthChanged() {
@@ -22,6 +38,7 @@ async function fetchSession(): Promise<AppSession | null> {
     method: "GET",
     cache: "no-store",
     credentials: "same-origin",
+    headers: buildPostHogHeaders(),
   });
 
   if (!response.ok) {
@@ -40,10 +57,17 @@ export async function signIn(
     redirect?: boolean;
     callbackUrl?: string;
   },
-): Promise<{ code?: string; error?: string; ok: boolean; status: number; url: string | null }> {
+): Promise<{
+  code?: string;
+  error?: string;
+  ok: boolean;
+  status: number;
+  url: string | null;
+  user?: AppSession["user"];
+}> {
   const response = await fetch("/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify({
       email: options.email ?? "",
@@ -54,8 +78,13 @@ export async function signIn(
   const contentType = response.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
   const payload = (isJson ? await response.json().catch(() => null) : null) as
-    | { ok?: boolean; error?: string; code?: string }
+    | AuthResponseSuccess
+    | AuthResponseFailure
     | null;
+  const failurePayload =
+    payload && (!("ok" in payload) || payload.ok !== true)
+      ? (payload as AuthResponseFailure)
+      : null;
   const textFallback = !isJson ? await response.text().catch(() => "") : "";
   const normalizedFallback =
     typeof textFallback === "string" && textFallback.trim().length > 0 && !textFallback.includes("<!DOCTYPE")
@@ -64,7 +93,7 @@ export async function signIn(
 
   if (!response.ok || !payload?.ok) {
     const resolvedError =
-      payload?.error ??
+      failurePayload?.error ??
       (normalizedFallback.length > 0
         ? normalizedFallback
         : response.status >= 500
@@ -74,10 +103,15 @@ export async function signIn(
     return {
       ok: false,
       status: response.status,
-      code: payload?.code,
+      code: failurePayload?.code,
       error: resolvedError,
       url: null,
+      user: undefined,
     };
+  }
+
+  if (payload?.user) {
+    identifyPostHogUser(payload.user);
   }
 
   emitAuthChanged();
@@ -92,6 +126,7 @@ export async function signIn(
     ok: true,
     status: response.status,
     url: callbackUrl,
+    user: payload.user,
   };
 }
 
@@ -102,8 +137,10 @@ export async function signOut(options?: {
   await fetch("/api/auth/logout", {
     method: "POST",
     credentials: "same-origin",
+    headers: buildPostHogHeaders(),
   });
 
+  resetPostHogUser();
   emitAuthChanged();
 
   const callbackUrl = options?.callbackUrl ?? "/";
@@ -124,6 +161,7 @@ export function useSession(): {
 } {
   const [session, setSession] = useState<AppSession | null>(null);
   const [status, setStatus] = useState<AppSessionStatus>("loading");
+  const sessionUser = session?.user ?? null;
 
   const hydrate = useCallback(async () => {
     const nextSession = await fetchSession();
@@ -156,7 +194,7 @@ export function useSession(): {
 
       const response = await fetch("/api/auth/session", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
         credentials: "same-origin",
         body: JSON.stringify(data),
       });
@@ -174,6 +212,17 @@ export function useSession(): {
     },
     [hydrate],
   );
+
+  useEffect(() => {
+    if (sessionUser?.id) {
+      identifyPostHogUser(sessionUser);
+      return;
+    }
+
+    if (status === "unauthenticated") {
+      resetPostHogUser();
+    }
+  }, [sessionUser, status]);
 
   return useMemo(
     () => ({

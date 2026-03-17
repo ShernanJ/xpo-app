@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  buildPostHogHeaders,
+  capturePostHogEvent,
+  capturePostHogException,
+} from "@/lib/posthog/client";
 
 import {
   resolveBillingViewState,
@@ -85,6 +90,7 @@ export function useBillingState(options: UseBillingStateOptions) {
           ? `?session_id=${encodeURIComponent(checkoutSessionId)}`
           : "";
         const response = await fetch(`/api/billing/state${query}`, {
+          headers: buildPostHogHeaders(),
           method: "GET",
         });
         const data = (await response.json()) as BillingStateResponse;
@@ -113,6 +119,7 @@ export function useBillingState(options: UseBillingStateOptions) {
 
     try {
       const response = await fetch("/api/billing/ack-pricing-modal", {
+        headers: buildPostHogHeaders(),
         method: "POST",
       });
       const data = (await response.json()) as BillingStateResponse;
@@ -142,11 +149,15 @@ export function useBillingState(options: UseBillingStateOptions) {
 
       setCheckoutLoadingOffer(offer);
       try {
+        capturePostHogEvent("xpo_checkout_started", {
+          offer,
+          source: "chat_pricing_modal",
+        });
         const response = await fetch("/api/billing/checkout", {
           method: "POST",
-          headers: {
+          headers: buildPostHogHeaders({
             "Content-Type": "application/json",
-          },
+          }),
           body: JSON.stringify({
             offer,
             successPath: "/chat",
@@ -182,6 +193,10 @@ export function useBillingState(options: UseBillingStateOptions) {
 
         onErrorMessage("Checkout did not return a valid URL.");
       } catch (error) {
+        capturePostHogException(error, {
+          offer,
+          source: "chat_pricing_modal",
+        });
         onErrorMessage(
           error instanceof Error ? error.message : "Failed to initialize checkout.",
         );
@@ -200,6 +215,7 @@ export function useBillingState(options: UseBillingStateOptions) {
     setIsOpeningBillingPortal(true);
     try {
       const response = await fetch("/api/billing/portal", {
+        headers: buildPostHogHeaders(),
         method: "POST",
       });
       const data = (await response.json()) as
@@ -215,8 +231,14 @@ export function useBillingState(options: UseBillingStateOptions) {
         return;
       }
 
+      capturePostHogEvent("xpo_billing_portal_opened", {
+        source: "chat_settings",
+      });
       window.open(data.data.url, "_blank", "noopener,noreferrer");
     } catch (error) {
+      capturePostHogException(error, {
+        source: "chat_settings",
+      });
       onErrorMessage(
         error instanceof Error ? error.message : "Failed to open billing portal.",
       );

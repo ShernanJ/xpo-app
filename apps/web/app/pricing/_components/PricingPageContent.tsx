@@ -6,6 +6,11 @@ import { Sparkles } from "lucide-react";
 import { LegalFooter } from "@/components/legal-footer";
 import { BackHomeButton } from "@/components/back-home-button";
 import { useSession } from "@/lib/auth/client";
+import {
+  buildPostHogHeaders,
+  capturePostHogEvent,
+  capturePostHogException,
+} from "@/lib/posthog/client";
 import { BillingCadenceToggle } from "./BillingCadenceToggle";
 
 interface ValidationError {
@@ -110,7 +115,9 @@ export default function PricingPageContent() {
       return;
     }
 
-    fetch("/api/billing/state")
+    fetch("/api/billing/state", {
+      headers: buildPostHogHeaders(),
+    })
       .then((response) => response.json().then((data) => ({ response, data })))
       .then(({ response, data }) => {
         const parsed = data as BillingStateResponse;
@@ -160,9 +167,13 @@ export default function PricingPageContent() {
     setErrorMessage(null);
 
     try {
+      capturePostHogEvent("xpo_checkout_started", {
+        offer,
+        source: "pricing_page",
+      });
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ offer, successPath: "/chat", cancelPath: "/pricing" }),
       });
       const payload = (await response.json()) as
@@ -180,6 +191,10 @@ export default function PricingPageContent() {
 
       window.location.href = payload.data.checkoutUrl;
     } catch (error) {
+      capturePostHogException(error, {
+        offer,
+        source: "pricing_page",
+      });
       setErrorMessage(error instanceof Error ? error.message : "Could not start checkout.");
     } finally {
       setLoadingOffer(null);
@@ -198,6 +213,7 @@ export default function PricingPageContent() {
 
     try {
       const response = await fetch("/api/billing/portal", {
+        headers: buildPostHogHeaders(),
         method: "POST",
       });
       const payload = (await response.json()) as
@@ -213,8 +229,14 @@ export default function PricingPageContent() {
         return;
       }
 
+      capturePostHogEvent("xpo_billing_portal_opened", {
+        source: "pricing_page",
+      });
       window.open(payload.data.url, "_blank", "noopener,noreferrer");
     } catch (error) {
+      capturePostHogException(error, {
+        source: "pricing_page",
+      });
       setErrorMessage(error instanceof Error ? error.message : "Could not open billing portal.");
     } finally {
       setIsOpeningBillingPortal(false);

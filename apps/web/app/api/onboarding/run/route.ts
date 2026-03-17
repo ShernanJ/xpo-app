@@ -11,6 +11,10 @@ import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+} from "@/lib/posthog/server";
 import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 import {
   enforceSessionMutationRateLimit,
@@ -91,6 +95,15 @@ export async function POST(request: Request) {
   try {
     result = await runOnboarding(effectiveInput);
   } catch (error) {
+    await capturePostHogServerException({
+      request,
+      distinctId: userId,
+      error,
+      properties: {
+        account: effectiveInput.account,
+        route: "/api/onboarding/run",
+      },
+    });
     const message =
       error instanceof Error ? error.message : "Failed to run onboarding scrape.";
     return NextResponse.json(
@@ -163,6 +176,18 @@ export async function POST(request: Request) {
       styleCard: {},
     }],
     skipDuplicates: true,
+  });
+  await capturePostHogServerEvent({
+    request,
+    distinctId: userId,
+    event: "xpo_onboarding_run_completed",
+    properties: {
+      account: normalizedHandle,
+      backfill_queued: Boolean(backfill),
+      route: "/api/onboarding/run",
+      source: result.source,
+      warnings_count: result.warnings?.length ?? 0,
+    },
   });
 
   return NextResponse.json(

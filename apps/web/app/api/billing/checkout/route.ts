@@ -25,6 +25,10 @@ import {
   parseJsonBody,
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+} from "@/lib/posthog/server";
 
 const CheckoutRequestSchema = z.object({
   offer: z.enum(["pro_monthly", "pro_annual", "lifetime"]),
@@ -137,111 +141,155 @@ export async function POST(request: NextRequest) {
     return missingPriceError(offer);
   }
 
-  const entitlement = await ensureBillingEntitlement(session.user.id);
-  if (offer === "pro_monthly" || offer === "pro_annual") {
-    if (entitlement.plan === "lifetime") {
-      return conflictError("Founder Pass already includes Pro access.");
-    }
-
-    if (entitlement.plan === "pro" && entitlement.status === "active") {
-      const sameCycle =
-        (offer === "pro_monthly" && entitlement.billingCycle === "monthly") ||
-        (offer === "pro_annual" && entitlement.billingCycle === "annual");
-
-      if (sameCycle) {
-        return conflictError(
-          entitlement.billingCycle === "annual"
-            ? "You are already on Pro Annual."
-            : "You are already on Pro Monthly.",
-        );
+  try {
+    const entitlement = await ensureBillingEntitlement(session.user.id);
+    if (offer === "pro_monthly" || offer === "pro_annual") {
+      if (entitlement.plan === "lifetime") {
+        return conflictError("Founder Pass already includes Pro access.");
       }
 
-      return conflictError(
-        "Use Manage Billing to switch between monthly and annual Pro plans.",
-        "PLAN_SWITCH_IN_PORTAL",
-      );
+      if (entitlement.plan === "pro" && entitlement.status === "active") {
+        const sameCycle =
+          (offer === "pro_monthly" && entitlement.billingCycle === "monthly") ||
+          (offer === "pro_annual" && entitlement.billingCycle === "annual");
+
+        if (sameCycle) {
+          return conflictError(
+            entitlement.billingCycle === "annual"
+              ? "You are already on Pro Annual."
+              : "You are already on Pro Monthly.",
+          );
+        }
+
+        return conflictError(
+          "Use Manage Billing to switch between monthly and annual Pro plans.",
+          "PLAN_SWITCH_IN_PORTAL",
+        );
+      }
     }
-  }
 
-  if (offer === "lifetime" && entitlement.plan === "lifetime") {
-    return conflictError("You already have Founder Pass access.");
-  }
+    if (offer === "lifetime" && entitlement.plan === "lifetime") {
+      return conflictError("You already have Founder Pass access.");
+    }
 
-  const baseUrl = resolveCheckoutBaseUrl(request.url);
-  const customerId = await ensureStripeCustomer({
-    userId: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-  });
-
-  if (offer === "pro_monthly" || offer === "pro_annual") {
-    const existingSubscription = await findExistingSubscriptionForCustomer({
-      customerId,
+    const baseUrl = resolveCheckoutBaseUrl(request.url);
+    const customerId = await ensureStripeCustomer({
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
     });
 
-    if (existingSubscription) {
-      const monthlyPriceId = STRIPE_PRICE_IDS.pro_monthly;
-      const annualPriceId = STRIPE_PRICE_IDS.pro_annual;
-      const isKnownProSubscriptionPrice =
-        existingSubscription.priceId === monthlyPriceId ||
-        existingSubscription.priceId === annualPriceId;
+    if (offer === "pro_monthly" || offer === "pro_annual") {
+      const existingSubscription = await findExistingSubscriptionForCustomer({
+        customerId,
+      });
 
-      if (isKnownProSubscriptionPrice && existingSubscription.priceId === priceId) {
+      if (existingSubscription) {
+        const monthlyPriceId = STRIPE_PRICE_IDS.pro_monthly;
+        const annualPriceId = STRIPE_PRICE_IDS.pro_annual;
+        const isKnownProSubscriptionPrice =
+          existingSubscription.priceId === monthlyPriceId ||
+          existingSubscription.priceId === annualPriceId;
+
+        if (isKnownProSubscriptionPrice && existingSubscription.priceId === priceId) {
+          return conflictError(
+            offer === "pro_annual"
+              ? "You are already on Pro Annual."
+              : "You are already on Pro Monthly.",
+          );
+        }
+
         return conflictError(
-          offer === "pro_annual"
-            ? "You are already on Pro Annual."
-            : "You are already on Pro Monthly.",
+          "Use Manage Billing to switch between monthly and annual Pro plans.",
+          "PLAN_SWITCH_IN_PORTAL",
+        );
+      }
+    }
+
+    const successUrl = resolveSuccessUrl({
+      baseUrl,
+      successPath: parsed.data.successPath,
+    });
+    const cancelUrl = resolveCancelUrl({
+      baseUrl,
+      cancelPath: parsed.data.cancelPath,
+    });
+
+    if (offer === "lifetime") {
+      const reservation = await reserveLifetimeSlot(session.user.id);
+      if (!reservation.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "SOLD_OUT",
+            errors: [{ field: "offer", message: "All Founder Pass slots are currently sold out." }],
+          },
+          { status: 409 },
         );
       }
 
-      return conflictError(
-        "Use Manage Billing to switch between monthly and annual Pro plans.",
-        "PLAN_SWITCH_IN_PORTAL",
-      );
-    }
-  }
+      let checkoutSession: Awaited<ReturnType<typeof createCheckoutSession>>;
+      try {
+        checkoutSession = await createCheckoutSession({
+          mode: "payment",
+          customerId,
+          priceId,
+          successUrl,
+          cancelUrl,
+          userId: session.user.id,
+          offer,
+          reservationId: reservation.reservationId,
+        });
+      } catch (error) {
+        await releaseLifetimeReservationById(reservation.reservationId).catch(() => undefined);
+        throw error;
+      }
 
-  const successUrl = resolveSuccessUrl({
-    baseUrl,
-    successPath: parsed.data.successPath,
-  });
-  const cancelUrl = resolveCancelUrl({
-    baseUrl,
-    cancelPath: parsed.data.cancelPath,
-  });
+      if (!checkoutSession.url) {
+        await releaseLifetimeReservationById(reservation.reservationId).catch(() => undefined);
+        return NextResponse.json(
+          {
+            ok: false,
+            errors: [{ field: "checkout", message: "Failed to initialize checkout." }],
+          },
+          { status: 502 },
+        );
+      }
 
-  if (offer === "lifetime") {
-    const reservation = await reserveLifetimeSlot(session.user.id);
-    if (!reservation.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          code: "SOLD_OUT",
-          errors: [{ field: "offer", message: "All Founder Pass slots are currently sold out." }],
-        },
-        { status: 409 },
-      );
-    }
-
-    let checkoutSession: Awaited<ReturnType<typeof createCheckoutSession>>;
-    try {
-      checkoutSession = await createCheckoutSession({
-        mode: "payment",
-        customerId,
-        priceId,
-        successUrl,
-        cancelUrl,
-        userId: session.user.id,
-        offer,
+      await attachCheckoutSessionToReservation({
         reservationId: reservation.reservationId,
+        sessionId: checkoutSession.id,
       });
-    } catch (error) {
-      await releaseLifetimeReservationById(reservation.reservationId).catch(() => undefined);
-      throw error;
+      await capturePostHogServerEvent({
+        request,
+        distinctId: session.user.id,
+        event: "xpo_checkout_session_created",
+        properties: {
+          checkout_session_id: checkoutSession.id,
+          offer,
+          source: "billing_checkout_route",
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          checkoutUrl: checkoutSession.url,
+        },
+      });
     }
+
+    const checkoutSession = await createCheckoutSession({
+      mode: "subscription",
+      customerId,
+      priceId,
+      successUrl,
+      cancelUrl,
+      userId: session.user.id,
+      offer,
+    });
 
     if (!checkoutSession.url) {
-      await releaseLifetimeReservationById(reservation.reservationId).catch(() => undefined);
       return NextResponse.json(
         {
           ok: false,
@@ -251,9 +299,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await attachCheckoutSessionToReservation({
-      reservationId: reservation.reservationId,
-      sessionId: checkoutSession.id,
+    await capturePostHogServerEvent({
+      request,
+      distinctId: session.user.id,
+      event: "xpo_checkout_session_created",
+      properties: {
+        checkout_session_id: checkoutSession.id,
+        offer,
+        source: "billing_checkout_route",
+      },
     });
 
     return NextResponse.json({
@@ -262,32 +316,23 @@ export async function POST(request: NextRequest) {
         checkoutUrl: checkoutSession.url,
       },
     });
-  }
+  } catch (error) {
+    await capturePostHogServerException({
+      request,
+      distinctId: session.user.id,
+      error,
+      properties: {
+        offer,
+        route: "/api/billing/checkout",
+      },
+    });
 
-  const checkoutSession = await createCheckoutSession({
-    mode: "subscription",
-    customerId,
-    priceId,
-    successUrl,
-    cancelUrl,
-    userId: session.user.id,
-    offer,
-  });
-
-  if (!checkoutSession.url) {
     return NextResponse.json(
       {
         ok: false,
         errors: [{ field: "checkout", message: "Failed to initialize checkout." }],
       },
-      { status: 502 },
+      { status: 500 },
     );
   }
-
-  return NextResponse.json({
-    ok: true,
-    data: {
-      checkoutUrl: checkoutSession.url,
-    },
-  });
 }

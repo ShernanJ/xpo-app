@@ -4,13 +4,23 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useSession } from "@/lib/auth/client";
-import { ArrowLeft, PenLine, Search, Sparkles, Target } from "lucide-react";
+import { PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import type { BillingStatePayload } from "@/lib/billing/types";
-import type { XPublicPost, XPublicProfile } from "@/lib/onboarding/types";
+import {
+  buildPostHogHeaders,
+  capturePostHogEvent,
+  capturePostHogException,
+} from "@/lib/posthog/client";
+import type {
+  GuestOnboardingAnalysis,
+  OnboardingPreviewSource,
+} from "@/lib/onboarding/guestAnalysis";
+import type { XPublicProfile } from "@/lib/onboarding/types";
+import { GuestAnalysisPreview } from "./GuestAnalysisPreview";
 
 interface ValidationError {
   field: string;
@@ -29,49 +39,20 @@ interface OnboardingPreviewFailure {
   errors: ValidationError[];
 }
 
-interface OnboardingScrapeLatestSuccess {
+interface OnboardingAnalysisSuccess {
   ok: true;
-  capture: {
-    recentPosts: XPublicPost[];
-  };
+  account: string;
+  analysis: GuestOnboardingAnalysis;
 }
 
-interface OnboardingScrapeLatestFailure {
+interface OnboardingAnalysisFailure {
   ok: false;
   errors: ValidationError[];
 }
 
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
-type OnboardingScrapeLatestResponse =
-  | OnboardingScrapeLatestSuccess
-  | OnboardingScrapeLatestFailure;
+type OnboardingAnalysisResponse = OnboardingAnalysisSuccess | OnboardingAnalysisFailure;
 type LandingPricingOffer = BillingStatePayload["offers"][number];
-type PlaybookStageLabel = (typeof STAGE_PLAYBOOKS)[number]["stage"];
-
-type OnboardingPreviewSource =
-  | "cache"
-  | "user_by_screen_name"
-  | "syndication"
-  | "users_show"
-  | "html"
-  | "none";
-
-interface GuestAnalysisPreview {
-  profile: XPublicProfile;
-  stage: PlaybookStageLabel;
-  focus: string;
-  xpoHelp: string;
-  actions: {
-    action: string;
-    why: string;
-    howXpoHelps: string;
-  }[];
-  source: OnboardingPreviewSource;
-  voicePreview: {
-    shortform: string;
-    longform: string;
-  };
-}
 
 interface OnboardingLandingProps {
   pricingOffers: LandingPricingOffer[];
@@ -122,92 +103,6 @@ const STAGE_PLAYBOOKS = [
     xpoHelp: "Xpo aligns content to offers, launch windows, and repeatable audience-to-revenue loops.",
   },
 ] as const;
-
-const STAGE_PLAYBOOK_ACTIONS: Record<
-  PlaybookStageLabel,
-  { action: string; why: string; howXpoHelps: string }[]
-> = {
-  "0 → 1k": [
-    {
-      action: "Pick 1-2 lanes and repeat them for 30 days.",
-      why: "Repetition makes your account easier to remember and helps people classify you quickly.",
-      howXpoHelps:
-        "Xpo surfaces your strongest themes and gives lane-safe prompt angles so your posts stay consistent.",
-    },
-    {
-      action: "Run high-signal replies in threads where your audience already is.",
-      why: "Replies give you distribution before your own posts have enough reach to compound alone.",
-      howXpoHelps:
-        "Xpo flags reply opportunities and drafts context-aware reply starters in your voice.",
-    },
-    {
-      action: "Ship 3 standalone posts + 1 recurring series each week.",
-      why: "A consistent format builds familiarity and gives people a reason to come back.",
-      howXpoHelps:
-        "Xpo turns one idea into post + series variants so you can maintain cadence without forcing ideas.",
-    },
-  ],
-  "1k → 10k": [
-    {
-      action: "Lock 3 core pillars and 2 repeatable formats per pillar.",
-      why: "Clear pillars improve recall and reduce content drift as your audience grows.",
-      howXpoHelps:
-        "Xpo maps your recent winners into reusable pillars and suggests format templates for each one.",
-    },
-    {
-      action: "Lead with the takeaway first, then context.",
-      why: "Front-loaded clarity improves retention and increases repost/share potential.",
-      howXpoHelps:
-        "Xpo rewrites weak openings into stronger hook-first versions while keeping your tone intact.",
-    },
-    {
-      action: "Turn winners into sequels to compound recall.",
-      why: "Sequels deepen positioning and train your audience to expect your perspective.",
-      howXpoHelps:
-        "Xpo identifies posts worth sequeling and suggests follow-up angles that continue the same narrative.",
-    },
-  ],
-  "10k → 50k": [
-    {
-      action: "Codify one signature take people can quote back.",
-      why: "A repeatable point of view is what turns good posts into lasting creator identity.",
-      howXpoHelps:
-        "Xpo extracts recurring claims from your best posts and turns them into repeatable positioning lines.",
-    },
-    {
-      action: "Turn one deep post into standalone posts, replies, and threads.",
-      why: "Content atomization increases output quality without increasing ideation overhead.",
-      howXpoHelps:
-        "Xpo expands one core draft into multiple channel-ready derivatives with consistent voice and framing.",
-    },
-    {
-      action: "Use collabs/co-posts to unlock adjacent audiences.",
-      why: "Shared distribution introduces your ideas to qualified audiences faster than solo posting.",
-      howXpoHelps:
-        "Xpo suggests collab-ready post structures and cross-audience framing hooks to improve acceptance.",
-    },
-  ],
-  "50k+": [
-    {
-      action: "Align content with your offer and conversion path.",
-      why: "At this stage, content should convert attention into measurable business outcomes.",
-      howXpoHelps:
-        "Xpo links post intent to funnel stages so each piece supports an offer or conversion outcome.",
-    },
-    {
-      action: "Run audience loops with challenges, prompts, and recaps.",
-      why: "Participation loops increase community stickiness and recurring engagement.",
-      howXpoHelps:
-        "Xpo generates loop-based content arcs and recap formats that sustain multi-week participation.",
-    },
-    {
-      action: "Repurpose into owned channels for compounding distribution.",
-      why: "Owned channels reduce platform dependency and preserve long-term leverage.",
-      howXpoHelps:
-        "Xpo converts top-performing X ideas into reusable drafts for owned channels and evergreen assets.",
-    },
-  ],
-};
 
 const HOW_IT_WORKS_STEPS = [
   {
@@ -444,370 +339,6 @@ function normalizeHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
-function formatCompactNumber(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Math.max(0, value));
-}
-
-function resolvePlaybookStage(followersCount: number): PlaybookStageLabel {
-  if (followersCount < 1_000) {
-    return "0 → 1k";
-  }
-
-  if (followersCount < 10_000) {
-    return "1k → 10k";
-  }
-
-  if (followersCount < 50_000) {
-    return "10k → 50k";
-  }
-
-  return "50k+";
-}
-
-function clampPreviewCopy(text: string, maxChars: number): string {
-  const normalized = text.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
-}
-
-function extractTopicHint(bio: string): string | null {
-  if (!bio) {
-    return null;
-  }
-
-  const lowSignalPattern =
-    /\b(gm|gn|come back|back soon|in a bit|dm\s*me|follow me|link in bio|shitpost|shitposting|offline)\b/i;
-  const cleaned = bio
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/[@#]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cleaned) {
-    return null;
-  }
-
-  const candidate = cleaned
-    .split(/[|,.;•\n]/)
-    .map((segment) => segment.trim())
-    .find((segment) => segment.length >= 8 && segment.length <= 80);
-  if (!candidate) {
-    return null;
-  }
-
-  if (lowSignalPattern.test(candidate)) {
-    return null;
-  }
-
-  const candidateWords = candidate.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  const meaningfulWords = candidateWords.filter(
-    (word) =>
-      word.length >= 4 &&
-      ![
-        "still",
-        "just",
-        "come",
-        "back",
-        "soon",
-        "with",
-        "this",
-        "that",
-        "here",
-        "there",
-      ].includes(word),
-  );
-  if (meaningfulWords.length < 2) {
-    return null;
-  }
-
-  return candidate.slice(0, 64);
-}
-
-type VoiceCasing = "lowercase" | "normal";
-
-function getDeterministicSeed(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  }
-
-  return Math.abs(hash);
-}
-
-function pickSeededOption(
-  options: readonly string[],
-  seed: number,
-  offset: number,
-): string {
-  if (options.length === 0) {
-    return "";
-  }
-
-  return options[(seed + offset) % options.length] ?? options[0];
-}
-
-function applyVoiceCasing(value: string, casing: VoiceCasing): string {
-  if (casing === "lowercase") {
-    return value.toLowerCase();
-  }
-
-  return value;
-}
-
-function inferVoiceCasing(
-  profile: XPublicProfile,
-  recentPosts: XPublicPost[],
-): VoiceCasing {
-  const samples = recentPosts
-    .map((post) => post.text)
-    .filter(Boolean)
-    .slice(0, 8);
-
-  if (samples.length === 0 && profile.bio) {
-    samples.push(profile.bio);
-  }
-
-  let alphaCount = 0;
-  let lowercaseCount = 0;
-
-  for (const sample of samples) {
-    for (const character of sample) {
-      if (!/[a-z]/i.test(character)) {
-        continue;
-      }
-      alphaCount += 1;
-      if (character === character.toLowerCase()) {
-        lowercaseCount += 1;
-      }
-    }
-  }
-
-  if (alphaCount < 40) {
-    return "normal";
-  }
-
-  return lowercaseCount / alphaCount >= 0.82 ? "lowercase" : "normal";
-}
-
-function normalizePostSample(text: string): string {
-  return text
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractLeadSample(recentPosts: XPublicPost[]): string | null {
-  for (const post of recentPosts.slice(0, 8)) {
-    const normalized = normalizePostSample(post.text);
-    if (!normalized) {
-      continue;
-    }
-
-    const candidate =
-      normalized
-        .split("\n")[0]
-        ?.split(/[.!?]/)[0]
-        ?.trim() ?? "";
-    if (candidate.length < 18 || candidate.length > 90) {
-      continue;
-    }
-
-    return candidate;
-  }
-
-  return null;
-}
-
-function detectCommentCtaKeyword(
-  recentPosts: XPublicPost[],
-  bio: string,
-): string | null {
-  const invalidKeywords = new Set([
-    "below",
-    "this",
-    "that",
-    "here",
-    "there",
-    "link",
-    "it",
-    "me",
-    "yes",
-    "done",
-  ]);
-  const keywordPattern =
-    /\b(?:comment|reply)\s+["'“”]?([A-Za-z0-9]{2,20})["'“”]?(?:\s|$)/i;
-
-  for (const post of recentPosts.slice(0, 12)) {
-    const text = post.text ?? "";
-    const match = text.match(keywordPattern);
-    if (!match?.[1]) {
-      continue;
-    }
-
-    const keyword = match[1].replace(/[^A-Za-z0-9]/g, "");
-    if (!keyword) {
-      continue;
-    }
-
-    if (invalidKeywords.has(keyword.toLowerCase())) {
-      return "XPO";
-    }
-
-    return keyword.toUpperCase();
-  }
-
-  const hasGenericCommentCta =
-    recentPosts.some((post) => /\b(?:comment|reply)\b/i.test(post.text ?? "")) ||
-    /\bcomment\b/i.test(bio);
-  return hasGenericCommentCta ? "XPO" : null;
-}
-
-function buildVoicePreviewDraft(
-  profile: XPublicProfile,
-  stage: PlaybookStageLabel,
-  focus: string,
-  recentPosts: XPublicPost[] = [],
-): GuestAnalysisPreview["voicePreview"] {
-  const topicHint = extractTopicHint(profile.bio);
-  const casing = inferVoiceCasing(profile, recentPosts);
-  const leadSample = extractLeadSample(recentPosts);
-  const commentCtaKeyword = detectCommentCtaKeyword(recentPosts, profile.bio);
-  const seed = getDeterministicSeed(
-    `${profile.username}:${stage}:${focus}:${recentPosts.map((post) => post.id).join(",")}`,
-  );
-
-  const topicOptions = topicHint
-    ? ([
-        `I am doubling down on ${topicHint}.`,
-        `I am staying focused on ${topicHint} instead of random swings.`,
-        `I am anchoring on ${topicHint} and cutting noise.`,
-      ] as const)
-    : ([
-        "I am done posting random takes with no system.",
-        "No more guessing what to post next.",
-        "I finally have a repeatable loop instead of vibes.",
-      ] as const);
-
-  const shortOpenOptions = leadSample
-    ? ([
-        `${leadSample} - now I run that same voice through Xpo before posting.`,
-        `Still writing how I usually write (${leadSample}), but now with Xpo as my prep layer.`,
-        `${leadSample}. Xpo helps me keep that tone and ship faster.`,
-      ] as const)
-    : ([
-        "Xpo is now part of my weekly writing workflow.",
-        "I run every content sprint through Xpo first.",
-        "Before posting, I map ideas through Xpo.",
-      ] as const);
-
-  const shortMapOptions = [
-    `Xpo mapped me to ${stage} and showed me the next move to execute.`,
-    `Xpo tagged me at ${stage} and gave me a clearer priority.`,
-    `Xpo put me in ${stage} and pointed me at the highest-leverage step.`,
-  ] as const;
-  const shortCloseOptions = [
-    "Already feels less random and way more repeatable.",
-    "My output feels cleaner and I waste less time.",
-    "Less guesswork, better cadence, stronger signal.",
-  ] as const;
-
-  const longOpenOptions = [
-    "Xpo is now my pre-post check before I publish.",
-    "I run Xpo before every posting sprint.",
-    "I use Xpo as my planning layer before I write.",
-  ] as const;
-
-  const longMapOptions = [
-    `It mapped @${profile.username} to ${stage} and flagged ${focus.toLowerCase()} as the lever to push right now.`,
-    `Xpo mapped @${profile.username} to ${stage} and highlighted ${focus.toLowerCase()} as the main pressure point.`,
-    `Xpo put @${profile.username} in ${stage} and surfaced ${focus.toLowerCase()} as the priority to compound.`,
-  ] as const;
-
-  const longBodyOptions = [
-    "I am using Xpo to tighten hooks, prioritize what to ship, and keep cadence consistent.",
-    "Xpo helps me pick the next post, tighten framing, and stay on cadence.",
-    "I use Xpo to pressure-test ideas before posting so momentum compounds.",
-  ] as const;
-
-  const longSignalOptions = [
-    "Early signal is cleaner positioning and less guesswork every week.",
-    "I am seeing clearer direction and fewer wasted posts already.",
-    "It feels more intentional, and the momentum is easier to sustain.",
-  ] as const;
-
-  const longCloseOptions = [
-    "I will keep sharing results as this compounds.",
-    "Sticking with this workflow for the next month.",
-    "Going to keep shipping through Xpo and track how it compounds.",
-  ] as const;
-  const commentCtaLine = commentCtaKeyword
-    ? `Comment "${commentCtaKeyword}" for the app link.`
-    : null;
-
-  const shortLines = [
-    pickSeededOption(shortOpenOptions, seed, 0),
-    pickSeededOption(shortMapOptions, seed, 1),
-    pickSeededOption(topicOptions, seed, 2),
-    pickSeededOption(shortCloseOptions, seed, 3),
-    stage !== "0 → 1k" ? commentCtaLine : null,
-  ].filter((line): line is string => Boolean(line));
-
-  const shortform = clampPreviewCopy(
-    shortLines.map((line) => applyVoiceCasing(line, casing)).join("\n\n"),
-    250,
-  );
-
-  const longLines = [
-    pickSeededOption(longOpenOptions, seed, 0),
-    pickSeededOption(longMapOptions, seed, 1),
-    pickSeededOption(topicOptions, seed, 2),
-    pickSeededOption(longBodyOptions, seed, 3),
-    pickSeededOption(longSignalOptions, seed, 4),
-    pickSeededOption(longCloseOptions, seed, 5),
-    commentCtaLine,
-  ].filter((line): line is string => Boolean(line));
-
-  const longform = clampPreviewCopy(
-    longLines.map((line) => applyVoiceCasing(line, casing)).join("\n"),
-    700,
-  );
-
-  return { shortform, longform };
-}
-
-function buildGuestAnalysisPreview(
-  profile: XPublicProfile,
-  source: OnboardingPreviewSource = "none",
-  recentPosts: XPublicPost[] = [],
-): GuestAnalysisPreview {
-  const followers = Math.max(0, profile.followersCount);
-  const stage = resolvePlaybookStage(followers);
-  const playbook = STAGE_PLAYBOOKS.find((item) => item.stage === stage);
-  const actions = STAGE_PLAYBOOK_ACTIONS[stage];
-
-  return {
-    profile,
-    stage,
-    focus: playbook?.focus ?? "Growth + execution",
-    xpoHelp:
-      playbook?.xpoHelp ??
-      "Xpo maps your current stage and gives you the clearest next action to ship now.",
-    actions,
-    source,
-    voicePreview: buildVoicePreviewDraft(
-      profile,
-      stage,
-      playbook?.focus ?? "growth + execution",
-      recentPosts,
-    ),
-  };
-}
-
 export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
   const { status, update } = useSession();
   const monetizationEnabled = isMonetizationEnabled();
@@ -817,7 +348,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<XPublicProfile | null>(null);
-  const [guestAnalysisPreview, setGuestAnalysisPreview] = useState<GuestAnalysisPreview | null>(
+  const [guestAnalysisPreview, setGuestAnalysisPreview] = useState<GuestOnboardingAnalysis | null>(
     null,
   );
   const [voicePreviewFormat, setVoicePreviewFormat] = useState<"shortform" | "longform">(
@@ -1297,6 +828,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         const response = await fetch(
           `/api/onboarding/preview?account=${encodeURIComponent(trimmed)}`,
           {
+            headers: buildPostHogHeaders(),
             method: "GET",
             signal: controller.signal,
           },
@@ -1322,6 +854,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           return;
         }
 
+        capturePostHogException(error, {
+          account: trimmed.toLowerCase(),
+          source: "landing_preview",
+        });
         setPreview(null);
       } finally {
         if (!controller.signal.aborted) {
@@ -1428,10 +964,15 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     if (status === "authenticated") {
       // Authenticated users run the scrape natively and skip login
       try {
+        capturePostHogEvent("xpo_onboarding_run_requested", {
+          account: trimmedAccount,
+          auth_state: "authenticated",
+          source: "landing",
+        });
         const analysisStartedAt = Date.now();
         const resp = await fetch("/api/onboarding/run", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             account: trimmedAccount,
             goal: "followers",
@@ -1457,6 +998,11 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         window.location.href = "/chat";
       } catch (err) {
         console.error(err);
+        capturePostHogException(err, {
+          account: trimmedAccount,
+          auth_state: "authenticated",
+          source: "landing",
+        });
         setErrorMessage("Failed to analyze account. Please try again.");
         setIsLoading(false);
         setIsLaunchingLoading(false);
@@ -1464,43 +1010,22 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     } else {
       // Anonymous users get a value preview before the auth wall.
       try {
+        capturePostHogEvent("xpo_guest_analysis_requested", {
+          account: trimmedAccount,
+          auth_state: "anonymous",
+          source: "landing",
+        });
         const analysisStartedAt = Date.now();
-        let resolvedProfile = preview;
-        let resolvedSource: OnboardingPreviewSource = "none";
-        let recentScrapePosts: XPublicPost[] = [];
-
-        const previewResponse = await fetch(
-          `/api/onboarding/preview?account=${encodeURIComponent(trimmedAccount)}`,
+        const analysisResponse = await fetch(
+          `/api/onboarding/analysis?account=${encodeURIComponent(trimmedAccount)}`,
           {
+            headers: buildPostHogHeaders(),
             method: "GET",
           },
         );
-        const previewPayload = (await previewResponse.json()) as OnboardingPreviewResponse;
+        const analysisPayload = (await analysisResponse.json()) as OnboardingAnalysisResponse;
 
-        if (previewResponse.ok && previewPayload.ok && previewPayload.preview) {
-          resolvedProfile = previewPayload.preview;
-          resolvedSource = previewPayload.source ?? "none";
-        }
-
-        try {
-          const scrapeLatestResponse = await fetch(
-            `/api/onboarding/scrape/latest?account=${encodeURIComponent(trimmedAccount)}`,
-            {
-              method: "GET",
-            },
-          );
-          if (scrapeLatestResponse.ok) {
-            const scrapeLatestPayload =
-              (await scrapeLatestResponse.json()) as OnboardingScrapeLatestResponse;
-            if (scrapeLatestPayload.ok) {
-              recentScrapePosts = scrapeLatestPayload.capture.recentPosts ?? [];
-            }
-          }
-        } catch {
-          // Voice preview falls back to profile-driven heuristics when scrape cache is unavailable.
-        }
-
-        if (!resolvedProfile) {
+        if (!analysisResponse.ok || !analysisPayload.ok) {
           throw new Error("Preview account unavailable.");
         }
 
@@ -1511,11 +1036,14 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           });
         }
 
-        setGuestAnalysisPreview(
-          buildGuestAnalysisPreview(resolvedProfile, resolvedSource, recentScrapePosts),
-        );
+        setGuestAnalysisPreview(analysisPayload.analysis);
       } catch (error) {
         console.error(error);
+        capturePostHogException(error, {
+          account: trimmedAccount,
+          auth_state: "anonymous",
+          source: "landing",
+        });
         setErrorMessage("Failed to analyze account. Please try again.");
       } finally {
         setIsLoading(false);
@@ -1701,246 +1229,17 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     const signupParams = new URLSearchParams({
       xHandle: guestAnalysisPreview.profile.username,
     });
-    const activeVoicePreviewCopy =
-      voicePreviewFormat === "shortform"
-        ? guestAnalysisPreview.voicePreview.shortform
-        : guestAnalysisPreview.voicePreview.longform;
-    const activeVoicePreviewLimit = voicePreviewFormat === "shortform" ? 250 : 700;
 
     return (
       <XShell footerContent={landingFooterLinks} backgroundOverlay={landingShellOverlay}>
         <div className="landing-root relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start px-4 pt-2 pb-6 sm:px-6 sm:pt-3 sm:pb-8 lg:h-full lg:min-h-0 lg:overflow-hidden lg:pb-4">
-          <motion.section
-            initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }}
-            className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col justify-start py-2 sm:py-3 lg:h-full lg:min-h-0"
-          >
-            <motion.button
-              type="button"
-              onClick={resetGuestAnalysisPreview}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.02, duration: 0.35, ease: "easeOut" }}
-              className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-zinc-200 transition hover:border-white/30 hover:bg-white/[0.05]"
-              aria-label="Back to handle input"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </motion.button>
-
-            <motion.article
-              className="flex flex-1 flex-col rounded-[2rem] border border-white/12 bg-black/35 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] backdrop-blur-md sm:p-6 lg:min-h-0 lg:overflow-hidden"
-            >
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.06, duration: 0.5, ease: "easeOut" }}
-                className="flex flex-wrap items-center gap-2"
-              >
-                <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                  Analysis Preview
-                </span>
-                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
-                  Stage {guestAnalysisPreview.stage}
-                </span>
-              </motion.div>
-
-              <motion.h2
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.12, duration: 0.5, ease: "easeOut" }}
-                className="mt-4 font-mono text-3xl font-semibold tracking-tight text-white sm:text-4xl"
-              >
-                Here&apos;s what Xpo sees on{" "}
-                <span className="font-bold text-white">@{guestAnalysisPreview.profile.username}</span>
-              </motion.h2>
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.16, duration: 0.5, ease: "easeOut" }}
-                className="mt-2.5 max-w-3xl text-sm leading-7 text-zinc-300 sm:text-base"
-              >
-                {guestAnalysisPreview.xpoHelp}
-              </motion.p>
-
-              <div className="mt-5 grid flex-1 gap-4 lg:min-h-0 lg:grid-cols-[1.04fr_0.96fr]">
-                <motion.div
-                  initial={{ opacity: 0, x: -14 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.22, duration: 0.52, ease: "easeOut" }}
-                  className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:min-h-0 lg:overflow-hidden"
-                >
-                  <div className="flex flex-wrap items-start gap-4">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/5 text-sm font-semibold text-white">
-                      {guestAnalysisPreview.profile.avatarUrl ? (
-                        <div
-                          className="h-full w-full bg-cover bg-center"
-                          style={{ backgroundImage: `url(${guestAnalysisPreview.profile.avatarUrl})` }}
-                          role="img"
-                          aria-label={`${guestAnalysisPreview.profile.name} profile photo`}
-                        />
-                      ) : (
-                        guestAnalysisPreview.profile.name.slice(0, 2).toUpperCase()
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <p className="truncate text-base font-semibold text-white">
-                          {guestAnalysisPreview.profile.name}
-                        </p>
-                        {guestAnalysisPreview.profile.isVerified ? (
-                          <Image
-                            src="/x-verified.svg"
-                            alt="Verified account"
-                            width={14}
-                            height={14}
-                            className="h-3.5 w-3.5 shrink-0"
-                          />
-                        ) : null}
-                      </div>
-                      <p className="truncate text-xs text-zinc-400">
-                        @{guestAnalysisPreview.profile.username}
-                      </p>
-                    </div>
-                    <div className="ml-auto flex items-start gap-6">
-                      {[
-                        {
-                          label: "Followers",
-                          value: formatCompactNumber(guestAnalysisPreview.profile.followersCount),
-                        },
-                        {
-                          label: "Following",
-                          value: formatCompactNumber(guestAnalysisPreview.profile.followingCount),
-                        },
-                      ].map((metric) => (
-                        <motion.div
-                          key={metric.label}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.28, duration: 0.4, ease: "easeOut" }}
-                          className="min-w-[4.5rem] text-right"
-                        >
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                            {metric.label}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-white">{metric.value}</p>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-1 flex-col rounded-3xl border border-white/10 bg-[#0F0F0F] p-4 lg:min-h-0">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        Generated a post with your voice
-                      </p>
-                      <div className="inline-flex items-center rounded-full border border-white/15 bg-black/45 p-1">
-                        {(["shortform", "longform"] as const).map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setVoicePreviewFormat(option)}
-                            className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${
-                              voicePreviewFormat === option
-                                ? "bg-white text-black shadow-[0_0_14px_rgba(255,255,255,0.28)]"
-                                : "text-zinc-400 hover:text-zinc-200"
-                            }`}
-                          >
-                            {option === "shortform" ? "Shortform" : "Longform"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-start gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-gradient-to-br from-zinc-700 to-zinc-900 text-xs font-semibold uppercase text-white">
-                        {guestAnalysisPreview.profile.avatarUrl ? (
-                          <div
-                            className="h-full w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${guestAnalysisPreview.profile.avatarUrl})` }}
-                            role="img"
-                            aria-label={`${guestAnalysisPreview.profile.name} profile photo`}
-                          />
-                        ) : (
-                          guestAnalysisPreview.profile.name.slice(0, 1).toUpperCase()
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-white">
-                          {guestAnalysisPreview.profile.name}
-                        </p>
-                        <p className="text-xs text-zinc-500">@{guestAnalysisPreview.profile.username}</p>
-                      </div>
-                    </div>
-
-                    <div
-                      className={`mt-3 rounded-xl overflow-y-auto pr-2 lg:min-h-0 ${
-                        voicePreviewFormat === "longform" ? "max-h-[170px]" : "max-h-[150px]"
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
-                        {activeVoicePreviewCopy}
-                      </p>
-                    </div>
-
-                    <p className="mt-4 text-xs text-zinc-500">
-                      {activeVoicePreviewCopy.length}/{activeVoicePreviewLimit} chars
-                    </p>
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, x: 14 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.26, duration: 0.52, ease: "easeOut" }}
-                  className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:min-h-0 lg:overflow-hidden"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Focus Right Now
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-white">
-                    {guestAnalysisPreview.focus}
-                  </p>
-                  <div className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1 lg:min-h-0">
-                    {guestAnalysisPreview.actions.map((item, index) => (
-                      <motion.div
-                        key={item.action}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.34 + index * 0.06, duration: 0.42, ease: "easeOut" }}
-                        className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
-                      >
-                        <p className="text-sm leading-6 text-zinc-200">
-                          <span className="mr-2 text-zinc-500">{index + 1}.</span>
-                          {item.action}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-zinc-400">
-                          Why: {item.why}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-zinc-500">
-                          How Xpo helps: {item.howXpoHelps}
-                        </p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              </div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5, duration: 0.45, ease: "easeOut" }}
-                className="mt-5 flex items-center justify-center"
-              >
-                <Link
-                  href={`/login?${signupParams.toString()}`}
-                  className="landing-final-cta-button inline-flex items-center justify-center rounded-xl border border-white/80 bg-white px-6 py-2.5 text-sm font-semibold uppercase tracking-[0.14em] text-black shadow-[0_0_28px_rgba(255,255,255,0.4),0_14px_36px_rgba(255,255,255,0.18)] transition hover:bg-zinc-100"
-                >
-                  Create Free Account To Unlock Full Analysis
-                </Link>
-              </motion.div>
-            </motion.article>
-          </motion.section>
+          <GuestAnalysisPreview
+            analysis={guestAnalysisPreview}
+            signupHref={`/login?${signupParams.toString()}`}
+            voicePreviewFormat={voicePreviewFormat}
+            onVoicePreviewFormatChange={setVoicePreviewFormat}
+            onBack={resetGuestAnalysisPreview}
+          />
           {autofillStyles}
           {landingMotionStyles}
         </div>

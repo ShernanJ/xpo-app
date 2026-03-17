@@ -7,6 +7,7 @@ import {
   buildChatWorkspaceUrl,
   buildWorkspaceHandleHeaders,
 } from "@/lib/workspaceHandle";
+import { buildPostHogHeaders } from "@/lib/posthog/client";
 
 import { normalizeAccountHandle } from "../chat-page/chatPageViewState";
 import { resolveWorkspaceHandle } from "./chatWorkspaceState";
@@ -53,7 +54,8 @@ export function useChatRouteWorkspaceState(
     return `xpo:stories-proof-bootstrap:${accountKey}`;
   }, [accountName, sessionUserId]);
   const buildWorkspaceHeaders = useCallback(
-    (headers?: HeadersInit) => buildWorkspaceHandleHeaders(accountName, headers),
+    (headers?: HeadersInit) =>
+      buildPostHogHeaders(buildWorkspaceHandleHeaders(accountName, headers)),
     [accountName],
   );
   const fetchWorkspace = useCallback(

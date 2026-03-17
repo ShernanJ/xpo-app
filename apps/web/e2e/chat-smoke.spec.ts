@@ -49,8 +49,8 @@ test("authenticated chat bootstraps cleanly and sends one reply without endpoint
 
   await page.waitForTimeout(1500);
 
-  expect(counts.context).toBeLessThanOrEqual(2);
-  expect(counts.contract).toBeLessThanOrEqual(2);
+  expect(counts.context).toBe(1);
+  expect(counts.contract).toBe(1);
   expect(counts.contract).toBe(counts.context);
 
   const initialContextCount = counts.context;

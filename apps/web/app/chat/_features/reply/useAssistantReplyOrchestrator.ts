@@ -8,6 +8,10 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import {
+  capturePostHogEvent,
+  capturePostHogException,
+} from "@/lib/posthog/client";
 
 import type {
   ChatArtifactContext,
@@ -431,6 +435,19 @@ export function useAssistantReplyOrchestrator<
       const { trimmedPrompt, effectiveSelectedDraftContext } = preparedRequest;
       let history = historySeed;
 
+      capturePostHogEvent("xpo_chat_prompt_submitted", {
+        append_user_message: requestOptions.appendUserMessage,
+        artifact_kind: requestOptions.artifactContext?.kind ?? null,
+        content_focus: resolvedContentFocus,
+        has_existing_thread: Boolean(activeThreadId),
+        has_selected_draft_context: Boolean(effectiveSelectedDraftContext),
+        intent: requestOptions.intent ?? null,
+        prompt_length: trimmedPrompt.length,
+        source: "chat_workspace",
+        turn_source: requestOptions.turnSource ?? null,
+        workspace_handle: accountName,
+      });
+
       if (requestOptions.appendUserMessage) {
         const userMessage = createUserMessage({
           id: `user-${Date.now()}`,
@@ -630,6 +647,12 @@ export function useAssistantReplyOrchestrator<
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
+        capturePostHogException(error, {
+          intent: requestOptions.intent ?? null,
+          source: "chat_workspace",
+          turn_source: requestOptions.turnSource ?? null,
+          workspace_handle: accountName,
+        });
         setActiveAgentProgressState((current) =>
           completeAgentProgressRun(current, "failed"),
         );

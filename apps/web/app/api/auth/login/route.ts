@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
 import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+  identifyPostHogServerUser,
+} from "@/lib/posthog/server";
 import { consumeRateLimit } from "@/lib/security/rateLimit";
 import {
   buildErrorResponse,
@@ -42,6 +47,11 @@ function isEmailDeliveryError(message: string): boolean {
     normalized.includes("error sending confirmation email") ||
     normalized.includes("error sending magic link email")
   );
+}
+
+function resolveEmailDomain(email: string): string | null {
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  return domain || null;
 }
 
 async function responseWithVerificationCode(email: string): Promise<NextResponse> {
@@ -132,6 +142,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    let createdNewAccount = false;
     let authResult = await signInWithSupabasePassword(email, password);
 
     if (!authResult.ok && authResult.error.code === "email_confirmation_required") {
@@ -142,6 +153,7 @@ export async function POST(request: Request) {
       const signUpResult = await signUpWithSupabasePassword(email, password);
 
       if (signUpResult.ok) {
+        createdNewAccount = true;
         authResult = signUpResult;
       } else if (signUpResult.error.code === "email_confirmation_required") {
         return responseWithVerificationCode(email);
@@ -185,9 +197,36 @@ export async function POST(request: Request) {
       },
     });
     setSessionCookie(response, sessionToken);
+    await identifyPostHogServerUser({
+      request,
+      distinctId: appUser.id,
+      properties: {
+        email: appUser.email,
+        handle: appUser.handle,
+        active_x_handle: appUser.activeXHandle,
+      },
+    });
+    await capturePostHogServerEvent({
+      request,
+      distinctId: appUser.id,
+      event: "xpo_auth_login_succeeded",
+      properties: {
+        email_domain: resolveEmailDomain(appUser.email ?? email),
+        is_new_account: createdNewAccount,
+        login_method: createdNewAccount ? "signup_password" : "password",
+      },
+    });
     return response;
   } catch (error) {
     console.error("Unexpected auth login error:", error);
+    await capturePostHogServerException({
+      request,
+      error,
+      properties: {
+        email_domain: resolveEmailDomain(email),
+        route: "/api/auth/login",
+      },
+    });
     return buildErrorResponse({
       status: 500,
       field: "auth",

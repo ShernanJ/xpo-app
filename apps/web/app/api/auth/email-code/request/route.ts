@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { requestSupabaseEmailCode } from "@/lib/auth/supabase";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+} from "@/lib/posthog/server";
 import { consumeRateLimit } from "@/lib/security/rateLimit";
 import {
   buildErrorResponse,
@@ -11,6 +15,11 @@ import {
 
 interface EmailCodeRequestBody {
   email?: unknown;
+}
+
+function resolveEmailDomain(email: string): string | null {
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  return domain || null;
 }
 
 export async function POST(request: Request) {
@@ -52,20 +61,47 @@ export async function POST(request: Request) {
     });
   }
 
-  const result = await requestSupabaseEmailCode(email, { createUser: true });
-  if (!result.ok) {
-    const status =
-      result.error.code === "missing_configuration"
-        ? 500
-        : result.error.code === "rate_limited"
-          ? 429
-          : 400;
+  try {
+    const result = await requestSupabaseEmailCode(email, { createUser: true });
+    if (!result.ok) {
+      const status =
+        result.error.code === "missing_configuration"
+          ? 500
+          : result.error.code === "rate_limited"
+            ? 429
+            : 400;
+      return buildErrorResponse({
+        status,
+        field: "email",
+        message: result.error.message,
+      });
+    }
+
+    await capturePostHogServerEvent({
+      request,
+      distinctId: `email:${email}`,
+      event: "xpo_auth_email_code_requested",
+      properties: {
+        email_domain: resolveEmailDomain(email),
+        route: "/api/auth/email-code/request",
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    await capturePostHogServerException({
+      request,
+      distinctId: `email:${email}`,
+      error,
+      properties: {
+        email_domain: resolveEmailDomain(email),
+        route: "/api/auth/email-code/request",
+      },
+    });
     return buildErrorResponse({
-      status,
+      status: 500,
       field: "email",
-      message: result.error.message,
+      message: "Could not send a verification code right now.",
     });
   }
-
-  return NextResponse.json({ ok: true });
 }

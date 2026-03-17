@@ -4,6 +4,11 @@ import { prisma } from "@/lib/db";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
 import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 import { verifySupabaseEmailCode } from "@/lib/auth/supabase";
+import {
+  capturePostHogServerEvent,
+  capturePostHogServerException,
+  identifyPostHogServerUser,
+} from "@/lib/posthog/server";
 import { consumeRateLimit } from "@/lib/security/rateLimit";
 import {
   buildErrorResponse,
@@ -15,6 +20,11 @@ import {
 interface EmailCodeVerifyBody {
   email?: unknown;
   code?: unknown;
+}
+
+function resolveEmailDomain(email: string): string | null {
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  return domain || null;
 }
 
 function setSessionCookie(response: NextResponse, token: string) {
@@ -76,47 +86,82 @@ export async function POST(request: Request) {
     });
   }
 
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
+  try {
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
 
-  const authResult = await verifySupabaseEmailCode(email, code, {
-    isSignUpHint: !existingUser,
-  });
-  if (!authResult.ok) {
-    const status =
-      authResult.error.code === "missing_configuration"
-        ? 500
-        : authResult.error.code === "invalid_otp"
-          ? 401
-          : 400;
+    const authResult = await verifySupabaseEmailCode(email, code, {
+      isSignUpHint: !existingUser,
+    });
+    if (!authResult.ok) {
+      const status =
+        authResult.error.code === "missing_configuration"
+          ? 500
+          : authResult.error.code === "invalid_otp"
+            ? 401
+            : 400;
+      return buildErrorResponse({
+        status,
+        field: "auth",
+        message: authResult.error.message,
+      });
+    }
+
+    const appUser = await ensureAppUserForAuthIdentity({
+      userId: authResult.data.userId,
+      email: authResult.data.email ?? email,
+    });
+
+    const sessionToken = await createSessionToken({
+      userId: appUser.id,
+      email: appUser.email,
+    });
+
+    const response = NextResponse.json({
+      ok: true,
+      user: {
+        id: appUser.id,
+        email: appUser.email,
+        handle: appUser.handle,
+        activeXHandle: appUser.activeXHandle,
+      },
+    });
+    setSessionCookie(response, sessionToken);
+    await identifyPostHogServerUser({
+      request,
+      distinctId: appUser.id,
+      properties: {
+        email: appUser.email,
+        handle: appUser.handle,
+        active_x_handle: appUser.activeXHandle,
+      },
+    });
+    await capturePostHogServerEvent({
+      request,
+      distinctId: appUser.id,
+      event: "xpo_auth_email_code_verified",
+      properties: {
+        email_domain: resolveEmailDomain(appUser.email ?? email),
+        route: "/api/auth/email-code/verify",
+      },
+    });
+    return response;
+  } catch (error) {
+    await capturePostHogServerException({
+      request,
+      distinctId: `email:${email}`,
+      error,
+      properties: {
+        email_domain: resolveEmailDomain(email),
+        route: "/api/auth/email-code/verify",
+      },
+    });
     return buildErrorResponse({
-      status,
+      status: 500,
       field: "auth",
-      message: authResult.error.message,
+      message: "Could not verify your code right now.",
     });
   }
-
-  const appUser = await ensureAppUserForAuthIdentity({
-    userId: authResult.data.userId,
-    email: authResult.data.email ?? email,
-  });
-
-  const sessionToken = await createSessionToken({
-    userId: appUser.id,
-    email: appUser.email,
-  });
-
-  const response = NextResponse.json({
-    ok: true,
-    user: {
-      id: appUser.id,
-      email: appUser.email,
-      handle: appUser.handle,
-      activeXHandle: appUser.activeXHandle,
-    },
-  });
-  setSessionCookie(response, sessionToken);
-  return response;
 }

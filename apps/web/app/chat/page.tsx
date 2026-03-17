@@ -484,10 +484,6 @@ function ChatPageContent() {
     onPlanRequired: handleWorkspacePlanRequired,
     normalizeAccountHandle,
   });
-  const loadWorkspaceEffectRef = useRef(loadWorkspace);
-  useEffect(() => {
-    loadWorkspaceEffectRef.current = loadWorkspace;
-  }, [loadWorkspace]);
   useEffect(() => {
     return () => {
       if (copiedUserMessageResetTimeoutRef.current) {
@@ -758,30 +754,25 @@ function ChatPageContent() {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setActiveStrategyInputs((current) => current ?? strategyInputs);
+    setActiveStrategyInputs((current) => current ?? strategyInputs);
 
-      if (activeToneInputs) {
-        return;
-      }
+    if (activeToneInputs) {
+      return;
+    }
 
-      const inferredToneInputs =
-        toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
-          toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
-          ? inferInitialToneInputs({ context, contract })
-          : toneInputs;
+    const inferredToneInputs =
+      toneInputs.toneCasing === DEFAULT_CHAT_TONE_INPUTS.toneCasing &&
+        toneInputs.toneRisk === DEFAULT_CHAT_TONE_INPUTS.toneRisk
+        ? inferInitialToneInputs({ context, contract })
+        : toneInputs;
 
+    if (
+      toneInputs.toneCasing !== inferredToneInputs.toneCasing ||
+      toneInputs.toneRisk !== inferredToneInputs.toneRisk
+    ) {
       setToneInputs(inferredToneInputs);
-      setActiveToneInputs(inferredToneInputs);
-      void loadWorkspaceEffectRef.current(
-        activeStrategyInputs ?? strategyInputs,
-        inferredToneInputs,
-      );
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
+    }
+    setActiveToneInputs(inferredToneInputs);
   }, [
     activeStrategyInputs,
     activeToneInputs,

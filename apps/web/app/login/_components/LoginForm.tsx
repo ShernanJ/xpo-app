@@ -3,6 +3,39 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useId, useState } from "react";
 import { signIn } from "@/lib/auth/client";
+import type { AppSession } from "@/lib/auth/types";
+import {
+  buildPostHogHeaders,
+  capturePostHogEvent,
+  capturePostHogException,
+  identifyPostHogUser,
+} from "@/lib/posthog/client";
+
+function resolveEmailDomain(email: string): string | null {
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  return domain || null;
+}
+
+function buildPostLoginDestination(callbackUrl: string, xHandle: string | null): string {
+  if (!xHandle) {
+    return callbackUrl;
+  }
+
+  try {
+    const url = new URL(callbackUrl, window.location.origin);
+    if (!url.pathname.startsWith("/chat")) {
+      return callbackUrl;
+    }
+
+    if (!url.searchParams.get("xHandle")) {
+      url.searchParams.set("xHandle", xHandle);
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return callbackUrl;
+  }
+}
 
 function LoginFormContent() {
   const [email, setEmail] = useState("");
@@ -45,40 +78,20 @@ function LoginFormContent() {
 
         const handleResponse = await fetch("/api/creator/profile/handles", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ handle: normalizedHandle }),
         });
         if (!handleResponse.ok) {
           throw new Error("Could not attach this X handle to your account.");
         }
-
-        const onboardingResponse = await fetch("/api/onboarding/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            account: normalizedHandle,
-            goal: "followers",
-            timeBudgetMinutes: 30,
-            tone: { casing: "lowercase", risk: "safe" },
-          }),
-        });
-        const onboardingPayload = (await onboardingResponse.json().catch(() => null)) as
-          | {
-              ok?: boolean;
-              errors?: Array<{ message?: string }>;
-            }
-          | null;
-        if (!onboardingResponse.ok || !onboardingPayload?.ok) {
-          throw new Error(
-            onboardingPayload?.errors?.[0]?.message ??
-              "Could not finish account setup. Please try again.",
-          );
-        }
       }
 
-      router.push(callbackUrl);
-      router.refresh();
+      router.push(buildPostLoginDestination(callbackUrl, normalizedHandle || null));
     } catch (setupError) {
+      capturePostHogException(setupError, {
+        account: normalizedHandle || null,
+        source: "login_setup",
+      });
       setLoadingState("idle");
       setError(
         setupError instanceof Error
@@ -93,6 +106,12 @@ function LoginFormContent() {
     setError(null);
 
     const normalizedEmail = email.trim().toLowerCase();
+    capturePostHogEvent("xpo_login_submitted", {
+      callback_url: callbackUrl,
+      email_domain: resolveEmailDomain(normalizedEmail),
+      has_x_handle: Boolean(xHandle),
+      source: "login_form",
+    });
 
     const res = await signIn("credentials", {
       email: normalizedEmail,
@@ -124,10 +143,16 @@ function LoginFormContent() {
 
     setLoadingState("verify");
     setError(null);
+    capturePostHogEvent("xpo_login_verification_submitted", {
+      callback_url: callbackUrl,
+      email_domain: resolveEmailDomain(normalizedEmail),
+      has_x_handle: Boolean(xHandle),
+      source: "login_form",
+    });
 
     const response = await fetch("/api/auth/email-code/verify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         email: normalizedEmail,
         code: verificationCode.trim(),
@@ -135,7 +160,7 @@ function LoginFormContent() {
     });
 
     const payload = (await response.json().catch(() => null)) as
-      | { ok?: boolean; error?: string }
+      | { ok?: boolean; error?: string; user?: AppSession["user"] }
       | null;
 
     if (!response.ok || !payload?.ok) {
@@ -144,6 +169,7 @@ function LoginFormContent() {
       return;
     }
 
+    identifyPostHogUser(payload.user);
     await completeLogin();
   };
 
@@ -159,7 +185,7 @@ function LoginFormContent() {
 
     const response = await fetch("/api/auth/email-code/request", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ email: normalizedEmail }),
     });
 

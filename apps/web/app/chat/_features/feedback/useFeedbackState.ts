@@ -10,6 +10,10 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import {
+  capturePostHogEvent,
+  capturePostHogException,
+} from "@/lib/posthog/client";
 
 import type { ChatMessage } from "../chat-page/chatPageTypes";
 import {
@@ -876,6 +880,14 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
           attachments: attachmentPayloads,
         };
 
+        capturePostHogEvent("xpo_feedback_submitted", {
+          attachment_count: attachmentPayloads.length,
+          category: feedbackCategory,
+          has_attachments: attachmentPayloads.length > 0,
+          source: feedbackScopeRef.current.source,
+          thread_id: activeThreadId,
+        });
+
         const response = await fetchWorkspace("/api/creator/v2/feedback", {
           method: "POST",
           headers: {
@@ -907,6 +919,11 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
         setIsFeedbackDropActive(false);
         await loadFeedbackHistory();
       } catch (error) {
+        capturePostHogException(error, {
+          category: feedbackCategory,
+          source: feedbackScopeRef.current.source,
+          thread_id: activeThreadId,
+        });
         const fallbackMessage =
           error instanceof Error
             ? error.message
