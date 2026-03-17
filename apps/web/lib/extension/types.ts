@@ -215,3 +215,44 @@ export interface ExtensionReplyLogRequest {
   copiedReplyIntent?: ExtensionReplyIntentMetadata | null;
   observedMetrics?: ExtensionObservedReplyMetrics | null;
 }
+
+export interface ExtensionDraftFolder {
+  id: string;
+  name: string;
+  color: string | null;
+  createdAt: string;
+}
+
+export interface ExtensionDraft {
+  id: string;
+  title: string;
+  sourcePrompt: string;
+  sourcePlaybook: string | null;
+  outputShape: string;
+  status: "DRAFT";
+  reviewStatus: string;
+  folder: ExtensionDraftFolder | null;
+  artifact: {
+    id: string;
+    title: string;
+    kind: string;
+    content: string;
+    posts: Array<{
+      id: string;
+      content: string;
+      weightedCharacterCount: number;
+      maxCharacterLimit: number;
+      isWithinXLimit: boolean;
+    }>;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtensionDraftsResponse {
+  drafts: ExtensionDraft[];
+}
+
+export interface ExtensionDraftPublishRequest {
+  publishedTweetId?: string | null;
+}

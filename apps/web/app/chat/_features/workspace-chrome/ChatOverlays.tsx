@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 
 import { ProfileAnalysisDialog } from "../analysis/ProfileAnalysisDialog";
 import { BillingDialogs } from "../billing/BillingDialogs";
+import { ContentHubDialog } from "../content-hub/ContentHubDialog";
 import { DraftQueueModals } from "../draft-queue/DraftQueueModals";
 import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { GrowthGuideDialog } from "../growth-guide/GrowthGuideDialog";
@@ -14,6 +15,7 @@ import { ExtensionDialog } from "./ExtensionDialog";
 import { ThreadDeleteDialog } from "./ThreadDeleteDialog";
 
 export interface ChatOverlaysProps {
+  contentHubDialogProps: ComponentProps<typeof ContentHubDialog>;
   draftQueueModalsProps: ComponentProps<typeof DraftQueueModals>;
   billingDialogsProps: ComponentProps<typeof BillingDialogs>;
   feedbackDialogProps: ComponentProps<typeof FeedbackDialog>;
@@ -30,6 +32,7 @@ export interface ChatOverlaysProps {
 export function ChatOverlays(props: ChatOverlaysProps) {
   const {
     draftQueueModalsProps,
+    contentHubDialogProps,
     billingDialogsProps,
     feedbackDialogProps,
     extensionDialogProps,
@@ -44,6 +47,7 @@ export function ChatOverlays(props: ChatOverlaysProps) {
 
   return (
     <>
+      <ContentHubDialog {...contentHubDialogProps} />
       <DraftQueueModals {...draftQueueModalsProps} />
       <BillingDialogs {...billingDialogsProps} />
       <FeedbackDialog {...feedbackDialogProps} />

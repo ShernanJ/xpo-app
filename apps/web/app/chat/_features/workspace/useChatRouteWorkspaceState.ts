@@ -28,6 +28,7 @@ export function useChatRouteWorkspaceState(
   const searchParamsKey = searchParams.toString();
   const searchHandle = searchParams.get("xHandle");
   const searchThreadId = searchParams.get("threadId")?.trim() ?? null;
+  const messageIdParam = searchParams.get("messageId")?.trim() ?? null;
   const threadIdParam =
     (Array.isArray(threadIdRaw) ? threadIdRaw[0]?.trim() : threadIdRaw?.trim()) ??
     searchThreadId ??
@@ -35,6 +36,7 @@ export function useChatRouteWorkspaceState(
   const backfillJobId = searchParams.get("backfillJobId")?.trim() ?? "";
   const billingQueryStatus = searchParams.get("billing")?.trim() ?? "";
   const billingQuerySessionId = searchParams.get("session_id")?.trim() ?? "";
+  const requestedModal = searchParams.get("modal")?.trim() ?? "";
 
   const accountName = useMemo(
     () =>
@@ -74,7 +76,9 @@ export function useChatRouteWorkspaceState(
     billingQueryStatus,
     buildWorkspaceChatHref,
     fetchWorkspace,
+    messageIdParam,
     requiresXAccountGate,
+    requestedModal,
     searchParamsKey,
     sourceMaterialsBootstrapKey,
     threadIdParam,

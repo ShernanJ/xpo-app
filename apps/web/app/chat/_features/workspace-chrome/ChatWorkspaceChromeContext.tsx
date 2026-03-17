@@ -72,6 +72,7 @@ interface ChatWorkspaceChromeActions {
   requestDeleteThread: (id: string, title: string) => void;
   openPreferences: () => void;
   openFeedback: () => void;
+  openContentHub: () => void;
   toggleAccountMenu: () => void;
   switchActiveHandle: (handle: string) => void;
   openAddAccount: () => void;
@@ -101,6 +102,7 @@ export interface ChatWorkspaceChromeProviderProps {
   resetSourceMaterialDraft: () => void;
   openSourceMaterials: () => void;
   openDraftQueue: () => void;
+  openContentHub: () => void;
   openAnalysis: () => void;
   openGrowthGuide: () => void;
   sidebarOpen: boolean;
@@ -179,6 +181,7 @@ export function ChatWorkspaceChromeProvider(
     setExtensionModalOpen,
     resetSourceMaterialDraft,
     openSourceMaterials,
+    openContentHub,
     openAnalysis,
     openGrowthGuide,
     sidebarOpen,
@@ -372,6 +375,7 @@ export function ChatWorkspaceChromeProvider(
       requestDeleteThread,
       openPreferences,
       openFeedback: openFeedbackDialog,
+      openContentHub,
       toggleAccountMenu,
       switchActiveHandle,
       openAddAccount: openAddAccountModal,
@@ -394,6 +398,7 @@ export function ChatWorkspaceChromeProvider(
       handleRenameSubmit,
       monetizationEnabled,
       openAddAccountModal,
+      openContentHub,
       openFeedbackDialog,
       openPreferences,
       openSidebar,
@@ -498,6 +503,7 @@ export function useChatSidebarChrome() {
     onRequestDeleteThread: actions.requestDeleteThread,
     onOpenPreferences: actions.openPreferences,
     onOpenFeedback: actions.openFeedback,
+    onOpenContentHub: actions.openContentHub,
     threadMenuRef: meta.threadMenuRef,
     accountMenuRef: meta.accountMenuRef,
     onToggleAccountMenu: actions.toggleAccountMenu,

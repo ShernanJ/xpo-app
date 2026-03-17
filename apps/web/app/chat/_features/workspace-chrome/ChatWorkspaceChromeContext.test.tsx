@@ -33,6 +33,7 @@ function buildWorkspaceChromeProps(
     resetSourceMaterialDraft: vi.fn(),
     openSourceMaterials: vi.fn(),
     openDraftQueue: vi.fn(),
+    openContentHub: vi.fn(),
     openAnalysis: vi.fn(),
     openGrowthGuide: vi.fn(),
     sidebarOpen: true,
@@ -130,6 +131,7 @@ test("wires sidebar and account actions through the workspace chrome provider", 
   await user.click(screen.getByRole("button", { name: /New Chat/i }));
   await user.click(screen.getByRole("button", { name: "Preferences" }));
   await user.click(screen.getByRole("button", { name: "Feedback" }));
+  await user.click(screen.getByRole("button", { name: "Posts & Threads" }));
   await user.click(screen.getByRole("button", { name: "Add Account" }));
   await user.click(screen.getByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
@@ -137,6 +139,7 @@ test("wires sidebar and account actions through the workspace chrome provider", 
   expect(props.handleNewChat).toHaveBeenCalledTimes(1);
   expect(props.openPreferences).toHaveBeenCalledTimes(1);
   expect(props.openFeedbackDialog).toHaveBeenCalledTimes(1);
+  expect(props.openContentHub).toHaveBeenCalledTimes(1);
   expect(props.openAddAccountModal).toHaveBeenCalledTimes(1);
   expect(props.closeAccountMenu).toHaveBeenCalledTimes(2);
   expect(props.setSettingsModalOpen).toHaveBeenCalledWith(true);

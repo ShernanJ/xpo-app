@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/runtime/conversationManager";
 import { buildCreatorProfileHintsFromCreatorProfile } from "@/lib/agent-v2/grounding/creatorProfileHints";
+import { serializeDraftReviewCandidate } from "@/lib/content/contentHub";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/shared/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
@@ -136,46 +137,6 @@ function buildDraftQueueBriefs(args: {
   return Array.from(deduped.values()).slice(0, args.count);
 }
 
-function serializeCandidate(candidate: {
-  id: string;
-  title: string;
-  sourcePrompt: string;
-  sourcePlaybook: string | null;
-  outputShape: string;
-  status: string;
-  artifact: unknown;
-  voiceTarget: unknown;
-  noveltyNotes: unknown;
-  rejectionReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  approvedAt: Date | null;
-  editedAt: Date | null;
-  postedAt: Date | null;
-  observedAt: Date | null;
-  observedMetrics: unknown;
-}) {
-  return {
-    id: candidate.id,
-    title: candidate.title,
-    sourcePrompt: candidate.sourcePrompt,
-    sourcePlaybook: candidate.sourcePlaybook,
-    outputShape: candidate.outputShape,
-    status: candidate.status,
-    artifact: candidate.artifact,
-    voiceTarget: candidate.voiceTarget,
-    noveltyNotes: candidate.noveltyNotes,
-    rejectionReason: candidate.rejectionReason,
-    createdAt: candidate.createdAt.toISOString(),
-    updatedAt: candidate.updatedAt.toISOString(),
-    approvedAt: candidate.approvedAt?.toISOString() ?? null,
-    editedAt: candidate.editedAt?.toISOString() ?? null,
-    postedAt: candidate.postedAt?.toISOString() ?? null,
-    observedAt: candidate.observedAt?.toISOString() ?? null,
-    observedMetrics: candidate.observedMetrics ?? null,
-  };
-}
-
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
   if (!session?.user?.id) {
@@ -209,6 +170,9 @@ export async function GET(request: NextRequest) {
       xHandle: workspaceHandle.xHandle,
       ...(threadId ? { threadId } : {}),
     },
+    include: {
+      folder: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 40,
   });
@@ -216,7 +180,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     data: {
-      candidates: candidates.map(serializeCandidate),
+      candidates: candidates.map(serializeDraftReviewCandidate),
     },
   });
 }
@@ -390,14 +354,21 @@ export async function POST(request: NextRequest) {
         sourcePrompt: brief.prompt,
         sourcePlaybook: brief.sourcePlaybook,
         outputShape: result.outputShape,
+        status: "DRAFT",
+        draftVersionId: payload.activeDraftVersionId ?? null,
+        basedOnVersionId: payload.draftVersions?.[0]?.basedOnVersionId ?? null,
+        revisionChainId: payload.revisionChainId ?? null,
         artifact: artifact as unknown as Prisma.InputJsonValue,
         voiceTarget: result.data.voiceTarget
           ? (result.data.voiceTarget as unknown as Prisma.InputJsonValue)
           : Prisma.JsonNull,
         noveltyNotes: (result.data.noveltyNotes ?? []) as unknown as Prisma.InputJsonValue,
       },
+      include: {
+        folder: true,
+      },
     });
-    createdCandidates.push(serializeCandidate(created));
+    createdCandidates.push(serializeDraftReviewCandidate(created));
   }
 
   return NextResponse.json({

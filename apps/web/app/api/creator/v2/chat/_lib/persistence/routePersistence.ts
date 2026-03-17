@@ -31,6 +31,9 @@ export interface PersistDraftCandidateCreate {
   artifact: unknown;
   voiceTarget: unknown | null;
   noveltyNotes: string[];
+  draftVersionId: string | null;
+  basedOnVersionId: string | null;
+  revisionChainId: string | null;
 }
 
 export interface PersistDraftCandidateContext {
@@ -194,6 +197,7 @@ export interface ChatRoutePersistenceDeps {
     };
   }) => Promise<{ title: string | null }>;
   createDraftCandidate: (args: {
+    messageId: string;
     userId: string;
     xHandle: string | null;
     threadId: string;
@@ -205,7 +209,15 @@ export interface ChatRoutePersistenceDeps {
     artifact: unknown;
     voiceTarget: unknown | null;
     noveltyNotes: unknown;
+    draftVersionId: string | null;
+    basedOnVersionId: string | null;
+    revisionChainId: string | null;
   }) => Promise<unknown>;
+  markSupersededDraftVersions?: (args: {
+    userId: string;
+    xHandle: string | null;
+    candidates: PersistDraftCandidateCreate[];
+  }) => Promise<void>;
   runInTransaction?: <T>(
     callback: (deps: Omit<ChatRoutePersistenceDeps, "runInTransaction">) => Promise<T>,
   ) => Promise<T>;
@@ -299,9 +311,17 @@ export async function persistAssistantTurnWithDeps(
     args.draftCandidateContext
   ) {
     const draftCandidateContext = args.draftCandidateContext;
+    if (transactionalDeps.markSupersededDraftVersions) {
+      await transactionalDeps.markSupersededDraftVersions({
+        userId: draftCandidateContext.userId,
+        xHandle: draftCandidateContext.xHandle,
+        candidates: args.draftCandidateCreates,
+      });
+    }
     const candidateResults = await Promise.allSettled(
       args.draftCandidateCreates.map((candidate) =>
         transactionalDeps.createDraftCandidate({
+          messageId: assistantMessage.id,
           userId: draftCandidateContext.userId,
           xHandle: draftCandidateContext.xHandle,
           threadId,
@@ -313,6 +333,9 @@ export async function persistAssistantTurnWithDeps(
           artifact: candidate.artifact,
           voiceTarget: candidate.voiceTarget,
           noveltyNotes: candidate.noveltyNotes,
+          draftVersionId: candidate.draftVersionId,
+          basedOnVersionId: candidate.basedOnVersionId,
+          revisionChainId: candidate.revisionChainId,
         }),
       ),
     );
@@ -405,10 +428,11 @@ export async function persistAssistantTurnWithDeps(
 }
 
 async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
-  const [{ prisma }, { Prisma }, memoryStore] = await Promise.all([
+  const [{ prisma }, { Prisma }, memoryStore, contentHub] = await Promise.all([
     import("../../../../../../../lib/db.ts"),
     import("../../../../../../../lib/generated/prisma/client.ts"),
     import("../../../../../../../lib/agent-v2/memory/memoryStore.ts"),
+    import("../../../../../../../lib/content/contentHub.ts"),
   ]);
 
   const buildDeps = (
@@ -442,6 +466,7 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
     createDraftCandidate: (args) =>
       client.draftCandidate.create({
         data: {
+          messageId: args.messageId,
           userId: args.userId,
           ...(args.xHandle ? { xHandle: args.xHandle } : {}),
           threadId: args.threadId,
@@ -450,11 +475,30 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
           sourcePrompt: args.sourcePrompt,
           sourcePlaybook: args.sourcePlaybook,
           outputShape: args.outputShape,
+          status: "DRAFT",
+          draftVersionId: args.draftVersionId,
+          basedOnVersionId: args.basedOnVersionId,
+          revisionChainId: args.revisionChainId,
           artifact: args.artifact as never,
           voiceTarget: args.voiceTarget === null ? Prisma.JsonNull : (args.voiceTarget as never),
           noveltyNotes: args.noveltyNotes as never,
         },
       }),
+    markSupersededDraftVersions: async ({ userId, xHandle, candidates }) => {
+      const nextDraftVersionIds = candidates
+        .map((candidate) => candidate.draftVersionId)
+        .filter((draftVersionId): draftVersionId is string => Boolean(draftVersionId));
+
+      for (const candidate of candidates) {
+        await contentHub.markSupersededDraftVersions({
+          userId,
+          xHandle,
+          revisionChainId: candidate.revisionChainId,
+          basedOnVersionId: candidate.basedOnVersionId,
+          exceptDraftVersionIds: nextDraftVersionIds,
+        });
+      }
+    },
   });
 
   return {

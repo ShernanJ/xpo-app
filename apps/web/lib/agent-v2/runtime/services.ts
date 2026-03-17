@@ -120,7 +120,7 @@ export function createDefaultConversationServices(): ConversationServices {
             where: {
               userId,
               ...(xHandle ? { xHandle } : {}),
-              status: {
+              reviewStatus: {
                 in: ["pending", "approved", "edited", "posted", "observed"],
               },
             },

@@ -151,12 +151,12 @@ export async function getContentInsightsForUser(args: {
 
 export function buildContentInsights(items: DraftCandidateRecord[]): ContentInsights {
   const statusCounts: Record<DraftCandidateStatusKey, number> = {
-    pending: items.filter((item) => item.status === "pending").length,
-    approved: items.filter((item) => item.status === "approved").length,
-    rejected: items.filter((item) => item.status === "rejected").length,
-    edited: items.filter((item) => item.status === "edited").length,
-    posted: items.filter((item) => item.status === "posted").length,
-    observed: items.filter((item) => item.status === "observed").length,
+    pending: items.filter((item) => item.reviewStatus === "pending").length,
+    approved: items.filter((item) => item.reviewStatus === "approved").length,
+    rejected: items.filter((item) => item.reviewStatus === "rejected").length,
+    edited: items.filter((item) => item.reviewStatus === "edited").length,
+    posted: items.filter((item) => item.reviewStatus === "posted").length,
+    observed: items.filter((item) => item.reviewStatus === "observed").length,
   };
   const postedCount = items.filter((item) => Boolean(item.postedAt)).length;
   const observedCount = items.filter((item) => Boolean(item.observedAt)).length;

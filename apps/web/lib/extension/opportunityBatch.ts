@@ -486,6 +486,7 @@ function computeVisibilityPotential(candidate: ExtensionOpportunityCandidate, fr
   } else if (
     saturation.saturationRatio < 0.01 &&
     saturation.hasRealViewCount &&
+    saturation.viewCount !== null &&
     saturation.viewCount >= 1000
   ) {
     score += 15;

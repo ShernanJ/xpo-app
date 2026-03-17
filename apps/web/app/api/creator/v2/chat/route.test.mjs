@@ -549,10 +549,10 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
   assert.equal(plan.threadUpdate.title, "Sharper thread title");
   assert.equal(plan.memoryUpdate.activeDraftVersionId, "version-1");
   assert.equal(plan.memoryUpdate.shouldClearReplyWorkflow, true);
-  assert.equal(plan.draftCandidateCreates.length, 2);
-  assert.equal(plan.draftCandidateCreates[1]?.title, "Option two");
+  assert.equal(plan.draftCandidateCreates.length, 1);
+  assert.equal(plan.draftCandidateCreates[0]?.title, "Option one");
   assert.equal(plan.analytics.primaryGroundingMode, "saved_sources");
-  assert.equal(plan.analytics.primaryGroundingSourceCount, 1);
+  assert.equal(plan.analytics.primaryGroundingSourceCount, 0);
   assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
 });
 

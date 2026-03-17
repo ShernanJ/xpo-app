@@ -40,18 +40,39 @@ export function buildWorkspaceHandleHeaders(
 export function buildChatWorkspaceUrl(args: {
   threadId?: string | null;
   xHandle?: string | null;
+  messageId?: string | null;
 }): string {
   const normalizedHandle = normalizeWorkspaceHandle(args.xHandle);
   const normalizedThreadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+  const normalizedMessageId =
+    typeof args.messageId === "string" ? args.messageId.trim() : "";
   const path = normalizedThreadId
     ? `/chat/${encodeURIComponent(normalizedThreadId)}`
     : "/chat";
 
-  if (!normalizedHandle) {
+  if (!normalizedHandle && !normalizedMessageId) {
     return path;
   }
 
   const params = new URLSearchParams();
-  params.set("xHandle", normalizedHandle);
+  if (normalizedHandle) {
+    params.set("xHandle", normalizedHandle);
+  }
+  if (normalizedMessageId) {
+    params.set("messageId", normalizedMessageId);
+  }
   return `${path}?${params.toString()}`;
+}
+
+export function buildContentWorkspaceUrl(args: {
+  xHandle?: string | null;
+}): string {
+  const normalizedHandle = normalizeWorkspaceHandle(args.xHandle);
+  if (!normalizedHandle) {
+    return "/content";
+  }
+
+  const params = new URLSearchParams();
+  params.set("xHandle", normalizedHandle);
+  return `/content?${params.toString()}`;
 }

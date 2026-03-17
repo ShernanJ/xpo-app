@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut, useSession } from "@/lib/auth/client";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
@@ -139,7 +140,9 @@ function ChatPageContent() {
     billingQueryStatus,
     buildWorkspaceChatHref,
     fetchWorkspace,
+    messageIdParam,
     requiresXAccountGate,
+    requestedModal,
     searchParamsKey,
     sourceMaterialsBootstrapKey,
     threadIdParam,
@@ -398,6 +401,7 @@ function ChatPageContent() {
     null,
   );
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
+  const [contentHubOpen, setContentHubOpen] = useState(false);
   const [strategyInputs] = useState<ChatStrategyInputs>(DEFAULT_CHAT_STRATEGY_INPUTS);
   const [toneInputs, setToneInputs] = useState<ChatToneInputs>(
     DEFAULT_CHAT_TONE_INPUTS,
@@ -412,6 +416,51 @@ function ChatPageContent() {
   const applyWorkspaceBillingSnapshot = useCallback((billing: unknown) => {
     applyBillingSnapshot(billing as BillingSnapshotPayload | null | undefined);
   }, [applyBillingSnapshot]);
+  const openContentHub = useCallback(() => {
+    setContentHubOpen(true);
+  }, []);
+  const handleContentHubOpenChange = useCallback((open: boolean) => {
+    setContentHubOpen(open);
+  }, []);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (requestedModal !== "posts-threads" && requestedModal !== "content-hub") {
+      return;
+    }
+
+    setContentHubOpen(true);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("modal");
+    const nextQuery = nextParams.toString();
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [pathname, requestedModal, router, searchParams]);
+
+  useEffect(() => {
+    if (!messageIdParam || !messages.some((message) => message.id === messageIdParam)) {
+      return;
+    }
+
+    scrollMessageIntoView(messageIdParam);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("messageId");
+    const nextQuery = nextParams.toString();
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [
+    messageIdParam,
+    messages,
+    pathname,
+    router,
+    scrollMessageIntoView,
+    searchParams,
+  ]);
+
   const handleWorkspacePlanRequired = useCallback(() => {
     setPricingModalOpen(true);
   }, [setPricingModalOpen]);
@@ -1730,6 +1779,7 @@ function ChatPageContent() {
           resetSourceMaterialDraft,
           openSourceMaterials,
           openDraftQueue,
+          openContentHub,
           openAnalysis,
           openGrowthGuide,
           sidebarOpen,
@@ -1990,6 +2040,18 @@ function ChatPageContent() {
       />
 
       <ChatOverlaysController
+        contentHubDialogProps={{
+          open: contentHubOpen,
+          onOpenChange: handleContentHubOpenChange,
+          fetchWorkspace,
+          initialHandle: accountName,
+          identity: {
+            displayName: previewDisplayName,
+            username: previewUsername,
+            avatarUrl: previewAvatarUrl,
+          },
+          isVerifiedAccount,
+        }}
         draftQueueOpen={draftQueueOpen}
         isDraftQueueLoading={isDraftQueueLoading}
         draftQueueError={draftQueueError}

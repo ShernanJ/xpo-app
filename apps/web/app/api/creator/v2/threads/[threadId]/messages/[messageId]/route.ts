@@ -13,6 +13,11 @@ import {
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
 import {
+  markSupersededDraftVersions,
+  resolveCurrentChatDraft,
+  syncIndexedContentFromChatMessage,
+} from "@/lib/content/contentHub";
+import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
   requireAllowedOrigin,
@@ -171,6 +176,28 @@ export async function PATCH(
       data: {
         data: nextData,
       },
+    });
+
+    const resolvedDraft = resolveCurrentChatDraft(nextData);
+    if (resolvedDraft) {
+      await markSupersededDraftVersions({
+        userId: session.user.id,
+        xHandle: workspaceHandle.xHandle,
+        revisionChainId: resolvedDraft.revisionChainId,
+        basedOnVersionId: resolvedDraft.basedOnVersionId,
+        exceptDraftVersionIds: resolvedDraft.draftVersionId
+          ? [resolvedDraft.draftVersionId]
+          : undefined,
+      });
+    }
+
+    await syncIndexedContentFromChatMessage({
+      messageId,
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+      data: nextData,
+      sourcePlaybook: "chat_thread",
     });
 
     return NextResponse.json({

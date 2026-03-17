@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { serializeDraftReviewCandidate } from "@/lib/content/contentHub";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { manageConversationTurn } from "@/lib/agent-v2/runtime/conversationManager";
 import { recordProductEvent } from "@/lib/productEvents";
@@ -20,46 +21,6 @@ interface CandidatePatchRequest extends Record<string, unknown> {
   content?: unknown;
   rejectionReason?: unknown;
   observedMetrics?: unknown;
-}
-
-function serializeCandidate(candidate: {
-  id: string;
-  title: string;
-  sourcePrompt: string;
-  sourcePlaybook: string | null;
-  outputShape: string;
-  status: string;
-  artifact: unknown;
-  voiceTarget: unknown;
-  noveltyNotes: unknown;
-  rejectionReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  approvedAt: Date | null;
-  editedAt: Date | null;
-  postedAt: Date | null;
-  observedAt: Date | null;
-  observedMetrics: unknown;
-}) {
-  return {
-    id: candidate.id,
-    title: candidate.title,
-    sourcePrompt: candidate.sourcePrompt,
-    sourcePlaybook: candidate.sourcePlaybook,
-    outputShape: candidate.outputShape,
-    status: candidate.status,
-    artifact: candidate.artifact,
-    voiceTarget: candidate.voiceTarget,
-    noveltyNotes: candidate.noveltyNotes,
-    rejectionReason: candidate.rejectionReason,
-    createdAt: candidate.createdAt.toISOString(),
-    updatedAt: candidate.updatedAt.toISOString(),
-    approvedAt: candidate.approvedAt?.toISOString() ?? null,
-    editedAt: candidate.editedAt?.toISOString() ?? null,
-    postedAt: candidate.postedAt?.toISOString() ?? null,
-    observedAt: candidate.observedAt?.toISOString() ?? null,
-    observedMetrics: candidate.observedMetrics ?? null,
-  };
 }
 
 function parseArtifact(value: unknown): DraftArtifactDetails | null {
@@ -204,6 +165,9 @@ export async function PATCH(
   const { candidateId } = await params;
   const candidate = await prisma.draftCandidate.findUnique({
     where: { id: candidateId },
+    include: {
+      folder: true,
+    },
   });
 
   if (
@@ -230,8 +194,11 @@ export async function PATCH(
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "approved",
+        reviewStatus: "approved",
         approvedAt: now,
+      },
+      include: {
+        folder: true,
       },
     });
 
@@ -248,19 +215,28 @@ export async function PATCH(
       },
     }).catch((error) => console.error("Failed to record draft_candidate_approved event:", error));
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   if (action === "reject") {
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "rejected",
+        reviewStatus: "rejected",
         rejectionReason: rejectionReason || "Rejected from the draft inbox.",
+      },
+      include: {
+        folder: true,
       },
     });
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   if (action === "edit") {
@@ -279,21 +255,32 @@ export async function PATCH(
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "edited",
+        reviewStatus: "edited",
+        status: "DRAFT",
         editedAt: now,
         artifact: nextArtifact as unknown as Prisma.InputJsonValue,
       },
+      include: {
+        folder: true,
+      },
     });
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   if (action === "posted") {
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "posted",
+        reviewStatus: "posted",
+        status: "PUBLISHED",
         postedAt: now,
+      },
+      include: {
+        folder: true,
       },
     });
 
@@ -310,23 +297,33 @@ export async function PATCH(
       },
     }).catch((error) => console.error("Failed to record draft_candidate_posted event:", error));
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   if (action === "observed") {
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "observed",
+        reviewStatus: "observed",
+        status: "PUBLISHED",
         observedAt: now,
         observedMetrics:
           body.observedMetrics && typeof body.observedMetrics === "object"
             ? (body.observedMetrics as Prisma.InputJsonValue)
             : Prisma.JsonNull,
       },
+      include: {
+        folder: true,
+      },
     });
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   if (action === "regenerate") {
@@ -402,7 +399,9 @@ export async function PATCH(
     const updated = await prisma.draftCandidate.update({
       where: { id: candidate.id },
       data: {
-        status: "pending",
+        reviewStatus: "pending",
+        status: "DRAFT",
+        publishedTweetId: null,
         artifact: regeneratedArtifact as unknown as Prisma.InputJsonValue,
         voiceTarget:
           nextResult.data.voiceTarget || currentArtifact.voiceTarget
@@ -413,6 +412,12 @@ export async function PATCH(
           currentArtifact.noveltyNotes ||
           []) as unknown as Prisma.InputJsonValue,
         rejectionReason: null,
+        postedAt: null,
+        observedAt: null,
+        observedMetrics: Prisma.JsonNull,
+      },
+      include: {
+        folder: true,
       },
     });
 
@@ -429,7 +434,10 @@ export async function PATCH(
       },
     }).catch((error) => console.error("Failed to record draft_candidate_regenerated event:", error));
 
-    return NextResponse.json({ ok: true, data: { candidate: serializeCandidate(updated) } });
+    return NextResponse.json({
+      ok: true,
+      data: { candidate: serializeDraftReviewCandidate(updated) },
+    });
   }
 
   return NextResponse.json(

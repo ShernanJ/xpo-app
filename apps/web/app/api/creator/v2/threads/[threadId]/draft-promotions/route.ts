@@ -19,6 +19,10 @@ import {
   resolveWorkspaceHandleForRequest,
 } from "@/lib/workspaceHandle.server";
 import {
+  markSupersededDraftVersions,
+  syncIndexedContentFromChatMessage,
+} from "@/lib/content/contentHub";
+import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
   requireAllowedOrigin,
@@ -362,6 +366,45 @@ export async function POST(
 
     const userContent = "make this the current version";
     const assistantContent = "made this the current version. take a look.";
+    const assistantMessageData = {
+      reply: assistantContent,
+      angles: [],
+      quickReplies: [],
+      plan: null,
+      draft: content,
+      drafts: [content],
+      draftArtifacts: [artifact] as unknown as Prisma.JsonValue,
+      draftVersions: [draftVersion] as unknown as Prisma.JsonValue,
+      activeDraftVersionId: versionId,
+      previousVersionSnapshot: basedOn as unknown as Prisma.JsonValue,
+      revisionChainId,
+      supportAsset,
+      outputShape: draftKind,
+      whyThisWorks: [],
+      watchOutFor: [],
+      debug: {
+        formatExemplar: null,
+        topicAnchors: [],
+        pinnedVoiceReferences: [],
+        pinnedEvidenceReferences: [],
+        evidencePack: {
+          sourcePostIds: [],
+          entities: [],
+          metrics: [],
+          proofPoints: [],
+          storyBeats: [],
+          constraints: [],
+          requiredEvidenceCount: 0,
+        },
+        formatBlueprint: "",
+        formatSkeleton: "",
+        outputShapeRationale: "",
+        draftDiagnostics: [],
+      },
+      source: "deterministic",
+      model: "manual-draft-promotion",
+      mode: "full_generation",
+    } satisfies Prisma.InputJsonValue;
 
     const [userMessage, assistantMessage] = await prisma.$transaction([
       prisma.chatMessage.create({
@@ -376,45 +419,7 @@ export async function POST(
           threadId: thread.id,
           role: "assistant",
           content: assistantContent,
-          data: {
-            reply: assistantContent,
-            angles: [],
-            quickReplies: [],
-            plan: null,
-            draft: content,
-            drafts: [content],
-            draftArtifacts: [artifact] as unknown as Prisma.JsonValue,
-            draftVersions: [draftVersion] as unknown as Prisma.JsonValue,
-            activeDraftVersionId: versionId,
-            previousVersionSnapshot: basedOn as unknown as Prisma.JsonValue,
-            revisionChainId,
-            supportAsset,
-            outputShape: draftKind,
-            whyThisWorks: [],
-            watchOutFor: [],
-            debug: {
-              formatExemplar: null,
-              topicAnchors: [],
-              pinnedVoiceReferences: [],
-              pinnedEvidenceReferences: [],
-              evidencePack: {
-                sourcePostIds: [],
-                entities: [],
-                metrics: [],
-                proofPoints: [],
-                storyBeats: [],
-                constraints: [],
-                requiredEvidenceCount: 0,
-              },
-              formatBlueprint: "",
-              formatSkeleton: "",
-              outputShapeRationale: "",
-              draftDiagnostics: [],
-            },
-            source: "deterministic",
-            model: "manual-draft-promotion",
-            mode: "full_generation",
-          } as Prisma.InputJsonValue,
+          data: assistantMessageData,
         },
       }),
     ]);
@@ -424,6 +429,23 @@ export async function POST(
       data: {
         updatedAt: new Date(),
       },
+    });
+
+    await markSupersededDraftVersions({
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+      revisionChainId,
+      basedOnVersionId: basedOn.versionId,
+      exceptDraftVersionIds: [versionId],
+    });
+    await syncIndexedContentFromChatMessage({
+      messageId: assistantMessage.id,
+      threadId: thread.id,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+      data: assistantMessageData,
+      sourcePrompt: userContent,
+      sourcePlaybook: "draft_promotion",
     });
 
     const promotedSourceMaterialAssets = await (async () => {

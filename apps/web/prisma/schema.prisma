@@ -61,6 +61,12 @@ enum DraftCandidateStatus {
   observed
 }
 
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum SourceMaterialType {
   story
   playbook
@@ -113,6 +119,7 @@ model User {
   chatThreads              ChatThread[]
   chatMediaAssets          ChatMediaAsset[]
   draftCandidates          DraftCandidate[]
+  folders                  Folder[]
   chatMessageFeedbacks     ChatMessageFeedback[]
   feedbackSubmissions      FeedbackSubmission[]
   sourceMaterialAssets     SourceMaterialAsset[]
@@ -365,36 +372,63 @@ model SourceMaterialAsset {
   @@index([userId, xHandle, lastUsedAt])
 }
 
+model Folder {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drafts DraftCandidate[]
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+}
+
 model DraftCandidate {
-  id              String               @id @default(cuid())
-  userId          String
-  xHandle         String?
-  threadId        String?
-  runId           String?
-  title           String
-  sourcePrompt    String
-  sourcePlaybook  String?
-  outputShape     String
-  status          DraftCandidateStatus @default(pending)
-  artifact        Json
-  voiceTarget     Json?
-  noveltyNotes    Json?
-  rejectionReason String?
-  approvedAt      DateTime?
-  editedAt        DateTime?
-  postedAt        DateTime?
-  observedAt      DateTime?
-  observedMetrics Json?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  id               String               @id @default(cuid())
+  userId           String
+  xHandle          String?
+  threadId         String?
+  messageId        String?
+  runId            String?
+  title            String
+  sourcePrompt     String
+  sourcePlaybook   String?
+  outputShape      String
+  reviewStatus     DraftCandidateStatus @default(pending)
+  status           PostStatus           @default(DRAFT)
+  folderId         String?
+  publishedTweetId String?
+  draftVersionId   String?
+  basedOnVersionId String?
+  revisionChainId  String?
+  isLatestVersion  Boolean              @default(true)
+  artifact         Json
+  voiceTarget      Json?
+  noveltyNotes     Json?
+  rejectionReason  String?
+  approvedAt       DateTime?
+  editedAt         DateTime?
+  postedAt         DateTime?
+  observedAt       DateTime?
+  observedMetrics  Json?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: SetNull)
   run    OnboardingRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  folder Folder?        @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  @@index([userId, xHandle, status, createdAt])
+  @@index([userId, xHandle, reviewStatus, createdAt])
+  @@index([userId, xHandle, status, isLatestVersion, updatedAt])
+  @@index([revisionChainId, isLatestVersion])
   @@index([threadId, createdAt])
+  @@index([messageId])
   @@index([runId, createdAt])
+  @@index([folderId, updatedAt])
 }
 
 model ProductEvent {

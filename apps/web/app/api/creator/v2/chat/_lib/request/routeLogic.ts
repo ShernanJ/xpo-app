@@ -1122,6 +1122,9 @@ export interface ChatRouteDraftCandidateCreate {
   artifact: DraftArtifactDetails;
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  draftVersionId: string | null;
+  basedOnVersionId: string | null;
+  revisionChainId: string | null;
 }
 
 export interface ChatRoutePersistencePlan {
@@ -1583,10 +1586,53 @@ export function buildChatRoutePersistencePlan(args: {
     assistantMessageData.draftBundle
       ? (
           assistantMessageData.draftBundle.options.find(
-            (option) => option.id === assistantMessageData.draftBundle?.selectedOptionId,
+            (option) =>
+              option.versionId === assistantMessageData.activeDraftVersionId ||
+              option.id === assistantMessageData.draftBundle?.selectedOptionId,
           )?.artifact ?? assistantMessageData.draftArtifacts[0]
         )
       : assistantMessageData.draftArtifacts[0] ?? null;
+  const draftVersionById = new Map(
+    (assistantMessageData.draftVersions ?? []).map((version) => [version.id, version]),
+  );
+  const draftCandidateCreates = (() => {
+    const activeVersionId =
+      assistantMessageData.activeDraftVersionId ??
+      assistantMessageData.draftVersions?.[0]?.id ??
+      null;
+    const activeVersion = activeVersionId ? draftVersionById.get(activeVersionId) ?? null : null;
+    const activeBundleOption = assistantMessageData.draftBundle?.options.find(
+      (option) =>
+        option.versionId === activeVersionId ||
+        option.id === assistantMessageData.draftBundle?.selectedOptionId,
+    );
+    const activeArtifact =
+      activeVersion?.artifact ??
+      activeBundleOption?.artifact ??
+      assistantMessageData.draftArtifacts[0] ??
+      null;
+    if (!activeArtifact) {
+      return [];
+    }
+
+    return [
+      {
+        title: activeBundleOption?.label || activeArtifact.title || "Draft",
+        artifact: activeArtifact,
+        voiceTarget: activeArtifact.voiceTarget ?? null,
+        noveltyNotes: activeArtifact.noveltyNotes ?? [],
+        draftVersionId: activeVersionId,
+        basedOnVersionId:
+          activeVersion?.basedOnVersionId ??
+          assistantMessageData.previousVersionSnapshot?.versionId ??
+          null,
+        revisionChainId:
+          assistantMessageData.revisionChainId ??
+          assistantMessageData.previousVersionSnapshot?.revisionChainId ??
+          null,
+      },
+    ];
+  })();
 
   return {
     assistantMessageData,
@@ -1600,12 +1646,7 @@ export function buildChatRoutePersistencePlan(args: {
       updatedAt: new Date(),
       ...(args.nextThreadTitle ? { title: args.nextThreadTitle } : {}),
     },
-    draftCandidateCreates: assistantMessageData.draftBundle?.options.map((option) => ({
-      title: option.label,
-      artifact: option.artifact,
-      voiceTarget: option.artifact.voiceTarget ?? null,
-      noveltyNotes: option.artifact.noveltyNotes ?? [],
-    })) ?? [],
+    draftCandidateCreates,
     analytics: {
       primaryGroundingMode: primaryDraftArtifact?.groundingMode ?? null,
       primaryGroundingSourceCount: primaryDraftArtifact?.groundingSources?.length ?? 0,

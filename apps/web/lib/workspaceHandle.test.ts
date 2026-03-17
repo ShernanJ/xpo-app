@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   WORKSPACE_HANDLE_HEADER,
   buildChatWorkspaceUrl,
+  buildContentWorkspaceUrl,
   buildWorkspaceHandleHeaders,
   getWorkspaceHandleFromRequest,
   normalizeWorkspaceHandle,
@@ -42,4 +43,17 @@ test("buildChatWorkspaceUrl preserves the handle across root and thread routes",
     buildChatWorkspaceUrl({ threadId: "thread_123", xHandle: "@Handle_A" }),
     "/chat/thread_123?xHandle=handle_a",
   );
+  assert.equal(
+    buildChatWorkspaceUrl({
+      threadId: "thread_123",
+      xHandle: "@Handle_A",
+      messageId: "message_456",
+    }),
+    "/chat/thread_123?xHandle=handle_a&messageId=message_456",
+  );
+});
+
+test("buildContentWorkspaceUrl preserves the handle for the content hub", () => {
+  assert.equal(buildContentWorkspaceUrl({ xHandle: "@Handle_A" }), "/content?xHandle=handle_a");
+  assert.equal(buildContentWorkspaceUrl({ xHandle: null }), "/content");
 });

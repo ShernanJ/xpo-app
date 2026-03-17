@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { OnboardingInput, OnboardingResult, XPublicPost } from "../types";
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../db";
+import { detectAutoPublishedDrafts } from "../../content/autoPublishMatcher";
 
 export interface StoredOnboardingRun {
   runId: string;
@@ -86,6 +87,19 @@ export async function syncPostsToDb(params: {
   );
 
   await prisma.$transaction(upsertOps);
+
+  const newlyObservedOriginalPosts = postsToUpsert
+    .filter((entry) => entry.lane === "original")
+    .map((entry) => entry.post);
+  if (newlyObservedOriginalPosts.length > 0) {
+    await detectAutoPublishedDrafts({
+      userId: params.userId,
+      xHandle: normalizedXHandle,
+      posts: newlyObservedOriginalPosts,
+    }).catch((error) =>
+      console.error("Failed to detect auto-published drafts after post sync:", error),
+    );
+  }
 }
 
 export async function persistOnboardingRun(params: {

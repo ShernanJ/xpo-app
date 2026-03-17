@@ -2,6 +2,7 @@
 
 import type {
   ChangeEventHandler,
+  ComponentProps,
   DragEventHandler,
   FormEventHandler,
   KeyboardEventHandler,
@@ -30,6 +31,7 @@ import type {
   SourceMaterialType,
 } from "../source-materials/sourceMaterialsState";
 import type { ChatOverlaysProps } from "./ChatOverlays";
+import { ContentHubDialog } from "../content-hub/ContentHubDialog";
 
 type GrowthGuideDialogProps = NonNullable<ChatOverlaysProps["growthGuideDialogProps"]>;
 type ProfileAnalysisDialogProps = NonNullable<
@@ -38,6 +40,7 @@ type ProfileAnalysisDialogProps = NonNullable<
 type AddAccountDialogProps = ChatOverlaysProps["addAccountDialogProps"];
 
 export interface UseChatOverlayPropsOptions {
+  contentHubDialogProps: ComponentProps<typeof ContentHubDialog>;
   draftQueueOpen: boolean;
   isDraftQueueLoading: boolean;
   draftQueueError: string | null;
@@ -297,6 +300,7 @@ export function useChatOverlayProps(
   options: UseChatOverlayPropsOptions,
 ): ChatOverlaysProps {
   return {
+      contentHubDialogProps: options.contentHubDialogProps,
       draftQueueModalsProps: {
         draftQueueDialogProps: {
           open: options.draftQueueOpen,

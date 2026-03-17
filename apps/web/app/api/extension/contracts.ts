@@ -205,3 +205,60 @@ export const ExtensionReplyLogRequestSchema = z
     observedMetrics: ExtensionObservedReplyMetricsSchema.nullable().optional(),
   })
   .strict();
+
+export const ExtensionDraftFolderSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    color: z.string().trim().min(1).nullable(),
+    createdAt: IsoDateStringSchema,
+  })
+  .strict();
+
+export const ExtensionDraftArtifactPostSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    content: z.string().trim().min(1),
+    weightedCharacterCount: z.number().finite().min(0),
+    maxCharacterLimit: z.number().finite().min(1),
+    isWithinXLimit: z.boolean(),
+  })
+  .strict();
+
+export const ExtensionDraftArtifactSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1),
+    kind: z.string().trim().min(1),
+    content: z.string().trim().min(1),
+    posts: z.array(ExtensionDraftArtifactPostSchema).max(12),
+  })
+  .strict();
+
+export const ExtensionDraftSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1),
+    sourcePrompt: z.string().trim().min(1),
+    sourcePlaybook: z.string().trim().min(1).nullable(),
+    outputShape: z.string().trim().min(1),
+    status: z.literal("DRAFT"),
+    reviewStatus: z.string().trim().min(1),
+    folder: ExtensionDraftFolderSchema.nullable(),
+    artifact: ExtensionDraftArtifactSchema,
+    createdAt: IsoDateStringSchema,
+    updatedAt: IsoDateStringSchema,
+  })
+  .strict();
+
+export const ExtensionDraftsResponseSchema = z
+  .object({
+    drafts: z.array(ExtensionDraftSchema).max(100),
+  })
+  .strict();
+
+export const ExtensionDraftPublishRequestSchema = z
+  .object({
+    publishedTweetId: z.string().trim().min(1).nullable().optional(),
+  })
+  .strict();
