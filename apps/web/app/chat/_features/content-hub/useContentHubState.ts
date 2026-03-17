@@ -157,7 +157,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
   const [viewMode, setViewMode] = useState<ContentHubViewMode>("date");
   const [searchQuery, setSearchQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [actionById, setActionById] = useState<Record<string, string>>({});
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -168,7 +167,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
 
   const clearMessages = useCallback(() => {
     setErrorMessage(null);
-    setNotice(null);
   }, []);
 
   const loadContentHub = useCallback(async () => {
@@ -216,7 +214,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
       setSearchQuery("");
       setSelectedItemId(null);
       setMobilePane("browse");
-      setNotice(null);
       setErrorMessage(null);
       setDraggingItemId(null);
       setActionById({});
@@ -261,9 +258,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         folderId?: string | null;
       },
       actionLabel: string,
-      options?: {
-        successNotice?: string;
-      },
     ) => {
       const previousItems = items;
       const previousItem = items.find((item) => item.id === itemId) ?? null;
@@ -305,7 +299,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
           );
         }
 
-        setNotice(options?.successNotice ?? "Content updated.");
         return true;
       } catch (error) {
         setItems(previousItems);
@@ -351,7 +344,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         }
 
         setFolders((current) => sortFoldersByName([...current, result.data.folder]));
-        setNotice(`Created group "${result.data.folder.name}".`);
         return result.data.folder;
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to create group.");
@@ -402,7 +394,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
           ),
         );
         setItems((current) => replaceFolderInItems(current, result.data.folder));
-        setNotice(`Renamed group to "${result.data.folder.name}".`);
         return result.data.folder;
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to rename group.");
@@ -441,17 +432,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         setFolders((current) => current.filter((folder) => folder.id !== folderId));
         setItems((current) => clearFolderFromItems(current, folderId));
 
-        const deletedFolder: DeletedFolderRecord = result.data.folder;
-        const reassignmentCopy =
-          deletedFolder.itemCount === 1
-            ? "1 post/thread moved to No Group."
-            : `${deletedFolder.itemCount} posts/threads moved to No Group.`;
-        setNotice(
-          deletedFolder.itemCount > 0
-            ? `Deleted group "${deletedFolder.name}". ${reassignmentCopy}`
-            : `Deleted group "${deletedFolder.name}".`,
-        );
-        return deletedFolder;
+        return result.data.folder;
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to delete group.");
         return null;
@@ -496,7 +477,6 @@ export function useContentHubState(options: UseContentHubStateOptions) {
       });
     },
     errorMessage,
-    notice,
     clearMessages,
     isLoading,
     isPending,

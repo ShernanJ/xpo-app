@@ -234,7 +234,6 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     searchQuery,
     setSearchQuery,
     errorMessage,
-    notice,
     clearMessages,
     isLoading,
     actionById,
@@ -325,7 +324,6 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       selectedItem.id,
       { status: nextStatus },
       `move-${nextStatus.toLowerCase()}`,
-      { successNotice: "Status updated." },
     );
   }
 
@@ -346,7 +344,6 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       draggingItem.id,
       { status: nextStatus },
       `move-${nextStatus.toLowerCase()}`,
-      { successNotice: "Status updated." },
     );
   }
 
@@ -362,9 +359,6 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         assignItemId,
         { folderId: createdGroup.id },
         "group",
-        {
-          successNotice: `Created group "${createdGroup.name}" and assigned it.`,
-        },
       );
       if (!didAssign) {
         return;
@@ -425,36 +419,44 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     );
   }
 
-  const headerSlot =
-    mobilePane === "preview" && selectedItem ? (
-      <div className="flex h-14 items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={showBrowsePane}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white md:hidden"
-          aria-label="Back to content list"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
+  const viewModeToggle = (
+    <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+      {VIEW_MODE_OPTIONS.map((option) => {
+        const Icon = option.icon;
 
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">{selectedItem.title}</p>
-          <p className="truncate text-xs text-zinc-500">
-            {getContentStatusLabel(selectedItem.status)}
-          </p>
-        </div>
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setViewMode(option.value)}
+            className={`inline-flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              viewMode === option.value
+                ? "bg-white text-black"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span>{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white"
-          aria-label="Close posts and threads"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    ) : (
-      <div className="flex h-14 items-center gap-3">
+  const headerSlot = (
+    <div className="py-3">
+      <div className="flex items-center gap-3">
+        {mobilePane === "preview" && selectedItem ? (
+          <button
+            type="button"
+            onClick={showBrowsePane}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white md:hidden"
+            aria-label="Back to content list"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        ) : null}
+
         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2">
           <Search className="h-4 w-4 shrink-0 text-zinc-500" />
           <input
@@ -466,27 +468,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
           />
         </div>
 
-        <div className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:inline-flex">
-          {VIEW_MODE_OPTIONS.map((option) => {
-            const Icon = option.icon;
-
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setViewMode(option.value)}
-                className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === option.value
-                    ? "bg-white text-black"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{option.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        <div className="hidden md:flex">{viewModeToggle}</div>
 
         <button
           type="button"
@@ -497,7 +479,10 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
           <X className="h-4 w-4" />
         </button>
       </div>
-    );
+
+      <div className="mt-3 md:hidden">{viewModeToggle}</div>
+    </div>
+  );
 
   return (
     <>
@@ -509,41 +494,24 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         headerSlot={headerSlot}
         mobilePane={mobileDialogPane}
         initialFocusRef={searchInputRef}
+        resizable
+        defaultLeftPaneWidth={54}
+        minLeftPaneWidth={38}
+        maxLeftPaneWidth={72}
         leftPane={
           <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b border-white/10 px-4 py-3 md:hidden">
-              <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
-                {VIEW_MODE_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setViewMode(option.value)}
-                      className={`inline-flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                        viewMode === option.value
-                          ? "bg-white text-black"
-                          : "text-zinc-400 hover:text-white"
-                      }`}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      <span>{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {errorMessage ? (
-                <div className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-                  {errorMessage}
-                </div>
-              ) : null}
-              {notice ? (
-                <div className="mb-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-                  {notice}
+                <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                  <span className="min-w-0 flex-1">{errorMessage}</span>
+                  <button
+                    type="button"
+                    onClick={clearMessages}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-100/80 transition hover:bg-red-500/15 hover:text-red-50"
+                    aria-label="Dismiss warning"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               ) : null}
 
@@ -567,7 +535,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                 renderSectionedList(groupGroups)
               ) : (
                 <div className="h-full overflow-x-auto">
-                  <div className="grid min-h-full auto-cols-[82%] grid-flow-col gap-3 md:grid-cols-3 md:grid-flow-row">
+                  <div className="grid min-h-full auto-cols-[82%] grid-flow-col gap-3 md:auto-cols-[minmax(240px,1fr)] md:grid-cols-none md:grid-flow-col">
                     {statusGroups.map((group) => (
                       <section
                         key={group.status}
@@ -645,21 +613,103 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
           </div>
         }
         rightPane={
-          <div className="flex h-full min-h-0 flex-col">
+          <div className="relative flex h-full min-h-0 flex-col">
             {selectedItem ? (
               <>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                        @{initialHandle}
-                      </p>
-                      <h3 className="mt-2 text-lg font-semibold text-white">
-                        {selectedItem.title}
-                      </h3>
-                      <p className="mt-2 text-sm leading-6 text-zinc-500">
-                        Created {formatContentTimestamp(selectedItem.createdAt)}
-                      </p>
+                  <div className="space-y-4 pb-20">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="min-w-0 flex-[999_1_18rem]">
+                        <div className="flex items-start gap-2">
+                          <button
+                            type="button"
+                            onClick={showBrowsePane}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white md:hidden"
+                            aria-label="Back to content list"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <h3 className="min-w-0 flex-1 text-lg font-semibold text-white">
+                            {selectedItem.title}
+                          </h3>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-zinc-500">
+                          Created {formatContentTimestamp(selectedItem.createdAt)}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0 max-w-full flex-[1_1_17.5rem]">
+                        <div className="space-y-1.5">
+                          <label className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-zinc-500">
+                              Status:
+                            </span>
+                            <select
+                              aria-label="Status:"
+                              value={selectedItem.status}
+                              disabled={Boolean(selectedItemAction)}
+                              onChange={(event) => {
+                                void handleMoveItem(event.target.value as ContentStatus);
+                              }}
+                              className="w-full rounded-lg border border-white/10 bg-[#101010] px-2.5 py-1.5 text-xs text-white outline-none transition focus:border-white/20"
+                            >
+                              {STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>
+                                  {getContentStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <div className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-zinc-500">
+                              Group:
+                            </span>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <label className="min-w-0 flex-1">
+                                <span className="sr-only">Group:</span>
+                                <select
+                                  aria-label="Group:"
+                                  value={selectedItem.folderId ?? ""}
+                                  disabled={Boolean(selectedItemAction)}
+                                  onChange={(event) => {
+                                    if (event.target.value === ADD_NEW_GROUP_VALUE) {
+                                      openCreateGroupDialog(selectedItem.id);
+                                      return;
+                                    }
+
+                                    void updateItem(
+                                      selectedItem.id,
+                                      { folderId: event.target.value || null },
+                                      "group",
+                                    );
+                                  }}
+                                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-2.5 py-1.5 text-xs text-white outline-none transition focus:border-white/20"
+                                >
+                                  <option value="">{NO_GROUP_LABEL}</option>
+                                  {sortedFolders.map((folder) => (
+                                    <option key={folder.id} value={folder.id}>
+                                      {folder.name}
+                                    </option>
+                                  ))}
+                                  <option value={ADD_NEW_GROUP_VALUE}>Add New Group</option>
+                                </select>
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  clearMessages();
+                                  setIsManageGroupsDialogOpen(true);
+                                }}
+                                className="shrink-0 rounded-full border border-white/10 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                              >
+                                Manage Groups
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     <MinimalXPostPreview
@@ -671,107 +721,34 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                   </div>
                 </div>
 
-                <div className="border-t border-white/10 px-4 py-4 sm:px-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {selectedItem.threadId ? (
-                        <a
-                          href={buildChatWorkspaceUrl({
-                            threadId: selectedItem.threadId,
-                            xHandle: initialHandle,
-                            messageId: selectedItem.messageId,
-                          })}
-                          onClick={() => onOpenChange(false)}
-                          className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
-                        >
-                          <span>Open in Chat</span>
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      ) : null}
-                      {selectedItem.publishedTweetId && initialHandle ? (
-                        <a
-                          href={buildPublishedTweetHref(initialHandle, selectedItem.publishedTweetId)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
-                        >
-                          <span>View Live Post</span>
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      ) : null}
-                    </div>
-
-                    <div className="w-full sm:ml-auto sm:max-w-[320px]">
-                      <div className="space-y-2 rounded-[1.25rem] border border-white/10 bg-white/[0.02] p-3">
-                        <label className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
-                          <span className="text-xs font-medium text-zinc-500">Status:</span>
-                          <select
-                            aria-label="Status:"
-                            value={selectedItem.status}
-                            disabled={Boolean(selectedItemAction)}
-                            onChange={(event) => {
-                              void handleMoveItem(event.target.value as ContentStatus);
-                            }}
-                            className="w-full rounded-xl border border-white/10 bg-[#101010] px-3 py-2 text-sm text-white outline-none transition focus:border-white/20"
-                          >
-                            {STATUS_OPTIONS.map((status) => (
-                              <option key={status} value={status}>
-                                {getContentStatusLabel(status)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
-                          <span className="text-xs font-medium text-zinc-500">Group:</span>
-                          <div className="flex min-w-0 items-center gap-2">
-                            <label className="min-w-0 flex-1">
-                              <span className="sr-only">Group:</span>
-                              <select
-                                aria-label="Group:"
-                                value={selectedItem.folderId ?? ""}
-                                disabled={Boolean(selectedItemAction)}
-                                onChange={(event) => {
-                                  if (event.target.value === ADD_NEW_GROUP_VALUE) {
-                                    openCreateGroupDialog(selectedItem.id);
-                                    return;
-                                  }
-
-                                  void updateItem(
-                                    selectedItem.id,
-                                    { folderId: event.target.value || null },
-                                    "group",
-                                    { successNotice: "Group updated." },
-                                  );
-                                }}
-                                className="w-full rounded-xl border border-white/10 bg-[#101010] px-3 py-2 text-sm text-white outline-none transition focus:border-white/20"
-                              >
-                                <option value="">{NO_GROUP_LABEL}</option>
-                                {sortedFolders.map((folder) => (
-                                  <option key={folder.id} value={folder.id}>
-                                    {folder.name}
-                                  </option>
-                                ))}
-                                <option value={ADD_NEW_GROUP_VALUE}>Add New Group</option>
-                              </select>
-                            </label>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                clearMessages();
-                                setIsManageGroupsDialogOpen(true);
-                              }}
-                              className="shrink-0 rounded-full border border-white/10 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
-                            >
-                              Manage Groups
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                {selectedItem.threadId ? (
+                  <a
+                    href={buildChatWorkspaceUrl({
+                      threadId: selectedItem.threadId,
+                      xHandle: initialHandle,
+                      messageId: selectedItem.messageId,
+                    })}
+                    onClick={() => onOpenChange(false)}
+                    aria-label="Open in Chat"
+                    title="Open in Chat"
+                    className="absolute bottom-4 right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    <span className="sr-only">Open in Chat</span>
+                  </a>
+                ) : selectedItem.publishedTweetId && initialHandle ? (
+                  <a
+                    href={buildPublishedTweetHref(initialHandle, selectedItem.publishedTweetId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="View Live Post"
+                    title="View Live Post"
+                    className="absolute bottom-4 right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    <span className="sr-only">View Live Post</span>
+                  </a>
+                ) : null}
               </>
             ) : (
               <div className="flex h-full items-center justify-center px-8 text-center text-sm text-zinc-500">
@@ -792,8 +769,16 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       >
         <div className="space-y-4 px-5 py-4">
           {errorMessage ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-              {errorMessage}
+            <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              <span className="min-w-0 flex-1">{errorMessage}</span>
+              <button
+                type="button"
+                onClick={clearMessages}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-100/80 transition hover:bg-red-500/15 hover:text-red-50"
+                aria-label="Dismiss warning"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           ) : null}
 
@@ -840,8 +825,16 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       >
         <div className="space-y-4 px-5 py-4">
           {errorMessage ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-              {errorMessage}
+            <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              <span className="min-w-0 flex-1">{errorMessage}</span>
+              <button
+                type="button"
+                onClick={clearMessages}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-100/80 transition hover:bg-red-500/15 hover:text-red-50"
+                aria-label="Dismiss warning"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           ) : null}
 

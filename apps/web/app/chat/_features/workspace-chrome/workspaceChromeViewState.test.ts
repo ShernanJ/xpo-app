@@ -30,6 +30,7 @@ test("resolveSidebarThreadSections groups chats into Today and Earlier", () => {
         { id: "thread-2", label: "Today earlier" },
       ],
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: false,
     },
@@ -42,6 +43,7 @@ test("resolveSidebarThreadSections groups chats into Today and Earlier", () => {
         { id: "thread-5", label: "March 12 note" },
       ],
       hiddenCount: 1,
+      revealCount: 1,
       isExpandable: true,
       isExpanded: false,
     },
@@ -74,6 +76,7 @@ test("resolveSidebarThreadSections keeps the active older thread visible while E
         { id: "thread-5", label: "March 11 note" },
       ],
       hiddenCount: 1,
+      revealCount: 1,
       isExpandable: true,
       isExpanded: false,
     },
@@ -100,6 +103,7 @@ test("resolveSidebarThreadSections shows every search match without overflow con
       label: "Today",
       items: [{ id: "thread-1", label: "Growth sprint" }],
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: false,
     },
@@ -111,6 +115,7 @@ test("resolveSidebarThreadSections shows every search match without overflow con
         { id: "thread-4", label: "Growth hooks" },
       ],
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: false,
     },
@@ -132,13 +137,52 @@ test("resolveSidebarThreadSections falls back to the active workspace when no ch
       label: "Today",
       items: [{ id: "current-workspace", label: "New Chat" }],
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: false,
     },
   ]);
 });
 
-test("resolveSidebarThreadSections expands Earlier when requested", () => {
+test("resolveSidebarThreadSections reveals Earlier chats in batches", () => {
+  const sections = resolveSidebarThreadSections({
+    hasWorkspace: true,
+    chatThreads: [
+      { id: "thread-1", title: "Yesterday note", updatedAt: "2026-03-15T12:00:00.000Z" },
+      { id: "thread-2", title: "March 14 note", updatedAt: "2026-03-14T12:00:00.000Z" },
+      { id: "thread-3", title: "March 13 note", updatedAt: "2026-03-13T12:00:00.000Z" },
+      { id: "thread-4", title: "March 12 note", updatedAt: "2026-03-12T12:00:00.000Z" },
+      { id: "thread-5", title: "March 11 note", updatedAt: "2026-03-11T12:00:00.000Z" },
+      { id: "thread-6", title: "March 10 note", updatedAt: "2026-03-10T12:00:00.000Z" },
+      { id: "thread-7", title: "March 9 note", updatedAt: "2026-03-09T12:00:00.000Z" },
+    ],
+    activeThreadId: null,
+    sidebarSearchQuery: "",
+    earlierThreadsVisibleCount: 6,
+    now: NOW,
+  });
+
+  assert.deepEqual(sections, [
+    {
+      id: "earlier",
+      label: "Earlier",
+      items: [
+        { id: "thread-1", label: "Yesterday note" },
+        { id: "thread-2", label: "March 14 note" },
+        { id: "thread-3", label: "March 13 note" },
+        { id: "thread-4", label: "March 12 note" },
+        { id: "thread-5", label: "March 11 note" },
+        { id: "thread-6", label: "March 10 note" },
+      ],
+      hiddenCount: 1,
+      revealCount: 1,
+      isExpandable: true,
+      isExpanded: false,
+    },
+  ]);
+});
+
+test("resolveSidebarThreadSections marks Earlier expanded after the final batch is revealed", () => {
   const sections = resolveSidebarThreadSections({
     hasWorkspace: true,
     chatThreads: [
@@ -149,7 +193,7 @@ test("resolveSidebarThreadSections expands Earlier when requested", () => {
     ],
     activeThreadId: null,
     sidebarSearchQuery: "",
-    earlierThreadsExpanded: true,
+    earlierThreadsVisibleCount: 6,
     now: NOW,
   });
 
@@ -164,6 +208,7 @@ test("resolveSidebarThreadSections expands Earlier when requested", () => {
         { id: "thread-4", label: "March 12 note" },
       ],
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: true,
     },

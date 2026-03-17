@@ -1,8 +1,8 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
 import Image from "next/image";
-import { Edit3, MessageSquareText, MoreVertical, Settings2, Trash2 } from "lucide-react";
+import type { KeyboardEvent } from "react";
+import { Edit3, MessageSquareText, MoreVertical, Pin, Settings2, Trash2 } from "lucide-react";
 
 import { AccountMenuPanel } from "./AccountMenuPanel";
 import { useChatSidebarChrome } from "./ChatWorkspaceChromeContext";
@@ -151,14 +151,7 @@ export function ChatSidebar() {
                   onClick={onOpenContentHub}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                 >
-                  <Image
-                    src="/xpo-logo-white.webp"
-                    alt=""
-                    width={20}
-                    height={20}
-                    className="h-4 w-4 shrink-0 opacity-70"
-                    aria-hidden
-                  />
+                  <Pin className="h-4 w-4 shrink-0" />
                   <span>Posts &amp; Threads</span>
                 </button>
               </div>
@@ -292,7 +285,7 @@ export function ChatSidebar() {
                       type="button"
                       onClick={onExpandEarlierThreads}
                       className="px-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-200"
-                      aria-label={`Show ${section.hiddenCount} more chats`}
+                      aria-label={`Show ${section.revealCount} more chats`}
                     >
                       Show more
                     </button>

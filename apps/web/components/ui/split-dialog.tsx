@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  type CSSProperties,
   type ReactNode,
   type RefObject,
   useEffect,
   useId,
   useRef,
+  useState,
 } from "react";
 
 const FOCUSABLE_SELECTOR = [
@@ -33,6 +35,14 @@ interface SplitDialogProps {
   panelClassName?: string;
   leftPaneClassName?: string;
   rightPaneClassName?: string;
+  resizable?: boolean;
+  defaultLeftPaneWidth?: number;
+  minLeftPaneWidth?: number;
+  maxLeftPaneWidth?: number;
+}
+
+function clampPaneWidth(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 export function SplitDialog(props: SplitDialogProps) {
@@ -50,11 +60,67 @@ export function SplitDialog(props: SplitDialogProps) {
     panelClassName,
     leftPaneClassName,
     rightPaneClassName,
+    resizable = false,
+    defaultLeftPaneWidth = 44,
+    minLeftPaneWidth = 34,
+    maxLeftPaneWidth = 68,
   } = props;
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const panesRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(() =>
+    clampPaneWidth(defaultLeftPaneWidth, minLeftPaneWidth, maxLeftPaneWidth),
+  );
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    setLeftPaneWidth(clampPaneWidth(defaultLeftPaneWidth, minLeftPaneWidth, maxLeftPaneWidth));
+  }, [defaultLeftPaneWidth, maxLeftPaneWidth, minLeftPaneWidth]);
+
+  useEffect(() => {
+    if (!resizable || !isResizing) {
+      return;
+    }
+
+    function updatePaneWidth(clientX: number) {
+      const panes = panesRef.current;
+      if (!panes) {
+        return;
+      }
+
+      const bounds = panes.getBoundingClientRect();
+      if (bounds.width <= 0) {
+        return;
+      }
+
+      const nextWidth = ((clientX - bounds.left) / bounds.width) * 100;
+      setLeftPaneWidth(
+        clampPaneWidth(nextWidth, minLeftPaneWidth, maxLeftPaneWidth),
+      );
+    }
+
+    function handleMouseMove(event: MouseEvent) {
+      updatePaneWidth(event.clientX);
+    }
+
+    function handleMouseUp() {
+      setIsResizing(false);
+    }
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing, maxLeftPaneWidth, minLeftPaneWidth, resizable]);
 
   useEffect(() => {
     if (!open) {
@@ -121,6 +187,12 @@ export function SplitDialog(props: SplitDialogProps) {
     return null;
   }
 
+  const panesStyle = resizable
+    ? ({
+        "--split-left-pane-width": `${leftPaneWidth}%`,
+      } as CSSProperties)
+    : undefined;
+
   return (
     <div
       className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-[2px]"
@@ -151,10 +223,22 @@ export function SplitDialog(props: SplitDialogProps) {
           <div className="border-b border-white/10 px-3 sm:px-5">{headerSlot}</div>
         ) : null}
 
-        <div className="grid h-[calc(100dvh-2rem)] min-h-0 grid-cols-1 md:h-[min(80dvh,820px)] md:grid-cols-[minmax(320px,44%)_minmax(0,1fr)]">
+        <div
+          ref={panesRef}
+          style={panesStyle}
+          className={[
+            "relative grid h-[calc(100dvh-2rem)] min-h-0 grid-cols-1 md:h-[min(80dvh,820px)]",
+            resizable
+              ? "md:[grid-template-columns:var(--split-left-pane-width)_minmax(0,1fr)]"
+              : "md:grid-cols-[minmax(320px,44%)_minmax(0,1fr)]",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <section
             className={[
-              "min-h-0 overflow-hidden md:border-r md:border-white/10",
+              "min-h-0 overflow-hidden",
+              resizable ? "" : "md:border-r md:border-white/10",
               mobilePane === "right" ? "hidden md:block" : "block",
               leftPaneClassName ?? "",
             ]
@@ -163,6 +247,26 @@ export function SplitDialog(props: SplitDialogProps) {
           >
             {leftPane}
           </section>
+
+          {resizable ? (
+            <div
+              data-testid="split-dialog-resize-handle"
+              aria-hidden="true"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                setIsResizing(true);
+              }}
+              className="absolute bottom-0 top-0 z-10 hidden w-4 -translate-x-1/2 cursor-col-resize md:block"
+              style={{ left: `calc(${leftPaneWidth}% - 1px)` }}
+            >
+              <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/10" />
+              <div
+                className={`absolute left-1/2 top-1/2 h-16 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition ${
+                  isResizing ? "bg-white/35" : "bg-white/15"
+                }`}
+              />
+            </div>
+          ) : null}
 
           <section
             className={[

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const EARLIER_THREADS_PAGE_SIZE = 3;
+
 interface CreatorHandlesResponse {
   ok: boolean;
   data?: {
@@ -27,7 +29,9 @@ export function useWorkspaceChromeState(
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
-  const [earlierThreadsExpanded, setEarlierThreadsExpanded] = useState(false);
+  const [earlierThreadsVisibleCount, setEarlierThreadsVisibleCount] = useState(
+    EARLIER_THREADS_PAGE_SIZE,
+  );
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountMenuVisible, setAccountMenuVisible] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
@@ -59,7 +63,7 @@ export function useWorkspaceChromeState(
   }, []);
 
   const expandEarlierThreads = useCallback(() => {
-    setEarlierThreadsExpanded(true);
+    setEarlierThreadsVisibleCount((current) => current + EARLIER_THREADS_PAGE_SIZE);
   }, []);
 
   const closeAccountMenu = useCallback(() => {
@@ -185,7 +189,7 @@ export function useWorkspaceChromeState(
     setSidebarOpen,
     sidebarSearchQuery,
     setSidebarSearchQuery,
-    earlierThreadsExpanded,
+    earlierThreadsVisibleCount,
     expandEarlierThreads,
     openSidebar,
     closeSidebar,

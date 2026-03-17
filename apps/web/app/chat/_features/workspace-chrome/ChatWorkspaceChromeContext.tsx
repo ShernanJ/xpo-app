@@ -28,7 +28,7 @@ interface ChatWorkspaceChromeState {
   tools: ChatWorkspaceChromeTool[];
   sidebarOpen: boolean;
   sidebarSearchQuery: string;
-  earlierThreadsExpanded: boolean;
+  earlierThreadsVisibleCount: number;
   sections: ReturnType<typeof resolveSidebarThreadSections>;
   activeThreadId: string | null;
   hoveredThreadId: string | null;
@@ -108,7 +108,7 @@ export interface ChatWorkspaceChromeProviderProps {
   sidebarOpen: boolean;
   sidebarSearchQuery: string;
   setSidebarSearchQuery: (value: string) => void;
-  earlierThreadsExpanded: boolean;
+  earlierThreadsVisibleCount: number;
   expandEarlierThreads: () => void;
   closeSidebar: () => void;
   openSidebar: () => void;
@@ -186,7 +186,7 @@ export function ChatWorkspaceChromeProvider(
     openGrowthGuide,
     sidebarOpen,
     setSidebarSearchQuery,
-    earlierThreadsExpanded,
+    earlierThreadsVisibleCount,
     expandEarlierThreads,
     closeSidebar,
     openSidebar,
@@ -269,9 +269,9 @@ export function ChatWorkspaceChromeProvider(
         chatThreads,
         activeThreadId,
         sidebarSearchQuery,
-        earlierThreadsExpanded,
+        earlierThreadsVisibleCount,
       }),
-    [activeThreadId, chatThreads, earlierThreadsExpanded, hasWorkspace, sidebarSearchQuery],
+    [activeThreadId, chatThreads, earlierThreadsVisibleCount, hasWorkspace, sidebarSearchQuery],
   );
 
   const accountAvatarFallback = useMemo(
@@ -298,7 +298,7 @@ export function ChatWorkspaceChromeProvider(
       tools,
       sidebarOpen,
       sidebarSearchQuery,
-      earlierThreadsExpanded,
+      earlierThreadsVisibleCount,
       sections,
       activeThreadId,
       hoveredThreadId,
@@ -347,7 +347,7 @@ export function ChatWorkspaceChromeProvider(
       showRateLimitUpgradeCta,
       sidebarOpen,
       sidebarSearchQuery,
-      earlierThreadsExpanded,
+      earlierThreadsVisibleCount,
       sections,
       tools,
       toolsMenuOpen,
@@ -465,7 +465,7 @@ export function useChatSidebarChrome() {
   return {
     sidebarOpen: state.sidebarOpen,
     sidebarSearchQuery: state.sidebarSearchQuery,
-    earlierThreadsExpanded: state.earlierThreadsExpanded,
+    earlierThreadsVisibleCount: state.earlierThreadsVisibleCount,
     sections: state.sections,
     activeThreadId: state.activeThreadId,
     hoveredThreadId: state.hoveredThreadId,

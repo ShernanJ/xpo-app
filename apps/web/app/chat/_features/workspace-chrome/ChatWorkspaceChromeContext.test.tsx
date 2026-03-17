@@ -39,7 +39,7 @@ function buildWorkspaceChromeProps(
     sidebarOpen: true,
     sidebarSearchQuery: "",
     setSidebarSearchQuery: vi.fn(),
-    earlierThreadsExpanded: false,
+    earlierThreadsVisibleCount: 3,
     expandEarlierThreads: vi.fn(),
     closeSidebar: vi.fn(),
     openSidebar: vi.fn(),
@@ -231,24 +231,28 @@ test("renders Today and Earlier sections and expands the collapsed Earlier list"
   const user = userEvent.setup();
   const hiddenEarlierLabel = "March 12 review";
   const hiddenEarlierDate = buildRelativeThreadDate(-4);
+  const secondHiddenEarlierLabel = "March 10 review";
+  const secondHiddenEarlierDate = buildRelativeThreadDate(-6);
+  const finalHiddenEarlierLabel = "March 8 review";
+  const finalHiddenEarlierDate = buildRelativeThreadDate(-8);
 
   function StatefulSidebar() {
     const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
-    const [earlierThreadsExpanded, setEarlierThreadsExpanded] = useState(false);
+    const [earlierThreadsVisibleCount, setEarlierThreadsVisibleCount] = useState(3);
 
     return (
       <ChatWorkspaceChromeProvider
         {...buildWorkspaceChromeProps({
           sidebarSearchQuery,
           setSidebarSearchQuery,
-          earlierThreadsExpanded,
-          expandEarlierThreads: () => setEarlierThreadsExpanded(true),
+          earlierThreadsVisibleCount,
+          expandEarlierThreads: () => setEarlierThreadsVisibleCount((current) => current + 3),
           accountMenuOpen: false,
           accountMenuVisible: false,
           menuOpenThreadId: null,
           hoveredThreadId: null,
           rateLimitsMenuOpen: false,
-          activeThreadId: "thread-6",
+          activeThreadId: "thread-1",
           chatThreads: [
             {
               id: "thread-1",
@@ -277,8 +281,18 @@ test("renders Today and Earlier sections and expands the collapsed Earlier list"
             },
             {
               id: "thread-6",
-              title: "March 11 review",
+              title: secondHiddenEarlierLabel,
               updatedAt: buildRelativeThreadDate(-5),
+            },
+            {
+              id: "thread-7",
+              title: "March 9 review",
+              updatedAt: buildRelativeThreadDate(-7),
+            },
+            {
+              id: "thread-8",
+              title: "March 8 review",
+              updatedAt: buildRelativeThreadDate(-8),
             },
           ],
         })}
@@ -293,13 +307,26 @@ test("renders Today and Earlier sections and expands the collapsed Earlier list"
   expect(screen.getByText("Today")).toBeVisible();
   expect(screen.getByText("Earlier")).toBeVisible();
   expect(screen.getByText("Today sprint")).toBeVisible();
-  expect(screen.getByText("March 11 review")).toBeVisible();
   expect(screen.queryByText(hiddenEarlierLabel)).not.toBeInTheDocument();
+  expect(screen.queryByText(secondHiddenEarlierLabel)).not.toBeInTheDocument();
+  expect(screen.queryByText(finalHiddenEarlierLabel)).not.toBeInTheDocument();
   expect(screen.queryByText(new Date(hiddenEarlierDate).toLocaleDateString())).not.toBeInTheDocument();
+  expect(
+    screen.queryByText(new Date(secondHiddenEarlierDate).toLocaleDateString()),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByText(new Date(finalHiddenEarlierDate).toLocaleDateString()),
+  ).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /Show 3 more chats/i }));
+
+  expect(screen.getByText(hiddenEarlierLabel)).toBeVisible();
+  expect(screen.getByText(secondHiddenEarlierLabel)).toBeVisible();
+  expect(screen.getByRole("button", { name: /Show 1 more chats/i })).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: /Show 1 more chats/i }));
 
-  expect(screen.getByText(hiddenEarlierLabel)).toBeVisible();
+  expect(screen.getByText(finalHiddenEarlierLabel)).toBeVisible();
   expect(screen.queryByText("Show more")).not.toBeInTheDocument();
 });
 

@@ -257,6 +257,65 @@ test("renders date, status, and group browse modes and orders group sections wit
   expect(screen.getAllByText("Zulu draft").length).toBeGreaterThan(0);
 });
 
+test("keeps the search bar and browse-mode controls visible after selecting a preview item", async () => {
+  const user = userEvent.setup();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_header",
+              title: "Header draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Header controls should stay visible.",
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Header draft")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Header draft/i }));
+
+  expect(screen.getByPlaceholderText("Search posts & threads")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Date" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Status" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Group" }).length).toBeGreaterThan(0);
+});
+
 test("moves a card between status columns with drag and drop", async () => {
   const user = userEvent.setup();
   const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -429,6 +488,93 @@ test("updates status from the compact preview dropdown", async () => {
       }),
     );
   });
+
+  expect(screen.queryByText("Status updated.")).not.toBeInTheDocument();
+});
+
+test("updates group from the compact preview dropdown without showing a success notice", async () => {
+  const user = userEvent.setup();
+  const existingGroup = buildFolder({ id: "group_existing", name: "Launch", itemCount: 0 });
+  const nextGroup = buildFolder({ id: "group_next", name: "Growth", itemCount: 1 });
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_group_update",
+              title: "Group update draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Update the assigned group.",
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [existingGroup, nextGroup],
+        },
+      });
+    }
+
+    if (method === "PATCH" && url === "/api/creator/v2/content/draft_group_update") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          item: buildItem({
+            id: "draft_group_update",
+            title: "Group update draft",
+            status: "DRAFT",
+            createdAt: buildRelativeIso(0),
+            content: "Update the assigned group.",
+            folderId: nextGroup.id,
+            folder: nextGroup,
+          }),
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Group update draft")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Group update draft/i }));
+  await user.selectOptions(screen.getByLabelText("Group:"), nextGroup.id);
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/content/draft_group_update",
+      expect.objectContaining({
+        method: "PATCH",
+      }),
+    );
+  });
+
+  expect(screen.queryByText("Group updated.")).not.toBeInTheDocument();
 });
 
 test("opens the source thread at the selected message", async () => {
@@ -566,6 +712,9 @@ test("creates a new group from the dropdown and assigns it to the selected item"
   );
 
   expect(await screen.findByText("Group draft")).toBeVisible();
+  await user.click(
+    screen.getByRole("button", { name: /Group draft/i }),
+  );
 
   await user.selectOptions(screen.getByLabelText("Group:"), "__add_new_group__");
   expect(await screen.findByRole("dialog", { name: "Add Group" })).toBeVisible();
@@ -588,7 +737,9 @@ test("creates a new group from the dropdown and assigns it to the selected item"
     );
   });
 
-  expect(await screen.findByText('Created group "April Launch" and assigned it.')).toBeVisible();
+  expect(
+    screen.queryByText('Created group "April Launch" and assigned it.'),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: "April Launch" })).toBeVisible();
 });
 
@@ -678,7 +829,9 @@ test("renames a group from the manage groups dialog and updates the loaded item"
     );
   });
 
-  expect(await screen.findByText('Renamed group to "Renamed Launch".')).toBeVisible();
+  expect(
+    screen.queryByText('Renamed group to "Renamed Launch".'),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: "Renamed Launch" })).toBeVisible();
 });
 
@@ -767,8 +920,8 @@ test("deletes a group from the manage groups dialog and clears selected items ba
   });
 
   expect(
-    await screen.findByText('Deleted group "Launch". 3 posts/threads moved to No Group.'),
-  ).toBeVisible();
+    screen.queryByText('Deleted group "Launch". 3 posts/threads moved to No Group.'),
+  ).not.toBeInTheDocument();
   expect(screen.getByLabelText("Group:")).toHaveValue("");
   expect(screen.queryByRole("option", { name: "Launch" })).not.toBeInTheDocument();
 });

@@ -73,3 +73,19 @@ test("keeps focus trapped inside the split dialog", async () => {
   await user.tab();
   expect(searchInput).toHaveFocus();
 });
+
+test("renders a resize handle when the split dialog is resizable", () => {
+  render(
+    <SplitDialog
+      open
+      onOpenChange={vi.fn()}
+      title="Resizable dialog"
+      leftPane={<div>Browse pane</div>}
+      rightPane={<div>Preview pane</div>}
+      resizable
+      defaultLeftPaneWidth={54}
+    />,
+  );
+
+  expect(screen.getByTestId("split-dialog-resize-handle")).toBeInTheDocument();
+});

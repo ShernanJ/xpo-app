@@ -42,6 +42,9 @@ export function ChatComposerDock() {
           {...composerSurfaceProps}
           surfaceClassName={dockComposerSurfaceClassName}
         />
+        <p className="mt-2 px-1 text-center text-[11px] leading-4 text-zinc-500">
+          Xpo can make mistakes. Your corrections help it improve.
+        </p>
       </div>
     </div>
   );

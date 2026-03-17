@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowUpRight, Wrench } from "lucide-react";
+import { ArrowUpRight, Hammer } from "lucide-react";
 
 import { useChatHeaderChrome } from "./ChatWorkspaceChromeContext";
 
@@ -49,8 +49,8 @@ export function ChatHeader() {
                   : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
               }`}
             >
-              <Wrench className="h-3.5 w-3.5" />
               <span>Tools</span>
+              <Hammer className="h-3.5 w-3.5" />
             </button>
             {toolsMenuOpen ? (
               <div className="absolute right-0 top-[calc(100%+0.65rem)] z-30 w-56 rounded-3xl border border-white/10 bg-[#101010] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">

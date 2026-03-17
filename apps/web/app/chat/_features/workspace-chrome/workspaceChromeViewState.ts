@@ -12,6 +12,7 @@ export interface SidebarThreadSection {
   label: string;
   items: SidebarThreadItem[];
   hiddenCount: number;
+  revealCount: number;
   isExpandable: boolean;
   isExpanded: boolean;
 }
@@ -21,11 +22,12 @@ interface ResolveSidebarThreadSectionsParams {
   chatThreads: Array<{ id: string; title: string; updatedAt: string }>;
   activeThreadId: string | null;
   sidebarSearchQuery: string;
-  earlierThreadsExpanded?: boolean;
+  earlierThreadsVisibleCount?: number;
   now?: Date;
 }
 
 const COLLAPSED_EARLIER_THREAD_LIMIT = 3;
+const EARLIER_THREAD_PAGE_SIZE = 3;
 
 function getThreadTimestamp(updatedAt: string): number {
   const parsedDate = new Date(updatedAt);
@@ -59,10 +61,9 @@ function mapSidebarThreadItem(thread: { id: string; title: string }): SidebarThr
 function resolveCollapsedEarlierItems(params: {
   items: SidebarThreadItem[];
   activeThreadId: string | null;
-}): Pick<SidebarThreadSection, "items" | "hiddenCount" | "isExpandable"> {
-  const previewIds = new Set(
-    params.items.slice(0, COLLAPSED_EARLIER_THREAD_LIMIT).map((item) => item.id),
-  );
+  visibleCount: number;
+}): Pick<SidebarThreadSection, "items" | "hiddenCount" | "revealCount" | "isExpandable"> {
+  const previewIds = new Set(params.items.slice(0, params.visibleCount).map((item) => item.id));
 
   if (params.activeThreadId) {
     previewIds.add(params.activeThreadId);
@@ -74,6 +75,7 @@ function resolveCollapsedEarlierItems(params: {
   return {
     items: visibleItems,
     hiddenCount,
+    revealCount: Math.min(hiddenCount, EARLIER_THREAD_PAGE_SIZE),
     isExpandable: hiddenCount > 0,
   };
 }
@@ -86,7 +88,7 @@ export function resolveSidebarThreadSections(
     chatThreads,
     activeThreadId,
     sidebarSearchQuery,
-    earlierThreadsExpanded = false,
+    earlierThreadsVisibleCount = COLLAPSED_EARLIER_THREAD_LIMIT,
     now = new Date(),
   } = params;
   if (!hasWorkspace) {
@@ -114,6 +116,7 @@ export function resolveSidebarThreadSections(
           },
         ],
         hiddenCount: 0,
+        revealCount: 0,
         isExpandable: false,
         isExpanded: false,
       },
@@ -140,25 +143,28 @@ export function resolveSidebarThreadSections(
       label: "Today",
       items: todayItems,
       hiddenCount: 0,
+      revealCount: 0,
       isExpandable: false,
       isExpanded: false,
     });
   }
 
   if (earlierItems.length > 0) {
-    if (isSearching || earlierThreadsExpanded) {
+    if (isSearching) {
       sections.push({
         id: "earlier",
         label: "Earlier",
         items: earlierItems,
         hiddenCount: 0,
+        revealCount: 0,
         isExpandable: false,
-        isExpanded: earlierThreadsExpanded && !isSearching,
+        isExpanded: false,
       });
     } else {
       const collapsedEarlierSection = resolveCollapsedEarlierItems({
         items: earlierItems,
         activeThreadId,
+        visibleCount: Math.max(earlierThreadsVisibleCount, COLLAPSED_EARLIER_THREAD_LIMIT),
       });
 
       sections.push({
@@ -166,8 +172,11 @@ export function resolveSidebarThreadSections(
         label: "Earlier",
         items: collapsedEarlierSection.items,
         hiddenCount: collapsedEarlierSection.hiddenCount,
+        revealCount: collapsedEarlierSection.revealCount,
         isExpandable: collapsedEarlierSection.isExpandable,
-        isExpanded: false,
+        isExpanded:
+          !collapsedEarlierSection.isExpandable &&
+          earlierThreadsVisibleCount > COLLAPSED_EARLIER_THREAD_LIMIT,
       });
     }
   }
