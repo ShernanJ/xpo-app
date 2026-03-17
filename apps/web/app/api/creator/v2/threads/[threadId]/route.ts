@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
+import { updateIndexedContentTitlesForThread } from "@/lib/content/contentHub";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
@@ -198,6 +199,13 @@ export async function PATCH(
     const updatedThread = await prisma.chatThread.update({
       where: { id: threadId },
       data: { title },
+    });
+
+    await updateIndexedContentTitlesForThread({
+      threadId,
+      userId: session.user.id,
+      xHandle: workspaceHandle.xHandle,
+      title,
     });
 
     return NextResponse.json({ ok: true, data: { thread: updatedThread } });

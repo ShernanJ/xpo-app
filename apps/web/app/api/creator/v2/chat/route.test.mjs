@@ -1703,6 +1703,10 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
           revisionChainId: "revision-chain-1",
         },
       }),
+      contentTitleSyncContext: {
+        userId: "user-1",
+        xHandle: "stan",
+      },
       draftCandidateCreates: [
         {
           title: "Option one",
@@ -1743,6 +1747,9 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
       async updateChatThread(args) {
         calls.push(["updateChatThread", args.threadId, args.data.title ?? null]);
         return { title: "Updated title" };
+      },
+      async syncIndexedContentTitlesForThread(args) {
+        calls.push(["syncIndexedContentTitlesForThread", args.threadId, args.title]);
       },
       async createDraftCandidate(args) {
         calls.push(["createDraftCandidate", args.threadId, args.title]);
@@ -1787,8 +1794,9 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
     ["createChatMessage", "thread-1", "here's the draft"],
     ["updateConversationMemory", "thread-1", "assistant-msg-1", "version-1"],
     ["updateChatThread", "thread-1", "Updated title"],
-    ["createDraftCandidate", "thread-1", "Option one"],
-    ["createDraftCandidate", "thread-1", "Option two"],
+    ["syncIndexedContentTitlesForThread", "thread-1", "Updated title"],
+    ["createDraftCandidate", "thread-1", "Updated title"],
+    ["createDraftCandidate", "thread-1", "Updated title"],
   ]);
 });
 
@@ -2124,9 +2132,7 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
       },
       async createDraftCandidate(args) {
         candidateTitles.push(args.title);
-        await new Promise((resolve) =>
-          setTimeout(resolve, args.title === "Option one" ? 15 : 1),
-        );
+        await new Promise((resolve) => setTimeout(resolve, candidateTitles.length === 1 ? 15 : 1));
         return null;
       },
     },
@@ -2137,7 +2143,7 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
     updateConversationMemory: 1,
     updateChatThread: 1,
   });
-  assert.deepEqual(candidateTitles.sort(), ["Option one", "Option two"]);
+  assert.deepEqual(candidateTitles, ["Updated title", "Updated title"]);
   assert.deepEqual(result.tracePatch.persistedStateChanges.draftCandidates, {
     attempted: 2,
     created: 2,
@@ -2213,7 +2219,7 @@ test("persistAssistantTurnWithDeps does not double-write memory while candidate 
       },
       async createDraftCandidate(args) {
         calls.push(`start:${args.title}`);
-        await new Promise((resolve) => setTimeout(resolve, args.title === "Slow option" ? 20 : 1));
+        await new Promise((resolve) => setTimeout(resolve, calls.length === 4 ? 20 : 1));
         calls.push(`finish:${args.title}`);
         return null;
       },
@@ -2225,6 +2231,12 @@ test("persistAssistantTurnWithDeps does not double-write memory while candidate 
     "createChatMessage",
     "updateConversationMemory",
     "updateChatThread",
+  ]);
+  assert.deepEqual(calls.slice(3), [
+    "start:Bundle title",
+    "start:Bundle title",
+    "finish:Bundle title",
+    "finish:Bundle title",
   ]);
   assert.deepEqual(
     calls.filter((entry) => entry === "updateConversationMemory"),

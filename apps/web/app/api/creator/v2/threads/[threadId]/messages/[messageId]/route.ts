@@ -196,6 +196,7 @@ export async function PATCH(
       threadId,
       userId: session.user.id,
       xHandle: workspaceHandle.xHandle,
+      threadTitle: ownedThread.thread.title,
       data: nextData,
       sourcePlaybook: "chat_thread",
     });

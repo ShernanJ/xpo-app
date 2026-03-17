@@ -93,6 +93,10 @@ export async function finalizeMainAssistantTurnWithDeps(
             }
           : {}),
       }),
+      contentTitleSyncContext: {
+        userId: args.userId,
+        xHandle: args.activeHandle,
+      },
       draftCandidateCreates: args.preparedTurn.persistencePlan.draftCandidateCreates,
       draftCandidateContext: {
         userId: args.userId,

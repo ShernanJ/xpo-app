@@ -407,6 +407,7 @@ export async function syncIndexedContentFromChatMessage(args: {
   threadId: string;
   userId: string;
   xHandle?: string | null;
+  threadTitle?: string | null;
   runId?: string | null;
   data: unknown;
   sourcePrompt?: string | null;
@@ -435,13 +436,14 @@ export async function syncIndexedContentFromChatMessage(args: {
     "chat_thread";
   const runId = args.runId ?? existing?.runId ?? null;
   const xHandle = args.xHandle ?? existing?.xHandle ?? null;
+  const threadTitle = args.threadTitle?.trim() || existing?.title || resolvedDraft.title;
 
   const payload = {
     ...(xHandle ? { xHandle } : {}),
     threadId: args.threadId,
     messageId: args.messageId,
     runId,
-    title: resolvedDraft.title,
+    title: threadTitle,
     sourcePrompt,
     sourcePlaybook,
     outputShape: resolvedDraft.outputShape,
@@ -554,6 +556,35 @@ export async function updateContentItemById(args: {
   });
 
   return item as DraftCandidateWithFolder;
+}
+
+export async function updateIndexedContentTitlesForThread(args: {
+  threadId: string;
+  userId: string;
+  xHandle?: string | null;
+  title: string;
+}) {
+  const title = args.title.trim();
+  if (!title) {
+    return;
+  }
+
+  await prisma.draftCandidate.updateMany({
+    where: {
+      userId: args.userId,
+      threadId: args.threadId,
+      messageId: {
+        not: null,
+      },
+      outputShape: {
+        in: [...GLOBAL_CONTENT_OUTPUT_SHAPES],
+      },
+      ...(args.xHandle ? { xHandle: args.xHandle } : {}),
+    },
+    data: {
+      title,
+    },
+  });
 }
 
 export async function markSupersededDraftVersions(args: {

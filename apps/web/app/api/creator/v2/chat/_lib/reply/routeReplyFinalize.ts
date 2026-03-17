@@ -86,6 +86,10 @@ export async function finalizeReplyTurnWithDeps(
       threadId: args.storedThreadId,
       assistantMessageData: mappedData,
       threadUpdate: { updatedAt: new Date() },
+      contentTitleSyncContext: {
+        userId: args.userId,
+        xHandle: args.activeHandle,
+      },
       buildMemoryUpdate: (assistantMessageId) => ({
         preferredSurfaceMode: "structured",
         activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,

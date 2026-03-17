@@ -55,6 +55,10 @@ export interface PersistAssistantTurnArgs {
   buildMemoryUpdate?: (
     assistantMessageId: string,
   ) => Omit<PersistMemoryUpdateArgs, "threadId">;
+  contentTitleSyncContext?: {
+    userId: string;
+    xHandle: string | null;
+  } | null;
   draftCandidateCreates?: PersistDraftCandidateCreate[];
   draftCandidateContext?: PersistDraftCandidateContext;
 }
@@ -218,6 +222,12 @@ export interface ChatRoutePersistenceDeps {
     xHandle: string | null;
     candidates: PersistDraftCandidateCreate[];
   }) => Promise<void>;
+  syncIndexedContentTitlesForThread?: (args: {
+    threadId: string;
+    userId: string;
+    xHandle: string | null;
+    title: string;
+  }) => Promise<void>;
   runInTransaction?: <T>(
     callback: (deps: Omit<ChatRoutePersistenceDeps, "runInTransaction">) => Promise<T>,
   ) => Promise<T>;
@@ -290,6 +300,19 @@ export async function persistAssistantTurnWithDeps(
     threadId,
     data: args.threadUpdate,
   });
+  const syncedThreadTitle = updatedThread.title?.trim() || null;
+  if (
+    syncedThreadTitle &&
+    args.contentTitleSyncContext &&
+    transactionalDeps.syncIndexedContentTitlesForThread
+  ) {
+    await transactionalDeps.syncIndexedContentTitlesForThread({
+      threadId,
+      userId: args.contentTitleSyncContext.userId,
+      xHandle: args.contentTitleSyncContext.xHandle,
+      title: syncedThreadTitle,
+    });
+  }
   workerExecutions.push(
     buildPersistenceWorkerExecution({
       worker: "update_chat_thread",
@@ -326,7 +349,7 @@ export async function persistAssistantTurnWithDeps(
           xHandle: draftCandidateContext.xHandle,
           threadId,
           runId: draftCandidateContext.runId,
-          title: candidate.title,
+          title: syncedThreadTitle || candidate.title,
           sourcePrompt: draftCandidateContext.sourcePrompt,
           sourcePlaybook: draftCandidateContext.sourcePlaybook,
           outputShape: draftCandidateContext.outputShape,
@@ -499,6 +522,13 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
         });
       }
     },
+    syncIndexedContentTitlesForThread: ({ threadId, userId, xHandle, title }) =>
+      contentHub.updateIndexedContentTitlesForThread({
+        threadId,
+        userId,
+        xHandle,
+        title,
+      }),
   });
 
   return {

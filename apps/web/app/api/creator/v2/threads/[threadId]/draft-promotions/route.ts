@@ -443,6 +443,7 @@ export async function POST(
       threadId: thread.id,
       userId: session.user.id,
       xHandle: workspaceHandle.xHandle,
+      threadTitle: thread.title,
       data: assistantMessageData,
       sourcePrompt: userContent,
       sourcePlaybook: "draft_promotion",
