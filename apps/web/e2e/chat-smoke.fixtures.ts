@@ -21,6 +21,14 @@ export interface ChatSmokeRequestCounts {
   threads: number;
 }
 
+interface ChatSmokeSessionUser {
+  userId: string;
+  email: string;
+  name: string;
+  handle: string;
+  activeXHandle: string;
+}
+
 function buildAnchorPost(args: {
   id: string;
   text: string;
@@ -477,6 +485,7 @@ async function fulfillJson(route: Route, payload: unknown, status = 200) {
 export async function installChatSmokeApiMocks(
   page: Page,
   counts: ChatSmokeRequestCounts,
+  sessionUser: ChatSmokeSessionUser = CHAT_SMOKE_USER,
 ) {
   let currentSession: {
     user: {
@@ -486,32 +495,15 @@ export async function installChatSmokeApiMocks(
       handle?: string;
       activeXHandle?: string | null;
     };
-  } | null = null;
-
-  await page.route("**/api/test/session", async (route) => {
-    const payload = route.request().postDataJSON() as
-      | {
-          userId?: string;
-          email?: string;
-          name?: string;
-          handle?: string;
-          activeXHandle?: string;
-        }
-      | undefined;
-    currentSession = {
-      user: {
-        id: payload?.userId ?? "playwright-chat-user",
-        name: payload?.name ?? "Playwright Chat",
-        email: payload?.email ?? "playwright-chat@example.com",
-        handle: payload?.handle ?? "playwright",
-        activeXHandle: payload?.activeXHandle ?? CHAT_SMOKE_HANDLE,
-      },
-    };
-
-    await fulfillJson(route, {
-      ok: true,
-    });
-  });
+  } | null = {
+    user: {
+      id: sessionUser.userId,
+      name: sessionUser.name,
+      email: sessionUser.email,
+      handle: sessionUser.handle,
+      activeXHandle: sessionUser.activeXHandle,
+    },
+  };
 
   await page.route("**/api/auth/session", async (route) => {
     if (route.request().method() === "PATCH") {

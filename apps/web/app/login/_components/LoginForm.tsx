@@ -1,9 +1,10 @@
 "use client";
 
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useId, useState } from "react";
 import { signIn } from "@/lib/auth/client";
 import type { AppSession } from "@/lib/auth/types";
+import { navigateToPostLoginDestination } from "./loginNavigation";
 import {
   buildPostHogHeaders,
   capturePostHogEvent,
@@ -48,7 +49,6 @@ function LoginFormContent() {
     "idle",
   );
   const [focusedField, setFocusedField] = useState<"email" | "password" | "code" | null>(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const xHandle = searchParams.get("xHandle");
   const callbackUrlRaw = searchParams.get("callbackUrl");
@@ -86,7 +86,9 @@ function LoginFormContent() {
         }
       }
 
-      router.push(buildPostLoginDestination(callbackUrl, normalizedHandle || null));
+      navigateToPostLoginDestination(
+        buildPostLoginDestination(callbackUrl, normalizedHandle || null),
+      );
     } catch (setupError) {
       capturePostHogException(setupError, {
         account: normalizedHandle || null,

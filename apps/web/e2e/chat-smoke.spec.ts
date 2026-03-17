@@ -21,8 +21,6 @@ test("authenticated chat bootstraps cleanly and sends one reply without endpoint
     profileScrape: 0,
     threads: 0,
   };
-  await installChatSmokeApiMocks(page, counts);
-
   await page.goto("/");
   await page.evaluate(async (user) => {
     const response = await fetch("/api/test/session", {
@@ -37,6 +35,7 @@ test("authenticated chat bootstraps cleanly and sends one reply without endpoint
       throw new Error(`Failed to create test session: ${response.status}`);
     }
   }, CHAT_SMOKE_USER);
+  await installChatSmokeApiMocks(page, counts, CHAT_SMOKE_USER);
 
   await page.goto(`/chat?xHandle=${CHAT_SMOKE_HANDLE}`);
 
@@ -88,8 +87,6 @@ test("slash thread mode sends draft intent with thread formatting", async ({ pag
     profileScrape: 0,
     threads: 0,
   };
-  await installChatSmokeApiMocks(page, counts);
-
   await page.goto("/");
   await page.evaluate(async (user) => {
     const response = await fetch("/api/test/session", {
@@ -104,6 +101,7 @@ test("slash thread mode sends draft intent with thread formatting", async ({ pag
       throw new Error(`Failed to create test session: ${response.status}`);
     }
   }, CHAT_SMOKE_USER);
+  await installChatSmokeApiMocks(page, counts, CHAT_SMOKE_USER);
 
   await page.goto(`/chat?xHandle=${CHAT_SMOKE_HANDLE}`);
 
@@ -140,8 +138,6 @@ test("image attachments send through the staged image-in-chat flow", async ({ pa
     profileScrape: 0,
     threads: 0,
   };
-  await installChatSmokeApiMocks(page, counts);
-
   await page.goto("/");
   await page.evaluate(async (user) => {
     const response = await fetch("/api/test/session", {
@@ -156,6 +152,7 @@ test("image attachments send through the staged image-in-chat flow", async ({ pa
       throw new Error(`Failed to create test session: ${response.status}`);
     }
   }, CHAT_SMOKE_USER);
+  await installChatSmokeApiMocks(page, counts, CHAT_SMOKE_USER);
 
   await page.goto(`/chat?xHandle=${CHAT_SMOKE_HANDLE}`);
 

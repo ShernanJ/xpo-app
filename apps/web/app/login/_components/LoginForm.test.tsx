@@ -2,11 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-const navigationMocks = vi.hoisted(() => ({
-  push: vi.fn(),
-  refresh: vi.fn(),
-}));
-
 const searchParamMocks = vi.hoisted(() => ({
   value: new URLSearchParams(),
 }));
@@ -15,16 +10,20 @@ const authMocks = vi.hoisted(() => ({
   signIn: vi.fn(),
 }));
 
+const loginNavigationMocks = vi.hoisted(() => ({
+  navigateToPostLoginDestination: vi.fn(),
+}));
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: navigationMocks.push,
-    refresh: navigationMocks.refresh,
-  }),
   useSearchParams: () => searchParamMocks.value,
 }));
 
 vi.mock("@/lib/auth/client", () => ({
   signIn: authMocks.signIn,
+}));
+
+vi.mock("./loginNavigation", () => ({
+  navigateToPostLoginDestination: loginNavigationMocks.navigateToPostLoginDestination,
 }));
 
 vi.mock("@/lib/posthog/client", () => ({
@@ -37,13 +36,13 @@ vi.mock("@/lib/posthog/client", () => ({
 import { LoginForm } from "./LoginForm";
 
 beforeEach(() => {
-  navigationMocks.push.mockReset();
-  navigationMocks.refresh.mockReset();
   authMocks.signIn.mockReset();
+  loginNavigationMocks.navigateToPostLoginDestination.mockReset();
   searchParamMocks.value = new URLSearchParams();
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -105,7 +104,7 @@ test("logs in with xHandle by attaching the handle before redirecting to chat wi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ handle: "stan" }),
   });
-  expect(navigationMocks.push).not.toHaveBeenCalled();
+  expect(loginNavigationMocks.navigateToPostLoginDestination).not.toHaveBeenCalled();
 
   handleAttachDeferred.resolve({
     ok: true,
@@ -114,8 +113,9 @@ test("logs in with xHandle by attaching the handle before redirecting to chat wi
   } as Response);
 
   await waitFor(() => {
-    expect(navigationMocks.push).toHaveBeenCalledWith("/chat?threadId=thread-1&xHandle=stan");
+    expect(loginNavigationMocks.navigateToPostLoginDestination).toHaveBeenCalledWith(
+      "/chat?threadId=thread-1&xHandle=stan",
+    );
   });
-  expect(navigationMocks.refresh).not.toHaveBeenCalled();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

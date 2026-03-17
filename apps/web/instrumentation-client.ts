@@ -1,7 +1,11 @@
 import posthog from "posthog-js";
-import { resolvePostHogApiHost, resolvePostHogUiHost } from "@/lib/posthog/shared";
+import {
+  getPostHogProjectToken,
+  resolvePostHogApiHost,
+  resolvePostHogUiHost,
+} from "@/lib/posthog/shared";
 
-const projectToken = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN?.trim();
+const projectToken = getPostHogProjectToken();
 
 if (projectToken) {
   posthog.init(projectToken, {
