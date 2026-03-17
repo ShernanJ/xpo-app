@@ -14,7 +14,6 @@ import {
 
 import type {
   DraftArtifactDetails,
-  ThreadFramingStyle,
 } from "@/lib/onboarding/draftArtifacts";
 import type { SelectedAngleFormatHint } from "@/lib/agent-v2/contracts/turnContract";
 
@@ -22,6 +21,7 @@ import {
   AnimatedDraftText,
   InlineDraftPreviewCard,
 } from "../draft-editor/chatDraftPreviewCard";
+import type { DraftRevisionRequestOptions } from "../draft-editor/chatDraftActionState";
 import { InlineProfileAnalysisCard } from "../analysis/InlineProfileAnalysisCard";
 import {
   buildDraftArtifactRevealKey,
@@ -153,7 +153,7 @@ interface MessageArtifactSectionsProps {
   onOpenDraftEditor: (versionId?: string, threadPostIndex?: number) => void;
   onRequestDraftCardRevision: (
     prompt: string,
-    threadFramingStyleOverride?: ThreadFramingStyle | null,
+    revisionOptions?: DraftRevisionRequestOptions,
   ) => void;
   onToggleExpandedInlineThreadPreview: () => void;
   onCopyPreviewDraft: (messageId: string, content: string) => void;
@@ -832,7 +832,7 @@ function DraftArtifactSections(props: {
   onOpenDraftEditor: (versionId?: string, threadPostIndex?: number) => void;
   onRequestDraftCardRevision: (
     prompt: string,
-    threadFramingStyleOverride?: ThreadFramingStyle | null,
+    revisionOptions?: DraftRevisionRequestOptions,
   ) => void;
   onToggleExpandedInlineThreadPreview: () => void;
   onCopyPreviewDraft: (messageId: string, content: string) => void;
@@ -1145,8 +1145,8 @@ function DraftArtifactSections(props: {
           revealClassName={getRevealClassName(previewRevealKey)}
           shouldAnimateLines={shouldAnimateRevealLines(previewRevealKey)}
           onOpenDraftEditor={(threadPostIndex) => onOpenDraftEditor(undefined, threadPostIndex)}
-          onRequestRevision={(prompt, threadFramingStyleOverride) => {
-            onRequestDraftCardRevision(prompt, threadFramingStyleOverride);
+          onRequestRevision={(prompt, revisionOptions) => {
+            onRequestDraftCardRevision(prompt, revisionOptions);
           }}
           onToggleExpanded={onToggleExpandedInlineThreadPreview}
           onCopy={() => onCopyPreviewDraft(message.id, previewState.previewDraft)}

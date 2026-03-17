@@ -1145,6 +1145,7 @@ export async function handleChatRouteRequest(args: {
       recentHistory: recentHistoryStr || "None",
       explicitIntent: effectiveExplicitIntent,
       activeDraft,
+      focusedThreadPostIndex: selectedDraftContext?.focusedThreadPostIndex ?? null,
       turnSource: normalizedTurn.source,
       artifactContext: normalizedTurn.artifactContext,
       planSeedSource: normalizedTurn.diagnostics.planSeedSource,

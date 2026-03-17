@@ -15,7 +15,11 @@ import {
   buildStateHydrationBlock,
   buildVoiceHydrationBlock,
 } from "../prompts/promptHydrator";
-import type { DraftRevisionDirective } from "../capabilities/revision/draftRevision";
+import type {
+  DraftRevisionDirective,
+  DraftRevisionTargetSpan,
+  DraftRevisionThreadIntent,
+} from "../capabilities/revision/draftRevision";
 import {
   type GroundingPacket,
 } from "../grounding/groundingPacket";
@@ -145,6 +149,17 @@ function buildRevisionChangeGuidance(
   revision: DraftRevisionDirective,
   maxCharacterLimit: number,
 ): string {
+  if (revision.changeKind === "length_trim") {
+    return `
+LENGTH TRIM MODE:
+- The user wants a meaning-preserving compression, not a cosmetic line edit.
+- Cut setup, repetition, and lower-value phrasing so the strongest point lands faster.
+- Keep the same core idea, factual claims, and overall takeaway unless the wording must be rebuilt to fit cleanly.
+- If the current draft is longform and the request is to turn it into a shortform post, compress it into exactly one standalone post instead of returning a lightly shortened near-duplicate.
+- Stay under ${maxCharacterLimit.toLocaleString()} weighted X characters.
+    `.trim();
+  }
+
   if (revision.changeKind === "hook_only_edit") {
     return `
 HOOK EDIT MODE:
@@ -186,10 +201,23 @@ EXPANSION MODE:
   }
 
   if (revision.changeKind === "full_rewrite") {
+    const formatSpecificGuidance =
+      revision.targetFormat === "thread"
+        ? `
+- Because the target format is a thread, return a real multi-post serialized thread with distinct beats across posts instead of a slightly longer single post.
+- Do not simply chop the original draft into fragments or add thread labels without rebuilding the flow.
+        `.trim()
+        : revision.targetFormat === "shortform"
+          ? `
+- Because the target format is shortform, return exactly one standalone post instead of a compressed multi-post structure.
+          `.trim()
+          : "";
+
     return `
 FULL REWRITE MODE:
 - A full rewrite may change structure and phrasing, but it must still stay inside the same factual boundary.
 - You may rebuild the flow, but do NOT introduce new proof points, customer names, product mechanics, timelines, outcomes, or autobiographical claims unless they are already grounded.
+${formatSpecificGuidance ? formatSpecificGuidance : ""}
     `.trim();
   }
 
@@ -228,6 +256,39 @@ function buildRevisionGroundingBlock(
   );
 }
 
+function buildThreadLocalRevisionBlock(args: {
+  totalPostCount: number;
+  targetSpan: DraftRevisionTargetSpan;
+  previousPost: string | null;
+  nextPost: string | null;
+  threadIntent: DraftRevisionThreadIntent;
+  preserveThreadStructure: boolean;
+}): string {
+  const targetPostCount = args.targetSpan.endIndex - args.targetSpan.startIndex + 1;
+  const targetLabel =
+    targetPostCount === 1
+      ? `post ${args.targetSpan.startIndex + 1}`
+      : `posts ${args.targetSpan.startIndex + 1}-${args.targetSpan.endIndex + 1}`;
+  const intentLine =
+    args.threadIntent === "opening"
+      ? "- This span is the opener, so the first targeted post should still function as a hook."
+      : args.threadIntent === "ending"
+        ? "- This span is the ending, so the final targeted post should still land as a deliberate close or CTA."
+        : "";
+
+  return `
+THREAD-LOCAL REVISION MODE:
+- You are revising only ${targetLabel} of a ${args.totalPostCount}-post serialized thread.
+- Return exactly ${targetPostCount} post${targetPostCount === 1 ? "" : "s"} in the revised draft, not the whole thread.
+- Keep untouched posts out of the output. The caller will reassemble the full thread around your revised span.
+- Maintain continuity with the surrounding posts so the stitched thread reads naturally.
+${args.preserveThreadStructure ? "- Do not change the number of posts in the targeted span." : ""}
+${intentLine}
+- Previous post context: ${args.previousPost || "None"}
+- Next post context: ${args.nextPost || "None"}
+  `.trim();
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -246,6 +307,14 @@ export async function generateRevisionDraft(args: {
     threadFramingStyle?: ThreadFramingStyle | null;
     sourceUserMessage?: string;
     groundingPacket?: GroundingPacket | null;
+    threadRevisionContext?: {
+      totalPostCount: number;
+      targetSpan: DraftRevisionTargetSpan;
+      previousPost: string | null;
+      nextPost: string | null;
+      threadIntent: DraftRevisionThreadIntent;
+      preserveThreadStructure: boolean;
+    } | null;
   };
 }): Promise<ReviserOutput | null> {
   const conversationState = args.options?.conversationState || "editing";
@@ -262,6 +331,9 @@ export async function generateRevisionDraft(args: {
     maxCharacterLimit,
   );
   const groundingBlock = buildRevisionGroundingBlock(args.options?.groundingPacket);
+  const threadLocalRevisionBlock = args.options?.threadRevisionContext
+    ? buildThreadLocalRevisionBlock(args.options.threadRevisionContext)
+    : "";
 
   if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
@@ -329,6 +401,7 @@ ${args.activeConstraints.join(" | ") || "None"}
 
 ${revisionChangeGuidance ? `${revisionChangeGuidance}\n` : ""}
 ${groundingBlock ? `${groundingBlock}\n` : ""}
+${threadLocalRevisionBlock ? `${threadLocalRevisionBlock}\n` : ""}
 
 REQUIREMENTS:
 1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.
@@ -347,6 +420,7 @@ REQUIREMENTS:
 14. ${buildMarkdownStylingRule("revision")}
 15. ${buildEngagementBaitRule("revision")}
 16. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the current draft, current user note, or grounding packet.
+17. If THREAD-LOCAL REVISION MODE is active, return only the revised target span and preserve the exact number of posts in that span.
 
 ${buildReviserJsonContract()}
   `.trim();

@@ -20,5 +20,5 @@ export default async function ChatLayout({
     redirect("/");
   }
 
-  return children;
+  return <div className="[color-scheme:dark]">{children}</div>;
 }

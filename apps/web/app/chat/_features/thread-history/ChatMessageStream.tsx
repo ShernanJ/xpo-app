@@ -1,9 +1,10 @@
 "use client";
 
-import { startTransition, useEffect, useState, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
 import { Check, Copy, Edit3 } from "lucide-react";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { ChatMediaAttachmentRef } from "@/lib/chat/chatMedia";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 
 import {
   buildDraftRevealClassName,
@@ -42,19 +43,8 @@ function extractSelectedIdeationAngleTitle(
 }
 
 function AssistantTypingBubble(props: { label?: string | null }) {
-  const [dotCount, setDotCount] = useState(1);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      startTransition(() => {
-        setDotCount((current) => (current >= 3 ? 1 : current + 1));
-      });
-    }, 420);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, []);
+  const trimmedLabel = props.label?.trim() ?? "";
+  const statusLabel = trimmedLabel.length > 0 ? trimmedLabel : "Thinking through it";
 
   return (
     <div
@@ -62,21 +52,13 @@ function AssistantTypingBubble(props: { label?: string | null }) {
       aria-live="polite"
       aria-label="Assistant is typing"
     >
-      <div className="flex items-center gap-2">
-        {[0, 1, 2].map((index) => (
-          <span
-            key={index}
-            className="h-2.5 w-2.5 rounded-full bg-zinc-400/80 animate-pulse"
-            style={{ animationDelay: `${index * 180}ms` }}
-          />
-        ))}
-      </div>
-      {props.label ? (
-        <p className="mt-3 text-xs text-zinc-400">
-          {props.label}
-          {".".repeat(dotCount)}
-        </p>
-      ) : null}
+      <TextShimmer
+        as="p"
+        duration={1.6}
+        className="text-[13px] font-medium leading-5 tracking-[0.01em] [--base-color:#71717a] [--base-gradient-color:#fafafa] dark:[--base-color:#52525b] dark:[--base-gradient-color:#ffffff]"
+      >
+        {statusLabel}
+      </TextShimmer>
     </div>
   );
 }

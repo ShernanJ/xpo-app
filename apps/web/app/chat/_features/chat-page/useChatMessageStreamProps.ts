@@ -7,6 +7,7 @@ import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { ThreadFramingStyle } from "@/lib/onboarding/draftArtifacts";
 
 import { MessageArtifactSections } from "../thread-history/MessageArtifactSections";
+import type { DraftRevisionRequestOptions } from "../draft-editor/chatDraftActionState";
 import type {
   ChatMessageStreamMessage,
   ChatMessageStreamProps,
@@ -59,7 +60,7 @@ export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageSt
   onRequestDraftCardRevision: (
     messageId: string,
     prompt: string,
-    threadFramingStyleOverride?: ThreadFramingStyle | null,
+    revisionOptions?: DraftRevisionRequestOptions,
   ) => void;
   onToggleExpandedInlineThreadPreview: (messageId: string) => void;
   onCopyPreviewDraft: (messageId: string, content: string) => void;
@@ -135,11 +136,11 @@ export function useChatMessageStreamProps<TMessage extends ChatMessageStreamMess
       onOpenDraftEditor: (versionId, threadPostIndex) => {
         options.onOpenDraftEditor(message.id, versionId, threadPostIndex);
       },
-      onRequestDraftCardRevision: (prompt, threadFramingStyleOverride) => {
+      onRequestDraftCardRevision: (prompt, revisionOptions) => {
         options.onRequestDraftCardRevision(
           message.id,
           prompt,
-          threadFramingStyleOverride,
+          revisionOptions,
         );
       },
       onToggleExpandedInlineThreadPreview: () => {

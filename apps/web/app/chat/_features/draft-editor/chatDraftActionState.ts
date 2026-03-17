@@ -1,3 +1,4 @@
+import type { DraftFormatPreference } from "../../../../lib/agent-v2/contracts/chat.ts";
 import type { ThreadFramingStyle } from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import { getThreadFramingStyle } from "./chatDraftPreviewState.ts";
@@ -9,6 +10,12 @@ import {
 } from "./chatDraftSessionState.ts";
 
 export type DraftActionMessageLike = ChatMessageLike;
+
+export interface DraftRevisionRequestOptions {
+  formatPreferenceOverride?: DraftFormatPreference | null;
+  threadFramingStyleOverride?: ThreadFramingStyle | null;
+  focusedThreadPostIndex?: number;
+}
 
 export interface DraftEditActionPlan {
   activeDraftEditor: {
@@ -27,6 +34,7 @@ export interface DraftEditActionPlan {
     };
     intent: "edit";
     selectedDraftContextOverride: DraftVersionSnapshotLike;
+    formatPreferenceOverride?: DraftFormatPreference | null;
     threadFramingStyleOverride?: ThreadFramingStyle | null;
   };
 }
@@ -47,6 +55,7 @@ function buildDraftSelectionContext(args: {
   messageId: string;
   version: DraftVersionEntryLike;
   revisionChainId: string;
+  focusedThreadPostIndex?: number;
 }): DraftVersionSnapshotLike {
   return {
     messageId: args.messageId,
@@ -56,6 +65,9 @@ function buildDraftSelectionContext(args: {
     createdAt: args.version.createdAt,
     maxCharacterLimit: args.version.maxCharacterLimit,
     revisionChainId: args.revisionChainId,
+    ...(args.focusedThreadPostIndex !== undefined
+      ? { focusedThreadPostIndex: args.focusedThreadPostIndex }
+      : {}),
   };
 }
 
@@ -64,12 +76,15 @@ function buildDraftEditActionPlan(args: {
   version: DraftVersionEntryLike;
   revisionChainId: string;
   prompt: string;
+  formatPreferenceOverride?: DraftFormatPreference | null;
   threadFramingStyleOverride?: ThreadFramingStyle | null;
+  focusedThreadPostIndex?: number;
 }): DraftEditActionPlan {
   const selectedDraftContext = buildDraftSelectionContext({
     messageId: args.messageId,
     version: args.version,
     revisionChainId: args.revisionChainId,
+    focusedThreadPostIndex: args.focusedThreadPostIndex,
   });
 
   return {
@@ -89,6 +104,9 @@ function buildDraftEditActionPlan(args: {
       },
       intent: "edit",
       selectedDraftContextOverride: selectedDraftContext,
+      ...(args.formatPreferenceOverride !== undefined
+        ? { formatPreferenceOverride: args.formatPreferenceOverride }
+        : {}),
       ...(args.threadFramingStyleOverride !== undefined
         ? { threadFramingStyleOverride: args.threadFramingStyleOverride }
         : {}),
@@ -101,7 +119,7 @@ export function resolveDraftCardRevisionAction(args: {
   prompt: string;
   messages: DraftActionMessageLike[];
   composerCharacterLimit: number;
-  threadFramingStyleOverride?: ThreadFramingStyle | null;
+  revisionOptions?: DraftRevisionRequestOptions;
 }): DraftEditActionPlan | null {
   const message = args.messages.find((item) => item.id === args.messageId);
   if (!message) {
@@ -132,11 +150,17 @@ export function resolveDraftCardRevisionAction(args: {
     version: selectedVersion,
     revisionChainId,
     prompt: args.prompt,
-    ...(args.threadFramingStyleOverride || currentThreadFramingStyle
+    ...(args.revisionOptions?.formatPreferenceOverride !== undefined
+      ? { formatPreferenceOverride: args.revisionOptions.formatPreferenceOverride }
+      : {}),
+    ...(args.revisionOptions?.threadFramingStyleOverride || currentThreadFramingStyle
       ? {
           threadFramingStyleOverride:
-            args.threadFramingStyleOverride ?? currentThreadFramingStyle,
+            args.revisionOptions?.threadFramingStyleOverride ?? currentThreadFramingStyle,
         }
+      : {}),
+    ...(args.revisionOptions?.focusedThreadPostIndex !== undefined
+      ? { focusedThreadPostIndex: args.revisionOptions.focusedThreadPostIndex }
       : {}),
   });
 }

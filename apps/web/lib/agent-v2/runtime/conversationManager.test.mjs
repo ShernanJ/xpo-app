@@ -2435,6 +2435,9 @@ test("explicit draft format cues prefer post or thread wording over profile bias
     "longform",
   );
   assert.equal(inferExplicitDraftFormatPreference("write me a thread"), "thread");
+  assert.equal(inferExplicitDraftFormatPreference("turn into thread"), "thread");
+  assert.equal(inferExplicitDraftFormatPreference("convert to thread"), "thread");
+  assert.equal(inferExplicitDraftFormatPreference("make thread"), "thread");
 });
 
 test("shared character-limit trimming avoids shipping a visibly cut-off final fragment", () => {
@@ -3930,7 +3933,7 @@ test("revising capability retries delivery failures once and succeeds on a clean
   );
 });
 
-test("revising capability returns the repaired draft when delivery issues remain auto-correctable", async () => {
+test("revising capability falls back honestly when delivery repair collapses back to the original draft", async () => {
   const execution = await executeRevisingCapability({
     workflow: "revise_draft",
     capability: "revising",
@@ -3993,11 +3996,8 @@ test("revising capability returns the repaired draft when delivery issues remain
     },
   });
 
-  assert.equal(execution.output.kind, "revision_ready");
-  assert.equal(
-    execution.output.responseSeed.data.draft,
-    "the launch is live now",
-  );
+  assert.equal(execution.output.kind, "response");
+  assert.match(execution.output.response.response, /left the current draft as-is/i);
   assert.equal(
     execution.workers.some(
       (worker) => worker.groupId === "revision_delivery_validation_retry",

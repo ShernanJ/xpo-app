@@ -27,6 +27,7 @@ export interface SelectedDraftContextPayload {
   createdAt?: string;
   maxCharacterLimit?: number;
   revisionChainId?: string;
+  focusedThreadPostIndex?: number;
 }
 
 export interface SelectedAngleArtifactContext {

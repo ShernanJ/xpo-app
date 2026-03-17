@@ -11,6 +11,7 @@ import {
   type AgentProgressRun,
   type PendingStatusResolvedStep,
 } from "@/lib/chat/agentProgress";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 
 type AgentProgressCardVariant = "bubble" | "message" | "shell";
 
@@ -78,18 +79,11 @@ function ThinkingGlyph(props: { phase: AgentProgressRun["phase"] }) {
     return <Lightbulb className="h-3.5 w-3.5 text-zinc-400" aria-hidden />;
   }
 
-  const shouldAnimate = props.phase === "active";
-  return (
-    <span className="flex items-center gap-1" aria-hidden>
-      {[0, 1, 2].map((index) => (
-        <span
-          key={index}
-          className={`h-1 w-1 rounded-full bg-zinc-500/85 ${shouldAnimate ? "animate-pulse" : ""}`}
-          style={shouldAnimate ? { animationDelay: `${index * 160}ms` } : undefined}
-        />
-      ))}
-    </span>
-  );
+  if (props.phase === "failed") {
+    return <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" aria-hidden />;
+  }
+
+  return null;
 }
 
 export function AgentProgressCard(props: AgentProgressCardProps) {
@@ -161,6 +155,8 @@ export function AgentProgressCard(props: AgentProgressCardProps) {
     progress.phase === "active"
       ? (activeStep?.id ?? snapshot.summaryLabel)
       : `${progress.phase}-${progress.endedAtMs ?? progress.startedAtMs}`;
+  const activeTickerClassName =
+    "truncate text-[13px] font-medium leading-5 tracking-[0.01em] [--base-color:#71717a] [--base-gradient-color:#fafafa] dark:[--base-color:#52525b] dark:[--base-gradient-color:#ffffff]";
 
   return (
     <div className={`${resolveWrapperClassName(variant)} text-left`}>
@@ -199,21 +195,26 @@ export function AgentProgressCard(props: AgentProgressCardProps) {
         </button>
       ) : (
         <div className="flex items-center gap-2">
-          <ThinkingGlyph phase={progress.phase} />
           <span className="shrink-0 text-[11px] tabular-nums text-zinc-600">
             {durationLabel}
           </span>
           <div className="min-w-0 flex-1 overflow-hidden">
-            <AnimatePresence initial={false} mode="wait">
-              <motion.p
-                key={tickerKey}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
-                className={`truncate text-xs font-medium ${resolveTickerToneClassName(progress)}`}
-                {...transitionProps}
-              >
+            {progress.phase === "active" ? (
+              <TextShimmer as="p" duration={1.6} className={activeTickerClassName}>
                 {tickerLabel}
-              </motion.p>
-            </AnimatePresence>
+              </TextShimmer>
+            ) : (
+              <AnimatePresence initial={false} mode="wait">
+                <motion.p
+                  key={tickerKey}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
+                  className={`truncate text-xs font-medium ${resolveTickerToneClassName(progress)}`}
+                  {...transitionProps}
+                >
+                  {tickerLabel}
+                </motion.p>
+              </AnimatePresence>
+            )}
           </div>
         </div>
       )}

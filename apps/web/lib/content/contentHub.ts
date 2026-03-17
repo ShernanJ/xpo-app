@@ -16,6 +16,7 @@ type FolderRecord = {
   name: string;
   color: string | null;
   createdAt: Date;
+  itemCount: number;
 };
 
 type DraftCandidateWithFolder = {
@@ -56,6 +57,13 @@ export interface SerializedFolder {
   name: string;
   color: string | null;
   createdAt: string;
+  itemCount: number;
+}
+
+export interface SerializedDeletedFolder {
+  id: string;
+  name: string;
+  itemCount: number;
 }
 
 export interface SerializedContentItem {
@@ -144,12 +152,33 @@ export function isGlobalContentOutputShape(
   return GLOBAL_CONTENT_OUTPUT_SHAPES.includes(value as GlobalContentOutputShape);
 }
 
+function toFolderRecord(folder: {
+  id: string;
+  userId: string;
+  name: string;
+  color: string | null;
+  createdAt: Date;
+  _count?: {
+    drafts: number;
+  };
+}): FolderRecord {
+  return {
+    id: folder.id,
+    userId: folder.userId,
+    name: folder.name,
+    color: folder.color,
+    createdAt: folder.createdAt,
+    itemCount: folder._count?.drafts ?? 0,
+  };
+}
+
 export function serializeFolder(folder: FolderRecord): SerializedFolder {
   return {
     id: folder.id,
     name: folder.name,
     color: folder.color,
     createdAt: folder.createdAt.toISOString(),
+    itemCount: folder.itemCount,
   };
 }
 
@@ -626,22 +655,40 @@ export async function markSupersededDraftVersions(args: {
 }
 
 export async function listFoldersForUser(userId: string) {
-  return prisma.folder.findMany({
+  const folders = await prisma.folder.findMany({
     where: { userId },
-    orderBy: [{ createdAt: "asc" }],
+    include: {
+      _count: {
+        select: {
+          drafts: true,
+        },
+      },
+    },
+    orderBy: [{ name: "asc" }],
   });
+
+  return folders.map(toFolderRecord);
 }
 
 export async function findFolderForUser(args: {
   userId: string;
   folderId: string;
 }) {
-  return prisma.folder.findFirst({
+  const folder = await prisma.folder.findFirst({
     where: {
       id: args.folderId,
       userId: args.userId,
     },
+    include: {
+      _count: {
+        select: {
+          drafts: true,
+        },
+      },
+    },
   });
+
+  return folder ? toFolderRecord(folder) : null;
 }
 
 export async function createFolderForUser(args: {
@@ -649,11 +696,69 @@ export async function createFolderForUser(args: {
   name: string;
   color?: string | null;
 }) {
-  return prisma.folder.create({
+  const folder = await prisma.folder.create({
     data: {
       userId: args.userId,
       name: args.name,
       color: args.color?.trim() || null,
     },
   });
+
+  return toFolderRecord(folder);
+}
+
+export async function renameFolderForUser(args: {
+  folderId: string;
+  name: string;
+}) {
+  const folder = await prisma.folder.update({
+    where: { id: args.folderId },
+    data: {
+      name: args.name,
+    },
+    include: {
+      _count: {
+        select: {
+          drafts: true,
+        },
+      },
+    },
+  });
+
+  return toFolderRecord(folder);
+}
+
+export async function deleteFolderForUser(args: {
+  userId: string;
+  folderId: string;
+}): Promise<SerializedDeletedFolder | null> {
+  const folder = await prisma.folder.findFirst({
+    where: {
+      id: args.folderId,
+      userId: args.userId,
+    },
+    include: {
+      _count: {
+        select: {
+          drafts: true,
+        },
+      },
+    },
+  });
+
+  if (!folder) {
+    return null;
+  }
+
+  await prisma.folder.delete({
+    where: {
+      id: folder.id,
+    },
+  });
+
+  return {
+    id: folder.id,
+    name: folder.name,
+    itemCount: folder._count.drafts,
+  };
 }

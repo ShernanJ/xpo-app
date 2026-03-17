@@ -152,7 +152,9 @@ test("resolveDraftCardRevisionAction respects an explicit thread framing overrid
     messageId: "message-2",
     prompt: "make it stronger",
     composerCharacterLimit: 280,
-    threadFramingStyleOverride: "numbered",
+    revisionOptions: {
+      threadFramingStyleOverride: "numbered",
+    },
     messages: [
       {
         id: "message-2",
@@ -175,6 +177,81 @@ test("resolveDraftCardRevisionAction respects an explicit thread framing overrid
   });
 
   assert.equal(action?.request.threadFramingStyleOverride, "numbered");
+});
+
+test("resolveDraftCardRevisionAction carries an explicit format override for thread conversions", () => {
+  const action = resolveDraftCardRevisionAction({
+    messageId: "message-thread-convert",
+    prompt: "turn into thread",
+    composerCharacterLimit: 280,
+    revisionOptions: {
+      formatPreferenceOverride: "thread",
+      threadFramingStyleOverride: "soft_signal",
+    },
+    messages: [
+      {
+        id: "message-thread-convert",
+        role: "assistant",
+        outputShape: "short_form_post",
+        draftVersions: [
+          {
+            id: "v-thread-convert",
+            content: "A short post that should become a thread",
+            source: "assistant_generated",
+            createdAt: "2026-03-14T12:00:00.000Z",
+            basedOnVersionId: null,
+            weightedCharacterCount: 38,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(action?.request.formatPreferenceOverride, "thread");
+  assert.equal(action?.request.threadFramingStyleOverride, "soft_signal");
+});
+
+test("resolveDraftCardRevisionAction carries the focused thread post index when provided", () => {
+  const action = resolveDraftCardRevisionAction({
+    messageId: "message-4",
+    prompt: "make it tighter",
+    composerCharacterLimit: 560,
+    revisionOptions: {
+      focusedThreadPostIndex: 1,
+    },
+    messages: [
+      {
+        id: "message-4",
+        role: "assistant",
+        outputShape: "thread_seed",
+        revisionChainId: "chain-4",
+        draftVersions: [
+          {
+            id: "v4",
+            content: "Hook\n\n---\n\nMiddle",
+            source: "assistant_generated",
+            createdAt: "2026-03-14T12:00:00.000Z",
+            basedOnVersionId: null,
+            weightedCharacterCount: 18,
+            maxCharacterLimit: 560,
+            supportAsset: null,
+          },
+        ],
+        activeDraftVersionId: "v4",
+      },
+    ],
+  });
+
+  assert.equal(
+    action?.request.selectedDraftContextOverride.focusedThreadPostIndex,
+    1,
+  );
+  assert.equal(
+    action?.request.artifactContext.selectedDraftContext.focusedThreadPostIndex,
+    1,
+  );
 });
 
 test("resolveSelectedThreadFramingChangeAction plans a revision only when the style changes", () => {

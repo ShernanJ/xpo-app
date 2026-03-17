@@ -1,4 +1,4 @@
-import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
+import type { ComponentProps, ElementType, HTMLAttributes, ReactNode } from "react";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,11 +8,19 @@ import { ChatComposerSurface } from "./ChatComposerSurface";
 
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => children,
-  motion: {
-    span: ({ children, ...props }: HTMLAttributes<HTMLSpanElement>) => (
-      <span {...props}>{children}</span>
-    ),
-  },
+  motion: new Proxy(
+    ((Component: ElementType) =>
+      ({ children, ...props }: HTMLAttributes<HTMLElement>) => (
+        <Component {...props}>{children}</Component>
+      )) as unknown as typeof import("framer-motion").motion,
+    {
+      get: (_target, tagName: string) =>
+        ({ children, ...props }: HTMLAttributes<HTMLElement>) => {
+          const Component = tagName as ElementType;
+          return <Component {...props}>{children}</Component>;
+        },
+    },
+  ),
 }));
 
 function buildProps(
@@ -127,7 +135,7 @@ test("shows the thinking placeholder while the agent is sending", () => {
 
   render(<ChatComposerSurface {...props} />);
 
-  expect(screen.getByText("Agent is thinking...")).toBeVisible();
+  expect(screen.getByText("Agent is thinking")).toBeVisible();
   expect(
     screen.queryByText("write me a post about building in public..."),
   ).not.toBeInTheDocument();

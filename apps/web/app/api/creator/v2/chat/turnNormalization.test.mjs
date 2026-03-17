@@ -78,6 +78,7 @@ test("draft actions keep the user instruction but bypass reply parsing by contra
           messageId: "msg_1",
           versionId: "ver_1",
           content: "draft body",
+          focusedThreadPostIndex: 2,
         },
       },
     },
@@ -86,6 +87,7 @@ test("draft actions keep the user instruction but bypass reply parsing by contra
   assert.equal(normalized.source, "draft_action");
   assert.equal(normalized.explicitIntent, "edit");
   assert.equal(normalized.orchestrationMessage, "make it shorter");
+  assert.equal(normalized.selectedDraftContext?.focusedThreadPostIndex, 2);
   assert.equal(normalized.shouldAllowReplyHandling, false);
   assert.equal(normalized.diagnostics.replyHandlingBypassedReason, "turn_source_draft_action");
 });

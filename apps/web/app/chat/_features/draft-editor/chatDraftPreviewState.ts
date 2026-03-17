@@ -1,4 +1,5 @@
 import {
+  buildThreadConversionPrompt,
   computeXWeightedCharacterCount,
   getXCharacterLimitForAccount,
   inferThreadFramingStyleFromPosts,
@@ -257,8 +258,7 @@ export function resolveInlineDraftPreviewState(args: {
   const transformDraftPrompt = isLongformPreview
     ? "turn this into a shortform post under 280 characters"
     : "turn this into a longform post with more detail";
-  const convertToThreadPrompt =
-    `turn this into a thread with 4 to 6 posts. keep every post under ${threadPostCharacterLimit.toLocaleString()} characters, make the opener clearly signal the thread, and keep the flow native to x.`;
+  const convertToThreadPrompt = buildThreadConversionPrompt(threadPostCharacterLimit);
   const isFocusedDraftPreview = args.selectedDraftMessageId === args.message.id;
   const previewRevealKey = args.message.draftBundle?.selectedOptionId
     ? buildDraftBundleRevealKey(args.message.draftBundle.selectedOptionId)

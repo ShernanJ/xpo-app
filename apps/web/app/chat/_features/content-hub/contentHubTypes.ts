@@ -3,7 +3,7 @@
 import type { DraftArtifactDetails } from "@/lib/onboarding/shared/draftArtifacts";
 
 export type ContentStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
-export type ContentHubViewMode = "date" | "status";
+export type ContentHubViewMode = "date" | "status" | "group";
 
 export interface ContentHubAuthorIdentity {
   displayName: string;
@@ -16,6 +16,13 @@ export interface FolderRecord {
   name: string;
   color: string | null;
   createdAt: string;
+  itemCount: number;
+}
+
+export interface DeletedFolderRecord {
+  id: string;
+  name: string;
+  itemCount: number;
 }
 
 export interface ContentItemRecord {
@@ -62,5 +69,19 @@ export interface FolderCreateResponse {
   ok: true;
   data: {
     folder: FolderRecord;
+  };
+}
+
+export interface FolderMutationResponse {
+  ok: true;
+  data: {
+    folder: FolderRecord;
+  };
+}
+
+export interface FolderDeleteResponse {
+  ok: true;
+  data: {
+    folder: DeletedFolderRecord;
   };
 }

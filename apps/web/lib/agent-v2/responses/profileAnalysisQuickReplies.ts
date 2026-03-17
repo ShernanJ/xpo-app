@@ -10,11 +10,25 @@ function truncateLabel(value: string): string {
   return normalized.length > 30 ? `${normalized.slice(0, 27).trimEnd()}...` : normalized;
 }
 
-function buildChip(label: string, value: string): CreatorChatQuickReply {
+function clipPromptSnippet(value: string, maxLength: number): string {
+  const normalized = normalizeText(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function buildChip(
+  label: string,
+  value: string,
+  overrides?: Partial<CreatorChatQuickReply>,
+): CreatorChatQuickReply {
   return {
     kind: "planner_action",
     label: truncateLabel(label),
     value: normalizeText(value),
+    ...overrides,
   };
 }
 
@@ -38,12 +52,28 @@ function buildBannerChip(): CreatorChatQuickReply {
 
 function buildPinnedChip(artifact: ProfileAnalysisArtifact): CreatorChatQuickReply {
   const pinnedPreview = artifact.pinnedPost?.text?.trim();
+  const pinnedDiagnosis = artifact.audit.pinnedTweetCheck.summary.trim();
+  const direction = [
+    artifact.audit.pinnedTweetCheck.promptSuggestions?.originStory,
+    artifact.audit.pinnedTweetCheck.promptSuggestions?.coreThesis,
+  ]
+    .map((value) => (typeof value === "string" ? normalizeText(value) : ""))
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(" | ");
 
   return buildChip(
     "Draft pinned post",
     pinnedPreview
-      ? `Draft a stronger pinned post that keeps the best proof from this current version: "${pinnedPreview}"`
-      : "Draft a stronger pinned post that introduces me with proof and gives new visitors a clear reason to follow.",
+      ? `Draft a stronger pinned post as one shortform post, not a thread. Fix this issue from the audit: ${pinnedDiagnosis} Keep the best proof from the current pinned post: "${clipPromptSnippet(pinnedPreview, 220)}".${
+          direction ? ` Use this direction from the audit: ${direction}.` : ""
+        }`
+      : `Draft a stronger pinned post as one shortform post, not a thread. Fix this issue from the audit: ${pinnedDiagnosis} Introduce me with proof and give new visitors a clear reason to follow.${
+          direction ? ` Use this direction from the audit: ${direction}.` : ""
+        }`,
+    {
+      explicitIntent: "draft",
+    },
   );
 }
 

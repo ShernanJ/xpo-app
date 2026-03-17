@@ -39,6 +39,7 @@ export interface DraftVersionSnapshotLike {
   createdAt: string;
   maxCharacterLimit?: number;
   revisionChainId?: string;
+  focusedThreadPostIndex?: number;
 }
 
 export interface ChatHistoryMessage {

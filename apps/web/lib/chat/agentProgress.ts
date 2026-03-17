@@ -144,7 +144,13 @@ function looksLikeThreadConversionRequest(args: {
   const normalized = normalizeMessage(args.message);
   return (
     normalized.includes("turn this into a thread") ||
+    normalized.includes("turn this into thread") ||
+    normalized.includes("turn into a thread") ||
+    normalized.includes("turn into thread") ||
+    normalized.includes("convert to thread") ||
+    normalized.includes("convert this into a thread") ||
     normalized.includes("make it a thread") ||
+    normalized === "make thread" ||
     normalized.includes("keep the same thread") ||
     normalized.includes("remove thread numbering") ||
     normalized.includes("make the opener clearly signal the thread")

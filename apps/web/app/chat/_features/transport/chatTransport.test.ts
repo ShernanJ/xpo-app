@@ -123,6 +123,7 @@ test("prepareAssistantReplyTransport carries selected draft context for revision
       source: "assistant_generated",
       createdAt: "2026-03-13T12:00:00.000Z",
       revisionChainId: "revision-chain-1",
+      focusedThreadPostIndex: 4,
     },
     strategyInputs: baseStrategyInputs,
     toneInputs: baseToneInputs,
@@ -132,5 +133,40 @@ test("prepareAssistantReplyTransport carries selected draft context for revision
   assert.equal(prepared.effectiveIntent, "edit");
   assert.equal(prepared.transportRequest?.intent, "edit");
   assert.equal(prepared.transportRequest?.selectedDraftContext?.versionId, "ver-1");
+  assert.equal(prepared.transportRequest?.selectedDraftContext?.focusedThreadPostIndex, 4);
+  assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
+});
+
+test("prepareAssistantReplyTransport preserves thread format overrides on selected-draft revisions", () => {
+  const selectedDraftContext = {
+    messageId: "msg-2",
+    versionId: "ver-2",
+    content: "single post draft",
+    source: "assistant_generated" as const,
+    createdAt: "2026-03-13T12:00:00.000Z",
+  };
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "turn into thread",
+    history: [],
+    runId: "run-2",
+    threadId: "thread-2",
+    workspaceHandle: "stan",
+    turnSource: "draft_action",
+    intent: "edit",
+    artifactContext: {
+      kind: "draft_selection",
+      action: "edit",
+      selectedDraftContext,
+    },
+    formatPreferenceOverride: "thread",
+    threadFramingStyleOverride: "soft_signal",
+    selectedDraftContext,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.transportRequest?.formatPreference, "thread");
+  assert.equal(prepared.transportRequest?.threadFramingStyle, "soft_signal");
   assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
 });

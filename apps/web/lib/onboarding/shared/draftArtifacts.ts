@@ -82,6 +82,18 @@ export function getThreadTotalXLimit(threadPostMaxCharacterLimit?: number): numb
   return getThreadPostLimit(threadPostMaxCharacterLimit) * THREAD_DEFAULT_POST_COUNT;
 }
 
+export function buildThreadConversionPrompt(
+  threadPostCharacterLimit?: number | null,
+): string {
+  const characterLimitInstruction =
+    typeof threadPostCharacterLimit === "number" &&
+    Number.isFinite(threadPostCharacterLimit)
+      ? `keep every post under ${threadPostCharacterLimit.toLocaleString()} characters`
+      : "keep every post under the account's allowed x character limit";
+
+  return `turn this into a thread with 4 to 6 posts. ${characterLimitInstruction}, make the opener clearly signal the thread, keep the flow native to x, and preserve the core idea while rebuilding the structure.`;
+}
+
 export function getXCharacterLimitForShape(
   outputShape: CreatorGenerationOutputShape,
 ): number {

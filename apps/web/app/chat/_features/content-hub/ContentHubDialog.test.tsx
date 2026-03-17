@@ -25,6 +25,20 @@ function buildRelativeIso(dayOffset: number) {
   return date.toISOString();
 }
 
+function buildFolder(args: {
+  id: string;
+  name: string;
+  itemCount?: number;
+}) {
+  return {
+    id: args.id,
+    name: args.name,
+    color: null,
+    createdAt: buildRelativeIso(0),
+    itemCount: args.itemCount ?? 0,
+  };
+}
+
 function buildItem(args: {
   id: string;
   title: string;
@@ -33,12 +47,7 @@ function buildItem(args: {
   content: string;
   publishedTweetId?: string | null;
   folderId?: string | null;
-  folder?: {
-    id: string;
-    name: string;
-    color: string | null;
-    createdAt: string;
-  } | null;
+  folder?: ReturnType<typeof buildFolder> | null;
 }) {
   return {
     id: args.id,
@@ -86,6 +95,10 @@ function buildItem(args: {
     updatedAt: args.createdAt,
     postedAt: args.status === "PUBLISHED" ? args.createdAt : null,
   };
+}
+
+async function openBrowseMode(user: ReturnType<typeof userEvent.setup>, label: string) {
+  await user.click(screen.getAllByRole("button", { name: label })[0]);
 }
 
 test("groups items by date and filters with the header search", async () => {
@@ -148,7 +161,6 @@ test("groups items by date and filters with the header search", async () => {
 
   expect(await screen.findByText("Today")).toBeVisible();
   expect(screen.getByText("Yesterday")).toBeVisible();
-  expect(screen.getAllByText("Today draft").length).toBeGreaterThan(0);
 
   await user.type(screen.getByPlaceholderText("Search posts & threads"), "yesterday");
 
@@ -156,6 +168,93 @@ test("groups items by date and filters with the header search", async () => {
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
   expect(screen.getAllByText("Yesterday note").length).toBeGreaterThan(0);
+});
+
+test("renders date, status, and group browse modes and orders group sections with No Group first", async () => {
+  const user = userEvent.setup();
+  const alphaGroup = buildFolder({ id: "group_alpha", name: "Alpha", itemCount: 1 });
+  const zuluGroup = buildFolder({ id: "group_zulu", name: "Zulu", itemCount: 1 });
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_ungrouped",
+              title: "Ungrouped draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "No group content",
+            }),
+            buildItem({
+              id: "draft_alpha",
+              title: "Alpha draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Alpha content",
+              folderId: alphaGroup.id,
+              folder: alphaGroup,
+            }),
+            buildItem({
+              id: "draft_zulu",
+              title: "Zulu draft",
+              status: "PUBLISHED",
+              createdAt: buildRelativeIso(-1),
+              content: "Zulu content",
+              folderId: zuluGroup.id,
+              folder: zuluGroup,
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [zuluGroup, alphaGroup],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Ungrouped draft")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Date" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Status" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Group" }).length).toBeGreaterThan(0);
+
+  await openBrowseMode(user, "Group");
+
+  const noGroupLabel = screen.getAllByText("No Group")[0];
+  const alphaLabel = screen.getAllByText("Alpha")[0];
+  const zuluLabel = screen.getAllByText("Zulu")[0];
+
+  expect(noGroupLabel.compareDocumentPosition(alphaLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(alphaLabel.compareDocumentPosition(zuluLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByText("Alpha draft").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Zulu draft").length).toBeGreaterThan(0);
 });
 
 test("moves a card between status columns with drag and drop", async () => {
@@ -224,7 +323,7 @@ test("moves a card between status columns with drag and drop", async () => {
   );
 
   await screen.findByText("Board draft");
-  await user.click(screen.getAllByRole("button", { name: /status/i })[0]);
+  await openBrowseMode(user, "Status");
 
   const draggableCard = screen
     .getAllByText("Status draft body")[0]
@@ -241,6 +340,90 @@ test("moves a card between status columns with drag and drop", async () => {
   await waitFor(() => {
     expect(fetchWorkspace).toHaveBeenCalledWith(
       "/api/creator/v2/content/draft_board",
+      expect.objectContaining({
+        method: "PATCH",
+      }),
+    );
+  });
+});
+
+test("updates status from the compact preview dropdown", async () => {
+  const user = userEvent.setup();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_status",
+              title: "Status draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Status dropdown body",
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    if (method === "PATCH" && url === "/api/creator/v2/content/draft_status") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          item: buildItem({
+            id: "draft_status",
+            title: "Status draft",
+            status: "ARCHIVED",
+            createdAt: buildRelativeIso(0),
+            content: "Status dropdown body",
+          }),
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Status draft")).toBeVisible();
+  await user.click(
+    screen.getByRole("button", { name: /Status draft/i }),
+  );
+  expect(screen.getByLabelText("Status:")).toBeVisible();
+  expect(screen.getByLabelText("Group:")).toBeVisible();
+
+  await user.selectOptions(screen.getByLabelText("Status:"), "ARCHIVED");
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/content/draft_status",
       expect.objectContaining({
         method: "PATCH",
       }),
@@ -304,8 +487,10 @@ test("opens the source thread at the selected message", async () => {
   );
 });
 
-test("creates folders and updates folder assignment from the preview pane", async () => {
+test("creates a new group from the dropdown and assigns it to the selected item", async () => {
   const user = userEvent.setup();
+  const existingGroup = buildFolder({ id: "folder_existing", name: "Launch", itemCount: 1 });
+  const newGroup = buildFolder({ id: "folder_new", name: "April Launch", itemCount: 0 });
   const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
@@ -316,11 +501,11 @@ test("creates folders and updates folder assignment from the preview pane", asyn
         data: {
           items: [
             buildItem({
-              id: "draft_folder",
-              title: "Folder draft",
+              id: "draft_group",
+              title: "Group draft",
               status: "DRAFT",
               createdAt: buildRelativeIso(0),
-              content: "Folder draft body",
+              content: "Group draft body",
             }),
           ],
         },
@@ -331,14 +516,7 @@ test("creates folders and updates folder assignment from the preview pane", asyn
       return createJsonResponse({
         ok: true,
         data: {
-          folders: [
-            {
-              id: "folder_existing",
-              name: "Launch",
-              color: null,
-              createdAt: buildRelativeIso(0),
-            },
-          ],
+          folders: [existingGroup],
         },
       });
     }
@@ -347,33 +525,23 @@ test("creates folders and updates folder assignment from the preview pane", asyn
       return createJsonResponse({
         ok: true,
         data: {
-          folder: {
-            id: "folder_new",
-            name: "April Launch",
-            color: "#27272a",
-            createdAt: buildRelativeIso(0),
-          },
+          folder: newGroup,
         },
       });
     }
 
-    if (method === "PATCH" && url === "/api/creator/v2/content/draft_folder") {
+    if (method === "PATCH" && url === "/api/creator/v2/content/draft_group") {
       return createJsonResponse({
         ok: true,
         data: {
           item: buildItem({
-            id: "draft_folder",
-            title: "Folder draft",
+            id: "draft_group",
+            title: "Group draft",
             status: "DRAFT",
             createdAt: buildRelativeIso(0),
-            content: "Folder draft body",
-            folderId: "folder_existing",
-            folder: {
-              id: "folder_existing",
-              name: "Launch",
-              color: null,
-              createdAt: buildRelativeIso(0),
-            },
+            content: "Group draft body",
+            folderId: newGroup.id,
+            folder: { ...newGroup, itemCount: 1 },
           }),
         },
       });
@@ -397,25 +565,210 @@ test("creates folders and updates folder assignment from the preview pane", asyn
     />,
   );
 
-  await screen.findByText("Folder draft");
-  await user.click(
-    screen.getAllByText("Folder draft")[0].closest("button") as HTMLButtonElement,
-  );
+  expect(await screen.findByText("Group draft")).toBeVisible();
 
-  await user.type(screen.getByPlaceholderText("Create folder"), "April Launch");
-  await user.click(screen.getByRole("button", { name: /create folder/i }));
+  await user.selectOptions(screen.getByLabelText("Group:"), "__add_new_group__");
+  expect(await screen.findByRole("dialog", { name: "Add Group" })).toBeVisible();
 
-  expect(await screen.findByText(/Created folder "April Launch"/i)).toBeVisible();
-  expect(screen.getByRole("option", { name: "April Launch" })).toBeVisible();
-
-  await user.selectOptions(screen.getByRole("combobox"), "folder_existing");
+  await user.type(screen.getByLabelText("Group name"), "April Launch");
+  await user.click(screen.getByRole("button", { name: "Save" }));
 
   await waitFor(() => {
     expect(fetchWorkspace).toHaveBeenCalledWith(
-      "/api/creator/v2/content/draft_folder",
+      "/api/creator/v2/folders",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/content/draft_group",
       expect.objectContaining({
         method: "PATCH",
       }),
     );
   });
+
+  expect(await screen.findByText('Created group "April Launch" and assigned it.')).toBeVisible();
+  expect(screen.getByRole("option", { name: "April Launch" })).toBeVisible();
+});
+
+test("renames a group from the manage groups dialog and updates the loaded item", async () => {
+  const user = userEvent.setup();
+  const originalGroup = buildFolder({ id: "folder_existing", name: "Launch", itemCount: 2 });
+  const renamedGroup = buildFolder({ id: "folder_existing", name: "Renamed Launch", itemCount: 2 });
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_rename_group",
+              title: "Rename draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Rename group body",
+              folderId: originalGroup.id,
+              folder: originalGroup,
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [originalGroup],
+        },
+      });
+    }
+
+    if (method === "PATCH" && url === "/api/creator/v2/folders/folder_existing") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folder: renamedGroup,
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Rename draft")).toBeVisible();
+  await user.click(
+    screen.getByRole("button", { name: /Rename draft/i }),
+  );
+
+  await user.click(screen.getByRole("button", { name: "Manage Groups" }));
+  expect(await screen.findByRole("dialog", { name: "Manage Groups" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Rename" }));
+  const renameInput = screen.getByLabelText("Rename group");
+  await user.clear(renameInput);
+  await user.type(renameInput, "Renamed Launch");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/folders/folder_existing",
+      expect.objectContaining({
+        method: "PATCH",
+      }),
+    );
+  });
+
+  expect(await screen.findByText('Renamed group to "Renamed Launch".')).toBeVisible();
+  expect(screen.getByRole("option", { name: "Renamed Launch" })).toBeVisible();
+});
+
+test("deletes a group from the manage groups dialog and clears selected items back to No Group", async () => {
+  const user = userEvent.setup();
+  const existingGroup = buildFolder({ id: "folder_existing", name: "Launch", itemCount: 3 });
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_delete_group",
+              title: "Delete group draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Delete group body",
+              folderId: existingGroup.id,
+              folder: existingGroup,
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [existingGroup],
+        },
+      });
+    }
+
+    if (method === "DELETE" && url === "/api/creator/v2/folders/folder_existing") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folder: {
+            id: existingGroup.id,
+            name: existingGroup.name,
+            itemCount: existingGroup.itemCount,
+          },
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Delete group draft")).toBeVisible();
+  await user.click(
+    screen.getByRole("button", { name: /Delete group draft/i }),
+  );
+
+  await user.click(screen.getByRole("button", { name: "Manage Groups" }));
+  await user.click(screen.getByRole("button", { name: "Delete" }));
+  await user.click(screen.getByRole("button", { name: "Delete Group" }));
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/folders/folder_existing",
+      expect.objectContaining({
+        method: "DELETE",
+      }),
+    );
+  });
+
+  expect(
+    await screen.findByText('Deleted group "Launch". 3 posts/threads moved to No Group.'),
+  ).toBeVisible();
+  expect(screen.getByLabelText("Group:")).toHaveValue("");
+  expect(screen.queryByRole("option", { name: "Launch" })).not.toBeInTheDocument();
 });

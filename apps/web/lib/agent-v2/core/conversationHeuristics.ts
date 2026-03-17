@@ -46,8 +46,11 @@ export function inferExplicitDraftFormatPreference(
 
   const threadPatterns = [
     /^(?:give|write|draft|make|create|generate)\s+(?:me\s+)?(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
-    /\b(?:turn|make)\s+(?:this|that|it)\s+into\s+(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
+    /\bturn\s+(?:(?:this|that|it)\s+)?into\s+(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
+    /\bconvert\s+(?:(?:this|that|it)\s+)?(?:into\s+|to\s+)(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
+    /\brewrite\s+(?:(?:this|that|it)\s+)?as\s+(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/,
     /\bmake\s+it\s+a\s+thread\b/,
+    /^make\s+thread$/,
   ];
   if (threadPatterns.some((pattern) => pattern.test(normalized))) {
     return "thread";

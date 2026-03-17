@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { buildThreadConversionPrompt } from "../onboarding/draftArtifacts.ts";
 import { buildDynamicDraftChoices } from "./responses/clarificationDraftChips.ts";
 import { normalizeDraftRevisionInstruction } from "./capabilities/revision/draftRevision.ts";
 import { buildDraftReply } from "./responses/draftReply.ts";
@@ -643,6 +644,16 @@ test("profile analysis quick replies prioritize weak profile surfaces", () => {
     quickReplies.map((chip) => chip.label),
     ["Rewrite bio", "Fix banner promise", "Draft pinned post"],
   );
+  assert.equal(quickReplies[2].explicitIntent, "draft");
+  assert.match(
+    quickReplies[2].value,
+    /fix this issue from the audit: pinned post needs a clearer authority story\./i,
+  );
+  assert.match(
+    quickReplies[2].value,
+    /keep the best proof from the current pinned post: "Current pinned post"/i,
+  );
+  assert.match(quickReplies[2].value, /use this direction from the audit: origin \| core\./i);
 });
 
 test("quick reply labels keep natural sentence casing for normal phrases", async () => {
@@ -1313,6 +1324,29 @@ test("draft revision normalizer recognizes length trims", () => {
   assert.match(directive.instruction, /shorten the current draft/i);
 });
 
+test("reviser prompt includes dedicated trim guidance", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./agents/reviser.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(source, /LENGTH TRIM MODE:/);
+  assert.match(
+    source,
+    /compress it into exactly one standalone post instead of returning a lightly shortened near-duplicate/i,
+  );
+});
+
+test("reviser prompt includes thread-local revision guidance", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./agents/reviser.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(source, /THREAD-LOCAL REVISION MODE:/);
+  assert.match(source, /Return exactly .* not the whole thread/i);
+});
+
 test("draft revision normalizer recognizes style nudges like less linkedin", () => {
   const directive = normalizeDraftRevisionInstruction(
     "less linkedin",
@@ -1357,13 +1391,95 @@ test("draft revision normalizer treats 'clean this up' as a tone shift", () => {
 
 test("draft revision normalizer treats thread conversion as a full rewrite", () => {
   const directive = normalizeDraftRevisionInstruction(
-    "turn this into a thread with 4 to 6 posts. keep the opener natural.",
+    "turn into thread",
     "momentum feels good. progress survives pressure.",
   );
 
   assert.equal(directive.changeKind, "full_rewrite");
-  assert.match(directive.instruction, /native x thread/i);
-  assert.match(directive.instruction, /do not just chop/i);
+  assert.equal(directive.targetFormat, "thread");
+  assert.equal(directive.scope, "whole_draft");
+  assert.equal(directive.instruction, buildThreadConversionPrompt());
+});
+
+test("draft revision normalizer keeps explicit thread conversion requests on thread format", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "turn this into a thread with 4 to 6 posts. keep every post under 25,000 characters.",
+    "momentum feels good. progress survives pressure.",
+  );
+
+  assert.equal(directive.changeKind, "full_rewrite");
+  assert.equal(directive.targetFormat, "thread");
+  assert.equal(directive.instruction, buildThreadConversionPrompt());
+});
+
+test("draft revision normalizer treats shortform conversion as a full rewrite", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "turn this into a shortform post under 280 characters",
+    "a longer multi-paragraph draft that needs to become one tight post",
+  );
+
+  assert.equal(directive.changeKind, "full_rewrite");
+  assert.equal(directive.targetFormat, "shortform");
+  assert.equal(directive.scope, "whole_draft");
+  assert.match(directive.instruction, /exactly one standalone x post under 280 weighted characters/i);
+  assert.match(directive.instruction, /preserve the core idea and strongest proof/i);
+  assert.match(directive.instruction, /do not use thread separators, post labels, or multi-post structure/i);
+});
+
+test("thread revision normalizer targets the ending span for stronger ending CTA requests", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "Stronger ending CTA",
+    "Hook\n\n---\n\nProof\n\n---\n\nDetail\n\n---\n\nSetup close\n\n---\n\nOld CTA",
+  );
+
+  assert.equal(directive.scope, "thread_span");
+  assert.deepEqual(directive.targetSpan, {
+    startIndex: 3,
+    endIndex: 4,
+  });
+  assert.equal(directive.targetFormat, null);
+  assert.equal(directive.threadIntent, "ending");
+  assert.equal(directive.preserveThreadStructure, true);
+});
+
+test("thread revision normalizer targets an explicit post reference", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "rewrite post 3 to sound more direct",
+    "Hook\n\n---\n\nProof\n\n---\n\nMiddle\n\n---\n\nClose",
+  );
+
+  assert.equal(directive.scope, "thread_span");
+  assert.deepEqual(directive.targetSpan, {
+    startIndex: 2,
+    endIndex: 2,
+  });
+  assert.equal(directive.threadIntent, "explicit_post");
+});
+
+test("thread revision normalizer targets the opener when the user asks to fix the hook", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "fix the hook",
+    "Weak opener\n\n---\n\nProof\n\n---\n\nPayoff",
+  );
+
+  assert.equal(directive.scope, "thread_span");
+  assert.deepEqual(directive.targetSpan, {
+    startIndex: 0,
+    endIndex: 0,
+  });
+  assert.equal(directive.threadIntent, "opening");
+});
+
+test("thread revision normalizer asks for clarification on ambiguous thread notes without focus", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "make it better",
+    "Hook\n\n---\n\nProof\n\n---\n\nClose",
+  );
+
+  assert.equal(directive.scope, "thread_span");
+  assert.equal(directive.targetSpan, null);
+  assert.equal(directive.threadIntent, null);
+  assert.equal(directive.preserveThreadStructure, true);
 });
 
 test("anti-pattern helpers separate mechanical edits from tonal rejection", () => {

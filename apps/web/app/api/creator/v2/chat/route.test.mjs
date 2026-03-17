@@ -863,6 +863,175 @@ test("buildChatSuccessResponse exposes routingTrace only when provided", async (
   assert.deepEqual(json.data.routingTrace, routingTrace);
 });
 
+test("buildChatRoutePersistencePlan stores compact profile audit handoff in assistant context", () => {
+  const persistencePlan = buildChatRoutePersistencePlan({
+    mappedDataSeed: {
+      reply: "Here is your profile audit.",
+      angles: [],
+      quickReplies: [],
+      plan: null,
+      draft: null,
+      drafts: [],
+      draftArtifacts: [],
+      draftVersions: [],
+      activeDraftVersionId: undefined,
+      previousVersionSnapshot: undefined,
+      revisionChainId: undefined,
+      draftBundle: null,
+      supportAsset: null,
+      mediaAttachments: undefined,
+      groundingSources: [],
+      autoSavedSourceMaterials: null,
+      outputShape: "profile_analysis",
+      surfaceMode: "generate_full_output",
+      memory: baseMemory,
+      routingDiagnostics: {
+        turnSource: "free_text",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "conversational",
+      },
+      requestTrace: {
+        clientTurnId: "turn_profile_handoff_1",
+      },
+      replyArtifacts: null,
+      replyParse: null,
+      profileAnalysisArtifact: {
+        kind: "profile_analysis",
+        profile: {
+          username: "vitddnv",
+          name: "Vitalii Dodonov",
+          bio: "Scaling Stan in public.",
+          avatarUrl: null,
+          headerImageUrl: null,
+          isVerified: true,
+          followersCount: 7927,
+          followingCount: 482,
+          createdAt: "2015-09-01T00:00:00.000Z",
+        },
+        pinnedPost: {
+          id: "pin-1",
+          text: "Current pinned post with strongest proof",
+          createdAt: "2026-01-11T00:00:00.000Z",
+          metrics: {
+            likeCount: 10,
+            replyCount: 2,
+            repostCount: 1,
+            quoteCount: 0,
+          },
+          url: "https://x.com/vitddnv/status/1",
+        },
+        audit: {
+          score: 87,
+          headline: "Profile conversion is mostly aligned but the pinned post is lagging.",
+          fingerprint: "fp-1",
+          shouldAutoOpen: true,
+          steps: [
+            {
+              key: "bio_formula",
+              title: "Bio Formula",
+              status: "warn",
+              score: 70,
+              summary: "Bio needs a tighter hook.",
+              findings: [],
+              actionLabel: "Rewrite bio",
+            },
+            {
+              key: "visual_real_estate",
+              title: "Visual Real Estate",
+              status: "warn",
+              score: 62,
+              summary: "Banner promise is too vague.",
+              findings: [],
+              actionLabel: "Clarify banner",
+            },
+            {
+              key: "pinned_tweet",
+              title: "Pinned Tweet",
+              status: "fail",
+              score: 40,
+              summary: "Pinned post needs a clearer authority story.",
+              findings: [],
+              actionLabel: "Write pinned post",
+            },
+          ],
+          strengths: [],
+          gaps: ["Bio is too broad."],
+          unknowns: [],
+          bioFormulaCheck: {
+            status: "warn",
+            score: 70,
+            summary: "Bio needs a tighter hook.",
+            findings: [],
+            bio: "Scaling Stan in public.",
+            charCount: 23,
+            matchesFormula: {
+              what: true,
+              who: false,
+              proofOrCta: false,
+            },
+            alternatives: [],
+          },
+          visualRealEstateCheck: {
+            status: "warn",
+            score: 62,
+            summary: "Banner promise is too vague.",
+            findings: [],
+            hasHeaderImage: true,
+            headerImageUrl: null,
+            headerClarity: null,
+            headerClarityResolved: false,
+          },
+          pinnedTweetCheck: {
+            status: "fail",
+            score: 40,
+            summary: "Pinned post needs a clearer authority story.",
+            findings: [],
+            pinnedPost: null,
+            category: "weak",
+            ageDays: 120,
+            isStale: true,
+            promptSuggestions: {
+              originStory: "lead with the origin story",
+              coreThesis: "land the core thesis clearly",
+            },
+          },
+        },
+        bannerAnalysis: null,
+      },
+      imageTurnContext: null,
+    },
+    issuesFixed: [],
+    responseGroundingMode: null,
+    responseGroundingExplanation: null,
+    defaultThreadTitle: "New Chat",
+    currentThreadTitle: "Profile Analysis (87/100)",
+    nextThreadTitle: null,
+    preferredSurfaceMode: "structured",
+    shouldClearReplyWorkflow: true,
+  });
+
+  assert.equal(
+    persistencePlan.assistantMessageData.contextPacket.summary,
+    "profile audit: Pinned post needs a clearer authority story. direction: lead with the origin story | land the core thesis clearly.",
+  );
+  assert.deepEqual(
+    persistencePlan.assistantMessageData.contextPacket.profileAuditRef,
+    {
+      headline: "Profile conversion is mostly aligned but the pinned post is lagging.",
+      topPriorities: [
+        "Rewrite bio: Bio needs a tighter hook.",
+        "Clarify banner: Banner promise is too vague.",
+        "Write pinned post: Pinned post needs a clearer authority story.",
+      ],
+      pinnedPostDiagnosis: "Pinned post needs a clearer authority story.",
+      pinnedPostDirection: "lead with the origin story | land the core thesis clearly",
+      currentPinnedExcerpt: "Current pinned post with strongest proof",
+    },
+  );
+});
+
 test("validatePreparedTurnPlan only accepts complete strategy plans", () => {
   assert.equal(validatePreparedTurnPlan(null), null);
   assert.equal(
@@ -2658,6 +2827,60 @@ test("conversation context builder prefers standardized context packet refs over
     context.activeDraft,
     "context should survive the turn, not reset every message.",
   );
+});
+
+test("conversation context builder uses compact profile audit handoff for pinned post follow-ups", () => {
+  const context = buildConversationContextFromHistory({
+    selectedDraftContext: null,
+    history: [
+      {
+        id: "assistant_profile_audit",
+        role: "assistant",
+        content: "## Profile Snapshot\n- very long audit body that should not become the follow-up context",
+        data: {
+          contextPacket: {
+            version: "assistant_context_v2",
+            summary:
+              "profile audit: pinned post needs a clearer authority story. direction: lead with the origin story | land the core thesis clearly.",
+            planRef: null,
+            draftRef: null,
+            grounding: {
+              mode: null,
+              explanation: null,
+              sourceTitles: [],
+            },
+            critique: {
+              issuesFixed: [],
+            },
+            replyRef: null,
+            replyParse: null,
+            profileAuditRef: {
+              headline: "Profile conversion is mostly aligned but the pinned post is lagging.",
+              topPriorities: [
+                "Write pinned post: Pinned post needs a clearer authority story.",
+                "Rewrite bio: Bio needs a tighter hook.",
+              ],
+              pinnedPostDiagnosis: "Pinned post needs a clearer authority story.",
+              pinnedPostDirection: "lead with the origin story | land the core thesis clearly",
+              currentPinnedExcerpt: "Current pinned post with strongest proof",
+            },
+            artifacts: {
+              outputShape: "profile_analysis",
+              surfaceMode: "generate_full_output",
+              quickReplyCount: 3,
+              hasDraft: false,
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(
+    context.recentHistory,
+    'assistant: profile audit: Pinned post needs a clearer authority story. direction: lead with the origin story | land the core thesis clearly. current pin: "Current pinned post with strongest proof".',
+  );
+  assert.equal(context.recentHistory.includes("very long audit body"), false);
 });
 
 test("selected draft resolution prefers the explicit client selection over stale active draft memory", () => {

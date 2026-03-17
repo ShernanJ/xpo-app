@@ -1,29 +1,50 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
 import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Check,
   ChevronLeft,
   Columns3,
   ExternalLink,
-  FolderPlus,
+  Folder,
   List,
+  Pencil,
+  Plus,
   Search,
+  Trash2,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import { SplitDialog } from "@/components/ui/split-dialog";
 import { buildChatWorkspaceUrl } from "@/lib/workspaceHandle";
 
-import type { ContentHubAuthorIdentity, ContentStatus } from "./contentHubTypes";
+import type {
+  ContentHubAuthorIdentity,
+  ContentHubViewMode,
+  ContentItemRecord,
+  ContentStatus,
+  FolderRecord,
+} from "./contentHubTypes";
 import { MinimalXPostPreview } from "./MinimalXPostPreview";
 import { useContentHubState } from "./useContentHubState";
 import {
+  NO_GROUP_LABEL,
   buildPublishedTweetHref,
   formatContentTimestamp,
   getContentStatusLabel,
-  getPrimaryArtifactText,
   groupContentItemsByDate,
+  groupContentItemsByGroup,
   groupContentItemsByStatus,
+  sortFoldersByName,
 } from "./contentHubViewState";
 
 interface ContentHubDialogProps {
@@ -35,16 +56,174 @@ interface ContentHubDialogProps {
   isVerifiedAccount: boolean;
 }
 
+interface ContentHubInlineDialogProps {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  children: ReactNode;
+  layerClassName?: string;
+}
+
+interface ContentHubListItemButtonProps {
+  item: ContentItemRecord;
+  isSelected: boolean;
+  onSelect: (itemId: string) => void;
+}
+
 const STATUS_PILL_CLASSNAME: Record<ContentStatus, string> = {
   DRAFT: "border-white/10 bg-white/[0.05] text-zinc-300",
   PUBLISHED: "border-white/12 bg-white/[0.08] text-white",
   ARCHIVED: "border-white/10 bg-white/[0.03] text-zinc-400",
 };
 
+const STATUS_OPTIONS: ContentStatus[] = ["DRAFT", "PUBLISHED", "ARCHIVED"];
+const ADD_NEW_GROUP_VALUE = "__add_new_group__";
+const VIEW_MODE_OPTIONS: Array<{
+  value: ContentHubViewMode;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { value: "date", label: "Date", icon: List },
+  { value: "status", label: "Status", icon: Columns3 },
+  { value: "group", label: "Group", icon: Folder },
+];
+
+function formatGroupItemCount(count: number) {
+  return count === 1 ? "1 post/thread" : `${count} posts/threads`;
+}
+
+function ContentHubInlineDialog(props: ContentHubInlineDialogProps) {
+  const {
+    open,
+    title,
+    description,
+    onClose,
+    initialFocusRef,
+    children,
+    layerClassName,
+  } = props;
+  const titleId = useId();
+  const descriptionId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const focusTarget = initialFocusRef?.current ?? panelRef.current;
+    focusTarget?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [initialFocusRef, onClose, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className={[
+        "fixed inset-0 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-[2px]",
+        layerClassName ?? "z-[110]",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#0F0F0F] shadow-[0_24px_80px_rgba(0,0,0,0.55)] focus:outline-none"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+          <div>
+            <h3 id={titleId} className="text-lg font-semibold text-white">
+              {title}
+            </h3>
+            {description ? (
+              <p id={descriptionId} className="mt-1.5 text-sm leading-6 text-zinc-400">
+                {description}
+              </p>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-white"
+            aria-label={`Close ${title}`}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ContentHubListItemButton(props: ContentHubListItemButtonProps) {
+  const { item, isSelected, onSelect } = props;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item.id)}
+      className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${
+        isSelected ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"
+      }`}
+    >
+      <span className="truncate text-sm text-white">{item.title}</span>
+      <span className="flex items-center gap-2 text-xs text-zinc-500">
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_PILL_CLASSNAME[item.status]}`}
+        >
+          {getContentStatusLabel(item.status)}
+        </span>
+        <span className="hidden whitespace-nowrap sm:inline">
+          {formatContentTimestamp(item.createdAt)}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function ContentHubDialog(props: ContentHubDialogProps) {
   const { open, onOpenChange, fetchWorkspace, initialHandle, identity, isVerifiedAccount } = props;
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const createGroupInputRef = useRef<HTMLInputElement>(null);
   const [dropTargetStatus, setDropTargetStatus] = useState<ContentStatus | null>(null);
+  const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
+  const [createGroupName, setCreateGroupName] = useState("");
+  const [createGroupAssignmentItemId, setCreateGroupAssignmentItemId] = useState<string | null>(
+    null,
+  );
+  const [isManageGroupsDialogOpen, setIsManageGroupsDialogOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [deleteConfirmationGroupId, setDeleteConfirmationGroupId] = useState<string | null>(null);
   const {
     folders,
     filteredItems,
@@ -56,14 +235,15 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     setSearchQuery,
     errorMessage,
     notice,
+    clearMessages,
     isLoading,
-    isPending,
     actionById,
     updateItem,
     isCreatingFolder,
     createFolder,
-    newFolderName,
-    setNewFolderName,
+    folderActionById,
+    renameFolder,
+    deleteFolder,
     draggingItemId,
     setDraggingItemId,
     mobilePane,
@@ -73,6 +253,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     fetchWorkspace,
   });
 
+  const sortedFolders = useMemo(() => sortFoldersByName(folders), [folders]);
   const dateGroups = useMemo(
     () => groupContentItemsByDate(filteredItems),
     [filteredItems],
@@ -81,9 +262,59 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     () => groupContentItemsByStatus(filteredItems),
     [filteredItems],
   );
+  const groupGroups = useMemo(
+    () => groupContentItemsByGroup(filteredItems, sortedFolders),
+    [filteredItems, sortedFolders],
+  );
   const mobileDialogPane =
     mobilePane === "preview" && selectedItem ? "right" : "left";
   const selectedItemAction = selectedItem ? actionById[selectedItem.id] ?? null : null;
+
+  useEffect(() => {
+    if (!open) {
+      setIsCreateGroupDialogOpen(false);
+      setCreateGroupName("");
+      setCreateGroupAssignmentItemId(null);
+      setIsManageGroupsDialogOpen(false);
+      setEditingGroupId(null);
+      setEditingGroupName("");
+      setDeleteConfirmationGroupId(null);
+    }
+  }, [open]);
+
+  function closeCreateGroupDialog() {
+    setIsCreateGroupDialogOpen(false);
+    setCreateGroupName("");
+    setCreateGroupAssignmentItemId(null);
+  }
+
+  function openCreateGroupDialog(assignItemId: string | null) {
+    clearMessages();
+    setCreateGroupAssignmentItemId(assignItemId);
+    setCreateGroupName("");
+    setIsCreateGroupDialogOpen(true);
+  }
+
+  function closeManageGroupsDialog() {
+    setIsManageGroupsDialogOpen(false);
+    setEditingGroupId(null);
+    setEditingGroupName("");
+    setDeleteConfirmationGroupId(null);
+  }
+
+  function beginRenameGroup(folder: FolderRecord) {
+    clearMessages();
+    setDeleteConfirmationGroupId((current) =>
+      current === folder.id ? null : current,
+    );
+    setEditingGroupId(folder.id);
+    setEditingGroupName(folder.name);
+  }
+
+  function cancelRenameGroup() {
+    setEditingGroupId(null);
+    setEditingGroupName("");
+  }
 
   async function handleMoveItem(nextStatus: ContentStatus) {
     if (!selectedItem || selectedItem.status === nextStatus) {
@@ -94,6 +325,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       selectedItem.id,
       { status: nextStatus },
       `move-${nextStatus.toLowerCase()}`,
+      { successNotice: "Status updated." },
     );
   }
 
@@ -114,6 +346,82 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       draggingItem.id,
       { status: nextStatus },
       `move-${nextStatus.toLowerCase()}`,
+      { successNotice: "Status updated." },
+    );
+  }
+
+  async function handleCreateGroupSubmit() {
+    const createdGroup = await createFolder(createGroupName);
+    if (!createdGroup) {
+      return;
+    }
+
+    const assignItemId = createGroupAssignmentItemId;
+    if (assignItemId) {
+      const didAssign = await updateItem(
+        assignItemId,
+        { folderId: createdGroup.id },
+        "group",
+        {
+          successNotice: `Created group "${createdGroup.name}" and assigned it.`,
+        },
+      );
+      if (!didAssign) {
+        return;
+      }
+    }
+
+    closeCreateGroupDialog();
+  }
+
+  async function handleRenameGroupSubmit(folderId: string) {
+    const renamedGroup = await renameFolder(folderId, editingGroupName);
+    if (!renamedGroup) {
+      return;
+    }
+
+    if (selectedItem?.folderId === folderId) {
+      setEditingGroupName(renamedGroup.name);
+    }
+
+    cancelRenameGroup();
+  }
+
+  async function handleDeleteGroup(folderId: string) {
+    const deletedGroup = await deleteFolder(folderId);
+    if (!deletedGroup) {
+      return;
+    }
+
+    if (editingGroupId === folderId) {
+      cancelRenameGroup();
+    }
+    if (deleteConfirmationGroupId === folderId) {
+      setDeleteConfirmationGroupId(null);
+    }
+  }
+
+  function renderSectionedList(
+    groups: Array<{ id?: string | null; label: string; items: ContentItemRecord[] }>,
+  ) {
+    return (
+      <div className="space-y-3">
+        {groups.map((group) => (
+          <section key={group.id ?? group.label}>
+            <div className="px-3 pb-1.5 pt-2 text-sm text-zinc-500">{group.label}</div>
+            <div className="space-y-1">
+              {group.items.map((item) => (
+                <ContentHubListItemButton
+                  key={item.id}
+                  item={item}
+                  isSelected={selectedItem?.id === item.id}
+                  onSelect={selectItem}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     );
   }
 
@@ -159,30 +467,25 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         </div>
 
         <div className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:inline-flex">
-          <button
-            type="button"
-            onClick={() => setViewMode("date")}
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              viewMode === "date"
-                ? "bg-white text-black"
-                : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            <List className="h-3.5 w-3.5" />
-            <span>Date</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("status")}
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              viewMode === "status"
-                ? "bg-white text-black"
-                : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            <Columns3 className="h-3.5 w-3.5" />
-            <span>Status</span>
-          </button>
+          {VIEW_MODE_OPTIONS.map((option) => {
+            const Icon = option.icon;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setViewMode(option.value)}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  viewMode === option.value
+                    ? "bg-white text-black"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         <button
@@ -197,268 +500,180 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     );
 
   return (
-    <SplitDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Posts & Threads"
-      description="Browse current posts and threads from your chat drafts."
-      headerSlot={headerSlot}
-      mobilePane={mobileDialogPane}
-      initialFocusRef={searchInputRef}
-      leftPane={
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="border-b border-white/10 px-4 py-3 md:hidden">
-            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
-              <button
-                type="button"
-                onClick={() => setViewMode("date")}
-                className={`inline-flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === "date"
-                    ? "bg-white text-black"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <List className="h-3.5 w-3.5" />
-                <span>Date</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("status")}
-                className={`inline-flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === "status"
-                    ? "bg-white text-black"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Columns3 className="h-3.5 w-3.5" />
-                <span>Status</span>
-              </button>
-            </div>
-          </div>
+    <>
+      <SplitDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Posts & Threads"
+        description="Browse current posts and threads from your chat drafts."
+        headerSlot={headerSlot}
+        mobilePane={mobileDialogPane}
+        initialFocusRef={searchInputRef}
+        leftPane={
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="border-b border-white/10 px-4 py-3 md:hidden">
+              <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+                {VIEW_MODE_OPTIONS.map((option) => {
+                  const Icon = option.icon;
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {errorMessage ? (
-              <div className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-                {errorMessage}
-              </div>
-            ) : null}
-            {notice ? (
-              <div className="mb-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-                {notice}
-              </div>
-            ) : null}
-
-            {!initialHandle ? (
-              <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
-                Connect an active X handle first to browse posts and threads.
-              </div>
-            ) : isLoading ? (
-              <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/[0.03] px-6 text-sm text-zinc-500">
-                Loading posts and threads...
-              </div>
-            ) : filteredItems.length === 0 ? (
-              <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
-                {searchQuery.trim()
-                  ? "No posts or threads matched your search."
-                  : "No posts or threads have been generated for this workspace yet."}
-              </div>
-            ) : viewMode === "date" ? (
-              <div className="space-y-3">
-                {dateGroups.map((group) => (
-                  <section key={group.label}>
-                    <div className="px-3 pb-1.5 pt-2 text-sm text-zinc-500">{group.label}</div>
-                    <div className="space-y-1">
-                      {group.items.map((item) => {
-                        const isSelected = selectedItem?.id === item.id;
-
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => selectItem(item.id)}
-                            className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${
-                              isSelected
-                                ? "bg-white/[0.08]"
-                                : "hover:bg-white/[0.04]"
-                            }`}
-                          >
-                            <span className="truncate text-sm text-white">{item.title}</span>
-                            <span className="flex items-center gap-2 text-xs text-zinc-500">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_PILL_CLASSNAME[item.status]}`}
-                              >
-                                {getContentStatusLabel(item.status)}
-                              </span>
-                              <span className="hidden whitespace-nowrap sm:inline">
-                                {formatContentTimestamp(item.createdAt)}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ) : (
-              <div className="h-full overflow-x-auto">
-                <div className="grid min-h-full auto-cols-[82%] grid-flow-col gap-3 md:grid-cols-3 md:grid-flow-row">
-                  {statusGroups.map((group) => (
-                    <section
-                      key={group.status}
-                      onDragOver={(event) => {
-                        if (!draggingItemId) {
-                          return;
-                        }
-                        event.preventDefault();
-                        setDropTargetStatus(group.status);
-                      }}
-                      onDragLeave={() => {
-                        setDropTargetStatus((current) =>
-                          current === group.status ? null : current,
-                        );
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        void handleDropStatus(group.status);
-                      }}
-                      className={`flex min-h-0 flex-col rounded-[1.25rem] border bg-white/[0.02] p-2 transition ${
-                        dropTargetStatus === group.status
-                          ? "border-white/25"
-                          : "border-white/10"
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setViewMode(option.value)}
+                      className={`inline-flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                        viewMode === option.value
+                          ? "bg-white text-black"
+                          : "text-zinc-400 hover:text-white"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2 px-2 py-2">
-                        <span className="text-sm font-medium text-white">{group.label}</span>
-                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-zinc-500">
-                          {group.items.length}
-                        </span>
-                      </div>
-                      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-                        {group.items.length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-zinc-600">
-                            Drop a post here
-                          </div>
-                        ) : (
-                          group.items.map((item) => (
-                            <div
-                              key={item.id}
-                              draggable
-                              onDragStart={() => setDraggingItemId(item.id)}
-                              onDragEnd={() => {
-                                setDraggingItemId(null);
-                                setDropTargetStatus(null);
-                              }}
-                              className="cursor-grab active:cursor-grabbing"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => selectItem(item.id)}
-                                className={`block w-full rounded-[1.25rem] text-left transition ${
-                                  selectedItem?.id === item.id
-                                    ? "ring-1 ring-white/20"
-                                    : ""
-                                }`}
-                              >
-                                <MinimalXPostPreview
-                                  item={item}
-                                  identity={identity}
-                                  isVerifiedAccount={isVerifiedAccount}
-                                  variant="compact"
-                                />
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </div>
-        </div>
-      }
-      rightPane={
-        <div className="flex h-full min-h-0 flex-col">
-          {selectedItem ? (
-            <>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                      @{initialHandle}
-                    </p>
-                    <h3 className="mt-2 text-lg font-semibold text-white">
-                      {selectedItem.title}
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-zinc-500">
-                      Created {formatContentTimestamp(selectedItem.createdAt)}
-                    </p>
-                  </div>
+            </div>
 
-                  <MinimalXPostPreview
-                    item={selectedItem}
-                    identity={identity}
-                    isVerifiedAccount={isVerifiedAccount}
-                    variant="full"
-                  />
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {errorMessage ? (
+                <div className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                  {errorMessage}
                 </div>
-              </div>
+              ) : null}
+              {notice ? (
+                <div className="mb-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                  {notice}
+                </div>
+              ) : null}
 
-              <div className="border-t border-white/10 px-4 py-4 sm:px-5">
-                <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    {(["DRAFT", "PUBLISHED", "ARCHIVED"] as ContentStatus[]).map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        disabled={
-                          selectedItem.status === status || Boolean(selectedItemAction)
-                        }
-                        onClick={() => {
-                          void handleMoveItem(status);
+              {!initialHandle ? (
+                <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
+                  Connect an active X handle first to browse posts and threads.
+                </div>
+              ) : isLoading ? (
+                <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/[0.03] px-6 text-sm text-zinc-500">
+                  Loading posts and threads...
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
+                  {searchQuery.trim()
+                    ? "No posts or threads matched your search."
+                    : "No posts or threads have been generated for this workspace yet."}
+                </div>
+              ) : viewMode === "date" ? (
+                renderSectionedList(dateGroups)
+              ) : viewMode === "group" ? (
+                renderSectionedList(groupGroups)
+              ) : (
+                <div className="h-full overflow-x-auto">
+                  <div className="grid min-h-full auto-cols-[82%] grid-flow-col gap-3 md:grid-cols-3 md:grid-flow-row">
+                    {statusGroups.map((group) => (
+                      <section
+                        key={group.status}
+                        onDragOver={(event) => {
+                          if (!draggingItemId) {
+                            return;
+                          }
+                          event.preventDefault();
+                          setDropTargetStatus(group.status);
                         }}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                          selectedItem.status === status
-                            ? "border-white/15 bg-white text-black"
-                            : "border-white/10 text-zinc-300 hover:bg-white/[0.05] hover:text-white"
-                        } disabled:cursor-not-allowed disabled:opacity-50`}
-                      >
-                        {selectedItemAction === `move-${status.toLowerCase()}`
-                          ? "Saving"
-                          : getContentStatusLabel(status)}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <label className="space-y-2">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                        Folder
-                      </span>
-                      <select
-                        value={selectedItem.folderId ?? ""}
-                        disabled={Boolean(selectedItemAction)}
-                        onChange={(event) => {
-                          void updateItem(
-                            selectedItem.id,
-                            { folderId: event.target.value || null },
-                            "folder",
+                        onDragLeave={() => {
+                          setDropTargetStatus((current) =>
+                            current === group.status ? null : current,
                           );
                         }}
-                        className="w-full rounded-2xl border border-white/10 bg-[#101010] px-3 py-2.5 text-sm text-white outline-none transition focus:border-white/20"
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          void handleDropStatus(group.status);
+                        }}
+                        className={`flex min-h-0 flex-col rounded-[1.25rem] border bg-white/[0.02] p-2 transition ${
+                          dropTargetStatus === group.status
+                            ? "border-white/25"
+                            : "border-white/10"
+                        }`}
                       >
-                        <option value="">No folder</option>
-                        {folders.map((folder) => (
-                          <option key={folder.id} value={folder.id}>
-                            {folder.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        <div className="flex items-center justify-between gap-2 px-2 py-2">
+                          <span className="text-sm font-medium text-white">{group.label}</span>
+                          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-zinc-500">
+                            {group.items.length}
+                          </span>
+                        </div>
+                        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+                          {group.items.length === 0 ? (
+                            <div className="rounded-2xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-zinc-600">
+                              Drop a post here
+                            </div>
+                          ) : (
+                            group.items.map((item) => (
+                              <div
+                                key={item.id}
+                                draggable
+                                onDragStart={() => setDraggingItemId(item.id)}
+                                onDragEnd={() => {
+                                  setDraggingItemId(null);
+                                  setDropTargetStatus(null);
+                                }}
+                                className="cursor-grab active:cursor-grabbing"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => selectItem(item.id)}
+                                  className={`block w-full rounded-[1.25rem] text-left transition ${
+                                    selectedItem?.id === item.id
+                                      ? "ring-1 ring-white/20"
+                                      : ""
+                                  }`}
+                                >
+                                  <MinimalXPostPreview
+                                    item={item}
+                                    identity={identity}
+                                    isVerifiedAccount={isVerifiedAccount}
+                                    variant="compact"
+                                  />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        }
+        rightPane={
+          <div className="flex h-full min-h-0 flex-col">
+            {selectedItem ? (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                        @{initialHandle}
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold text-white">
+                        {selectedItem.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-zinc-500">
+                        Created {formatContentTimestamp(selectedItem.createdAt)}
+                      </p>
+                    </div>
 
-                    <div className="flex flex-wrap items-end justify-end gap-2">
+                    <MinimalXPostPreview
+                      item={selectedItem}
+                      identity={identity}
+                      isVerifiedAccount={isVerifiedAccount}
+                      variant="full"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 px-4 py-4 sm:px-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
                       {selectedItem.threadId ? (
                         <a
                           href={buildChatWorkspaceUrl({
@@ -467,7 +682,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                             messageId: selectedItem.messageId,
                           })}
                           onClick={() => onOpenChange(false)}
-                          className="inline-flex items-end justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
+                          className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
                         >
                           <span>Open in Chat</span>
                           <ExternalLink className="h-4 w-4" />
@@ -478,45 +693,291 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                           href={buildPublishedTweetHref(initialHandle, selectedItem.publishedTweetId)}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-end justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
+                          className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
                         >
                           <span>View Live Post</span>
                           <ExternalLink className="h-4 w-4" />
                         </a>
                       ) : null}
                     </div>
-                  </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="text"
-                      value={newFolderName}
-                      onChange={(event) => setNewFolderName(event.target.value)}
-                      placeholder="Create folder"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#101010] px-3 py-2.5 text-sm text-white outline-none transition focus:border-white/20"
-                    />
-                    <button
-                      type="button"
-                      disabled={isCreatingFolder}
-                      onClick={() => {
-                        void createFolder();
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <FolderPlus className="h-4 w-4" />
-                      <span>{isCreatingFolder ? "Creating" : "Create Folder"}</span>
-                    </button>
+                    <div className="w-full sm:ml-auto sm:max-w-[320px]">
+                      <div className="space-y-2 rounded-[1.25rem] border border-white/10 bg-white/[0.02] p-3">
+                        <label className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                          <span className="text-xs font-medium text-zinc-500">Status:</span>
+                          <select
+                            aria-label="Status:"
+                            value={selectedItem.status}
+                            disabled={Boolean(selectedItemAction)}
+                            onChange={(event) => {
+                              void handleMoveItem(event.target.value as ContentStatus);
+                            }}
+                            className="w-full rounded-xl border border-white/10 bg-[#101010] px-3 py-2 text-sm text-white outline-none transition focus:border-white/20"
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {getContentStatusLabel(status)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                          <span className="text-xs font-medium text-zinc-500">Group:</span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <label className="min-w-0 flex-1">
+                              <span className="sr-only">Group:</span>
+                              <select
+                                aria-label="Group:"
+                                value={selectedItem.folderId ?? ""}
+                                disabled={Boolean(selectedItemAction)}
+                                onChange={(event) => {
+                                  if (event.target.value === ADD_NEW_GROUP_VALUE) {
+                                    openCreateGroupDialog(selectedItem.id);
+                                    return;
+                                  }
+
+                                  void updateItem(
+                                    selectedItem.id,
+                                    { folderId: event.target.value || null },
+                                    "group",
+                                    { successNotice: "Group updated." },
+                                  );
+                                }}
+                                className="w-full rounded-xl border border-white/10 bg-[#101010] px-3 py-2 text-sm text-white outline-none transition focus:border-white/20"
+                              >
+                                <option value="">{NO_GROUP_LABEL}</option>
+                                {sortedFolders.map((folder) => (
+                                  <option key={folder.id} value={folder.id}>
+                                    {folder.name}
+                                  </option>
+                                ))}
+                                <option value={ADD_NEW_GROUP_VALUE}>Add New Group</option>
+                              </select>
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearMessages();
+                                setIsManageGroupsDialogOpen(true);
+                              }}
+                              className="shrink-0 rounded-full border border-white/10 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                            >
+                              Manage Groups
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm text-zinc-500">
+                Select a post or thread to preview and organize it.
               </div>
-            </>
+            )}
+          </div>
+        }
+      />
+
+      <ContentHubInlineDialog
+        open={isCreateGroupDialogOpen}
+        title="Add Group"
+        description="Create a new group and keep your posts and threads easier to organize."
+        onClose={closeCreateGroupDialog}
+        initialFocusRef={createGroupInputRef}
+        layerClassName="z-[115]"
+      >
+        <div className="space-y-4 px-5 py-4">
+          {errorMessage ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-zinc-300">Group name</span>
+            <input
+              ref={createGroupInputRef}
+              type="text"
+              value={createGroupName}
+              onChange={(event) => setCreateGroupName(event.target.value)}
+              placeholder="Enter group name"
+              className="w-full rounded-2xl border border-white/10 bg-[#101010] px-3 py-2.5 text-sm text-white outline-none transition focus:border-white/20"
+            />
+          </label>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeCreateGroupDialog}
+              className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isCreatingFolder}
+              onClick={() => {
+                void handleCreateGroupSubmit();
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Plus className="h-4 w-4" />
+              <span>{isCreatingFolder ? "Saving" : "Save"}</span>
+            </button>
+          </div>
+        </div>
+      </ContentHubInlineDialog>
+
+      <ContentHubInlineDialog
+        open={isManageGroupsDialogOpen}
+        title="Manage Groups"
+        description="Rename, add, or delete groups. Deleting a group moves its posts and threads to No Group."
+        onClose={closeManageGroupsDialog}
+      >
+        <div className="space-y-4 px-5 py-4">
+          {errorMessage ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => openCreateGroupDialog(null)}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add Group</span>
+            </button>
+          </div>
+
+          {sortedFolders.length === 0 ? (
+            <div className="rounded-[1.25rem] border border-dashed border-white/10 px-5 py-8 text-center text-sm text-zinc-500">
+              No groups yet. Create one to organize your posts and threads.
+            </div>
           ) : (
-            <div className="flex h-full items-center justify-center px-8 text-center text-sm text-zinc-500">
-              Select a post or thread to preview and organize it.
+            <div className="space-y-3">
+              {sortedFolders.map((folder) => {
+                const groupAction = folderActionById[folder.id] ?? null;
+                const isEditing = editingGroupId === folder.id;
+                const isDeleteConfirming = deleteConfirmationGroupId === folder.id;
+
+                return (
+                  <div
+                    key={folder.id}
+                    className="rounded-[1.25rem] border border-white/10 bg-white/[0.02] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {isEditing ? (
+                          <label className="block space-y-2">
+                            <span className="sr-only">Rename group</span>
+                            <input
+                              type="text"
+                              value={editingGroupName}
+                              onChange={(event) => setEditingGroupName(event.target.value)}
+                              className="w-full rounded-2xl border border-white/10 bg-[#101010] px-3 py-2.5 text-sm text-white outline-none transition focus:border-white/20"
+                            />
+                          </label>
+                        ) : (
+                          <p className="truncate text-sm font-medium text-white">
+                            {folder.name}
+                          </p>
+                        )}
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {formatGroupItemCount(folder.itemCount)}
+                        </p>
+                      </div>
+
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        {isEditing ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={cancelRenameGroup}
+                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={groupAction === "rename"}
+                              onClick={() => {
+                                void handleRenameGroupSubmit(folder.id);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white px-3 py-1.5 text-xs font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              <span>{groupAction === "rename" ? "Saving" : "Save"}</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => beginRenameGroup(folder)}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              <span>Rename</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteConfirmationGroupId((current) =>
+                                  current === folder.id ? null : folder.id,
+                                )
+                              }
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {isDeleteConfirming ? (
+                      <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-3">
+                        <p className="text-sm text-amber-100">
+                          Delete this group? {formatGroupItemCount(folder.itemCount)} will move
+                          to {NO_GROUP_LABEL}.
+                        </p>
+                        <div className="mt-3 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmationGroupId(null)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={groupAction === "delete"}
+                            onClick={() => {
+                              void handleDeleteGroup(folder.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>{groupAction === "delete" ? "Deleting" : "Delete Group"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      }
-    />
+      </ContentHubInlineDialog>
+    </>
   );
 }

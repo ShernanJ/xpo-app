@@ -8,11 +8,14 @@ import type {
   ContentItemRecord,
   ContentItemsResponse,
   ContentStatus,
+  DeletedFolderRecord,
   FolderCreateResponse,
+  FolderDeleteResponse,
+  FolderMutationResponse,
   FolderRecord,
   FoldersResponse,
 } from "./contentHubTypes";
-import { filterContentItems } from "./contentHubViewState";
+import { filterContentItems, sortFoldersByName } from "./contentHubViewState";
 
 interface ValidationError {
   message?: string;
@@ -50,6 +53,64 @@ function findFolderById(folders: FolderRecord[], folderId: string | null) {
   }
 
   return folders.find((folder) => folder.id === folderId) ?? null;
+}
+
+function replaceFolderInItems(items: ContentItemRecord[], folder: FolderRecord) {
+  return items.map((item) =>
+    item.folderId === folder.id
+      ? {
+          ...item,
+          folder,
+        }
+      : item,
+  );
+}
+
+function clearFolderFromItems(items: ContentItemRecord[], folderId: string) {
+  return items.map((item) =>
+    item.folderId === folderId
+      ? {
+          ...item,
+          folderId: null,
+          folder: null,
+        }
+      : item,
+  );
+}
+
+function adjustFolderCount(
+  folders: FolderRecord[],
+  folderId: string | null,
+  delta: number,
+) {
+  if (!folderId || delta === 0) {
+    return folders;
+  }
+
+  return folders.map((folder) =>
+    folder.id === folderId
+      ? {
+          ...folder,
+          itemCount: Math.max(0, folder.itemCount + delta),
+        }
+      : folder,
+  );
+}
+
+function reconcileFolderCounts(
+  folders: FolderRecord[],
+  previousFolderId: string | null,
+  nextFolderId: string | null,
+) {
+  if (previousFolderId === nextFolderId) {
+    return folders;
+  }
+
+  return adjustFolderCount(
+    adjustFolderCount(folders, previousFolderId, -1),
+    nextFolderId,
+    1,
+  );
 }
 
 function applyOptimisticItemUpdate(
@@ -100,11 +161,15 @@ export function useContentHubState(options: UseContentHubStateOptions) {
   const [isLoading, setIsLoading] = useState(false);
   const [actionById, setActionById] = useState<Record<string, string>>({});
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [newFolderColor, setNewFolderColor] = useState("#27272a");
+  const [folderActionById, setFolderActionById] = useState<Record<string, string>>({});
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"browse" | "preview">("browse");
   const [isPending, startTransition] = useTransition();
+
+  const clearMessages = useCallback(() => {
+    setErrorMessage(null);
+    setNotice(null);
+  }, []);
 
   const loadContentHub = useCallback(async () => {
     setIsLoading(true);
@@ -130,11 +195,11 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         throw new Error(readErrorMessage(itemsPayload, "Failed to load content items."));
       }
       if (!foldersResponse.ok || !foldersPayload.ok) {
-        throw new Error(readErrorMessage(foldersPayload, "Failed to load folders."));
+        throw new Error(readErrorMessage(foldersPayload, "Failed to load groups."));
       }
 
       setItems(itemsPayload.data.items);
-      setFolders(foldersPayload.data.folders);
+      setFolders(sortFoldersByName(foldersPayload.data.folders));
     } catch (error) {
       setItems([]);
       setFolders([]);
@@ -154,6 +219,8 @@ export function useContentHubState(options: UseContentHubStateOptions) {
       setNotice(null);
       setErrorMessage(null);
       setDraggingItemId(null);
+      setActionById({});
+      setFolderActionById({});
       return;
     }
 
@@ -194,11 +261,15 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         folderId?: string | null;
       },
       actionLabel: string,
+      options?: {
+        successNotice?: string;
+      },
     ) => {
       const previousItems = items;
+      const previousItem = items.find((item) => item.id === itemId) ?? null;
+
       setActionById((current) => ({ ...current, [itemId]: actionLabel }));
-      setErrorMessage(null);
-      setNotice(null);
+      clearMessages();
       setItems((current) =>
         current.map((item) =>
           item.id === itemId ? applyOptimisticItemUpdate(item, payload, folders) : item,
@@ -227,12 +298,21 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         setItems((current) =>
           current.map((item) => (item.id === itemId ? result.data.item : item)),
         );
-        setNotice("Content updated.");
+
+        if (previousItem && payload.folderId !== undefined) {
+          setFolders((current) =>
+            reconcileFolderCounts(current, previousItem.folderId, result.data.item.folderId),
+          );
+        }
+
+        setNotice(options?.successNotice ?? "Content updated.");
+        return true;
       } catch (error) {
         setItems(previousItems);
         setErrorMessage(
           error instanceof Error ? error.message : "Failed to update content item.",
         );
+        return false;
       } finally {
         setActionById((current) => {
           const next = { ...current };
@@ -241,47 +321,150 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         });
       }
     },
-    [fetchWorkspace, folders, items],
+    [clearMessages, fetchWorkspace, folders, items],
   );
 
-  const createFolder = useCallback(async () => {
-    const name = newFolderName.trim();
-    if (!name) {
-      setErrorMessage("Folder name is required.");
-      return false;
-    }
-
-    setIsCreatingFolder(true);
-    setErrorMessage(null);
-    setNotice(null);
-
-    try {
-      const response = await fetchWorkspace("/api/creator/v2/folders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          color: newFolderColor,
-        }),
-      });
-      const result = (await response.json()) as FolderCreateResponse | FailureResponse;
-      if (!response.ok || !result.ok) {
-        throw new Error(readErrorMessage(result, "Failed to create folder."));
+  const createFolder = useCallback(
+    async (name: string) => {
+      const nextName = name.trim();
+      if (!nextName) {
+        setErrorMessage("Group name is required.");
+        return null;
       }
 
-      setFolders((current) => [...current, result.data.folder]);
-      setNewFolderName("");
-      setNotice(`Created folder "${result.data.folder.name}".`);
-      return true;
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create folder.");
-      return false;
-    } finally {
-      setIsCreatingFolder(false);
-    }
-  }, [fetchWorkspace, newFolderColor, newFolderName]);
+      setIsCreatingFolder(true);
+      clearMessages();
+
+      try {
+        const response = await fetchWorkspace("/api/creator/v2/folders", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: nextName,
+          }),
+        });
+        const result = (await response.json()) as FolderCreateResponse | FailureResponse;
+        if (!response.ok || !result.ok) {
+          throw new Error(readErrorMessage(result, "Failed to create group."));
+        }
+
+        setFolders((current) => sortFoldersByName([...current, result.data.folder]));
+        setNotice(`Created group "${result.data.folder.name}".`);
+        return result.data.folder;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to create group.");
+        return null;
+      } finally {
+        setIsCreatingFolder(false);
+      }
+    },
+    [clearMessages, fetchWorkspace],
+  );
+
+  const renameFolder = useCallback(
+    async (folderId: string, name: string) => {
+      const nextName = name.trim();
+      if (!nextName) {
+        setErrorMessage("Group name is required.");
+        return null;
+      }
+
+      setFolderActionById((current) => ({ ...current, [folderId]: "rename" }));
+      clearMessages();
+
+      try {
+        const response = await fetchWorkspace(
+          `/api/creator/v2/folders/${encodeURIComponent(folderId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: nextName,
+            }),
+          },
+        );
+        const result = (await response.json()) as
+          | FolderMutationResponse
+          | FailureResponse;
+        if (!response.ok || !result.ok) {
+          throw new Error(readErrorMessage(result, "Failed to rename group."));
+        }
+
+        setFolders((current) =>
+          sortFoldersByName(
+            current.map((folder) =>
+              folder.id === folderId ? result.data.folder : folder,
+            ),
+          ),
+        );
+        setItems((current) => replaceFolderInItems(current, result.data.folder));
+        setNotice(`Renamed group to "${result.data.folder.name}".`);
+        return result.data.folder;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to rename group.");
+        return null;
+      } finally {
+        setFolderActionById((current) => {
+          const next = { ...current };
+          delete next[folderId];
+          return next;
+        });
+      }
+    },
+    [clearMessages, fetchWorkspace],
+  );
+
+  const deleteFolder = useCallback(
+    async (folderId: string) => {
+      setFolderActionById((current) => ({ ...current, [folderId]: "delete" }));
+      clearMessages();
+
+      try {
+        const response = await fetchWorkspace(
+          `/api/creator/v2/folders/${encodeURIComponent(folderId)}`,
+          {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+        const result = (await response.json()) as FolderDeleteResponse | FailureResponse;
+        if (!response.ok || !result.ok) {
+          throw new Error(readErrorMessage(result, "Failed to delete group."));
+        }
+
+        setFolders((current) => current.filter((folder) => folder.id !== folderId));
+        setItems((current) => clearFolderFromItems(current, folderId));
+
+        const deletedFolder: DeletedFolderRecord = result.data.folder;
+        const reassignmentCopy =
+          deletedFolder.itemCount === 1
+            ? "1 post/thread moved to No Group."
+            : `${deletedFolder.itemCount} posts/threads moved to No Group.`;
+        setNotice(
+          deletedFolder.itemCount > 0
+            ? `Deleted group "${deletedFolder.name}". ${reassignmentCopy}`
+            : `Deleted group "${deletedFolder.name}".`,
+        );
+        return deletedFolder;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to delete group.");
+        return null;
+      } finally {
+        setFolderActionById((current) => {
+          const next = { ...current };
+          delete next[folderId];
+          return next;
+        });
+      }
+    },
+    [clearMessages, fetchWorkspace],
+  );
 
   const selectItem = useCallback((itemId: string) => {
     setSelectedItemId(itemId);
@@ -314,16 +497,16 @@ export function useContentHubState(options: UseContentHubStateOptions) {
     },
     errorMessage,
     notice,
+    clearMessages,
     isLoading,
     isPending,
     actionById,
     updateItem,
     isCreatingFolder,
     createFolder,
-    newFolderName,
-    setNewFolderName,
-    newFolderColor,
-    setNewFolderColor,
+    folderActionById,
+    renameFolder,
+    deleteFolder,
     draggingItemId,
     setDraggingItemId,
     mobilePane,

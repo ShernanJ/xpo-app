@@ -17,6 +17,15 @@ interface FolderCreateRequest extends Record<string, unknown> {
   color?: unknown;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    Boolean(error) &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
 export async function GET() {
   const session = await getServerSession();
   if (!session?.user?.id) {
@@ -79,21 +88,35 @@ export async function POST(request: NextRequest) {
   const color = typeof body.color === "string" ? body.color.trim() : null;
   if (!name) {
     return NextResponse.json(
-      { ok: false, errors: [{ field: "name", message: "Folder name is required." }] },
+      { ok: false, errors: [{ field: "name", message: "Group name is required." }] },
       { status: 400 },
     );
   }
 
-  const folder = await createFolderForUser({
-    userId: session.user.id,
-    name,
-    color,
-  });
+  try {
+    const folder = await createFolderForUser({
+      userId: session.user.id,
+      name,
+      color,
+    });
 
-  return NextResponse.json({
-    ok: true,
-    data: {
-      folder: serializeFolder(folder),
-    },
-  });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        folder: serializeFolder(folder),
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          errors: [{ field: "name", message: "A group with this name already exists." }],
+        },
+        { status: 409 },
+      );
+    }
+
+    throw error;
+  }
 }

@@ -77,7 +77,7 @@ test("draft revisions resolve to revise_draft", () => {
 
 test("thread conversion revisions get thread-specific copy", () => {
   const plan = buildPendingStatusPlan({
-    message: "turn this into a thread with 4 to 6 posts",
+    message: "turn into thread",
     turnSource: "draft_action",
     intent: "edit",
     hasSelectedDraftContext: true,

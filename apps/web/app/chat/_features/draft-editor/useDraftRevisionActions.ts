@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import type { ThreadFramingStyle } from "@/lib/onboarding/draftArtifacts";
 
 import {
+  type DraftRevisionRequestOptions,
   resolveDraftCardRevisionAction,
   resolveSelectedThreadFramingChangeAction,
 } from "./chatDraftActionState";
@@ -43,14 +44,14 @@ export function useDraftRevisionActions<TMessage extends ChatMessageLike>(
     async (
       messageId: string,
       prompt: string,
-      threadFramingStyleOverride?: ThreadFramingStyle | null,
+      revisionOptions?: DraftRevisionRequestOptions,
     ) => {
       const draftAction = resolveDraftCardRevisionAction({
         messageId,
         prompt,
         messages,
         composerCharacterLimit,
-        threadFramingStyleOverride,
+        revisionOptions,
       });
       if (!draftAction) {
         return;

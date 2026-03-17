@@ -47,6 +47,14 @@ import type {
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
+export interface AssistantProfileAuditRef {
+  headline: string;
+  topPriorities: string[];
+  pinnedPostDiagnosis: string | null;
+  pinnedPostDirection: string | null;
+  currentPinnedExcerpt: string | null;
+}
+
 export interface DraftVersionEntry {
   id: string;
   content: string;
@@ -351,6 +359,12 @@ export function parseSelectedDraftContext(value: unknown): SelectedDraftContext 
     typeof candidate.revisionChainId === "string" && candidate.revisionChainId.trim()
       ? candidate.revisionChainId.trim()
       : undefined;
+  const focusedThreadPostIndex =
+    typeof candidate.focusedThreadPostIndex === "number" &&
+    Number.isInteger(candidate.focusedThreadPostIndex) &&
+    candidate.focusedThreadPostIndex >= 0
+      ? candidate.focusedThreadPostIndex
+      : undefined;
 
   return {
     messageId,
@@ -360,6 +374,7 @@ export function parseSelectedDraftContext(value: unknown): SelectedDraftContext 
     ...(createdAt ? { createdAt } : {}),
     ...(maxCharacterLimit ? { maxCharacterLimit } : {}),
     ...(revisionChainId ? { revisionChainId } : {}),
+    ...(focusedThreadPostIndex !== undefined ? { focusedThreadPostIndex } : {}),
   };
 }
 
@@ -566,6 +581,52 @@ export function buildConversationContextFromHistory(args: {
     };
   };
   const trimLine = (value: string): string => value.trim().replace(/\s+/g, " ");
+  const extractProfileAuditRef = (entry: Record<string, unknown>): AssistantProfileAuditRef | null => {
+    const contextPacket =
+      entry.contextPacket &&
+      typeof entry.contextPacket === "object" &&
+      !Array.isArray(entry.contextPacket)
+        ? (entry.contextPacket as Record<string, unknown>)
+        : null;
+    const profileAuditRef =
+      contextPacket?.profileAuditRef &&
+      typeof contextPacket.profileAuditRef === "object" &&
+      !Array.isArray(contextPacket.profileAuditRef)
+        ? (contextPacket.profileAuditRef as Record<string, unknown>)
+        : null;
+
+    if (!profileAuditRef) {
+      return null;
+    }
+
+    const topPriorities = Array.isArray(profileAuditRef.topPriorities)
+      ? profileAuditRef.topPriorities.filter((value): value is string => typeof value === "string")
+      : [];
+    const headline =
+      typeof profileAuditRef.headline === "string" && profileAuditRef.headline.trim()
+        ? profileAuditRef.headline.trim()
+        : "";
+
+    return {
+      headline,
+      topPriorities,
+      pinnedPostDiagnosis:
+        typeof profileAuditRef.pinnedPostDiagnosis === "string" &&
+        profileAuditRef.pinnedPostDiagnosis.trim()
+          ? profileAuditRef.pinnedPostDiagnosis.trim()
+          : null,
+      pinnedPostDirection:
+        typeof profileAuditRef.pinnedPostDirection === "string" &&
+        profileAuditRef.pinnedPostDirection.trim()
+          ? profileAuditRef.pinnedPostDirection.trim()
+          : null,
+      currentPinnedExcerpt:
+        typeof profileAuditRef.currentPinnedExcerpt === "string" &&
+        profileAuditRef.currentPinnedExcerpt.trim()
+          ? profileAuditRef.currentPinnedExcerpt.trim()
+          : null,
+    };
+  };
   const extractDraft = (entry: Record<string, unknown>): string | undefined => {
     const contextPacket =
       entry.contextPacket &&
@@ -660,6 +721,13 @@ export function buildConversationContextFromHistory(args: {
     .map((entry) => (entry && typeof entry === "object" ? normalizeEntry(entry as Record<string, unknown>) : null))
     .filter(isHistoryEntry)
     .map((entry) => {
+      const profileAuditRef = entry.role === "assistant" ? extractProfileAuditRef(entry) : null;
+      if (profileAuditRef) {
+        return `assistant: ${buildProfileAuditSummary(profileAuditRef, {
+          includePinnedExcerpt: true,
+        })}`;
+      }
+
       const base = `${entry.role}: ${trimLine(entry.content as string)}`;
       if (entry.role !== "assistant") {
         return base;
@@ -1103,6 +1171,7 @@ export interface AssistantContextPacket {
     optionLabels: string[];
   } | null;
   replyParse: ChatReplyParseEnvelope | null;
+  profileAuditRef?: AssistantProfileAuditRef;
   artifacts: {
     outputShape: string;
     surfaceMode: string | null;
@@ -1165,6 +1234,102 @@ function clipContextLine(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
+function normalizeContextString(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function stripTrailingSentencePunctuation(value: string): string {
+  return value.replace(/[.?!\s]+$/g, "").trim();
+}
+
+function buildProfileAuditTopPriorities(
+  artifact: ProfileAnalysisArtifact,
+): string[] {
+  const stepActions = artifact.audit.steps
+    .filter((step) => step.status !== "pass")
+    .map((step) => normalizeContextString(`${step.actionLabel}: ${step.summary}`))
+    .filter((value): value is string => Boolean(value));
+  const gapActions = artifact.audit.gaps
+    .map((gap) => normalizeContextString(gap))
+    .filter((value): value is string => Boolean(value));
+
+  return [...new Set([...stepActions, ...gapActions])].slice(0, 3);
+}
+
+function buildPinnedPostDirection(
+  artifact: ProfileAnalysisArtifact,
+): string | null {
+  const promptSuggestions = artifact.audit.pinnedTweetCheck.promptSuggestions;
+  if (!promptSuggestions) {
+    return null;
+  }
+
+  const directions = [
+    normalizeContextString(promptSuggestions.originStory),
+    normalizeContextString(promptSuggestions.coreThesis),
+  ].filter((value): value is string => Boolean(value));
+
+  return directions.length > 0 ? [...new Set(directions)].join(" | ") : null;
+}
+
+function buildProfileAuditContextRef(
+  artifact: ProfileAnalysisArtifact | null | undefined,
+): AssistantProfileAuditRef | null {
+  if (!artifact) {
+    return null;
+  }
+
+  const headline =
+    normalizeContextString(artifact.audit.headline) ||
+    normalizeContextString(artifact.audit.pinnedTweetCheck.summary) ||
+    "profile audit";
+  const topPriorities = buildProfileAuditTopPriorities(artifact);
+  const pinnedPostDiagnosis = normalizeContextString(artifact.audit.pinnedTweetCheck.summary);
+  const pinnedPostDirection = buildPinnedPostDirection(artifact);
+  const currentPinnedExcerpt = normalizeContextString(
+    artifact.pinnedPost?.text ? clipContextLine(artifact.pinnedPost.text, 160) : null,
+  );
+
+  return {
+    headline,
+    topPriorities,
+    pinnedPostDiagnosis,
+    pinnedPostDirection,
+    currentPinnedExcerpt,
+  };
+}
+
+function buildProfileAuditSummary(
+  profileAuditRef: AssistantProfileAuditRef,
+  options?: {
+    includePinnedExcerpt?: boolean;
+  },
+): string {
+  const parts = [
+    `profile audit: ${
+      clipContextLine(
+        stripTrailingSentencePunctuation(
+          profileAuditRef.pinnedPostDiagnosis || profileAuditRef.headline || "pinned post needs work",
+        ),
+        140,
+      )
+    }.`,
+    profileAuditRef.pinnedPostDirection
+      ? `direction: ${clipContextLine(stripTrailingSentencePunctuation(profileAuditRef.pinnedPostDirection), 120)}.`
+      : null,
+    options?.includePinnedExcerpt && profileAuditRef.currentPinnedExcerpt
+      ? `current pin: "${clipContextLine(profileAuditRef.currentPinnedExcerpt, 120)}".`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.join(" ");
+}
+
 export function buildAssistantContextPacket(args: {
   reply: string;
   plan: StrategyPlan | null;
@@ -1180,8 +1345,11 @@ export function buildAssistantContextPacket(args: {
   quickReplies: unknown[];
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
+  profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
 }): AssistantContextPacket {
+  const profileAuditRef = buildProfileAuditContextRef(args.profileAnalysisArtifact);
   const summaryLines = [
+    profileAuditRef ? buildProfileAuditSummary(profileAuditRef) : null,
     args.plan
       ? `plan: ${clipContextLine(args.plan.objective, 100)} | ${clipContextLine(args.plan.angle, 120)}`
       : null,
@@ -1191,7 +1359,7 @@ export function buildAssistantContextPacket(args: {
     args.replyArtifacts
       ? `reply_source: ${clipContextLine(args.replyArtifacts.sourceText, 180)}`
       : null,
-    !args.plan && !args.draft && args.reply
+    !args.plan && !args.draft && !profileAuditRef && args.reply
       ? `reply: ${clipContextLine(args.reply, 180)}`
       : null,
   ].filter((value): value is string => Boolean(value));
@@ -1236,6 +1404,7 @@ export function buildAssistantContextPacket(args: {
         }
       : null,
     replyParse: args.replyParse || null,
+    ...(profileAuditRef ? { profileAuditRef } : {}),
     artifacts: {
       outputShape: args.outputShape,
       surfaceMode: args.surfaceMode || null,
@@ -1579,6 +1748,7 @@ export function buildChatRoutePersistencePlan(args: {
       quickReplies: args.mappedDataSeed.quickReplies,
       replyArtifacts: null,
       replyParse: null,
+      profileAnalysisArtifact: args.mappedDataSeed.profileAnalysisArtifact,
     }),
   };
 

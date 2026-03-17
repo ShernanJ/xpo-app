@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { computeXWeightedCharacterCount } from "../../../../lib/onboarding/draftArtifacts.ts";
+import {
+  buildThreadConversionPrompt,
+  computeXWeightedCharacterCount,
+} from "../../../../lib/onboarding/draftArtifacts.ts";
 
 import {
   buildDraftCharacterCounterMeta,
@@ -185,7 +188,7 @@ test("resolveInlineDraftPreviewState plans thread preview cards and prompts", ()
   assert.equal(result.previewRevealKey, "bundle:bundle-2");
   assert.equal(
     result.convertToThreadPrompt,
-    "turn this into a thread with 4 to 6 posts. keep every post under 300 characters, make the opener clearly signal the thread, and keep the flow native to x.",
+    buildThreadConversionPrompt(300),
   );
   assert.equal(result.draftCounter.toneClassName, "text-zinc-500");
 });

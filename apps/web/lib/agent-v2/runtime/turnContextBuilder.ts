@@ -27,6 +27,7 @@ export interface TurnContext {
   planSeedMessage: string | null;
   recentHistory: string;
   activeDraft: string | undefined;
+  focusedThreadPostIndex: number | null;
   turnSource: OrchestratorInput["turnSource"];
   artifactContext: OrchestratorInput["artifactContext"];
   planSeedSource: OrchestratorInput["planSeedSource"];
@@ -63,6 +64,7 @@ export async function buildTurnContext(
     recentHistory,
     explicitIntent,
     activeDraft,
+    focusedThreadPostIndex,
     turnSource,
     artifactContext,
     planSeedSource,
@@ -185,6 +187,7 @@ export async function buildTurnContext(
     planSeedMessage: planSeedMessage ?? null,
     recentHistory,
     activeDraft,
+    focusedThreadPostIndex: focusedThreadPostIndex ?? null,
     turnSource,
     artifactContext,
     planSeedSource,

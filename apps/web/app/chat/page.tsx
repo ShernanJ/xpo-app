@@ -1972,12 +1972,12 @@ function ChatPageContent() {
             onRequestDraftCardRevision={(
               messageId,
               prompt,
-              threadFramingStyleOverride,
+              revisionOptions,
             ) => {
               void requestDraftCardRevision(
                 messageId,
                 prompt,
-                threadFramingStyleOverride ?? undefined,
+                revisionOptions,
               );
             }}
             onToggleExpandedInlineThreadPreview={(messageId) => {

@@ -76,3 +76,53 @@ test("historical draft selections do not expose a selected draft context for rev
   expect(result.current.isViewingHistoricalDraftVersion).toBe(true);
   expect(result.current.selectedDraftContext).toBeNull();
 });
+
+test("selected thread draft context carries the focused thread post index", () => {
+  const threadContent = "Hook\n\n---\n\nProof\n\n---\n\nCTA";
+  const messages = [
+    {
+      id: "message-thread",
+      role: "assistant" as const,
+      createdAt: "2026-03-13T12:00:00.000Z",
+      revisionChainId: "thread-chain",
+      outputShape: "thread_seed" as const,
+      draftVersions: [
+        {
+          id: "thread-v1",
+          content: threadContent,
+          source: "assistant_generated" as const,
+          createdAt: "2026-03-13T12:00:00.000Z",
+          basedOnVersionId: null,
+          weightedCharacterCount: 20,
+          maxCharacterLimit: 840,
+          supportAsset: null,
+        },
+      ],
+      activeDraftVersionId: "thread-v1",
+    },
+  ];
+
+  const { result } = renderHook(() =>
+    useSelectedDraftTimelineState({
+      activeDraftEditor: {
+        messageId: "message-thread",
+        versionId: "thread-v1",
+        revisionChainId: "thread-chain",
+      },
+      messages,
+      composerCharacterLimit: 840,
+      selectedThreadPostByMessageId: {
+        "message-thread": 2,
+      },
+      selectedDraftThreadPostCount: 3,
+      draftEditorSerializedContent: threadContent,
+      selectedDraftMessage: messages[0],
+      selectedDraftVersion: messages[0].draftVersions[0],
+      isSelectedDraftThread: true,
+      setActiveDraftEditor: vi.fn(),
+      scrollMessageIntoView: vi.fn(),
+    }),
+  );
+
+  expect(result.current.selectedDraftContext?.focusedThreadPostIndex).toBe(2);
+});

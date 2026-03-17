@@ -1,6 +1,8 @@
 import {
   shouldUseRevisionDraftPath,
 } from "../../core/conversationHeuristics.ts";
+import { buildDraftReply } from "../../responses/draftReply.ts";
+import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { isConstraintDeclaration } from "../../responses/chatResponder.ts";
 import { normalizeDraftRevisionInstruction } from "./draftRevision.ts";
 import { executeReplanningCapability } from "./replanningExecutor.ts";
@@ -53,6 +55,7 @@ export async function handleDraftEditReviewTurn(args: {
   runtimeWorkflow: AgentRuntimeWorkflow;
   threadId?: string;
   activeDraft?: string;
+  focusedThreadPostIndex?: number | null;
   draftInstruction: string;
   effectiveActiveConstraints: string[];
   safeFrameworkConstraint?: string | null;
@@ -176,7 +179,17 @@ export async function handleDraftEditReviewTurn(args: {
     const revision = normalizeDraftRevisionInstruction(
       args.draftInstruction,
       effectiveActiveDraft,
+      args.focusedThreadPostIndex ?? undefined,
     );
+
+    if (revision.scope === "thread_span" && !revision.targetSpan) {
+      return args.returnClarificationQuestion({
+        question:
+          "which part of the thread should i change: the opener, a specific post, or the ending?",
+        traceReason: "ambiguous_thread_revision_target",
+      });
+    }
+
     const execution = await executeRevisingCapability({
       workflow: "revise_draft",
       capability: "revising",
@@ -220,6 +233,121 @@ export async function handleDraftEditReviewTurn(args: {
               effectiveActiveDraft || args.memory.topicSummary || args.userMessage,
             ),
           }),
+        escalateFormatConversion: async () => {
+          if (revision.targetFormat !== "thread") {
+            return null;
+          }
+
+          const historicalTexts = await args.loadHistoricalTexts();
+          const replanningExecution = await executeReplanningCapability({
+            workflow: "plan_then_draft",
+            capability: "planning",
+            activeContextRefs: [
+              "memory.pendingPlan",
+              "memory.latestRefinementInstruction",
+              "memory.topicSummary",
+              "memory.rollingSummary",
+            ],
+            context: {
+              memory: args.memory,
+              userMessage: args.userMessage,
+              draftInstruction: revision.instruction,
+              revisionActiveConstraints,
+              effectiveContext: args.effectiveContext,
+              activeDraft: effectiveActiveDraft,
+              historicalTexts,
+              goal: args.goal,
+              antiPatterns: args.antiPatterns,
+              turnDraftPreference: args.turnDraftPreference,
+              turnFormatPreference: "thread",
+              baseVoiceTarget: args.baseVoiceTarget,
+              creatorProfileHints: args.creatorProfileHints,
+              selectedSourceMaterials: args.selectedSourceMaterials,
+              shouldForceNoFabricationGuardrailForTurn:
+                args.shouldForceNoFabricationGuardrailForTurn,
+              styleCard: args.styleCard,
+              nextAssistantTurnCount: args.nextAssistantTurnCount,
+              refreshRollingSummary: args.refreshRollingSummary,
+              feedbackMemoryNotice: args.feedbackMemoryNotice,
+              turnThreadFramingStyle: args.turnThreadFramingStyle,
+              groundingPacket: args.groundingPacket,
+              groundingSources: args.groundingSources,
+              groundingMode: args.groundingMode,
+              groundingExplanation: args.groundingExplanation,
+            },
+            services: {
+              generatePlan: args.services.generatePlan,
+              checkDeterministicNovelty: args.services.checkDeterministicNovelty,
+              buildGroundingPacketForContext: args.buildGroundingPacketForContext,
+              runDraft: ({ plan, activeConstraints, groundingPacket }) =>
+                args.runGroundedDraft({
+                  plan,
+                  activeConstraints,
+                  activeDraft: effectiveActiveDraft,
+                  sourceUserMessage: revision.instruction,
+                  draftPreference: plan.deliveryPreference || args.turnDraftPreference,
+                  formatPreference: "thread",
+                  threadFramingStyle: args.turnThreadFramingStyle,
+                  fallbackToWriterWhenCriticRejected: false,
+                  topicSummary: plan.objective,
+                  groundingPacket,
+                }),
+              handleNoveltyConflict: (planObjective) =>
+                args.returnClarificationTree({
+                  branchKey: "plan_reject",
+                  seedTopic: planObjective,
+                  pendingPlan: null,
+                  replyOverride:
+                    "that version felt too close to something you've already posted. let's shift it.",
+                }),
+              buildNoveltyNotes: args.buildNoveltyNotes,
+            },
+          });
+
+          if (replanningExecution.output.kind !== "draft_ready") {
+            return null;
+          }
+
+          const issuesFixed =
+            replanningExecution.output.responseSeed.data?.issuesFixed ?? [
+              "rebuilt the draft into a thread",
+            ];
+
+          return {
+            workflow: "revise_draft",
+            capability: "revising",
+            output: {
+              kind: "revision_ready",
+              responseSeed: {
+                ...replanningExecution.output.responseSeed,
+                response: prependFeedbackMemoryNotice(
+                  buildDraftReply({
+                    userMessage: args.userMessage,
+                    draftPreference: args.turnDraftPreference,
+                    isEdit: true,
+                    issuesFixed,
+                    styleCard: args.styleCard,
+                    revisionChangeKind: revision.changeKind,
+                  }),
+                  args.feedbackMemoryNotice ?? null,
+                ),
+              },
+              memoryPatch: {
+                conversationState: "editing",
+                activeConstraints: replanningExecution.output.memoryPatch.activeConstraints,
+                pendingPlan: null,
+                clarificationState: null,
+                rollingSummary: replanningExecution.output.memoryPatch.rollingSummary,
+                assistantTurnCount: replanningExecution.output.memoryPatch.assistantTurnCount,
+                formatPreference: "thread",
+                latestRefinementInstruction: args.draftInstruction,
+                unresolvedQuestion: null,
+              },
+            },
+            workers: replanningExecution.workers,
+            validations: replanningExecution.validations,
+          };
+        },
       },
     });
 

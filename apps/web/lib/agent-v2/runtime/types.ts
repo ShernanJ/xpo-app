@@ -49,6 +49,7 @@ export interface OrchestratorInput {
   recentHistory: string;
   explicitIntent?: V2ChatIntent | null;
   activeDraft?: string;
+  focusedThreadPostIndex?: number | null;
   turnSource?: ChatTurnSource;
   artifactContext?: ChatArtifactContext | null;
   planSeedSource?: ChatPlanSeedSource | null;

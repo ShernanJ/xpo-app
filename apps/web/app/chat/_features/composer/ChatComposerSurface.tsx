@@ -25,6 +25,7 @@ import {
   dismissSlashCommandInput,
   filterSlashCommands,
 } from "./chatComposerState";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
   formatComposerImageSize,
   COMPOSER_IMAGE_ACCEPT,
@@ -197,7 +198,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
   const showPlaceholder = draftInput.length === 0;
   const inputRightPaddingClassName = "pr-[6.75rem] sm:pr-[7.25rem]";
   const placeholderRightInsetClassName = "right-[6.75rem] sm:right-[7.25rem]";
-  const displayedPlaceholder = isSending ? "Agent is thinking..." : activePlaceholder;
+  const displayedPlaceholder = isSending ? "Agent is thinking" : activePlaceholder;
   const displayedPlaceholderAnimationKey = isSending
     ? "thinking"
     : placeholderAnimationKey;
@@ -237,26 +238,36 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
               aria-hidden="true"
               className={`pointer-events-none absolute left-4 ${placeholderRightInsetClassName} ${placeholderTopClassName} overflow-hidden text-left text-[14px] leading-5 text-zinc-400`}
             >
-              <AnimatePresence initial={false} mode="wait">
-                <motion.span
-                  key={displayedPlaceholderAnimationKey}
-                  initial={
-                    shouldAnimateDisplayedPlaceholder
-                      ? { opacity: 0, y: 8, filter: "blur(3px)" }
-                      : false
-                  }
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={
-                    shouldAnimateDisplayedPlaceholder
-                      ? { opacity: 0, y: -8, filter: "blur(3px)" }
-                      : { opacity: 1 }
-                  }
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="block truncate"
+              {isSending ? (
+                <TextShimmer
+                  as="span"
+                  duration={1.6}
+                  className="block truncate text-[13px] font-medium leading-5 tracking-[0.01em] [--base-color:#71717a] [--base-gradient-color:#fafafa] dark:[--base-color:#52525b] dark:[--base-gradient-color:#ffffff]"
                 >
                   {displayedPlaceholder}
-                </motion.span>
-              </AnimatePresence>
+                </TextShimmer>
+              ) : (
+                <AnimatePresence initial={false} mode="wait">
+                  <motion.span
+                    key={displayedPlaceholderAnimationKey}
+                    initial={
+                      shouldAnimateDisplayedPlaceholder
+                        ? { opacity: 0, y: 8, filter: "blur(3px)" }
+                        : false
+                    }
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={
+                      shouldAnimateDisplayedPlaceholder
+                        ? { opacity: 0, y: -8, filter: "blur(3px)" }
+                        : { opacity: 1 }
+                    }
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="block truncate"
+                  >
+                    {displayedPlaceholder}
+                  </motion.span>
+                </AnimatePresence>
+              )}
             </div>
           ) : null}
 

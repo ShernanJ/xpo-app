@@ -37,7 +37,10 @@ import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
 } from "../../grounding/groundingPacket.ts";
-import type { DraftRevisionDirective } from "./draftRevision.ts";
+import type {
+  DraftRevisionDirective,
+  DraftRevisionTargetSpan,
+} from "./draftRevision.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -51,6 +54,15 @@ interface RevisionAttemptResult {
   reviserOutput: ReviserOutput | null;
   criticOutput: CriticOutput | null;
   validation: ReturnType<typeof runRevisionValidationWorkers> | null;
+}
+
+interface ThreadSpanRevisionPlan {
+  allPosts: string[];
+  targetPosts: string[];
+  targetDraft: string;
+  targetSpan: DraftRevisionTargetSpan;
+  previousPost: string | null;
+  nextPost: string | null;
 }
 
 function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
@@ -73,6 +85,145 @@ function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
       }),
     ),
   );
+}
+
+function replaceThreadPostSpan(args: {
+  posts: string[];
+  targetSpan: DraftRevisionTargetSpan;
+  replacementPosts: string[];
+}): string[] {
+  return [
+    ...args.posts.slice(0, args.targetSpan.startIndex),
+    ...args.replacementPosts,
+    ...args.posts.slice(args.targetSpan.endIndex + 1),
+  ];
+}
+
+function restoreUntouchedThreadPosts(args: {
+  originalPosts: string[];
+  revisedPosts: string[];
+  targetSpan: DraftRevisionTargetSpan;
+}): string[] {
+  return args.revisedPosts.map((post, index) =>
+    index < args.targetSpan.startIndex || index > args.targetSpan.endIndex
+      ? args.originalPosts[index] || post
+      : post,
+  );
+}
+
+function buildThreadSpanRetryConstraint(expectedPostCount: number): string {
+  return `When revising only part of a thread, return exactly ${expectedPostCount} post${expectedPostCount === 1 ? "" : "s"} for the targeted span, preserve the thread order, and leave untouched posts alone.`;
+}
+
+function buildThreadStructureRetryConstraint(): string {
+  return "Preserve the full thread's existing post count and order when applying a local span edit.";
+}
+
+function buildSyntheticThreadValidation(args: {
+  correctedDraft: string;
+  groupId: string;
+  issue: string;
+  retryConstraint: string;
+}) {
+  return {
+    claimCheck: {
+      draft: args.correctedDraft,
+      issues: [],
+      hasUnsupportedClaims: false,
+      needsClarification: false,
+    },
+    validationStatus: "failed" as const,
+    hasDeliveryFailures: true,
+    correctedDraft: args.correctedDraft,
+    retryConstraints: [args.retryConstraint],
+    workerExecutions: [
+      {
+        worker: "revision_delivery",
+        capability: "revising" as const,
+        phase: "validation" as const,
+        mode: "sequential" as const,
+        status: "failed" as const,
+        groupId: args.groupId,
+        details: {
+          reason: "thread_span_shape_mismatch",
+        },
+      },
+    ],
+    validations: [
+      {
+        validator: "revision_delivery",
+        capability: "revising" as const,
+        status: "failed" as const,
+        issues: [args.issue],
+        corrected: false,
+      },
+    ],
+  };
+}
+
+function buildThreadSpanMismatchAttempt(args: {
+  activeConstraints: string[];
+  reviserOutput: ReviserOutput;
+  originalDraft: string;
+  validationGroupId: string;
+  issue: string;
+  retryConstraint: string;
+}): RevisionAttemptResult {
+  return {
+    activeConstraints: args.activeConstraints,
+    reviserOutput: args.reviserOutput,
+    criticOutput: {
+      approved: false,
+      finalAngle: "same angle",
+      finalDraft: args.originalDraft,
+      issues: [args.issue],
+    },
+    validation: buildSyntheticThreadValidation({
+      correctedDraft: args.originalDraft,
+      groupId: args.validationGroupId,
+      issue: args.issue,
+      retryConstraint: args.retryConstraint,
+    }),
+  };
+}
+
+function resolveThreadSpanRevisionPlan(args: {
+  activeDraft: string;
+  revision: DraftRevisionDirective;
+  formatPreference: DraftFormatPreference;
+}): ThreadSpanRevisionPlan | null {
+  if (
+    args.formatPreference !== "thread" ||
+    args.revision.scope !== "thread_span" ||
+    !args.revision.targetSpan
+  ) {
+    return null;
+  }
+
+  const allPosts = splitSerializedThreadPosts(args.activeDraft);
+  if (allPosts.length === 0) {
+    return null;
+  }
+
+  const startIndex = Math.max(0, Math.min(args.revision.targetSpan.startIndex, allPosts.length - 1));
+  const endIndex = Math.max(startIndex, Math.min(args.revision.targetSpan.endIndex, allPosts.length - 1));
+  const targetSpan = {
+    startIndex,
+    endIndex,
+  };
+  const targetPosts = allPosts.slice(startIndex, endIndex + 1);
+  if (targetPosts.length === 0) {
+    return null;
+  }
+
+  return {
+    allPosts,
+    targetPosts,
+    targetDraft: joinSerializedThreadPosts(targetPosts),
+    targetSpan,
+    previousPost: startIndex > 0 ? allPosts[startIndex - 1] || null : null,
+    nextPost: endIndex < allPosts.length - 1 ? allPosts[endIndex + 1] || null : null,
+  };
 }
 
 function normalizeRevisionComparisonDraft(args: {
@@ -140,6 +291,10 @@ function buildMaterialChangeRetryConstraint(args: {
   }
 }
 
+function isWholeDraftThreadConversion(revision: DraftRevisionDirective): boolean {
+  return revision.targetFormat === "thread" && revision.scope === "whole_draft";
+}
+
 export interface RevisingCapabilityContext {
   memory: V2ConversationMemory;
   activeDraft: string;
@@ -192,6 +347,9 @@ export async function executeRevisingCapability(
   args: CapabilityExecutionRequest<RevisingCapabilityContext> & {
     services: Pick<ConversationServices, "generateRevisionDraft" | "critiqueDrafts"> & {
       buildClarificationResponse: () => Promise<RawOrchestratorResponse>;
+      escalateFormatConversion?: (args: {
+        reason: "delivery_failure" | "revision_stalled";
+      }) => Promise<CapabilityExecutionResult<RevisingCapabilityOutput> | null>;
     };
   },
 ): Promise<CapabilityExecutionResult<RevisingCapabilityOutput>> {
@@ -227,8 +385,13 @@ export async function executeRevisingCapability(
         ...(attempt.extraConstraints ?? []),
       ]),
     );
-    const reviserOutput = await services.generateRevisionDraft({
+    const threadSpanPlan = resolveThreadSpanRevisionPlan({
       activeDraft: context.activeDraft,
+      revision: context.revision,
+      formatPreference: context.turnFormatPreference,
+    });
+    const reviserOutput = await services.generateRevisionDraft({
+      activeDraft: threadSpanPlan?.targetDraft ?? context.activeDraft,
       revision: context.revision,
       styleCard: context.styleCard,
       topicAnchors: context.relevantTopicAnchors,
@@ -245,6 +408,18 @@ export async function executeRevisingCapability(
         threadFramingStyle: context.turnThreadFramingStyle,
         sourceUserMessage: context.userMessage,
         groundingPacket: context.groundingPacket,
+        ...(threadSpanPlan
+          ? {
+              threadRevisionContext: {
+                totalPostCount: threadSpanPlan.allPosts.length,
+                targetSpan: threadSpanPlan.targetSpan,
+                previousPost: threadSpanPlan.previousPost,
+                nextPost: threadSpanPlan.nextPost,
+                threadIntent: context.revision.threadIntent,
+                preserveThreadStructure: context.revision.preserveThreadStructure,
+              },
+            }
+          : {}),
       },
     });
 
@@ -257,10 +432,36 @@ export async function executeRevisingCapability(
       };
     }
 
+    let draftForCritic = reviserOutput.revisedDraft;
+
+    if (threadSpanPlan) {
+      const revisedSpanPosts = splitSerializedThreadPosts(reviserOutput.revisedDraft);
+      const expectedPostCount = threadSpanPlan.targetPosts.length;
+
+      if (revisedSpanPosts.length !== expectedPostCount) {
+        return buildThreadSpanMismatchAttempt({
+          activeConstraints,
+          reviserOutput,
+          originalDraft: context.activeDraft,
+          validationGroupId: attempt.validationGroupId,
+          issue:
+            `Thread-local revision returned ${revisedSpanPosts.length} posts for a ${expectedPostCount}-post target span.`,
+          retryConstraint: buildThreadSpanRetryConstraint(expectedPostCount),
+        });
+      }
+
+      const reassembledPosts = replaceThreadPostSpan({
+        posts: threadSpanPlan.allPosts,
+        targetSpan: threadSpanPlan.targetSpan,
+        replacementPosts: revisedSpanPosts,
+      });
+      draftForCritic = joinSerializedThreadPosts(reassembledPosts);
+    }
+
     const criticOutput = await services.critiqueDrafts(
       {
         angle: "Targeted revision",
-        draft: reviserOutput.revisedDraft,
+        draft: draftForCritic,
         supportAsset: reviserOutput.supportAsset ?? "",
         whyThisWorks: "",
         watchOutFor: "",
@@ -289,13 +490,41 @@ export async function executeRevisingCapability(
       };
     }
 
+    let finalizedCriticOutput = criticOutput;
+
+    if (threadSpanPlan && context.revision.preserveThreadStructure) {
+      const criticPosts = splitSerializedThreadPosts(criticOutput.finalDraft);
+      if (criticPosts.length !== threadSpanPlan.allPosts.length) {
+        return buildThreadSpanMismatchAttempt({
+          activeConstraints,
+          reviserOutput,
+          originalDraft: context.activeDraft,
+          validationGroupId: attempt.validationGroupId,
+          issue:
+            `Thread-local revision changed the full thread shape from ${threadSpanPlan.allPosts.length} posts to ${criticPosts.length}.`,
+          retryConstraint: buildThreadStructureRetryConstraint(),
+        });
+      }
+
+      finalizedCriticOutput = {
+        ...criticOutput,
+        finalDraft: joinSerializedThreadPosts(
+          restoreUntouchedThreadPosts({
+            originalPosts: threadSpanPlan.allPosts,
+            revisedPosts: criticPosts,
+            targetSpan: threadSpanPlan.targetSpan,
+          }),
+        ),
+      };
+    }
+
     return {
       activeConstraints,
       reviserOutput,
-      criticOutput,
+      criticOutput: finalizedCriticOutput,
       validation: runRevisionValidationWorkers({
         capability: "revising",
-        draft: criticOutput.finalDraft,
+        draft: finalizedCriticOutput.finalDraft,
         groundingPacket: context.groundingPacket,
         formatPreference: context.turnFormatPreference,
         sourceUserMessage: context.userMessage,
@@ -306,6 +535,25 @@ export async function executeRevisingCapability(
 
   const accumulatedWorkers: RuntimeWorkerExecution[] = [];
   const accumulatedValidations: RuntimeValidationResult[] = [];
+  const tryEscalateFormatConversion = async (
+    reason: "delivery_failure" | "revision_stalled",
+  ): Promise<CapabilityExecutionResult<RevisingCapabilityOutput> | null> => {
+    if (
+      !isWholeDraftThreadConversion(context.revision) ||
+      !services.escalateFormatConversion
+    ) {
+      return null;
+    }
+
+    return services.escalateFormatConversion({ reason });
+  };
+  const mergeEscalatedExecution = (
+    execution: CapabilityExecutionResult<RevisingCapabilityOutput>,
+  ): CapabilityExecutionResult<RevisingCapabilityOutput> => ({
+    ...execution,
+    workers: [...accumulatedWorkers, ...(execution.workers ?? [])],
+    validations: [...accumulatedValidations, ...(execution.validations ?? [])],
+  });
   const firstAttempt = await runRevisionAttempt({
     validationGroupId: "revision_delivery_validation_initial",
   });
@@ -521,6 +769,11 @@ export async function executeRevisingCapability(
   }
 
   if (finalAttempt.validation!.hasDeliveryFailures) {
+    const escalatedExecution = await tryEscalateFormatConversion("delivery_failure");
+    if (escalatedExecution) {
+      return mergeEscalatedExecution(escalatedExecution);
+    }
+
     return {
       workflow: args.workflow,
       capability: args.capability,
@@ -543,6 +796,11 @@ export async function executeRevisingCapability(
   });
 
   if (revisionWasRejectedByCritic || !revisionHasMaterialChange) {
+    const escalatedExecution = await tryEscalateFormatConversion("revision_stalled");
+    if (escalatedExecution) {
+      return mergeEscalatedExecution(escalatedExecution);
+    }
+
     return {
       workflow: args.workflow,
       capability: args.capability,

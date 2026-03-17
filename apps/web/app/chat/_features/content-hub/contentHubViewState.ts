@@ -3,6 +3,7 @@
 import type {
   ContentItemRecord,
   ContentStatus,
+  FolderRecord,
 } from "./contentHubTypes";
 
 export const CONTENT_STATUS_ORDER: ContentStatus[] = [
@@ -23,6 +24,8 @@ export const DATE_BUCKET_ORDER = [
   "Last 7 Days",
   "Older",
 ] as const;
+
+export const NO_GROUP_LABEL = "No Group";
 
 export type ContentDateBucketLabel = (typeof DATE_BUCKET_ORDER)[number];
 
@@ -122,6 +125,65 @@ export function groupContentItemsByStatus(items: ContentItemRecord[]) {
     label: getContentStatusLabel(status),
     items: items.filter((item) => item.status === status),
   }));
+}
+
+export function sortFoldersByName(folders: FolderRecord[]) {
+  return [...folders].sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" }),
+  );
+}
+
+export function groupContentItemsByGroup(
+  items: ContentItemRecord[],
+  folders: FolderRecord[],
+) {
+  const groupsById = new Map<string, ContentItemRecord[]>();
+  const fallbackGroups = new Map<string, { id: string; label: string; items: ContentItemRecord[] }>();
+  const ungroupedItems: ContentItemRecord[] = [];
+
+  for (const folder of sortFoldersByName(folders)) {
+    groupsById.set(folder.id, []);
+  }
+
+  for (const item of items) {
+    if (!item.folderId) {
+      ungroupedItems.push(item);
+      continue;
+    }
+
+    const groupItems = groupsById.get(item.folderId);
+    if (groupItems) {
+      groupItems.push(item);
+      continue;
+    }
+
+    const fallbackGroup = fallbackGroups.get(item.folderId);
+    if (fallbackGroup) {
+      fallbackGroup.items.push(item);
+      continue;
+    }
+
+    fallbackGroups.set(item.folderId, {
+      id: item.folderId,
+      label: item.folder?.name ?? "Unknown Group",
+      items: [item],
+    });
+  }
+
+  return [
+    ...(ungroupedItems.length > 0
+      ? [{ id: null, label: NO_GROUP_LABEL, items: ungroupedItems }]
+      : []),
+    ...sortFoldersByName(folders).flatMap((folder) => {
+      const groupItems = groupsById.get(folder.id) ?? [];
+      return groupItems.length > 0
+        ? [{ id: folder.id, label: folder.name, items: groupItems }]
+        : [];
+    }),
+    ...[...fallbackGroups.values()].sort((left, right) =>
+      left.label.localeCompare(right.label, undefined, { sensitivity: "base" }),
+    ),
+  ];
 }
 
 export function buildPublishedTweetHref(handle: string, tweetId: string) {

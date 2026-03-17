@@ -10,6 +10,7 @@ import {
   getThreadFramingStyleLabel,
   type InlineDraftPreviewState,
 } from "./chatDraftPreviewState";
+import type { DraftRevisionRequestOptions } from "./chatDraftActionState";
 import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 
 const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
@@ -69,7 +70,7 @@ interface InlineDraftPreviewCardProps {
   onOpenDraftEditor: (threadPostIndex?: number) => void;
   onRequestRevision: (
     prompt: string,
-    threadFramingStyleOverride?: ThreadFramingStyle,
+    revisionOptions?: DraftRevisionRequestOptions,
   ) => void;
   onToggleExpanded: () => void;
   onCopy: () => void;
@@ -465,7 +466,12 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                 disabled={isMainChatLocked}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onRequestRevision(action.prompt);
+                  onRequestRevision(
+                    action.prompt,
+                    isThreadPreview
+                      ? { focusedThreadPostIndex: selectedThreadPreviewPostIndex }
+                      : undefined,
+                  );
                 }}
                 className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-not-allowed disabled:text-zinc-600"
               >
@@ -503,7 +509,10 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                 disabled={isMainChatLocked}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onRequestRevision(convertToThreadPrompt, "soft_signal");
+                  onRequestRevision(convertToThreadPrompt, {
+                    formatPreferenceOverride: "thread",
+                    threadFramingStyleOverride: "soft_signal",
+                  });
                 }}
                 className="rounded-full px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-not-allowed disabled:text-zinc-600"
               >

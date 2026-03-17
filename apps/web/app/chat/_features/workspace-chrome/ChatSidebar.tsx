@@ -166,7 +166,7 @@ export function ChatSidebar() {
           </>
         ) : null}
 
-        <div className="flex-1 overflow-y-auto px-3 py-4">
+        <div className="scrollbar-minimal flex-1 overflow-y-auto px-3 py-4">
           {sidebarOpen ? (
             <div className="space-y-6">
               {!hasVisibleSections && sidebarSearchQuery.trim() ? (

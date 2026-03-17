@@ -186,11 +186,16 @@ export function useSelectedDraftTimelineState<TMessage extends ChatMessageLike>(
       maxCharacterLimit: selectedDraftVersion.maxCharacterLimit,
       revisionChainId:
         activeDraftEditor.revisionChainId ?? selectedDraftMessage.revisionChainId,
+      ...(isSelectedDraftThread
+        ? { focusedThreadPostIndex: selectedDraftThreadPostIndex }
+        : {}),
     };
   }, [
     activeDraftEditor,
     draftEditorSerializedContent,
+    isSelectedDraftThread,
     selectedDraftMessage,
+    selectedDraftThreadPostIndex,
     selectedDraftVersion,
     timelineState.isViewingHistoricalDraftVersion,
   ]);
